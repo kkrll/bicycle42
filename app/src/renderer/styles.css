@@ -1469,7 +1469,7 @@ details[open] > summary > .caret {
   overflow-anchor: none;
 }
 
-/* The conversation follows OpenCode's session view: one reading size (14) for everything that
+/* The conversation: one reading size (14) for everything that
    is read, sans throughout, and weight and colour, not size or monospace, to tell a tool's verb
    from its argument. The small size is kept for labels and code only. */
 .transcript-content {

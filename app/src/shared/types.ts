@@ -68,6 +68,10 @@ export type ChatAssistant = {
   /** False while the step is still running. */
   done: boolean
   error?: string
+  /** Not a reply: the server's summary of the conversation so far, written to free up context
+   *  ("manual" when asked for with /compact, "auto" when the context filled up). Its one text
+   *  part is the summary. */
+  summary?: "manual" | "auto"
 }
 
 /** A line between messages: "Stopped", "Failed: …", "Model changed to Sonnet". */
@@ -92,8 +96,14 @@ export type ChatEvent =
 
 // ── the message box: commands and mentions ──────────────────────────────────────────────────────
 
-/** A server-side command, run by typing `/name arguments`. */
-export type SlashCommand = { name: string; description?: string }
+/** A command, run by typing `/name arguments`: one of the app's own (`builtin`: /compact, /new,
+ *  /undo, …) or one the server offers for the site's folder. A built-in wins over a server
+ *  command of the same name. */
+export type SlashCommand = { name: string; description?: string; builtin?: true }
+
+/** What a command has to say once it has run: a line for under the message box, and text to
+ *  put into the box (the message /undo took back, or the confirmation to send next). */
+export type CommandResult = { say?: string; draft?: string }
 
 /** Something that can be named with `@` in a message: a file or folder of the site's code, a
  *  skill, or a helper agent. `id` is the path (relative to the site's folder), the skill's id
@@ -188,6 +198,9 @@ export type SessionSummary = {
   busy: boolean
   model?: ModelRef
   agent?: string
+  /** Set while part of the conversation is undone and can still be brought back: the id of the
+   *  first message taken away. */
+  undone?: string
 }
 
 export type AppState = {
@@ -264,10 +277,10 @@ export type Commands = {
   // chat
   /** `images` are pictures pasted or dropped into the message box, as data URIs. */
   send(text: string, images?: PromptFile[], options?: SendOptions): void
-  /** The server's slash commands for the open site. Empty when there are none. */
+  /** What `/` offers: the app's own commands first, then the server's for the open site. */
   commands(): SlashCommand[]
-  /** Runs `/name args` in the open conversation. */
-  runCommand(name: string, args: string, images?: PromptFile[], options?: SendOptions): void
+  /** Runs `/name args` in the open conversation: a built-in here, anything else on the server. */
+  runCommand(name: string, args: string, images?: PromptFile[], options?: SendOptions): CommandResult | void
   /** What `@query` could mean: files and folders of the site's code, skills, helper agents.
    *  At most 20, best first. An empty query lists skills and agents. */
   mentions(query: string): MentionOption[]
@@ -371,6 +384,23 @@ export type Backend = {
   /** Files and folders under a folder whose path matches `query`, as mention options with `id`
    *  relative to the folder. */
   findFiles(directory: string, query: string): Promise<MentionOption[]>
+  /** Asks for the conversation to be summarised, to free up context. Resolves once the server
+   *  has taken the request; the summary arrives as chat events (an assistant item with
+   *  `summary`). Without `delivery` it runs at the next step boundary. */
+  compact(session: string, input?: { delivery?: Delivery }): Promise<void>
+  /** The newest message of the user's that is still part of the conversation: what undo()
+   *  would take back. `null` when there is none. */
+  lastTurn(session: string): Promise<{ id: string; text: string; note?: { n: number; text: string } } | null>
+  /** Takes the conversation back to just before `message`: that message and everything after
+   *  it leave the conversation, and the files the agent changed since go back to how they were
+   *  (where the folder is a git repository). It can be brought back with redo() until the next
+   *  message is sent. Rejects while the agent is working. */
+  undo(session: string, message: string): Promise<void>
+  /** Brings back everything undo() took away. */
+  redo(session: string): Promise<void>
+  rename(session: string, title: string): Promise<void>
+  /** A new conversation that starts as a copy of this one. */
+  fork(session: string): Promise<SessionSummary>
   /** Removes a queued message the agent has not picked up. */
   cancelQueued(session: string, id: string): Promise<void>
   /** Ids of sent messages the agent has not picked up yet, oldest first. */

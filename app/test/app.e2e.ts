@@ -88,6 +88,13 @@ async function main() {
   server.route("GET", `/api/session/${SES}`, () => ({ json: { data: rawSession(SES, { time: { created: 1, updated: 2, busy: 5, idle: busy ? 4 : 6 } }) } }))
   server.route("GET", /\/(inbox|permission|form)$/, { json: { data: [] } })
   server.route("GET", /\/message$/, { json: { data: [], cursor: { previous: null, next: null } } })
+  // The site's folder has commands of its own; one is named like one of the app's.
+  server.route("GET", "/api/command", { json: { data: [{ name: "review", description: "review changes" }, { name: "compact", description: "the server's own" }] } })
+  const compacts: FakeRequest[] = []
+  server.route("POST", `/api/session/${SES}/compact`, (req) => {
+    compacts.push(req)
+    return { json: { data: { id: "msg_compact", sessionID: SES, type: "compaction", payload: {}, delivery: "steer" } } }
+  })
   server.route("POST", `/api/session/${SES}/prompt`, (req) => {
     if (failPrompts) return { status: 500, json: { _tag: "UnknownError", message: "disk full" } }
     prompts.push(req)
@@ -281,6 +288,38 @@ async function main() {
   )
   const pinsShown = (await js(`JSON.stringify([...${shadow}.querySelectorAll('.pin')].map((p) => p.textContent))`)) as string
   check("the canvas note has its pin on the page", JSON.parse(pinsShown).includes("4"), pinsShown)
+
+  // ── "/" in the message box: the app's own commands first, then the site's ──────────────────
+  const box = `document.querySelector(".composer textarea")`
+  const typeBox = (words: string) =>
+    ui(`(() => { const el = ${box}; el.focus(); el.value = ${JSON.stringify(words)}; el.setSelectionRange(el.value.length, el.value.length); el.dispatchEvent(new Event("input", { bubbles: true })) })()`)
+  const pressBox = (k: string) => ui(`${box}.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(k)}, bubbles: true, cancelable: true }))`)
+  await typeBox("/")
+  const menu = (await until(() => ui(`(() => { const m = document.querySelector(".suggest"); return m && m.querySelectorAll(".suggest-item").length ? JSON.stringify([...m.children].map((c) => (c.classList.contains("suggest-group") ? "# " + c.textContent : c.querySelector(".suggest-label").textContent))) : "" })()`))) as string
+  check(
+    '"/" lists the built-in commands first, then the site\'s, and a built-in wins over a same-named one',
+    menu === JSON.stringify(["# Built in", "/compact", "/new", "/undo", "/redo", "/rename", "/fork", "# From this project", "/review"]),
+    menu,
+  )
+  await typeBox("/comp")
+  await sleep(100)
+  await pressBox("Enter") // picks /compact from the list
+  await sleep(100)
+  const statusesBefore = notes().map((n) => n.status).join()
+  await pressBox("Enter") // sends it
+  await until(() => compacts.length === 1)
+  check("choosing /compact asks the server to summarise the conversation", compacts.length === 1 && JSON.stringify(compacts[0]?.body) === "{}" && !prompts.some((p) => JSON.stringify(p.body).includes("/compact")), JSON.stringify(compacts.map((c) => [c.method, c.path, c.body])))
+  emit("session.inbox.enqueued", { inboxID: "msg_compact", item: { type: "compaction", payload: {}, delivery: "steer" } })
+  emit("session.inbox.delivered", { inboxID: "msg_compact" })
+  emit("session.compaction.started", { reason: "manual", inputID: "msg_compact" })
+  emit("session.compaction.delta", { text: "The reviewer asked for " })
+  check("the conversation shows the summary being written", (await until(() => ui(`!!document.querySelector('[data-summary="running"]')`))) === true)
+  emit("session.compaction.ended", { reason: "manual", text: "The reviewer asked for a bigger button and a tighter heading." })
+  check(
+    "…and then the summary, folded, with nothing of the prompt on screen",
+    (await until(() => ui(`document.querySelector('[data-summary="done"] summary')?.textContent.startsWith("Conversation summarised") ?? false`))) === true && (await ui(`${box}.value`)) === "",
+  )
+  check("the notes are as they were", notes().map((n) => n.status).join() === statusesBefore, notes().map((n) => n.status).join())
 
   // ── commands answer with plain sentences ───────────────────────────────────────────────────
   const refused = (await ui(`window.b42.invoke("connect", { url: "", password: "x" }).then(() => "", (e) => e.message)`)) as string

@@ -241,6 +241,31 @@ function Thinking(props: { text: string }) {
   )
 }
 
+/** The server's summary of the conversation so far (/compact, or the context filled up). Not a
+ *  reply, so it is folded like a thought: one line says what happened, the summary is inside. */
+function Summary(props: { item: ChatAssistant }) {
+  const [open, setOpen] = createSignal(false)
+  const text = () => {
+    const part = props.item.parts.find((p) => p.kind === "text")
+    return part && part.kind === "text" ? part.text : ""
+  }
+  const title = () =>
+    !props.item.done ? "Summarising the conversation" : props.item.summary === "auto" ? "Conversation summarised: the context was full" : "Conversation summarised"
+  return (
+    <details class="thinking" data-summary={props.item.done ? "done" : "running"} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary>
+        <Icon name={props.item.done ? "list" : "spinner"} />
+        <span>{title()}</span>
+        <span class="thinking-preview">{props.item.done ? "The agent goes on from this summary" : text().slice(-80)}</span>
+        <Icon name="right" class="caret" />
+      </summary>
+      <Show when={open()}>
+        <div class="thinking-body">{text()}</div>
+      </Show>
+    </details>
+  )
+}
+
 /** Note number → its live status, so a note in the conversation wears the same colour as its
  *  row in the list and its pin on the page. */
 const noteStatus = createRoot(() =>
@@ -305,7 +330,10 @@ function Assistant(props: { item: ChatAssistant }) {
       .join("\n\n")
   return (
     <div class="msg assistant">
-      <For each={props.item.parts}>
+      <Show when={props.item.summary}>
+        <Summary item={props.item} />
+      </Show>
+      <For each={props.item.summary ? [] : props.item.parts}>
         {(part) => (
           <Switch>
             <Match when={part.kind === "text" && part}>
@@ -322,7 +350,7 @@ function Assistant(props: { item: ChatAssistant }) {
           <span>{props.item.error}</span>
         </div>
       </Show>
-      <Show when={props.item.done && props.item.parts.at(-1)?.kind === "text" && words()}>
+      <Show when={props.item.done && !props.item.summary && props.item.parts.at(-1)?.kind === "text" && words()}>
         <div class="msg-tools">
           <CopyButton text={words} label="Copy this reply" />
         </div>

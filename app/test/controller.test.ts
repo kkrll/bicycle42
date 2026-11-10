@@ -444,8 +444,9 @@ test("commands, runCommand, cancelQueued: read once per folder, run in the open 
     h.server.route("GET", "/api/command", { json: { data: [{ name: "review", description: "review changes" }] } })
     h.server.route("POST", /\/command$/, {})
     h.server.route("DELETE", /\/inbox\//, {})
-    assert.deepEqual(await h.cmd("commands"), [{ name: "review", description: "review changes" }])
-    assert.deepEqual(await h.cmd("commands"), [{ name: "review", description: "review changes" }])
+    const theirs = async () => ((await h.cmd("commands")) as { name: string; builtin?: true }[]).filter((c) => !c.builtin)
+    assert.deepEqual(await theirs(), [{ name: "review", description: "review changes" }])
+    assert.deepEqual(await theirs(), [{ name: "review", description: "review changes" }])
     assert.equal(h.server.requests.filter((r) => r.path === "/api/command").length, 1)
 
     await h.cmd("runCommand", "review", "@pr", [], { mentions: [{ kind: "agent", id: "explore", start: 0, end: 3 }] })
@@ -638,6 +639,246 @@ test("a note that is only new CSS rules is a note: named, pictured before and af
     h.page.message(canvasNote("s2", { edits: undefined, css: "x".repeat(8001) }))
     await sleep(100)
     assert.equal(h.notes(), "1:queued")
+  } finally {
+    await h.close()
+  }
+})
+
+// ── the app's own slash commands ─────────────────────────────────────────────────────────────────
+
+const requestsTo = (h: { server: FakeServer }, end: string) => h.server.requests.filter((r) => r.path.endsWith(end) && r.method !== "GET")
+
+test("commands: the app's own come first and win over a server command of the same name; without the server's list they still work", async () => {
+  const h = await boot()
+  try {
+    await h.ready()
+    h.server.route("GET", "/api/command", { json: { data: [{ name: "review", description: "review changes" }, { name: "compact", description: "the server's own" }, { name: "init" }] } })
+    const list = (await h.cmd("commands")) as { name: string; description?: string; builtin?: true }[]
+    assert.deepEqual(list.map((c) => `${c.builtin ? "*" : ""}${c.name}`), ["*compact", "*new", "*undo", "*redo", "*rename", "*fork", "review", "init"])
+    assert.ok(list.every((c) => !c.builtin || c.description), "each says what it does")
+    // The same name goes to the app, not to the server's /command.
+    h.server.route("POST", /\/compact$/, { json: { data: { id: "msg_c", type: "compaction", payload: {}, delivery: "steer" } } })
+    h.server.route("POST", /\/command$/, {})
+    await h.cmd("runCommand", "compact", "")
+    assert.equal(requestsTo(h, "/command").length, 0)
+    assert.equal(requestsTo(h, "/compact").length, 1)
+  } finally {
+    await h.close()
+  }
+  const down = await boot()
+  try {
+    await down.ready()
+    down.server.route("GET", "/api/command", { status: 500, json: { _tag: "UnknownError", message: "boom" } })
+    const list = (await down.cmd("commands")) as { name: string }[]
+    assert.deepEqual(list.map((c) => c.name), ["compact", "new", "undo", "redo", "rename", "fork"])
+  } finally {
+    await down.close()
+  }
+})
+
+test("/compact: the request goes out, the summary streams into the conversation, and the notes are not touched", async () => {
+  const h = await boot()
+  try {
+    const s = await h.ready()
+    h.server.route("POST", `/api/session/${s}/compact`, { json: { data: { id: "msg_c", type: "compaction", payload: {}, delivery: "steer" } } })
+    h.note("a")
+    h.note("b")
+    await until(() => h.w.prompts.length === 2)
+    const [m1, m2] = h.w.prompts.map((p) => p.id)
+    h.agent.starts(s)
+    h.agent.picksUp(s, m1!)
+    await until(() => h.notes() === "1:working 2:queued")
+
+    assert.equal(await h.cmd("runCommand", "compact", "these words go nowhere", [], {}), undefined)
+    const sent = requestsTo(h, "/compact")
+    assert.deepEqual(sent.map((r) => [r.method, r.path, r.body]), [["POST", `/api/session/${s}/compact`, {}]])
+    // While the agent works the message box asks to queue or to interrupt; that is passed on.
+    await h.cmd("runCommand", "compact", "", [], { delivery: "queue" })
+    assert.deepEqual(requestsTo(h, "/compact")[1]!.body, { delivery: "queue" })
+
+    // The server queues it, takes it at the next step boundary and writes the summary.
+    const before = h.chat().length
+    h.emit("session.inbox.enqueued", s, { inboxID: "msg_c", item: { type: "compaction", payload: {}, delivery: "steer" } })
+    h.emit("session.inbox.delivered", s, { inboxID: "msg_c" })
+    h.emit("session.compaction.started", s, { reason: "manual", inputID: "msg_c" })
+    h.emit("session.compaction.delta", s, { text: "So far: " })
+    h.emit("session.compaction.delta", s, { text: "a is in hand." })
+    h.emit("session.compaction.ended", s, { reason: "manual", text: "So far: a is in hand, b waits." })
+    await until(() => h.chat().some((e) => e.type === "item" && e.item.kind === "assistant" && e.item.summary === "manual" && e.item.done))
+    const events = h.chat().slice(before)
+    assert.deepEqual(events.map((e) => e.type), ["item", "part", "delta", "item"])
+    assert.deepEqual(events.at(-1), {
+      type: "item",
+      session: s,
+      item: { kind: "assistant", id: "msg_c", time: (events[0] as { item: { time: number } }).item.time, parts: [{ kind: "text", key: "text:0", text: "So far: a is in hand, b waits." }], done: true, summary: "manual" },
+    })
+    assert.equal(h.notes(), "1:working 2:queued", "the summary's place in the queue is not a note's delivery")
+    assert.equal(h.snap().session!.busy, true, "Stop still has something to stop")
+
+    // The run goes on where it was: the queued note is picked up and both finish.
+    h.agent.picksUp(s, m2!)
+    await until(() => h.notes() === "1:done 2:working")
+    h.agent.finishes(s)
+    await until(() => h.notes() === "1:done 2:done")
+
+    // Nothing to summarise is an answer in the conversation, and a refusal is passed on as it is.
+    h.emit("session.compaction.failed", s, { reason: "manual", inputID: "msg_c2", error: { type: "compaction.unavailable", message: "Nothing to compact yet" } })
+    await until(() => h.chat().some((e) => e.type === "item" && e.item.kind === "marker" && e.item.text === "The conversation was not summarised: Nothing to compact yet."))
+    h.server.route("POST", `/api/session/${s}/compact`, { status: 409, json: { _tag: "ConflictError", message: "Compaction input ID conflicts with an existing durable record" } })
+    await assert.rejects(Promise.resolve(h.cmd("runCommand", "compact", "")), /conflicts with an existing durable record/)
+    assert.equal(h.notes(), "1:done 2:done")
+  } finally {
+    await h.close()
+  }
+})
+
+test("/undo says what it will take back and waits for a yes; /redo brings it back; both re-read the conversation", async () => {
+  const h = await boot()
+  try {
+    const s = await h.ready()
+    const note = "UI review note 1 on http://site.test/, window 800×600 @1x.\nNote: make it blue\nMake the smallest change that does this. Don't touch unrelated code. Reply in one line."
+    let newestFirst: object[] = [{ id: "msg_3", type: "user", text: "tighter" }, { id: "msg_2", type: "assistant", content: [] }, { id: "msg_1", type: "user", text: note }]
+    h.server.route("GET", /^\/api\/session\/[^/]+\/message$/, (req) => ({ json: { data: req.query.get("order") === "desc" ? newestFirst : [...newestFirst].reverse(), cursor: { previous: null, next: null } } }))
+    h.server.route("POST", `/api/session/${s}/revert/stage`, (req) => {
+      ;(h.w.sessions.get(s) as Record<string, unknown>).revert = { messageID: (req.body as { messageID: string }).messageID }
+      return { json: { data: { messageID: (req.body as { messageID: string }).messageID } } }
+    })
+    h.server.route("DELETE", `/api/session/${s}/revert`, () => {
+      delete (h.w.sessions.get(s) as Record<string, unknown>).revert
+      return {}
+    })
+
+    await assert.rejects(Promise.resolve(h.cmd("runCommand", "redo", "")), /Nothing to redo\./)
+
+    // First: only words. Nothing is asked of the server but what the last message is.
+    const asked = (await h.cmd("runCommand", "undo", "")) as { say: string; draft: string }
+    assert.equal(asked.draft, "/undo yes")
+    assert.equal(asked.say, 'This takes back your message "tighter" and everything after it: the agent\'s replies, and the changes it made to files since then. Press Enter to undo.')
+    assert.equal(requestsTo(h, "/revert/stage").length, 0)
+
+    const done = (await h.cmd("runCommand", "undo", "yes")) as { say: string; draft?: string }
+    assert.deepEqual(requestsTo(h, "/revert/stage").map((r) => r.body), [{ messageID: "msg_3" }])
+    assert.equal(done.draft, "tighter", "a typed message comes back into the box")
+    assert.match(done.say, /^Took back your message "tighter"\. \/redo brings it back/)
+    // The server says so on the stream; the conversation on screen is read again, cut at the boundary.
+    h.emit("session.revert.staged", s, { revert: { messageID: "msg_3" } })
+    await until(() => h.chat().some((e) => e.type === "reset" && e.items.some((i) => i.id === "undone:msg_3")))
+    await until(() => h.snap().session?.undone === "msg_3")
+
+    // The next undo is about the note before it, named as a note; a note does not come back into the box.
+    const next = (await h.cmd("runCommand", "undo", "")) as { say: string }
+    assert.match(next.say, /^This takes back note 1 \("make it blue"\) and everything after it/)
+    const second = (await h.cmd("runCommand", "undo", "yes")) as { say: string; draft?: string }
+    assert.equal(second.draft, undefined)
+    assert.deepEqual(requestsTo(h, "/revert/stage").at(-1)!.body, { messageID: "msg_1" })
+    await assert.rejects(Promise.resolve(h.cmd("runCommand", "undo", "yes")), /Nothing to undo\./)
+
+    assert.deepEqual(await h.cmd("runCommand", "redo", ""), { say: "Brought back what was undone." })
+    assert.equal(requestsTo(h, "/revert").filter((r) => r.method === "DELETE").length, 1)
+    h.emit("session.revert.cleared", s)
+    await until(() => h.snap().session?.undone === undefined)
+
+    // Not while the agent works: said here, before the server is asked.
+    h.agent.starts(s)
+    await until(() => h.snap().session!.busy)
+    await assert.rejects(Promise.resolve(h.cmd("runCommand", "undo", "yes")), /The agent is working\. Stop it first, then \/undo\./)
+    newestFirst = []
+  } finally {
+    await h.close()
+  }
+})
+
+test("/rename, /fork and /new: the name goes to the server, a fork becomes the site's conversation, /new starts one", async () => {
+  const h = await boot()
+  try {
+    const s = await h.ready()
+    h.server.route("PATCH", `/api/session/${s}`, (req) => {
+      Object.assign(h.w.sessions.get(s)!, { title: (req.body as { title: string }).title })
+      return {}
+    })
+    await assert.rejects(Promise.resolve(h.cmd("runCommand", "rename", "  ")), /Type the new name after \/rename\./)
+    assert.deepEqual(await h.cmd("runCommand", "rename", " Pricing page "), { say: 'Renamed to "Pricing page".' })
+    assert.deepEqual(h.server.requests.find((r) => r.method === "PATCH")!.body, { title: "Pricing page" })
+    assert.equal(h.snap().session!.title, "Pricing page")
+
+    h.server.route("POST", `/api/session/${s}/fork`, () => {
+      const copy = { id: "ses_copy", location: { directory: "/repo" }, title: "Pricing page (fork)", time: { created: 5, updated: 5 } }
+      h.w.sessions.set(copy.id, copy)
+      return { json: { data: copy } }
+    })
+    const forked = (await h.cmd("runCommand", "fork", "")) as { say: string }
+    assert.match(forked.say, /^This is a copy\./)
+    assert.equal(h.snap().session!.id, "ses_copy")
+    h.note("goes to the copy")
+    await until(() => h.w.prompts.length === 1)
+    assert.equal(h.w.prompts[0]!.session, "ses_copy")
+
+    const creates = h.w.creates
+    await h.cmd("runCommand", "new", "")
+    assert.equal(h.w.creates, creates + 1)
+    assert.notEqual(h.snap().session!.id, "ses_copy")
+  } finally {
+    await h.close()
+  }
+})
+
+test("an older server without the events for summaries: the app still connects, and /compact shows the summary once it is written", async () => {
+  const fake = await fakeOpenCode()
+  fake.server.unknownEvents = /^session\.(compaction|revert)\./
+  const h = await boot({ server: fake })
+  try {
+    const s = await h.ready()
+    assert.equal(h.snap().connection.status, "online")
+    const filters = h.server.requests.filter((r) => r.path === "/api/event").map((r) => r.query.getAll("types").some((t) => t.startsWith("session.compaction.")))
+    assert.deepEqual(filters, [true, false], "asked with the newer names, refused, asked again without")
+
+    // Notes still travel on the events this server has.
+    h.note("a")
+    await until(() => h.w.prompts.length === 1)
+    h.agent.starts(s)
+    h.agent.picksUp(s, h.w.prompts[0]!.id)
+    await until(() => h.notes() === "1:working")
+
+    // /compact: the request goes out; nothing will announce the summary, so nothing is shown yet.
+    const messages: object[] = [{ id: "msg_u", type: "user", time: { created: 1 }, text: "hello" }]
+    h.server.route("GET", /^\/api\/session\/[^/]+\/message$/, () => ({ json: { data: messages, cursor: { previous: null, next: null } } }))
+    h.server.route("POST", `/api/session/${s}/compact`, { json: { data: { id: "msg_c", type: "compaction", payload: {}, delivery: "steer" } } })
+    const before = h.chat().length
+    await h.cmd("runCommand", "compact", "")
+    await sleep(60)
+    assert.deepEqual(h.chat().slice(before).filter((e) => e.type === "reset"), [])
+
+    // The server writes it between two steps; the next step starting is when the app reads it back.
+    messages.push({ id: "msg_c", type: "compaction", status: "completed", reason: "manual", summary: "So far: said hello.", time: { created: 5 } })
+    h.emit("session.step.started", s, { assistantMessageID: "msg_a9", started: 9 })
+    await until(() => h.chat().slice(before).some((e) => e.type === "reset"))
+    const reset = h.chat().slice(before).find((e) => e.type === "reset") as Extract<ChatEvent, { type: "reset" }>
+    assert.deepEqual(reset.items, [
+      { kind: "user", id: "msg_u", time: 1, text: "hello", images: [] },
+      { kind: "assistant", id: "msg_c", time: 5, parts: [{ kind: "text", key: "text:0", text: "So far: said hello." }], done: true, summary: "manual" },
+    ])
+    assert.equal(h.notes(), "1:working", "the note is where it was")
+    h.agent.finishes(s)
+    await until(() => h.notes() === "1:done")
+
+    // /undo and /redo: read back at once, cut at the boundary and whole again.
+    h.server.route("POST", `/api/session/${s}/revert/stage`, (req) => {
+      ;(h.w.sessions.get(s) as Record<string, unknown>).revert = { messageID: (req.body as { messageID: string }).messageID }
+      return { json: { data: req.body } }
+    })
+    h.server.route("DELETE", `/api/session/${s}/revert`, () => {
+      delete (h.w.sessions.get(s) as Record<string, unknown>).revert
+      return {}
+    })
+    h.server.route("GET", /^\/api\/session\/[^/]+\/message$/, (req) => ({ json: { data: req.query.get("order") === "desc" ? [...messages].reverse() : messages, cursor: { previous: null, next: null } } }))
+    await h.cmd("runCommand", "undo", "yes")
+    await until(() => h.chat().some((e) => e.type === "reset" && e.items.length === 1 && e.items[0]!.id === "undone:msg_u"))
+    await until(() => h.snap().session?.undone === "msg_u")
+    const resets = h.chat().filter((e) => e.type === "reset").length
+    await h.cmd("runCommand", "redo", "")
+    await until(() => h.chat().filter((e) => e.type === "reset").length > resets)
+    assert.deepEqual((h.chat().filter((e) => e.type === "reset").at(-1) as Extract<ChatEvent, { type: "reset" }>).items.map((i) => i.id), ["msg_u", "msg_c"])
+    await until(() => h.snap().session?.undone === undefined)
   } finally {
     await h.close()
   }

@@ -66,11 +66,16 @@ After that, the app reopens the last page with its notes and conversation.
 | `mod+Z` / `mod+shift+Z` | Undo / redo |
 | `Enter` (`mod+Enter` in a text box) | Send all the edits as one note |
 
+In the chat box, `/` lists commands: the app's own (`/compact`, `/new`, `/undo`, `/redo`,
+`/rename`, `/fork`), then the ones the site's folder defines on the server. `@` names a file,
+a skill or a helper agent.
+
 ## Not built yet
 
 - Packaging and installers.
 - Tabs and device widths.
-- Before and after pictures of what the agent changed, and one-click revert.
+- Before and after pictures of what the agent changed, and taking back one note
+  (`/undo` takes back the last message and everything after it).
 - Canvas mode: adding elements, moving one into another container, reordering in block flow.
 - Running the overlay in an isolated script world.
 
@@ -85,5 +90,4 @@ cd app && bun install && bun run test    # unit tests, then the app in headless 
 
 ## Licence
 
-MIT, see [LICENSE](LICENSE). The chat's look follows the session view of
-[OpenCode](https://github.com/anomalyco/opencode) (MIT); no code from it is included.
+MIT, see [LICENSE](LICENSE).

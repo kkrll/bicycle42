@@ -72,6 +72,31 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   works while one is open.
 - **The backend is one interface** (`Backend` in `types.ts`). OpenCode implements it; an ACP
   backend could later without touching the rest.
+- **The app's own slash commands live in main** (`BUILTINS` in `index.ts`). The window asks
+  `commands()` for the list (the app's first, then the server's for the site's folder; a
+  built-in wins over a server command of the same name) and sends every `/name` through
+  `runCommand`, which either does it here or passes it to the server. Each is one `Backend` call:
+
+  | Command | `Backend` | OpenCode route |
+  |---|---|---|
+  | `/compact` | `compact` | `POST /api/session/{id}/compact` |
+  | `/new` | `createSession` | `POST /api/session` |
+  | `/undo` | `lastTurn`, `undo` | `GET …/message`, `POST …/revert/stage` |
+  | `/redo` | `redo` | `DELETE …/revert` |
+  | `/rename name` | `rename` | `PATCH /api/session/{id}` |
+  | `/fork` | `fork` | `POST …/fork` |
+
+  A summary (asked for with `/compact`, or written by the server when the context fills) arrives
+  as `session.compaction.*` events and shows as a folded step in the conversation; "nothing to
+  compact yet" is a line there too. It moves no note: notes follow their own message ids.
+  `/undo` first says what it would take back and waits for Enter, because the server takes back
+  **everything from that message on**, the agent's file changes included (files only where the
+  folder is a git repository). What is undone stays out of the conversation until `/redo`, and
+  the next message sent makes it final. A note whose message was undone keeps the status it had.
+  The events for summaries and undo are asked for on top of the usual ones. A server that does
+  not know them refuses the whole stream (400); the app then asks again without them, once per
+  connection, and reads the conversation back after `/compact`, `/undo` and `/redo` instead:
+  the summary appears when it is written, without the streaming.
 
 ## What a canvas note sends
 
@@ -91,8 +116,12 @@ on its pin and in the chat. A note may be new CSS rules and nothing else.
 ## Not done yet
 
 - Tabs and device widths (two tabs at 390 and 1440).
-- Before/after crops of what the agent changed, and one-click revert. (The server reverts
-  "everything from this message on", not one turn, so per-note revert needs its own design.)
+- Before/after crops of what the agent changed, and taking back one note. (`/undo` takes back
+  the last message and everything after it, which is all the server offers; one turn out of the
+  middle needs its own design. Undoing does not yet change the status of the notes it covers.)
+- Slash commands OpenCode has that are not here: `/share` (this server has no route for it),
+  `/export`, `/copy`, `/timeline`, and choosing the message to fork from (a fork copies the
+  whole conversation).
   A canvas note does carry before and after pictures of the reviewer's own edits.
 - Canvas mode: reordering in block flow (only flex and grid parents reorder), moving an element
   into another container, dragging padding and margins (type them in the CSS box instead),

@@ -38,6 +38,9 @@ export type FakeServer = {
   heartbeat(): void
   /** Cuts every open event stream, as a network drop would. */
   drop(): void
+  /** Event names this server does not know. A stream whose filter names one is refused with a
+   *  400, as a server older than the client would. None by default. */
+  unknownEvents?: RegExp
   /** How many event streams are open now. */
   streams(): number
   stop(): Promise<void>
@@ -52,6 +55,7 @@ export async function start(port = 0): Promise<FakeServer> {
   const routes: { method: string; path: string | RegExp; reply: FakeReply | ((req: FakeRequest) => FakeReply) }[] = []
   const streams = new Set<http.ServerResponse>()
   const requests: FakeRequest[] = []
+  let fake: FakeServer
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://fake")
@@ -85,7 +89,7 @@ export async function start(port = 0): Promise<FakeServer> {
       return answer({ json: { location: { directory: request.query.get("location[directory]") ?? "/" }, data: [] } })
     if (request.method === "GET" && request.path === "/api/event") {
       // Like the real one: the filter is a repeated parameter, and a comma list is an error.
-      if (request.query.getAll("types").some((t) => t.includes(",")))
+      if (request.query.getAll("types").some((t) => t.includes(",") || fake.unknownEvents?.test(t)))
         return answer({ status: 400, json: { _tag: "InvalidRequestError", message: "Invalid types", kind: "Query" } })
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache, no-transform" })
       res.write(`data: {"id":"evt_connected","type":"server.connected","data":{}}\n\n: heartbeat\n\n`)
@@ -99,7 +103,7 @@ export async function start(port = 0): Promise<FakeServer> {
   await new Promise<void>((resolve) => server.listen(port, "127.0.0.1", resolve))
   port = (server.address() as AddressInfo).port
 
-  return {
+  return (fake = {
     url: `http://127.0.0.1:${port}`,
     password,
     requests,
@@ -119,7 +123,7 @@ export async function start(port = 0): Promise<FakeServer> {
       server.closeAllConnections()
       return new Promise((resolve) => server.close(() => resolve()))
     },
-  }
+  })
 }
 
 /** Waits until `condition` holds, for tests that follow something asynchronous. */

@@ -15,11 +15,12 @@ import { act, chat, keys, mac, message, b42, recall, remember, setNotice, state 
 const [hint, setHint] = createSignal("")
 let hintTimer = 0
 
-/** Says something short under the message box for a few seconds: "Note 5 is out of the queue." */
-export function announce(words: string): void {
+/** Says something short under the message box for a few seconds: "Note 5 is out of the queue."
+ *  Something that has to be read before acting (what /undo will take back) stays longer. */
+export function announce(words: string, ms = 4000): void {
   setHint(words)
   clearTimeout(hintTimer)
-  hintTimer = window.setTimeout(() => setHint(""), 4000)
+  hintTimer = window.setTimeout(() => setHint(""), ms)
 }
 
 /** The "Enter waits, mod+Enter interrupts" line teaches; after three uses it has done its job. */
@@ -328,7 +329,12 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
       const q = t.query.toLowerCase()
       const starts = commands().filter((c) => c.name.toLowerCase().startsWith(q))
       const rest = commands().filter((c) => !c.name.toLowerCase().startsWith(q) && c.name.toLowerCase().includes(q))
-      return [...starts, ...rest].map((c) => ({ key: c.name, label: `/${c.name}`, detail: c.description }))
+      // The app's own commands stay above the server's, each group best match first.
+      const own = (c: SlashCommand) => (c.builtin ? 0 : 1)
+      return [...starts, ...rest]
+        .map((c, i) => ({ c, i }))
+        .sort((a, b) => own(a.c) - own(b.c) || a.i - b.i)
+        .map(({ c }) => ({ key: c.name, label: `/${c.name}`, detail: c.description, group: c.builtin ? "Built in" : "From this project" }))
     }
     return options()
       .map((o, i) => ({ o, i }))
@@ -405,7 +411,8 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
     const marks = mentions().map((m) => ({ kind: m.kind, id: m.id, start: m.start - lead, end: m.end - lead, label: m.label }))
     const pictures = images()
     const command = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(body)
-    const name = command && commands().some((c) => c.name === command[1]) ? command[1]! : ""
+    const known = command ? commands().find((c) => c.name === command[1]) : undefined
+    const name = known?.name ?? ""
     const args = command?.[2] ?? ""
     const delivery = busy() ? (steer ? "steer" : "queue") : undefined
     if (delivery) usedBusyKey()
@@ -425,14 +432,29 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
     const call = name
       ? b42.invoke("runCommand", name, args, pictures, options(body.length - args.length))
       : b42.invoke("send", body, pictures, options(0))
-    call.catch((err) => {
+    call.then(
+      (result) => {
+        // A built-in's answer: what it did, and maybe words for the box (the message /undo took
+        // back, or the confirmation to send next), unless something was typed meanwhile.
+        if (!result || typeof result !== "object") return
+        if (result.say) say(result.say, result.draft ? 30_000 : 6000)
+        if (result.draft && !text()) draft(result.draft, result.draft.length, true)
+      },
+      (err) => {
+        // One of the app's own commands that the server would not do ("nothing to redo", "the
+        // agent is working"): its reason is news, not a failed message to send again.
+        if (known?.builtin) return say(message(err), 8000)
+        fail(err)
+      },
+    )
+    const fail = (err: unknown) => {
       setError(message(err))
       if (!text()) {
         draft(raw)
         setMentions(saved)
       }
       if (!images().length) setImages(pictures)
-    })
+    }
   }
 
   // ── pictures ──

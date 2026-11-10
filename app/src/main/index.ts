@@ -21,7 +21,9 @@ import { notePrompt, noteWords, TEMPLATES } from "../../../overlay/prompt.js"
 import type {
   AgentInfo,
   AppState,
+  Backend,
   BackendEvent,
+  CommandResult,
   ChatEvent,
   Commands,
   CommandName,
@@ -699,6 +701,80 @@ const backgrounds = new Map<string, Promise<string>>()
 
 // ── commands from the window ────────────────────────────────────────────────────────────────────
 
+/** The app's own slash commands, as "/" lists them, above the server's. */
+const BUILTINS: SlashCommand[] = [
+  { name: "compact", description: "Summarise the conversation to free up context", builtin: true },
+  { name: "new", description: "Start a new conversation", builtin: true },
+  { name: "undo", description: "Take back your last message and what the agent did after it", builtin: true },
+  { name: "redo", description: "Bring back what /undo took away", builtin: true },
+  { name: "rename", description: "Name this conversation: /rename new name", builtin: true },
+  { name: "fork", description: "Go on in a copy of this conversation", builtin: true },
+]
+
+/** What "/undo yes" is: the word that confirms. */
+const UNDO_CONFIRM = "yes"
+const quoted = (text: string) => JSON.stringify(text.length > 60 ? `${text.slice(0, 59)}…` : text)
+
+/** Makes `id` the site's conversation and opens it. */
+async function switchTo(id: string) {
+  const s = site
+  if (!s || !siteSettings(s.origin)) return
+  store.update((x) => {
+    const entry = x.sites[s.origin]
+    if (entry && entry.session !== id) (entry.session = id), delete entry.bg
+  })
+  session = null
+  await openSite()
+}
+
+type Builtin = (b: Backend, current: SessionSummary, args: string, options?: SendOptions) => Promise<CommandResult | void>
+
+const builtins: Record<string, Builtin> = {
+  // The summary arrives as chat events; so does "nothing to compact yet". Notes are not
+  // touched: they follow their own messages, and what is queued still runs.
+  async compact(b, current, _args, options) {
+    const delivery = options?.delivery === "queue" || options?.delivery === "steer" ? options.delivery : undefined
+    await b.compact(current.id, delivery ? { delivery } : undefined)
+  },
+  async new() {
+    await commands.newSession()
+  },
+  // Two steps, because it cannot be done by halves: the server takes back everything from that
+  // message on, the agent's file changes included. The first "/undo" only says what would go.
+  async undo(b, current, args) {
+    if (session?.id === current.id && session.busy) throw new Error("The agent is working. Stop it first, then /undo.")
+    const turn = await b.lastTurn(current.id)
+    if (!turn) throw new Error("Nothing to undo.")
+    const what = turn.note ? `note ${turn.note.n} (${quoted(turn.note.text)})` : `your message ${quoted(turn.text)}`
+    if (args !== UNDO_CONFIRM)
+      return {
+        say: `This takes back ${what} and everything after it: the agent's replies, and the changes it made to files since then. Press Enter to undo.`,
+        draft: `/undo ${UNDO_CONFIRM}`,
+      }
+    await b.undo(current.id, turn.id)
+    // A note cannot be sent again from the message box; a typed message can, so it comes back.
+    return { say: `Took back ${what}. /redo brings it back; your next message makes it final.`, ...(turn.note ? {} : { draft: turn.text }) }
+  },
+  async redo(b, current) {
+    const now = await b.session(current.id)
+    if (!now?.undone) throw new Error("Nothing to redo.")
+    await b.redo(current.id)
+    return { say: "Brought back what was undone." }
+  },
+  async rename(b, current, args) {
+    if (!args) throw new Error("Type the new name after /rename.")
+    await b.rename(current.id, args)
+    if (session?.id === current.id) (session = { ...session, title: args }), push()
+    void refreshSessions()
+    return { say: `Renamed to ${quoted(args)}.` }
+  },
+  async fork(b, current) {
+    const copy = await b.fork(current.id)
+    await switchTo(copy.id)
+    return { say: "This is a copy. The original is still in the list of conversations." }
+  },
+}
+
 const need = () => {
   if (!backend) throw new Error("Not connected to a server.")
   return backend
@@ -869,12 +945,19 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     const b = need()
     const directory = site && siteSettings(site.origin)?.directory
     if (!directory) return [] as SlashCommand[]
-    return cached(b, `commands:${directory}`, () => b.commands(directory))
+    // The app's own first. The server's list is extra: without it "/" still works.
+    const theirs = await cached(b, `commands:${directory}`, () => b.commands(directory)).catch((err) => {
+      log("warn", "can't list the server's commands", say(err))
+      return [] as SlashCommand[]
+    })
+    return [...BUILTINS, ...theirs.filter((c) => !(c.name in builtins))]
   },
   async runCommand(name, args, images, options) {
     const b = need()
     const current = needSession()
     if (typeof name !== "string" || !name.trim()) throw new Error("Which command? Type its name after the slash.")
+    const builtin = builtins[name.trim()]
+    if (builtin) return builtin(b, current, typeof args === "string" ? args.trim() : "", options)
     const files = pictures(images)
     await b.command(current.id, {
       name: name.trim(),
@@ -921,12 +1004,7 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     const s = site
     if (!s || !siteSettings(s.origin)) return
     if (!(await need().session(id))) throw new Error("That conversation no longer exists.")
-    store.update((x) => {
-      const entry = x.sites[s.origin]
-      if (entry && entry.session !== id) (entry.session = id), delete entry.bg
-    })
-    session = null
-    await openSite()
+    await switchTo(id)
   },
   async setModel(model) {
     const current = needSession()

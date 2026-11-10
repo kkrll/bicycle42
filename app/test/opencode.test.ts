@@ -1412,3 +1412,282 @@ test("canvas notes: typed CSS cannot close its own fence, and a note of rules al
   assert.equal(noteWords({ text: "", css: "  " }), "")
   assert.equal(noteWords({ text: "words", css: ".a{}" }), "words")
 })
+
+// ── built-in commands: summaries (compaction), undo and redo, rename, fork ───────────────────────
+
+const compaction = (id: string, status: string, extra: object = {}) => ({ id, type: "compaction", status, reason: "manual", time: { created: 5 }, ...extra })
+
+test("chatItems: a summary of the conversation is a step of its own; one that did not happen is a line", () => {
+  const items = chatItems(
+    [
+      { id: "msg_u", type: "user", time: { created: 1 }, text: "hello" },
+      compaction("msg_c1", "completed", { summary: "So far: said hello.", reason: "auto" }),
+      compaction("msg_c2", "running", { summary: "" }),
+      compaction("msg_c3", "failed", { error: { type: "compaction.unavailable", message: "Nothing to compact yet" } }),
+      compaction("msg_c4", "failed", { error: { type: "provider.error", message: "The model is overloaded." } }),
+    ],
+    [{ id: "msg_q", type: "compaction", payload: {}, delivery: "steer" }],
+    undefined,
+  )
+  assert.deepEqual(items, [
+    { kind: "user", id: "msg_u", time: 1, text: "hello", images: [] },
+    { kind: "assistant", id: "msg_c1", time: 5, parts: [{ kind: "text", key: "text:0", text: "So far: said hello." }], done: true, summary: "auto" },
+    { kind: "assistant", id: "msg_c2", time: 5, parts: [], done: false, summary: "manual" },
+    { kind: "marker", id: "msg_c3", time: 5, text: "The conversation was not summarised: Nothing to compact yet.", tone: "info" },
+    { kind: "marker", id: "msg_c4", time: 5, text: "The conversation was not summarised: The model is overloaded.", tone: "error" },
+  ])
+})
+
+test("chatItems: an undone part of the conversation is left out, with a line saying how to get it back", () => {
+  const messages = [
+    { id: "msg_1", type: "user", time: { created: 1 }, text: "first" },
+    { id: "msg_2", type: "assistant", time: { created: 2, completed: 3 }, content: [{ type: "text", text: "ok" }] },
+    { id: "msg_3", type: "user", time: { created: 4 }, text: "second" },
+    { id: "msg_4", type: "assistant", time: { created: 5, completed: 6 }, content: [{ type: "text", text: "done" }] },
+    { id: "msg_5", type: "user", time: { created: 7 }, text: "third" },
+  ]
+  const queued = [{ id: "msg_q", type: "user", time: { created: 9 }, payload: { text: "waiting" } }]
+  const cut = chatItems(messages, queued, undefined, undefined, "msg_3")
+  assert.deepEqual(cut.map((i) => i.id), ["msg_1", "msg_2", "undone:msg_3", "msg_q"])
+  assert.deepEqual(cut[2], { kind: "marker", id: "undone:msg_3", time: 4, tone: "info", text: "Your last 2 messages and the agent's work on them are undone. /redo brings them back; your next message makes it final." })
+  assert.match((chatItems(messages, [], undefined, undefined, "msg_5").at(-1) as { text: string }).text, /^Your last message and the agent's work on it are undone\. \/redo brings it back/)
+  // A boundary the list does not have changes nothing.
+  assert.deepEqual(chatItems(messages, [], undefined, undefined, "msg_gone"), chatItems(messages, [], undefined))
+})
+
+test("mapper: a summary streams in as a step, and ends as the item a re-read gives", () => {
+  const started = ev("session.compaction.started", { reason: "manual", inputID: "msg_in" })
+  const { out, items, warnings } = replay([
+    ev("session.inbox.enqueued", { inboxID: "msg_in", item: { type: "compaction", payload: {}, delivery: "steer" } }),
+    ev("session.inbox.delivered", { inboxID: "msg_in" }),
+    started,
+    ev("session.compaction.delta", { text: "So far: " }),
+    ev("session.compaction.delta", { text: "said hel" }),
+    ev("session.compaction.ended", { reason: "manual", text: "So far: said hello." }),
+  ])
+  assert.deepEqual(warnings, [])
+  // The request in the queue is the server's business: no note or message moves because of it.
+  assert.deepEqual(out.filter((e) => e.type === "inbox"), [])
+  assert.deepEqual(
+    out.flatMap((e) => (e.type === "chat" ? [e.event.type] : [])),
+    ["item", "part", "delta", "item"],
+  )
+  assert.deepEqual((out[1] as { event: ChatEvent }).event, { type: "part", session: S, item: "msg_in", part: { kind: "text", key: "text:0", text: "So far: " } })
+  assert.deepEqual((out[2] as { event: ChatEvent }).event, { type: "delta", session: S, item: "msg_in", key: "text:0", text: "said hel" })
+  assert.deepEqual(items, chatItems([compaction("msg_in", "completed", { summary: "So far: said hello.", time: { created: started.created } })], [], undefined))
+
+  // Without an id on the request (the server's own, when the context fills) the message takes the event's.
+  const auto = ev("session.compaction.started", { reason: "auto" })
+  const own = replay([auto, ev("session.compaction.ended", { reason: "auto", text: "Short." })])
+  assert.deepEqual(own.items, [{ kind: "assistant", id: auto.id.replace("evt_", "msg_"), time: auto.created, parts: [{ kind: "text", key: "text:0", text: "Short." }], done: true, summary: "auto" }])
+})
+
+test("mapper: a summary that fails leaves one line; one whose start was missed asks for a re-read", () => {
+  const failed = replay([
+    ev("session.compaction.started", { reason: "manual", inputID: "msg_in" }),
+    ev("session.compaction.failed", { reason: "manual", inputID: "msg_in", error: { type: "compaction.unavailable", message: "Nothing to compact yet" } }),
+  ])
+  assert.deepEqual(failed.items.map((i) => [i.kind, i.id, i.kind === "marker" && i.text, i.kind === "marker" && i.tone]), [["marker", "msg_in", "The conversation was not summarised: Nothing to compact yet.", "info"]])
+  // Refused before it started: still one line, under the request's id.
+  const refused = replay([ev("session.compaction.failed", { reason: "manual", inputID: "msg_x", error: { type: "provider.error", message: "No model" } })])
+  assert.deepEqual(refused.items.map((i) => [i.id, i.kind === "marker" && i.tone]), [["msg_x", "error"]])
+
+  const late = replay([ev("session.compaction.delta", { text: "…tail" }), ev("session.compaction.ended", { reason: "manual", text: "Whole." })])
+  assert.deepEqual(late.out, [{ type: "resync", session: S }])
+})
+
+test("mapper: undo, redo and the undo becoming final each ask for that conversation to be re-read", () => {
+  for (const type of ["session.revert.staged", "session.revert.cleared", "session.revert.committed"])
+    assert.deepEqual(replay([ev(type, { revert: { messageID: "msg_3" }, to: "msg_3" })]).out, [{ type: "resync", session: S }], type)
+})
+
+test("compact, undo, redo, rename, fork: one request each, as the server's routes take them", () =>
+  withServer(async (server, backend) => {
+    server.route("POST", "/api/session/ses_1/compact", { json: { data: { id: "msg_c", type: "compaction", payload: {}, delivery: "steer" } } })
+    server.route("POST", "/api/session/ses_1/revert/stage", { json: { data: { messageID: "msg_3" } } })
+    server.route("DELETE", "/api/session/ses_1/revert", {})
+    server.route("PATCH", "/api/session/ses_1", {})
+    server.route("POST", "/api/session/ses_1/fork", { json: { data: { ...rawSession, id: "ses_2", title: "Fix the header (fork)" } } })
+
+    await backend.compact("ses_1")
+    await backend.compact("ses_1", { delivery: "queue" })
+    await backend.undo("ses_1", "msg_3")
+    await backend.redo("ses_1")
+    await backend.rename("ses_1", "Pricing page")
+    const copy = await backend.fork("ses_1")
+    assert.equal(copy.id, "ses_2")
+    assert.equal(copy.title, "Fix the header (fork)")
+    assert.equal(copy.directory, "/site")
+
+    assert.deepEqual(
+      server.requests.map((r) => [r.method, r.path, r.body]),
+      [
+        ["POST", "/api/session/ses_1/compact", {}],
+        ["POST", "/api/session/ses_1/compact", { delivery: "queue" }],
+        ["POST", "/api/session/ses_1/revert/stage", { messageID: "msg_3" }],
+        ["DELETE", "/api/session/ses_1/revert", undefined],
+        ["PATCH", "/api/session/ses_1", { title: "Pricing page" }],
+        ["POST", "/api/session/ses_1/fork", {}],
+      ],
+    )
+  }))
+
+test("compact, undo, redo, rename, fork: the server's reason for refusing is passed on", () =>
+  withServer(async (server, backend) => {
+    const busy = { status: 409, json: { _tag: "SessionBusyError", message: "Session is busy" } }
+    server.route("POST", /^\/api\/session\/ses_1\//, busy)
+    server.route("DELETE", /^\/api\/session\/ses_1\//, busy)
+    server.route("PATCH", "/api/session/ses_1", { status: 404, json: { _tag: "SessionNotFoundError", message: "Session not found" } })
+    server.route("POST", "/api/session/ses_1/fork", { status: 400, json: { _tag: "InvalidRequestError", kind: "empty_session", message: "Nothing to fork yet" } })
+    await assert.rejects(backend.compact("ses_1"), /Session is busy/)
+    await assert.rejects(backend.undo("ses_1", "msg_3"), /Session is busy/)
+    await assert.rejects(backend.redo("ses_1"), /Session is busy/)
+    await assert.rejects(backend.rename("ses_1", "x"), /Session not found/)
+    await assert.rejects(backend.fork("ses_1"), /Nothing to fork yet/)
+    // A fork that answers with something that is no session is not one.
+    server.route("POST", "/api/session/ses_1/fork", { json: { data: {} } })
+    await assert.rejects(backend.fork("ses_1"), /doesn't answer like an OpenCode server/)
+  }))
+
+test("lastTurn: the user's newest message still in the conversation, skipping what is undone", () =>
+  withServer(async (server, backend) => {
+    let session: object = rawSession
+    server.route("GET", "/api/session/ses_1", () => ({ json: { data: session } }))
+    const note = "UI review note 2 on http://localhost:3000/, window 1×1 @1x.\nNote: make it blue\nMake the smallest change that does this. Don't touch unrelated code. Reply in one line."
+    const newestFirst = [
+      { id: "msg_7", type: "idle", outcome: "succeeded" },
+      { id: "msg_6", type: "assistant", content: [] },
+      { id: "msg_5", type: "user", text: "tighter" },
+      { id: "msg_4", type: "assistant", content: [] },
+      { id: "msg_3", type: "user", text: note },
+      { id: "msg_2", type: "user", text: "   " },
+      { id: "msg_1", type: "user", text: "first" },
+    ]
+    server.route("GET", "/api/session/ses_1/message", { json: { data: newestFirst, cursor: { previous: null, next: null } } })
+    assert.deepEqual(await backend.lastTurn("ses_1"), { id: "msg_5", text: "tighter" })
+    assert.equal(server.requests.at(-1)!.query.get("order") ?? server.requests.at(-2)!.query.get("order"), "desc")
+    // "tighter" is undone: the next undo is about the note before it.
+    session = { ...rawSession, revert: { messageID: "msg_5" } }
+    assert.deepEqual(await backend.lastTurn("ses_1"), { id: "msg_3", text: note, note: { n: 2, text: "make it blue" } })
+    assert.equal((await backend.session("ses_1"))!.undone, "msg_5")
+    // Everything from the first message on is undone, or the boundary is older than the page read.
+    session = { ...rawSession, revert: { messageID: "msg_1" } }
+    assert.equal(await backend.lastTurn("ses_1"), null)
+    session = { ...rawSession, revert: { messageID: "msg_0" } }
+    assert.equal(await backend.lastTurn("ses_1"), null)
+    server.route("GET", "/api/session/ses_1/message", { json: { data: [], cursor: { previous: null, next: null } } })
+    session = rawSession
+    assert.equal(await backend.lastTurn("ses_1"), null)
+    assert.equal((await backend.session("ses_1"))!.undone, undefined)
+  }))
+
+test("transcript: what was undone is cut off at the conversation's boundary", () =>
+  withServer(async (server, backend) => {
+    server.route("GET", "/api/session/ses_1", { json: { data: { ...rawSession, revert: { messageID: "msg_2" } } } })
+    server.route("GET", /^\/api\/session\/ses_1\/(inbox|permission|form)$/, { json: { data: [] } })
+    server.route("GET", "/api/session/ses_1/message", { json: { data: [{ id: "msg_1", type: "user", time: { created: 1 }, text: "keep" }, { id: "msg_2", type: "user", time: { created: 2 }, text: "undone" }], cursor: { previous: null, next: null } } })
+    const t = await backend.transcript("ses_1")
+    assert.deepEqual(t.items.map((i) => i.id), ["msg_1", "undone:msg_2"])
+  }))
+
+// ── a server that does not know the newer events ─────────────────────────────────────────────────
+
+const OPTIONAL = /^session\.(compaction|revert)\./
+const streamFilters = (server: FakeServer) => server.requests.filter((r) => r.path === "/api/event").map((r) => (r.query.getAll("types").some((t) => OPTIONAL.test(t)) ? "extended" : "base"))
+
+test("listen: a server that refuses the newer event names is asked again without them, once, and stays connected", () =>
+  withServer(async (server, backend, logs) =>
+    withTiming({ retryMin: 10 }, async () => {
+      server.unknownEvents = OPTIONAL
+      server.route("GET", "/api/session/ses_1", { json: { data: { ...rawSession, revert: { messageID: "msg_3" } } } })
+      server.route("POST", /^\/api\/session\/ses_1\//, { json: { data: {} } })
+      server.route("DELETE", "/api/session/ses_1/revert", {})
+      const events: BackendEvent[] = []
+      const stop = backend.listen((e) => events.push(e))
+      await until(() => server.streams() === 1 && connection(events).includes("online"))
+      assert.deepEqual(connection(events), ["connecting", "online"], "the refusal is never shown as being offline")
+      assert.deepEqual(streamFilters(server), ["extended", "base"])
+      const base = server.requests.filter((r) => r.path === "/api/event")[1]!.query.getAll("types")
+      assert.ok(base.length > 20 && base.includes("session.step.started") && !base.some((t) => OPTIONAL.test(t)))
+      assert.equal(logs.filter((l) => l.startsWith("warn") && l.includes("does not send the events for summaries and undo")).length, 1)
+
+      // What it does know still arrives.
+      server.emit(ev("session.step.started", { assistantMessageID: "msg_a1", started: 5 }))
+      await until(() => events.some((e) => e.type === "chat"))
+
+      // A drop: the reconnect does not try the longer list again, and says nothing more.
+      server.drop()
+      await until(() => server.streams() === 1 && connection(events).filter((c) => c === "online").length === 2)
+      assert.deepEqual(streamFilters(server), ["extended", "base", "base"])
+      assert.equal(logs.filter((l) => l.includes("does not send the events")).length, 1)
+
+      // Undo and redo have no event here: each has the conversation and its summary read again.
+      const resyncs = () => events.filter((e) => e.type === "resync" && e.session === S).length
+      const before = resyncs()
+      await backend.undo(S, "msg_3")
+      assert.equal(resyncs(), before + 1)
+      await until(() => events.some((e) => e.type === "session" && e.session.undone === "msg_3"))
+      await backend.redo(S)
+      assert.equal(resyncs(), before + 2)
+
+      // A summary is read back when the run has moved past it, not before, and once.
+      await backend.compact(S)
+      assert.equal(resyncs(), before + 2)
+      server.emit(ev("session.execution.started", {}))
+      await until(() => events.some((e) => e.type === "run" && e.status === "started"))
+      assert.equal(resyncs(), before + 2)
+      server.emit(ev("session.execution.succeeded", {}))
+      await until(() => resyncs() === before + 3)
+      server.emit(ev("session.execution.started", {}))
+      server.emit(ev("session.execution.succeeded", {}))
+      await until(() => events.filter((e) => e.type === "run" && e.status === "succeeded").length === 2)
+      assert.equal(resyncs(), before + 3)
+      // In the middle of a run it is written between two steps.
+      await backend.compact(S)
+      server.emit(ev("session.step.started", { assistantMessageID: "msg_a2", started: 9 }))
+      await until(() => resyncs() === before + 4)
+      stop()
+    }),
+  ))
+
+test("listen: a server that knows the newer events gets one stream with them, and nothing is read back", () =>
+  withServer(async (server, backend, logs) => {
+    server.route("POST", /^\/api\/session\/ses_1\//, { json: { data: {} } })
+    server.route("DELETE", "/api/session/ses_1/revert", {})
+    const events: BackendEvent[] = []
+    const stop = backend.listen((e) => events.push(e))
+    await until(() => server.streams() === 1 && connection(events).includes("online"))
+    assert.deepEqual(streamFilters(server), ["extended"])
+    const asked = server.requests.find((r) => r.path === "/api/event")!.query.getAll("types")
+    for (const type of ["session.compaction.started", "session.compaction.delta", "session.compaction.ended", "session.compaction.failed", "session.revert.staged", "session.revert.cleared", "session.revert.committed"])
+      assert.ok(asked.includes(type), type)
+    await backend.compact(S)
+    await backend.undo(S, "msg_3")
+    await backend.redo(S)
+    server.emit(ev("session.execution.succeeded", {}))
+    await until(() => events.some((e) => e.type === "run"))
+    assert.deepEqual(events.filter((e) => e.type === "resync"), [], "the events themselves say what happened")
+    assert.equal(logs.filter((l) => l.includes("does not send the events")).length, 0)
+    stop()
+  }))
+
+for (const [status, reply, shown] of [
+  [401, { _tag: "UnauthorizedError", message: "Authentication required" }, /Wrong password/],
+  [500, { _tag: "UnknownError", message: "boom" }, /answered 500: boom/],
+  [404, { _tag: "NotFoundError", message: "Not found" }, /answered 404/],
+] as const)
+  test(`listen: a ${status} on the event stream is not about the filter: no second try without the newer names`, () =>
+    withServer(async (server, backend, logs) =>
+      withTiming({ retryMin: 10, retryMax: 10 }, async () => {
+        server.route("GET", "/api/event", { status, json: reply })
+        const events: BackendEvent[] = []
+        const stop = backend.listen((e) => events.push(e))
+        await until(() => streamFilters(server).length >= 3)
+        stop()
+        assert.ok(streamFilters(server).every((f) => f === "extended"), streamFilters(server).join())
+        assert.equal(logs.filter((l) => l.includes("does not send the events")).length, 0)
+        const offline = events.flatMap((e) => (e.type === "connection" && e.state.status === "offline" ? [e.state.error] : []))
+        assert.ok(offline.length >= 2 && offline.every((e) => shown.test(e)), offline.join(" | "))
+        assert.ok(!connection(events).includes("online"))
+      }),
+    ))

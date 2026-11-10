@@ -83,13 +83,23 @@ See the [Tailwind spacing scale](https://tailwindcss.com/docs/padding) for the o
 // ── the message box: commands and things to mention ─────────────────────────────────────────────
 
 const COMMANDS: SlashCommand[] = [
+  // The app's own, as main lists them.
+  { name: "compact", description: "Summarise the conversation to free up context", builtin: true },
+  { name: "new", description: "Start a new conversation", builtin: true },
+  { name: "undo", description: "Take back your last message and what the agent did after it", builtin: true },
+  { name: "redo", description: "Bring back what /undo took away", builtin: true },
+  { name: "rename", description: "Name this conversation: /rename new name", builtin: true },
+  { name: "fork", description: "Go on in a copy of this conversation", builtin: true },
+  // The server's, for the site's folder.
   { name: "review", description: "Look over the changes since the last commit" },
   { name: "test", description: "Run the tests and fix what fails" },
   { name: "explain", description: "Explain how a part of the site works" },
-  { name: "undo", description: "Put back the files the agent changed last" },
-  { name: "compact", description: "Summarise the conversation so far to free up room" },
   { name: "init", description: "Write an AGENTS.md that describes this project" },
 ]
+
+const SUMMARY = `The reviewer is polishing the pricing page. Done so far: the hero's bottom margin went from mb-8 to mb-4 to match the cards; the navigation is hidden below md; the primary button uses the brand green.
+
+Still open: the logo is blurry on retina screens, and two cards are to be swapped.`
 
 /** What the agent says while it is still at work (the busy scenario). */
 const WORKING = `The heading and its paragraph sit 32px apart, while the cards below use 16px. I'm changing the hero's \`mb-8\` to \`mb-4\` so the two match.
@@ -752,6 +762,26 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     commands: () => (scenario === "nocommands" ? [] : COMMANDS),
     runCommand(name, args, images, options) {
       if (!COMMANDS.some((c) => c.name === name)) throw new Error(`There is no /${name} command.`)
+      // The app's own commands, roughly as main answers them.
+      if (name === "compact") {
+        const item = { kind: "assistant" as const, id: `sum-${++serial}`, time: Date.now(), summary: "manual" as const }
+        emit({ type: "item", session: sid(), item: { ...item, parts: [], done: false } })
+        setTimeout(() => emit({ type: "item", session: sid(), item: { ...item, parts: [{ kind: "text", key: "text:0", text: SUMMARY }], done: true } }), 700)
+        return
+      }
+      if (name === "undo")
+        return args === "yes"
+          ? { say: 'Took back your message "tighter". /redo brings it back; your next message makes it final.', draft: "tighter" }
+          : { say: 'This takes back your message "tighter" and everything after it: the agent\'s replies, and the changes it made to files since then. Press Enter to undo.', draft: "/undo yes" }
+      if (name === "redo") throw new Error("Nothing to redo.")
+      if (name === "new") return void this.newSession()
+      if (name === "rename") {
+        if (!args) throw new Error("Type the new name after /rename.")
+        if (state.session) state.session = { ...state.session, title: args }
+        push()
+        return { say: `Renamed to ${JSON.stringify(args)}.` }
+      }
+      if (name === "fork") return { say: "This is a copy. The original is still in the list of conversations." }
       deliver(`/${name}${args ? ` ${args}` : ""}`, images, options, COMMAND_REPLY[name] ?? "Done.")
     },
     async mentions(query) {

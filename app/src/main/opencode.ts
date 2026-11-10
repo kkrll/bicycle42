@@ -95,6 +95,23 @@ const EVENT_TYPES = [
   "form.cancelled",
 ]
 
+/** Events only newer servers have: a summary being written, and undo. Asked for on top of the
+ *  list above; a server that refuses the filter because of them is asked again without (see
+ *  listen), and the commands that rely on them re-read the conversation instead. */
+const OPTIONAL_EVENT_TYPES = [
+  "session.compaction.started",
+  "session.compaction.delta",
+  "session.compaction.ended",
+  "session.compaction.failed",
+  "session.revert.staged",
+  "session.revert.cleared",
+  "session.revert.committed",
+]
+
+/** Without the optional events: what says that a summary asked for has been written, or will
+ *  not be. It is written between two steps, or in a run of its own. */
+const AFTER_SUMMARY = new Set(["session.step.started", "session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"])
+
 /** Events after which a session's summary (title, model, agent, busy) has changed. They carry
  *  only the changed field, so listen() re-reads the session. */
 const SUMMARY_EVENTS = new Set([
@@ -106,6 +123,9 @@ const SUMMARY_EVENTS = new Set([
   "session.execution.succeeded",
   "session.execution.failed",
   "session.execution.interrupted",
+  "session.revert.staged",
+  "session.revert.cleared",
+  "session.revert.committed",
 ])
 
 // ── reading untrusted JSON ──────────────────────────────────────────────────────────────────────
@@ -243,15 +263,45 @@ function modelMarker(id: string, time: number, model: unknown): ChatMarker {
   return { kind: "marker", id, time, text, tone: "info" }
 }
 
+// ── summaries (compaction) and undo ─────────────────────────────────────────────────────────────
+// The server can replace the conversation so far by a summary, to free up context: by itself
+// when the context fills ("auto") or when asked ("manual", /compact). The chat shows it as a
+// step of the agent's whose text is the summary. The messages before it stay in the list.
+
+const SUMMARY_KEY = "text:0"
+const summaryReason = (reason: unknown): "manual" | "auto" => (reason === "auto" ? "auto" : "manual")
+
+function summaryItem(id: string, time: number, reason: unknown, text: string, done: boolean): ChatAssistant {
+  return { kind: "assistant", id, time, parts: text ? [{ kind: "text", key: SUMMARY_KEY, text }] : [], done, summary: summaryReason(reason) }
+}
+
+/** A summary that did not happen. "Nothing to compact yet" is an answer, not a fault. */
+function summaryFailed(id: string, time: number, error: unknown): ChatMarker {
+  const e = rec(error)
+  const why = str(e.message)?.replace(/[.\s]+$/, "")
+  return { kind: "marker", id, time, text: `The conversation was not summarised${why ? `: ${why}` : ""}.`, tone: e.type === "compaction.unavailable" ? "info" : "error" }
+}
+
+/** The line where an undone part of the conversation was. `turns` is how many of the user's
+ *  messages went. */
+function undoneMarker(boundary: string, time: number, turns: number): ChatMarker {
+  const what = turns === 1 ? "Your last message and the agent's work on it are" : `Your last ${turns} messages and the agent's work on them are`
+  return { kind: "marker", id: `undone:${boundary}`, time, text: `${what} undone. /redo brings ${turns === 1 ? "it" : "them"} back; your next message makes it final.`, tone: "info" }
+}
+
 function agentMarker(id: string, time: number, agent: unknown): ChatMarker {
   return { kind: "marker", id, time, text: `Agent changed to ${str(agent) ?? "?"}`, tone: "info" }
 }
 
 /** A conversation from a re-read: the message list (oldest first), then what still waits in the
- *  inbox. `dir` is the session's folder. */
-export function chatItems(messages: unknown[], inbox: unknown[], dir: string | undefined, warn: Warn = () => {}): ChatItem[] {
+ *  inbox. `dir` is the session's folder. `undone` is the first message of a part that was undone
+ *  and not yet given up for good: the list still has it, the conversation does not. */
+export function chatItems(messages: unknown[], inbox: unknown[], dir: string | undefined, warn: Warn = () => {}, undone?: string): ChatItem[] {
   const items: ChatItem[] = []
   const delivered = new Set<string>()
+  /** The user's messages from `undone` on, once it is reached. */
+  let gone = -1
+  let goneAt = 0
   for (const raw of messages) {
     const m = rec(raw)
     const id = str(m.id)
@@ -261,6 +311,11 @@ export function chatItems(messages: unknown[], inbox: unknown[], dir: string | u
       continue
     }
     delivered.add(id)
+    if (undone && id === undone) (gone = 0), (goneAt = time)
+    if (gone >= 0) {
+      if (m.type === "user") gone++
+      continue
+    }
     let item: ChatItem | undefined
     switch (m.type) {
       case "user":
@@ -279,11 +334,16 @@ export function chatItems(messages: unknown[], inbox: unknown[], dir: string | u
         item = agentMarker(id, time, m.agent)
         break
       // Prompts the server writes for the model, and records this app has no view for.
+      case "compaction":
+        item =
+          m.status === "failed"
+            ? summaryFailed(id, time, m.error)
+            : summaryItem(id, time, m.reason, str(m.summary) ?? "", m.status !== "running")
+        break
       case "synthetic":
       case "system":
       case "skill":
       case "shell":
-      case "compaction":
       case "location-switched":
         break
       default:
@@ -291,6 +351,7 @@ export function chatItems(messages: unknown[], inbox: unknown[], dir: string | u
     }
     if (item) items.push(item)
   }
+  if (undone && gone >= 0) items.push(undoneMarker(undone, goneAt, gone))
   for (const raw of inbox) {
     const i = rec(raw)
     const id = str(i.id)
@@ -389,6 +450,7 @@ function sessionSummary(raw: unknown): SessionSummary | undefined {
     busy: busy !== undefined && (idle === undefined || idle < busy),
     model: modelRef(s.model),
     agent: str(s.agent),
+    undone: str(rec(s.revert).messageID),
   })
 }
 
@@ -425,6 +487,8 @@ export function createEventMapper(emit: (event: BackendEvent) => void, warn: War
   const notOurs = new Set<string>()
   /** Sessions already told to re-read, until one of their steps starts in view again. */
   const gaps = new Set<string>()
+  /** The summary being written in each session: its deltas say only which session. */
+  const summaries = new Map<string, { id: string; time: number; reason: unknown; text: string }>()
   const chat = (event: ChatEvent) => emit({ type: "chat", event })
 
   return (raw) => {
@@ -487,6 +551,43 @@ export function createEventMapper(emit: (event: BackendEvent) => void, warn: War
         if (marker) chat({ type: "item", session, item: marker })
         return
       }
+
+      // A summary of the conversation (see summaryItem). Its message takes the id the request
+      // came with, or else the id of the event that started it.
+      case "session.compaction.started": {
+        const running = { id: str(d.inputID) ?? messageID(ev.id), time, reason: d.reason, text: "" }
+        summaries.set(session, running)
+        return chat({ type: "item", session, item: summaryItem(running.id, time, d.reason, "", false) })
+      }
+      case "session.compaction.delta": {
+        const running = summaries.get(session)
+        const text = str(d.text) ?? ""
+        if (!running || !text) return
+        const first = !running.text
+        running.text += text
+        if (first) return chat({ type: "part", session, item: running.id, part: { kind: "text", key: SUMMARY_KEY, text } })
+        return chat({ type: "delta", session, item: running.id, key: SUMMARY_KEY, text })
+      }
+      case "session.compaction.ended": {
+        const running = summaries.get(session)
+        summaries.delete(session)
+        // Started before this connection: the list has it under the id it started with, which
+        // this event does not carry. Have the conversation re-read.
+        if (!running) return emit({ type: "resync", session })
+        return chat({ type: "item", session, item: summaryItem(running.id, running.time, d.reason, str(d.text) ?? running.text, true) })
+      }
+      case "session.compaction.failed": {
+        const running = summaries.get(session)
+        summaries.delete(session)
+        return chat({ type: "item", session, item: summaryFailed(running?.id ?? str(d.inputID) ?? messageID(ev.id), running?.time ?? time, d.error) })
+      }
+
+      // Part of the conversation was undone, brought back, or given up for good: what the
+      // conversation holds has changed in a way no single item says.
+      case "session.revert.staged":
+      case "session.revert.cleared":
+      case "session.revert.committed":
+        return emit({ type: "resync", session })
 
       case "session.step.started": {
         const id = str(d.assistantMessageID)
@@ -795,6 +896,20 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
   const data = async (method: string, path: string, body?: unknown, signal?: AbortSignal) => rec(await api(method, path, body, signal)).data
   const sessionPath = (id: string) => `/api/session/${encodeURIComponent(id)}`
 
+  /** The server refused the optional events (OPTIONAL_EVENT_TYPES), so this client goes without
+   *  them for as long as it lives: what they would have said is read back instead. */
+  let limited = false
+  /** The open listen(): where a re-read can be asked for from outside the event stream. */
+  let live: { emit(event: BackendEvent): void; refresh(session: string): void } | undefined
+  /** Sessions with a summary asked for whose end no event will tell (limited). */
+  const summarising = new Set<string>()
+  /** After a command whose events this server does not send: have the conversation read again. */
+  const reread = (id: string) => {
+    if (!limited || !live) return
+    live.emit({ type: "resync", session: id })
+    live.refresh(id)
+  }
+
   async function info(signal?: AbortSignal): Promise<{ version: string }> {
     const version = str(rec(await api("GET", "/api/info", undefined, signal)).version)
     if (!version) throw new Error(`${host} doesn't answer like an OpenCode server`)
@@ -988,6 +1103,57 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
       })
     },
 
+    async compact(id, input) {
+      // Answers with the inbox item it made. Without `delivery` the server steers: the summary is
+      // written at the next step boundary, not after everything that is queued. "Nothing to
+      // compact yet" is not an error here: it arrives as session.compaction.failed.
+      await api("POST", `${sessionPath(id)}/compact`, input?.delivery ? { delivery: input.delivery } : {})
+      // No events for it: the summary is read back once the run has moved past it.
+      if (limited) summarising.add(id)
+    },
+
+    async lastTurn(id) {
+      // The newest page is enough: what is undone is the end of the conversation.
+      const [info, page] = await Promise.all([data("GET", sessionPath(id)), data("GET", `${sessionPath(id)}/message?order=desc&limit=${PAGE}`)])
+      const boundary = str(rec(rec(info).revert).messageID)
+      // Newest first: everything down to the boundary is already undone.
+      let undone = !!boundary
+      for (const raw of list(page)) {
+        const m = rec(raw)
+        const message = str(m.id)
+        if (undone) {
+          if (message === boundary) undone = false
+          continue
+        }
+        const text = str(m.text) ?? ""
+        if (m.type === "user" && message && text.trim()) return defined({ id: message, text, note: parseNote(text) })
+      }
+      return null
+    },
+
+    async undo(id, message) {
+      // Stages a boundary: the server hides the conversation from `message` on and puts the
+      // files its steps changed back (in a git repository). 409 SessionBusyError while it runs.
+      await api("POST", `${sessionPath(id)}/revert/stage`, { messageID: message })
+      reread(id)
+    },
+
+    async redo(id) {
+      await api("DELETE", `${sessionPath(id)}/revert`)
+      reread(id)
+    },
+
+    async rename(id, title) {
+      await api("PATCH", sessionPath(id), { title })
+    },
+
+    async fork(id) {
+      // Without `before` the copy holds the whole history.
+      const made = sessionSummary(await data("POST", `${sessionPath(id)}/fork`, {}))
+      if (!made) throw new Error(`${host} doesn't answer like an OpenCode server`)
+      return made
+    },
+
     async cancelQueued(id, item) {
       // The inbox id is the message id prompt() returned. Cancelling one already delivered is a
       // no-op on the server (204 all the same); the session.inbox.cancelled event is what
@@ -1031,7 +1197,7 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
         query = `cursor=${encodeURIComponent(next)}&limit=${PAGE}`
       }
       return {
-        items: chatItems(messages, list(inbox), str(rec(rec(info).location).directory), warn),
+        items: chatItems(messages, list(inbox), str(rec(rec(info).location).directory), warn, str(rec(rec(info).revert).messageID)),
         permissions: list(permissions).flatMap((raw) => permissionAsk(raw) ?? []),
         questions: list(forms).flatMap((raw) => question(raw, warn) ?? []),
       }
@@ -1079,6 +1245,11 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
         }
       }
 
+      live = { emit, refresh: (id) => void refresh(id) }
+      stop.signal.addEventListener("abort", () => (live = undefined))
+      const subscribe = (names: string[], signal: AbortSignal) =>
+        send("GET", `/api/event?${names.map((t) => `types=${t}`).join("&")}`, undefined, signal, "text/event-stream")
+
       void (async () => {
         let delay = timing.retryMin
         let connectedBefore = false
@@ -1102,8 +1273,18 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
           try {
             // Asked first for the version, and because its errors are the clear ones.
             const { version } = await info(conn.signal)
-            const types = EVENT_TYPES.map((t) => `types=${t}`).join("&")
-            const res = await send("GET", `/api/event?${types}`, undefined, conn.signal, "text/event-stream")
+            let res: Response
+            try {
+              res = await subscribe(limited ? EVENT_TYPES : [...EVENT_TYPES, ...OPTIONAL_EVENT_TYPES], conn.signal)
+            } catch (err) {
+              // A 400 is the server not knowing a name in the filter, and it refuses the whole
+              // stream for it. Only the optional names can be new to it: go on without them,
+              // from now on. Anything else (the password, the network) is not about the filter.
+              if (limited || rec(err).status !== 400) throw err
+              limited = true
+              log("warn", `${host} does not send the events for summaries and undo (an older server?). Going on without them: those are read back instead.`, err instanceof Error ? err.message : err)
+              res = await subscribe(EVENT_TYPES, conn.signal)
+            }
             if (!res.body) throw new Error(`${host} doesn't answer like an OpenCode server`)
             open = true
             delay = timing.retryMin
@@ -1120,6 +1301,7 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
                 const type = str(rec(raw).type)
                 const id = str(rec(rec(raw).data).sessionID)
                 if (type && id && SUMMARY_EVENTS.has(type)) void refresh(id)
+                if (type && id && AFTER_SUMMARY.has(type) && summarising.delete(id)) emit({ type: "resync", session: id })
               },
               warn,
             )
