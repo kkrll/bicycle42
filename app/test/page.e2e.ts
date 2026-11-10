@@ -581,6 +581,7 @@ async function main() {
     await sleep(150)
     check("the class line edits the element's classes", (await js(`document.querySelector(${JSON.stringify(SECOND)}).className`)) === "card wide")
     const sheet = "/* ``` */\n.wide { outline: 2px solid rgb(255, 0, 0); }"
+    await clickPt(centre(await boxOf(part("t-gl")))) // the stylesheet is under the CSS side's "Global" tab
     await typeIn("free", sheet)
     await sleep(150)
     check("a rule typed in Stylesheet applies", (await css(SECOND, "outline-style")) === "solid")

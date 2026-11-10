@@ -86,7 +86,18 @@ const settle = async (f) => {
   await frames(f, 2);
 };
 const ui = (f, fn, arg) => f.evaluate(`(${fn})(document.querySelector("b42-review").shadowRoot, ${JSON.stringify(arg ?? null)})`);
-const field = (f, cls) => f.locator(`b42-review .${cls}`);
+/** One of the inspector's fields. The CSS side has two tabs (Element: classes and element styles;
+ *  Global: the stylesheet), so filling or clicking a field first brings its tab to the front. */
+const field = (f, cls) => {
+  const loc = f.locator(`b42-review .${cls}`);
+  const tab = cls === "free" ? "t-gl" : cls === "css" || cls === "cls" ? "t-el" : null;
+  const front = () => (tab ? ui(f, (r, t) => { const b = r.querySelector(`.${t}`); if (!b.classList.contains("on") && !b.disabled) b.click(); }, tab) : null);
+  return {
+    fill: async (v) => (await front(), loc.fill(v)),
+    click: async () => (await front(), loc.click()),
+    inputValue: () => loc.inputValue(),
+  };
+};
 const sentNotes = (page) => page.evaluate(() => window.__harness.notes.map(({ prompt, ...n }) => n));
 const waitNotes = (page, count) => page.waitForFunction((c) => window.__harness.notes.length >= c, count);
 const send = async (page, count = 1) => {
@@ -136,12 +147,13 @@ test("tree: a click on the page selects its row; rows select, expand and outline
   let s = await ui(f, (r) => ({
     on: r.querySelector(".trow.on")?.textContent,
     rows: [...r.querySelectorAll(".trow")].map((x) => x.textContent),
+    open: [...r.querySelectorAll(".trow")].filter((x) => x.querySelector(".tw.open")).map((x) => x.textContent),
     path: r.querySelector(".ipath").textContent,
   }));
   assert.equal(s.on, "h3Pro");
   assert.equal(s.path, "Heading · Pro");
-  assert.ok(s.rows.includes("▾section#plans.row"), `ancestors are open: ${s.rows}`);
-  assert.ok(!s.rows.some((x) => /^[▸▾]?(script|style|head|b42-review)([#.\s]|$)/.test(x)), "no script, style or overlay rows");
+  assert.ok(s.rows.includes("section#plans.row") && s.open.includes("section#plans.row"), `ancestors are open: ${s.rows} / ${s.open}`);
+  assert.ok(!s.rows.some((x) => /^(script|style|head|b42-review)([#.\s]|$)/.test(x)), "no script, style or overlay rows");
   // with the keyboard on the page: ↑ is the parent, ↓ the first child
   await page.keyboard.press("ArrowUp");
   await frames(f);
@@ -162,7 +174,7 @@ test("tree: a click on the page selects its row; rows select, expand and outline
   await page.keyboard.press("ArrowLeft");
   await page.keyboard.press("ArrowLeft");
   await frames(f);
-  assert.equal(await ui(f, (r) => r.querySelector(".trow.on").textContent), "▸section#grid.grid");
+  assert.deepEqual(await ui(f, (r) => [r.querySelector(".trow.on").textContent, r.querySelector(".trow.on .tw").className]), ["section#grid.grid", "tw shut"]);
   // hovering a row outlines its element on the page
   const row = await f.locator("b42-review .trow", { hasText: "header" }).first().boundingBox();
   await page.mouse.move(row.x + 60, row.y + 10);
@@ -293,9 +305,9 @@ test("computed list shows current values; a click copies the line into element s
   const { page, f } = await open();
   await clickAt(page, f, "#plans", 2, 2);
   await page.waitForTimeout(250);
-  const rows = await ui(f, (r) => [...r.querySelectorAll(".crow")].map((x) => `${x.firstChild.textContent}: ${x.lastChild.textContent}`));
+  const rows = await ui(f, (r) => [...r.querySelectorAll(".crow")].map((x) => `${x.firstChild.textContent}: ${x.lastChild.value}`));
   assert.ok(rows.includes("display: flex") && rows.includes("gap: 16px"), rows.join("; "));
-  await f.locator("b42-review .crow", { hasText: "gap" }).click();
+  await f.locator("b42-review .crow .cp", { hasText: "gap" }).click();
   assert.equal(await field(f, "css").inputValue(), "gap: 16px;");
   await page.close();
 });
@@ -742,7 +754,7 @@ test("limits: over-long text is marked, not applied and not sent; more than 40 e
   await page.close();
 });
 
-test("U1 the batch can be read: the count opens a list; rows select, ✕ removes one edit; the tree marks edited and hidden", async () => {
+test("U1 the batch can be read: the count opens a list; rows select, × removes one edit; the tree marks edited and hidden", async () => {
   const { page, f } = await open();
   await clickAt(page, f, SECOND, 100, 80);
   const b = await box(f, SECOND);
@@ -764,8 +776,8 @@ test("U1 the batch can be read: the count opens a list; rows select, ✕ removes
     ed: [...r.querySelectorAll(".trow.ed")].map((x) => x.textContent),
     struck: getComputedStyle(r.querySelector(".trow.hid .tt")).textDecorationLine,
   }));
-  assert.deepEqual(tree, { path: "Button · Start free trial · hidden", hid: ["button#cta.primaryStart free trial"], ed: ["▸article.card"], struck: "line-through" });
-  // ✕ takes that one edit away, and that is a step like any other
+  assert.deepEqual(tree, { path: "Button · Start free trial · hidden", hid: ["button#cta.primaryStart free trial"], ed: ["article.card"], struck: "line-through" });
+  // × takes that one edit away, and that is a step like any other
   await f.locator("b42-review .erow", { hasText: "hidden" }).locator(".ex").click();
   await settle(f);
   assert.notEqual(await style(f, "#cta", "display"), "none");
@@ -1008,6 +1020,7 @@ test("brush: on, a plain drag draws a stroke; off, it selects an area; alt+drag 
   assert.equal(await ui(f, (r) => r.querySelector(".what").textContent), "Button · Start free trial");
   await line(false);
   await page.keyboard.press(`${MOD}+z`);
+  await frames(f, 2);
   assert.equal(await ui(f, (r) => r.querySelectorAll(".strokes path").length), 0);
   await page.keyboard.press("Escape");
   assert.equal(await pressed(), "false");
@@ -1064,5 +1077,209 @@ test("the “?” is a bubble of its own in the corner: on the bar's row, its ke
   await page.keyboard.press("Enter");
   await waitNotes(page, 1);
   assert.equal(await ui(f, (r) => r.querySelector(".corner").hidden && r.querySelector(".bar").hidden), true);
+  await page.close();
+});
+
+// What the tree pane shows: every row slot between its top and bottom edge must hold a rendered,
+// non-empty row (no blank stretch), and the selected row must be among them.
+const treeFill = (f) =>
+  ui(f, (r) => {
+    const pane = r.querySelector(".tree").getBoundingClientRect();
+    const rows = [...r.querySelectorAll(".trow")].map((x) => ({ t: x.getBoundingClientRect().top, text: x.textContent, on: x.classList.contains("on") }));
+    const total = parseInt(r.querySelector(".tspace").style.height) / 20;
+    let blank = 0;
+    for (let y = pane.top + 10; y < pane.bottom - 10; y += 20) if (!rows.some((x) => x.text && y >= x.t && y < x.t + 20)) blank++;
+    const sel = rows.find((x) => x.on);
+    return { blank, total, selVisible: !!sel && sel.t >= pane.top && sel.t + 20 <= pane.bottom + 1, scrollTop: r.querySelector(".tree").scrollTop };
+  });
+
+test("tree: after a far-down element is selected from the page, the pane is full of rows without any scroll", async () => {
+  const { page, f } = await open();
+  // a long subtree, its last element deep and far down the tree
+  await f.evaluate(() => {
+    const d = document.createElement("div");
+    d.id = "deep";
+    d.style.cssText = "font-size:0;line-height:0";
+    for (let i = 0; i < 600; i++) d.appendChild(document.createElement("i")).textContent = "x";
+    let at = d;
+    for (let i = 0; i < 6; i++) at = at.appendChild(document.createElement("div"));
+    const p = at.appendChild(document.createElement("p"));
+    p.id = "far-down";
+    p.textContent = "target";
+    p.style.cssText = "font-size:14px;line-height:20px;margin:0";
+    document.body.prepend(d);
+  });
+  await page.waitForTimeout(350);
+  await clickAt(page, f, "#far-down");
+  await frames(f, 3);
+  let s = await treeFill(f);
+  assert.ok(s.total > 600, `the tree is long (${s.total} rows)`);
+  assert.deepEqual([s.blank, s.selVisible], [0, true], `selected from the page: ${JSON.stringify(s)}`);
+  assert.ok(s.scrollTop > 600 * 20 - 400, "the pane really scrolled down to it");
+  // a node above the viewport collapses and expands: still full
+  await page.keyboard.press("ArrowUp");
+  await frames(f, 3);
+  await f.locator("b42-review .tree").focus();
+  for (const k of ["ArrowLeft", "ArrowRight", "ArrowDown"]) {
+    await page.keyboard.press(k);
+    await frames(f, 3);
+    s = await treeFill(f);
+    assert.deepEqual([s.blank, s.selVisible], [0, true], `after ${k}: ${JSON.stringify(s)}`);
+  }
+  await clickAt(page, f, "#far-down");
+  // the dock resized, folded and opened again: still full, the selection still in view
+  const grip = await f.locator("b42-review .grip").boundingBox();
+  await page.mouse.move(grip.x + 300, grip.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + 300, grip.y - 120, { steps: 5 });
+  await page.mouse.up();
+  await frames(f, 3);
+  s = await treeFill(f);
+  assert.deepEqual([s.blank, s.selVisible], [0, true], `after resizing the dock: ${JSON.stringify(s)}`);
+  await f.locator("b42-review .ifold").click();
+  await frames(f, 3);
+  await f.locator("b42-review .ifold").click();
+  await frames(f, 3);
+  s = await treeFill(f);
+  assert.deepEqual([s.blank, s.selVisible], [0, true], `after folding and opening the dock: ${JSON.stringify(s)}`);
+  // leaving canvas mode and coming back
+  await f.locator("b42-review .m-notes").click();
+  await f.locator("b42-review .m-canvas").click();
+  await clickAt(page, f, "#far-down");
+  await frames(f, 3);
+  s = await treeFill(f);
+  assert.deepEqual([s.blank, s.selVisible], [0, true], `after leaving and re-entering canvas mode: ${JSON.stringify(s)}`);
+  // the DOM changes while scrolled: rows above go away, the pane stays full
+  await f.evaluate(() => { for (let i = 0; i < 300; i++) document.querySelector("#deep i").remove(); });
+  await page.waitForTimeout(400);
+  s = await treeFill(f);
+  assert.equal(s.blank, 0, `after a DOM change while scrolled: ${JSON.stringify(s)}`);
+  await page.close();
+});
+
+test("computed values are fields: a typed value goes into element styles; invalid is marked, Esc reverts, arrows move", async () => {
+  const { page, f } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  await page.waitForTimeout(250);
+  const val = (prop) => f.locator("b42-review .crow", { has: f.locator(".cp", { hasText: new RegExp(`^${prop}$`) }) }).locator(".cval");
+  const row = (prop) => ui(f, (r, p) => {
+    const x = [...r.querySelectorAll(".crow")].find((c) => c.firstChild.textContent === p);
+    return { value: x.lastChild.value, bad: x.lastChild.classList.contains("bad"), title: x.lastChild.title, mine: x.classList.contains("mine"), focus: r.activeElement === x.lastChild };
+  }, prop);
+  assert.match(await ui(f, (r) => r.querySelector(".p-el div.sec").textContent), /^Computed edit a value to add it to Element styles$/);
+  assert.deepEqual(await row("width"), { value: "200px", bad: false, title: "200px", mine: false, focus: false });
+  // Enter writes it
+  await val("width").fill("260px");
+  await page.keyboard.press("Enter");
+  await settle(f);
+  assert.equal(await field(f, "css").inputValue(), "width: 260px;");
+  assert.equal((await box(f, SECOND)).width, 260);
+  assert.equal(await page.evaluate(() => window.__harness.notes.length), 0, "Enter in a value does not send");
+  // …blur too, replacing the declaration that is there
+  await val("width").fill("300px");
+  await page.keyboard.press("Tab");
+  await settle(f);
+  assert.equal(await field(f, "css").inputValue(), "width: 300px;");
+  assert.equal((await row("height")).focus, true, "Tab goes to the next value");
+  await page.waitForTimeout(200);
+  assert.deepEqual([(await row("width")).value, (await row("width")).mine], ["300px", true]);
+  // a value the browser rejects is marked and not written; Esc puts the old one back
+  await val("width").fill("banana");
+  await page.keyboard.press("Enter");
+  assert.deepEqual(await row("width"), { value: "banana", bad: true, title: "invalid value for width: not written", mine: true, focus: true });
+  assert.equal(await field(f, "css").inputValue(), "width: 300px;");
+  await page.keyboard.press("Escape");
+  assert.deepEqual(await row("width"), { value: "300px", bad: false, title: "300px", mine: true, focus: false });
+  // ↓ ↑ move between the rows; alt+↑ nudges a number (shift: by 10)
+  await val("width").click();
+  await page.keyboard.press("ArrowDown");
+  assert.equal((await row("height")).focus, true);
+  await page.keyboard.press("ArrowUp");
+  assert.equal((await row("width")).focus, true);
+  await page.keyboard.press("Alt+ArrowUp");
+  await page.keyboard.press("Alt+Shift+ArrowUp");
+  await settle(f);
+  assert.equal(await field(f, "css").inputValue(), "width: 311px;");
+  // a second property is appended; the name still copies the line as it is
+  await val("border-radius").fill("20px");
+  await page.keyboard.press("Enter");
+  await f.locator("b42-review .crow .cp", { hasText: /^display$/ }).click();
+  await settle(f);
+  assert.equal(await field(f, "css").inputValue(), "width: 311px;\nborder-radius: 20px;\ndisplay: block;");
+  assert.equal(await f.evaluate(() => window.pageKeys), 0, "the page saw none of the typing");
+  // a long value is cut with an ellipsis, whole in its title
+  const ff = await ui(f, (r) => { const x = [...r.querySelectorAll(".crow")].find((c) => c.firstChild.textContent === "font-family").lastChild; return [x.title === x.value, getComputedStyle(x).textOverflow, x.getBoundingClientRect().right <= r.querySelector(".side").getBoundingClientRect().right]; });
+  assert.deepEqual(ff, [true, "ellipsis", true]);
+  // still one style edit for the element
+  await clickAt(page, f, "#title");
+  const n = await send(page);
+  assert.deepEqual([n.edits.length, n.edits[0].kind, n.edits[0].changes.map((c) => c.prop)], [1, "style", ["width", "border-radius", "display"]]);
+  await page.close();
+});
+
+test("Element | Global: the stylesheet has its own tab; nothing selected shows it; a chosen Global stays; a dot says it has rules", async () => {
+  const { page, f } = await open();
+  const tabs = () => ui(f, (r) => ({
+    on: r.querySelector(".tab.on").textContent, elOff: r.querySelector(".t-el").disabled, elTitle: r.querySelector(".t-el").title,
+    shown: [...r.querySelectorAll(".pane")].filter((p) => !p.hidden).map((p) => [...p.querySelectorAll(".sec")].map((x) => x.firstChild.textContent.trim()).join(",")).join("|"),
+    dot: !r.querySelector(".t-gl .dot").hidden,
+  }));
+  assert.deepEqual(await tabs(), { on: "Global", elOff: true, elTitle: "Select an element", shown: "Stylesheet", dot: false });
+  // the stylesheet box fills the pane
+  const fill = await ui(f, (r) => { const a = r.querySelector(".free").getBoundingClientRect(), p = r.querySelector(".p-gl").getBoundingClientRect(); return p.bottom - a.bottom < 24 && a.height > 150; });
+  assert.equal(fill, true);
+  // selecting an element shows Element
+  await clickAt(page, f, SECOND, 100, 80);
+  assert.deepEqual(await tabs(), { on: "Element", elOff: false, elTitle: "Classes, styles and computed values of the selection", shown: "Classes,Element styles,Computed", dot: false });
+  // Global, chosen by hand, stays through the next selection; rules in it show as a dot
+  await f.locator("b42-review .t-gl").click();
+  await f.locator("b42-review .free").fill(".tile { color: red; }");
+  await clickAt(page, f, "#title");
+  assert.deepEqual(await tabs(), { on: "Global", elOff: false, elTitle: "Classes, styles and computed values of the selection", shown: "Stylesheet", dot: true });
+  await f.locator("b42-review .t-el").click();
+  assert.deepEqual([(await tabs()).on, (await tabs()).dot], ["Element", true]);
+  // by keyboard: the switch takes focus, arrows and Enter work it, and Enter there does not send
+  await f.locator("b42-review .t-el").focus();
+  await page.keyboard.press("ArrowRight");
+  assert.equal((await tabs()).on, "Global");
+  await page.keyboard.press("ArrowLeft");
+  assert.equal((await tabs()).on, "Element");
+  await f.locator("b42-review .t-gl").focus();
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(200);
+  assert.deepEqual([(await tabs()).on, await page.evaluate(() => window.__harness.notes.length)], ["Global", 0]);
+  // the edits list's "Stylesheet" row opens Global and puts the caret in the box
+  await f.locator("b42-review .t-el").click();
+  await f.locator("b42-review .count").click();
+  await f.locator("b42-review .erow", { hasText: "Stylesheet" }).locator(".el").click();
+  assert.deepEqual([(await tabs()).on, await ui(f, (r) => r.activeElement?.className)], ["Global", "free"]);
+  // with the selection gone, Global again
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  assert.deepEqual([(await tabs()).on, (await tabs()).elOff], ["Global", true]);
+  await page.close();
+});
+
+test("icons are SVG: no glyph stands in for one, and what is clicked is at least 24px", async () => {
+  const { page, f } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  const b = await box(f, SECOND);
+  await drag(page, f, b.x + b.width, b.y + 30, b.x + b.width + 40, b.y + 30);
+  await f.locator("b42-review .count").click();
+  const seen = await ui(f, (r) => {
+    const size = (s) => { const q = r.querySelector(s).getBoundingClientRect(); return [Math.round(q.width), Math.round(q.height)]; };
+    const svg = (s) => !!r.querySelector(`${s} svg`) && getComputedStyle(r.querySelector(`${s} svg`)).stroke !== "none" && r.querySelector(`${s} svg`).getAttribute("viewBox") === "0 0 16 16";
+    const text = [".bar", ".insp", ".corner"].map((s) => r.querySelector(s).textContent).join(" ");
+    return {
+      svg: [".ifold", ".help", ".m-brush", ".trow .tw", ".ex", ".count"].filter((s) => !svg(s)),
+      glyphs: (text.match(/[▾▸▴▲▼◂✕✖×●•‹›❮❯?]/g) || []).join(""),
+      fold: size(".ifold"), ex: size(".ex"), help: size(".help"), twisty: size(".trow .tw"),
+      foldTitle: r.querySelector(".ifold").title,
+    };
+  });
+  assert.deepEqual(seen, { svg: [], glyphs: "", fold: [28, 24], ex: [24, 24], help: [36, 36], twisty: [16, 20], foldTitle: "Collapse the inspector" });
+  await f.locator("b42-review .ifold").click();
+  assert.deepEqual(await ui(f, (r) => [r.querySelector(".ifold").title, r.querySelector(".ifold svg path").getAttribute("d")]), ["Open the inspector", "m4 10 4-4 4 4"]);
   await page.close();
 });

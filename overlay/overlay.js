@@ -60,7 +60,7 @@
  * drag the space between flex/grid items changes the gap (mod: no snapping) · double-click edits
  * text · Delete hides · mod+Z / mod+shift+Z undo, redo · Enter sends (mod+Enter from the
  * inspector's fields) · Esc: leave the field, deselect, then back to notes.
- * The bar's count opens the list of edits in the batch (a row selects its element, ✕ removes that
+ * The bar's count opens the list of edits in the batch (a row selects its element, its × removes that
  * edit); "?" lists these keys. After sending, the bar says the preview stays until the note is done.
  * Previews never touch the page's inline styles: styles, order and hiding are rules in constructed
  * stylesheets; class and text edits write the DOM and are re-applied when a framework re-renders.
@@ -738,7 +738,10 @@
     const button = (text, title, run) => {
       const b = document.createElement("button");
       b.type = "button";
-      b.textContent = text;
+      if (ICONS[text]) {
+        b.innerHTML = icon(text);
+        b.setAttribute("aria-label", title);
+      } else b.textContent = text;
       b.title = title;
       b.addEventListener("click", () => bar._group && run(bar._group));
       return b;
@@ -747,7 +750,7 @@
     name.className = "vname";
     const keep = button("Keep", "Keep this variant and delete the others", keepVariant);
     keep.className = "vkeep";
-    bar.append(button("‹", "Previous variant", (g) => chooseVariant(g, -1)), name, button("›", "Next variant", (g) => chooseVariant(g, 1)), keep);
+    bar.append(button("chevron-left", "Previous variant", (g) => chooseVariant(g, -1)), name, button("chevron-right", "Next variant", (g) => chooseVariant(g, 1)), keep);
     return bar;
   }
 
@@ -888,6 +891,18 @@
   const SKIP = /^(SCRIPT|STYLE|HEAD|LINK|META|TITLE|NOSCRIPT|TEMPLATE|B42-REVIEW)$/;
   const COMPUTED = ["display", "flex-direction", "align-items", "justify-content", "gap", "width", "height", "padding", "margin",
     "font-family", "font-size", "font-weight", "line-height", "letter-spacing", "color", "background-color", "border-radius"];
+  // Every icon of the layer: inline SVG on a 16px grid, stroked in the text colour. No glyphs.
+  const ICONS = {
+    "chevron-down": '<path d="m4 6 4 4 4-4"/>',
+    "chevron-up": '<path d="m4 10 4-4 4 4"/>',
+    "chevron-right": '<path d="m6 4 4 4-4 4"/>',
+    "chevron-left": '<path d="m10 4-4 4 4 4"/>',
+    x: '<path d="m4 4 8 8M12 4l-8 8"/>',
+    help: '<circle cx="8" cy="8" r="6.2"/><path d="M6.2 6.2a1.9 1.9 0 0 1 3.7.6c0 1.2-1.8 1.5-1.8 2.7"/><path d="M8.1 11.7v.1"/>',
+    brush: '<path d="M8 9.3 13.6 3.3a1 1 0 0 0-1.5-1.4L6.6 8.2"/><path d="M6.2 8.2c1.4 0 2.6 1.1 2.6 2.5 0 1.8-1.7 3-3.6 3-1.4 0-2.6-.5-3.2-1.2 1-.3 1.5-1 1.6-2 .2-1.3 1.2-2.3 2.6-2.3z"/>',
+  };
+  const icon = (name, size = 16) =>
+    `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
   const newBatch = () => ({ els: {}, sheet: "", ops: [] });
   const EMPTY = JSON.stringify(newBatch());
   const C = {
@@ -1680,7 +1695,7 @@
     const count = $(".count");
     count.hidden = !C.on && !n;
     count.disabled = C.on && !n;
-    count.textContent = C.on ? (n ? `${n} edit${s}` : "No edits") : `${n} unsent canvas edit${s}`;
+    count.firstChild.textContent = C.on ? (n ? `${n} edit${s}` : "No edits") : `${n} unsent canvas edit${s}`;
     count.title = C.on ? (n ? "Show what is in this batch" : "Nothing edited yet") : "Back to canvas mode, where these edits can be sent";
     count.classList.toggle("open", C.pop === "list");
     for (const b of [$(".undo"), $(".reset"), $(".bsend")]) b.hidden = !C.on;
@@ -1814,14 +1829,21 @@
     else
       pop.replaceChildren(...rows.map((r) => {
         const row = el("div", "erow");
-        const x = el("button", "ex", "✕");
+        const x = el("button", "ex");
         x.type = "button";
+        x.innerHTML = icon("x", 12);
         x.title = "Remove this edit";
+        x.setAttribute("aria-label", "Remove this edit");
         row.append(el("span", "el", r.label), el("span", "et", `— ${r.text}`), x);
         row.title = `${r.label} — ${r.text}`;
         row.addEventListener("click", (e) => {
-          if (e.target === x) return removeEdit(r);
-          if (r.kind === "sheet") return freeEl.focus();
+          if (x.contains(e.target)) return removeEdit(r);
+          if (r.kind === "sheet") {
+            // The stylesheet is the batch's, not an element's: it lives under "Global".
+            C.pin = true;
+            syncFields();
+            return freeEl.focus();
+          }
           const target = elOf(r.rs);
           if (!target) return;
           select(target);
@@ -2339,24 +2361,61 @@
       } else e.stopImmediatePropagation(); // typing: the page's handlers never see it
       return;
     }
+    const val = f && f.classList.contains("cval") ? f : null; // a computed value being edited
+    const tab = f && f.classList.contains("tab") ? f : null;
     if (e.key === "Escape") {
       block(e);
       if (C.drag) cancelDrag();
       else if (C.pop) setPop(C.pop);
-      else if (field || f === treeEl) f.blur();
+      else if (val) {
+        val.value = val.parentElement._v; // back to what it was
+        unmarkValue(val.parentElement);
+        val.blur();
+      } else if (field || f === treeEl || tab) f.blur();
       else if (C.sel) select(null);
       else setCanvas(false);
       return;
     }
     if (e.key === "Enter" && !e.isComposing) {
       // In the inspector Enter is a new line (or, in the class line, "done"); mod+Enter sends.
-      if (area || f === clsEl ? mod(e) : !e.shiftKey) {
+      if (tab && !mod(e)) return void e.stopImmediatePropagation(); // the switch works as a button does
+      if (area || f === clsEl || val ? mod(e) : !e.shiftKey) {
         block(e);
+        if (val) setValue(val);
         submitCanvas(e.altKey);
       } else if (f === clsEl) {
         block(e);
         commit();
+      } else if (val) {
+        block(e);
+        setValue(val);
       } else e.stopImmediatePropagation();
+      return;
+    }
+    if (tab && (e.key === " " || e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      if (e.key === " ") return void e.stopImmediatePropagation();
+      block(e);
+      const other = insp.querySelector(e.key === "ArrowLeft" ? ".t-el" : ".t-gl");
+      if (!other.disabled) {
+        other.focus();
+        other.click();
+      }
+      return;
+    }
+    if (val && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      block(e);
+      const up = e.key === "ArrowUp";
+      if (e.altKey) {
+        // alt+↑/↓ nudges the first number of the value by 1 (with shift: 10) and writes it.
+        val.value = val.value.replace(/-?\d*\.?\d+/, (m) => String(Math.round((Number(m) + (up ? 1 : -1) * (e.shiftKey ? 10 : 1)) * 100) / 100));
+        setValue(val);
+      } else {
+        const row = up ? val.parentElement.previousElementSibling : val.parentElement.nextElementSibling;
+        if (row) {
+          row.lastChild.focus();
+          row.lastChild.select();
+        }
+      }
       return;
     }
     if (mod(e) && !e.altKey && e.key.toLowerCase() === "z") {
@@ -2423,10 +2482,10 @@
     buildRows();
     const i = T.rows.findIndex((r) => r.el === el);
     const h = treeHeight();
-    if (i >= 0 && (i * ROW < T.scroll || (i + 1) * ROW > T.scroll + h)) {
-      T.scroll = Math.max(0, i * ROW - Math.floor(h / 2 / ROW) * ROW);
-      treeEl.scrollTop = T.scroll;
-    }
+    // Where to scroll is only noted here. drawTree scrolls, after it has made the pane tall enough
+    // for the rows just opened: scrolling first is cut short at the old height by the browser, and
+    // the rows were then drawn for a place the pane never reached (a blank pane until touched).
+    if (i >= 0 && (i * ROW < T.scroll || (i + 1) * ROW > T.scroll + h)) T.want = Math.max(0, i * ROW - Math.floor(h / 2 / ROW) * ROW);
     T.need = true;
   }
   const treeHeight = () => Math.max(ROW, C.ph - 31);
@@ -2442,7 +2501,7 @@
   function makeRow() {
     const row = document.createElement("div");
     row.className = "trow";
-    row.innerHTML = '<span class="tw"></span><span class="tt"></span><span class="ti"></span><span class="tc"></span><span class="tx"></span>';
+    row.innerHTML = `<span class="tw none">${icon("chevron-right", 12)}</span><span class="tt"></span><span class="ti"></span><span class="tc"></span><span class="tx"></span>`;
     return row;
   }
 
@@ -2451,10 +2510,18 @@
     if (T.ver !== domVersion && (T.ver < 0 || performance.now() - T.at > 200)) buildRows();
     else if (!T.need) return;
     T.need = false;
-    const first = Math.max(0, Math.floor(T.scroll / ROW) - 2);
-    const n = Math.max(0, Math.min(T.rows.length - first, Math.ceil(treeHeight() / ROW) + 4));
+    // The pane's height first, then the scroll, then the window of rows: in that order the
+    // window is always the one the pane shows.
     const total = `${T.rows.length * ROW}px`;
     if (tspace.style.height !== total) tspace.style.height = total;
+    if (T.want != null) {
+      treeEl.scrollTop = T.want;
+      T.scroll = treeEl.scrollTop; // what the browser made of it
+      T.want = null;
+    }
+    T.scroll = Math.min(T.scroll, Math.max(0, T.rows.length * ROW - ROW)); // the list got shorter under us
+    const first = Math.max(0, Math.floor(T.scroll / ROW) - 2);
+    const n = Math.max(0, Math.min(T.rows.length - first, Math.ceil(treeHeight() / ROW) + 4));
     if (T.first !== first) trows.style.transform = `translateY(${(T.first = first) * ROW}px)`;
     const els = pool(trows, n, makeRow);
     for (let i = 0; i < n; i++) {
@@ -2473,14 +2540,15 @@
       for (let c = el.firstChild, k = 0; c && k < 12 && words.length < 40; c = c.nextSibling, k++) if (c.nodeType === 3) words += c.data;
       words = line(words);
       const parts = [
-        hasKids(el) ? (T.open.has(el) ? "▾" : "▸") : "",
+        hasKids(el) ? (T.open.has(el) ? "open" : "shut") : "none",
         el.localName,
         el.id ? `#${el.id}` : "",
         names ? `.${names.split(/\s+/).slice(0, 4).join(".")}`.slice(0, 60) : "",
         words.length > 40 ? `${words.slice(0, 39)}…` : words,
       ];
       const shown = row._parts || (row._parts = []);
-      for (let k = 0; k < 5; k++) if (shown[k] !== parts[k]) row.children[k].textContent = shown[k] = parts[k];
+      if (shown[0] !== parts[0]) row.firstChild.className = `tw ${(shown[0] = parts[0])}`; // the twisty is an icon, turned by its class
+      for (let k = 1; k < 5; k++) if (shown[k] !== parts[k]) row.children[k].textContent = shown[k] = parts[k];
     }
   }
 
@@ -2517,6 +2585,8 @@
     if (clsEl.placeholder !== hint) clsEl.placeholder = hint;
     const name = el ? `${line(plainLabel(el))}${C.marks.get(el)?.includes("hid") ? " · hidden" : ""}` : "Nothing selected";
     if (ipath.textContent !== name) ipath.textContent = name;
+    if (force) for (const row of compEl.children) unmarkValue(row);
+    drawTabs();
     markAll();
     C.compKey = "";
     if (C.pop === "list" && !C.inPop) {
@@ -2574,7 +2644,10 @@
       field.setSelectionRange(at, at);
     }
     const B = C.draft.B;
-    if (field === freeEl) B.sheet = v;
+    if (field === freeEl) {
+      B.sheet = v;
+      drawTabs();
+    }
     else if (!C.sel) return;
     else if (field === cssEl) entry(C.sel).css = v;
     else {
@@ -2627,28 +2700,102 @@
     const rows = pool(compEl, list.length, () => {
       const row = document.createElement("div");
       row.className = "crow";
-      row.title = "Copy into Element styles";
-      row.innerHTML = '<span class="cp"></span><span class="cval"></span>';
+      // The name copies the line into Element styles; the value is a field that writes it there.
+      // (Tab goes from value to value: the names are out of the tab order.)
+      row.innerHTML = '<button type="button" class="cp" tabindex="-1" title="Copy into Element styles"></button><input class="cval" type="text" spellcheck="false" autocomplete="off">';
       return row;
     });
+    const focused = root.activeElement;
     list.forEach((p, i) => {
-      const row = rows[i];
+      const row = rows[i], field = row.lastChild;
       const v = pretty(cs.getPropertyValue(p));
       // In the accent colour: what this batch has changed on this element.
       const changed = mine.some((m) => m === p || m.startsWith(`${p}-`) || p.startsWith(`${m}-`));
-      if (row._p !== p) row.firstChild.textContent = row._p = p;
-      if (row._v !== v) row.lastChild.textContent = row._v = v;
+      if (row._p !== p) {
+        row.firstChild.textContent = row._p = p;
+        field.setAttribute("aria-label", p);
+      }
+      row._v = v;
+      // A value being typed, or one marked as rejected, is the reviewer's: it is left alone.
+      if (field !== focused && !row._bad && field.value !== v) field.value = field.title = v;
       if (row._m !== changed) row.classList.toggle("mine", (row._m = changed));
     });
   }
 
+  const unmarkValue = (row) => {
+    if (!row._bad) return;
+    row._bad = false;
+    row.lastChild.classList.remove("bad");
+    row.lastChild.title = row._v || "";
+  };
+
+  /** A computed value was edited: write `prop: value;` into Element styles (the way a drag does),
+   *  unless the browser would not take it; then it is marked, like rejected CSS, and not written. */
+  function setValue(field) {
+    const row = field.parentElement, p = row._p, v = line(clean(field.value));
+    if (!C.sel || !p) return;
+    if (!v || v === row._v) {
+      field.value = row._v;
+      return unmarkValue(row);
+    }
+    if (!supports(p, v)) {
+      row._bad = true;
+      field.classList.add("bad");
+      field.title = `invalid value for ${p}: not written`;
+      return;
+    }
+    unmarkValue(row);
+    const en = entry(C.sel);
+    const css = setDecl(en.css, p, v);
+    const full = css.length > MAX_CSS;
+    if (!full) en.css = css;
+    commit();
+    syncFields(true);
+    if (full) flash("This element's styles are full: shorten them first");
+  }
+
+  /** Element | Global: the selection's own styles, or the batch's stylesheet. Without a selection
+   *  there is only Global; with one it is Element, unless the reviewer chose Global themselves. */
+  function drawTabs() {
+    const el = C.sel && C.sel.isConnected ? C.sel : null;
+    const global = !el || C.pin;
+    const tEl = insp.querySelector(".t-el"), tGl = insp.querySelector(".t-gl");
+    const key = `${!!el}|${global}|${!!C.draft.B.sheet.trim()}`;
+    if (key === tEl._key) return;
+    tEl._key = key;
+    tEl.disabled = !el;
+    tEl.title = el ? "Classes, styles and computed values of the selection" : "Select an element";
+    tEl.classList.toggle("on", !global);
+    tGl.classList.toggle("on", global);
+    tEl.setAttribute("aria-selected", String(!global));
+    tGl.setAttribute("aria-selected", String(global));
+    insp.querySelector(".p-el").hidden = global;
+    insp.querySelector(".p-gl").hidden = !global;
+    tGl.querySelector(".dot").hidden = !C.draft.B.sheet.trim(); // rules are waiting in there
+  }
+
   function setPanel(h, collapsed, settled = true) {
+    const opened = C.collapsed && !collapsed;
     C.ph = Math.round(Math.min(Math.max(h, 140), Math.max(140, window.innerHeight * 0.7)));
     C.collapsed = collapsed;
     insp.style.height = `${dock()}px`;
     insp.classList.toggle("shut", collapsed);
-    insp.querySelector(".ifold").textContent = collapsed ? "▴" : "▾";
-    insp.querySelector(".ifold").title = collapsed ? "Open the inspector" : "Collapse the inspector";
+    const fold = insp.querySelector(".ifold");
+    if (fold._shut !== collapsed) {
+      fold._shut = collapsed;
+      fold.innerHTML = icon(collapsed ? "chevron-up" : "chevron-down");
+      fold.title = collapsed ? "Open the inspector" : "Collapse the inspector";
+      fold.setAttribute("aria-label", fold.title);
+    }
+    // Folded, the tree is not displayed and loses its scroll: opened again, the selection is
+    // brought back into view (or the old place, with nothing selected).
+    if (opened) {
+      T.want = T.scroll;
+      if (C.sel) {
+        T.scroll = -1e9;
+        reveal(C.sel);
+      }
+    }
     T.need = true;
     if (settled) syncUi(); // the page's scroll room follows when the drag is over, not during it
     drawBar();
@@ -2707,9 +2854,18 @@
       f.addEventListener("focus", drawBar); // the send hint names the key that sends from here
     }
     for (const a of [cssEl, freeEl]) a.addEventListener("scroll", () => (a.previousElementSibling.scrollTop = a.scrollTop), { passive: true });
+    for (const [cls, pin] of [[".t-el", false], [".t-gl", true]])
+      insp.querySelector(cls).addEventListener("click", (e) => {
+        C.pin = pin;
+        drawTabs();
+        if (e.detail) e.currentTarget.blur(); // by mouse: the keyboard stays with the page (Enter sends)
+      });
+    compEl.addEventListener("input", (e) => unmarkValue(e.target.parentElement));
+    // (blur does not bubble; it is caught on the way down)
+    compEl.addEventListener("blur", (e) => e.target.classList && e.target.classList.contains("cval") && setValue(e.target), true);
     compEl.addEventListener("click", (e) => {
       const row = e.target.closest(".crow");
-      if (!row || !C.sel) return;
+      if (!row || !C.sel || !e.target.classList.contains("cp")) return;
       const en = entry(C.sel);
       const css = setDecl(en.css, row._p, row._v);
       if (css.length <= MAX_CSS) en.css = css;
@@ -2726,12 +2882,12 @@
     trows.addEventListener("click", (e) => {
       const row = e.target.closest(".trow");
       if (!row || !row._el) return;
-      if (e.target.classList.contains("tw")) toggleRow(row._el);
+      if (e.target.closest(".tw")) toggleRow(row._el);
       else if (row._el !== C.sel) select(row._el);
     });
     trows.addEventListener("dblclick", (e) => {
       const row = e.target.closest(".trow");
-      if (row && row._el && !e.target.classList.contains("tw")) toggleRow(row._el);
+      if (row && row._el && !e.target.closest(".tw")) toggleRow(row._el);
     });
     // mousemove, not mouseover: it comes after the pointermove that says "the pointer left the page".
     trows.addEventListener("mousemove", (e) => {
@@ -2822,6 +2978,7 @@
     if (!C.drawn) {
       cv.hidden = false;
       C.drawn = T.need = true;
+      T.want = T.scroll; // a pane that was not displayed has lost its scroll: put it back
     }
     const d = C.drag, now = performance.now();
     if (d && d.mode === "start") startDrag(d);
@@ -3368,7 +3525,8 @@
     .chip { all: unset; display: inline-block; margin: 0 2px 4px; padding: 1px 8px; border-radius: 6px; cursor: pointer;
       background: rgba(255, 250, 160, 0.16); color: #fffaa0; font: 500 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
     .chip[hidden], .menu[hidden] { display: none; }
-    .chip:hover::after { content: " ×"; }
+    .chip:hover::after { content: ""; display: inline-block; width: 9px; height: 9px; margin-left: 6px; background: currentColor;
+      mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m3 3 10 10M13 3 3 13'/%3E%3C/svg%3E") center / contain no-repeat; }
     .chip:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
     .menu { margin: 6px -4px -2px; padding-top: 6px; border-top: 1px solid rgba(255, 255, 255, 0.1); max-height: 216px; overflow: auto; }
     .opt { display: flex; align-items: baseline; gap: 10px; padding: 5px 8px; border-radius: 6px; cursor: pointer; }
@@ -3380,8 +3538,8 @@
     .ref { all: unset; position: relative; width: 56px; height: 56px; border-radius: 6px; overflow: hidden; cursor: pointer;
       box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.16); }
     .ref img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .ref:hover::after, .ref:focus-visible::after { content: "×"; position: absolute; inset: 0; display: grid; place-items: center;
-      background: rgba(17, 24, 39, 0.7); color: #f9fafb; font-size: 20px; }
+    .ref:hover::after, .ref:focus-visible::after { content: ""; position: absolute; inset: 0;
+      background: rgba(17, 24, 39, 0.7) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23f9fafb' stroke-width='1.4' stroke-linecap='round'%3E%3Cpath d='m4 4 8 8M12 4l-8 8'/%3E%3C/svg%3E") center / 20px no-repeat; }
     .ref:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
     /* canvas mode: on-page marks */
     [hidden] { display: none !important; }
@@ -3429,7 +3587,8 @@
     .seg button:focus-visible, .act:focus-visible, .ifold:focus-visible, .count:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
     .count { flex: none; padding: 0 8px; color: #fffaa0; font-weight: 600; font-variant-numeric: tabular-nums; }
     .bar.canvas .count { min-width: 66px; text-align: center; }
-    .bar.canvas .count:not(:disabled)::after { content: " ▴"; font-size: 9px; }
+    .count .ic { display: none; margin-left: 3px; vertical-align: -1px; }
+    .bar.canvas .count:not(:disabled) .ic { display: inline-block; }
     /* The bar sits between the brush (left) and the "?" (corner): 44px more room on its left makes
        the brush and the bar centre as a pair. Where that does not fit, the bar gives way, not the "?". */
     @media (max-width: 740px) { .bar { left: 52px; max-width: calc(100vw - 108px); } }
@@ -3455,7 +3614,7 @@
     .erow:hover { background: rgba(255, 255, 255, 0.08); }
     .erow .el { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fffaa0; font-weight: 500; }
     .erow .et { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d4d4d4; }
-    .ex { all: unset; flex: none; width: 20px; height: 20px; border-radius: 4px; text-align: center; line-height: 20px; color: #9ca3af; cursor: pointer; }
+    .ex { all: unset; flex: none; display: grid; place-items: center; width: 24px; height: 24px; margin: -2px 0; align-self: center; border-radius: 4px; color: #9ca3af; cursor: pointer; }
     .ex:hover { background: rgba(248, 113, 113, 0.2); color: #f87171; }
     .ex:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
     .hk { flex: 0 0 190px; color: #ededed; }
@@ -3472,7 +3631,7 @@
     .insp.shut .ihead { border-bottom: 0; }
     .ititle { font-weight: 600; }
     .ipath { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fffaa0; }
-    .ifold { flex: none; min-width: 24px; padding: 0 8px; text-align: center; }
+    .ifold { flex: none; display: grid; place-items: center; width: 28px; height: 24px; padding: 0; }
     .ibody { flex: 1; min-height: 0; display: flex; }
     .insp.shut .ibody { display: none; }
     .tree { flex: 0 0 44%; min-width: 0; overflow: auto; outline: none; border-right: 1px solid rgba(255, 255, 255, 0.1);
@@ -3483,13 +3642,29 @@
     .trow.hov { background: rgba(255, 255, 255, 0.06); }
     .trow.on { background: rgba(255, 250, 160, 0.2); box-shadow: inset 2px 0 0 #fffaa0; }
     /* Edited in a batch: a small dot. Hidden by one: struck through and dimmed, still selectable. */
-    .trow.ed::after { content: "●"; margin-left: 8px; color: #fffaa0; font-size: 8px; vertical-align: 1px; }
+    .trow.ed::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 8px; border-radius: 50%; background: #fffaa0; vertical-align: 1px; }
     .trow.hid .tt, .trow.hid .ti, .trow.hid .tc { text-decoration: line-through; opacity: 0.5; }
     .trow.hid .tx { opacity: 0.5; }
-    .tw { display: inline-block; width: 16px; color: #9ca3af; text-align: center; cursor: pointer; }
+    .tw { display: inline-grid; place-items: center; width: 16px; height: 20px; vertical-align: top; color: #9ca3af; cursor: pointer; }
+    .tw.open .ic { rotate: 90deg; }
+    .tw.none { visibility: hidden; }
     .tt { color: #ededed; } .ti { color: #fffaa0; } .tc { color: #9ca3af; }
     .tx { margin-left: 8px; color: #6f7684; font-style: italic; }
-    .side { flex: 1; min-width: 0; overflow: auto; padding: 4px 12px 14px; }
+    .side { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    /* Element: the selection's classes, styles and computed values. Global: the batch's stylesheet. */
+    .tabs { flex: none; display: flex; gap: 2px; width: max-content; margin: 8px 12px 0; padding: 2px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); }
+    .tab { all: unset; box-sizing: border-box; height: 22px; padding: 0 10px; border-radius: 5px; color: #b4b4b4; font-size: 12px; line-height: 22px; cursor: pointer; }
+    .tab:hover { color: #fff; }
+    .tab.on { background: rgba(255, 255, 255, 0.14); color: #fff; }
+    .tab:disabled { color: #6b6b6b; cursor: default; }
+    .tab:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
+    .dot { display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: #fffaa0; vertical-align: 1px; }
+    .pane { flex: 1; min-height: 0; overflow: auto; padding: 0 12px 14px; }
+    .p-gl { display: flex; flex-direction: column; }
+    .p-gl .sec { flex: none; }
+    .p-gl .ed { flex: 1; min-height: 60px; }
+    .p-gl .ed textarea { height: 100%; max-height: none; field-sizing: fixed; }
+    .p-gl .err { flex: none; }
     .sec { display: block; margin: 10px 0 4px; color: #d4d4d4; font-size: 12px; font-weight: 600; }
     .sec i { margin-left: 6px; color: #8b8b8b; font-style: normal; font-weight: 400; }
     .cls, .ed textarea, .hl { box-sizing: border-box; width: 100%; margin: 0; padding: 5px 8px; border: 0; border-radius: 6px;
@@ -3506,11 +3681,17 @@
     .hl { position: absolute; inset: 0; overflow: hidden; color: transparent; white-space: pre-wrap; overflow-wrap: anywhere; pointer-events: none; }
     .hl u { text-decoration: underline wavy #f87171; text-decoration-skip-ink: none; }
     .err { margin: 4px 2px 0; color: #f87171; font-size: 12px; overflow-wrap: anywhere; }
-    .crow { display: flex; gap: 10px; padding: 1px 8px; border-radius: 4px; cursor: pointer; font: 12px/18px ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace; }
-    .crow:hover { background: rgba(255, 255, 255, 0.08); }
-    .cp { flex: 0 0 116px; color: #9ca3af; }
+    .crow { display: flex; gap: 10px; align-items: center; height: 20px; padding: 0 8px; border-radius: 4px; font: 12px/18px ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace; }
+    .crow:hover { background: rgba(255, 255, 255, 0.06); }
+    .cp { all: unset; flex: 0 0 116px; color: #9ca3af; font: inherit; cursor: pointer; }
+    .cp:hover { color: #fff; }
+    /* A value reads as text until it is pointed at or focused: then it is a field. */
+    .cval { all: unset; flex: 1; min-width: 0; height: 18px; box-sizing: border-box; padding: 0 4px; margin-left: -4px; border-radius: 4px; color: #ededed; font: inherit;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
+    .cval:hover { background: rgba(255, 255, 255, 0.08); }
+    .cval:focus { background: rgba(255, 255, 255, 0.1); box-shadow: 0 0 0 1.5px rgba(255, 250, 160, 0.7); text-overflow: clip; }
+    .cval.bad { text-decoration: underline wavy #f87171; text-decoration-skip-ink: none; box-shadow: 0 0 0 1.5px #f87171; }
     .crow.mine .cp, .crow.mine .cval { color: #fffaa0; }
-    .cval { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   `;
 
   // The layer has to be the topmost thing on the page and has to take typing, whatever the page
@@ -3564,22 +3745,27 @@
         <div class="ihead"><span class="ititle">Inspector</span><span class="ipath"></span><button type="button" class="ifold"></button></div>
         <div class="ibody"><div class="tree" tabindex="0" role="tree" aria-label="Page elements"><div class="tspace"><div class="trows"></div></div></div>
           <div class="side">
-            <label class="sec" for="b42-cls">Classes</label>
-            <input id="b42-cls" class="cls" type="text" spellcheck="false" autocomplete="off" placeholder="Select an element to edit its classes">
-            <label class="sec" for="b42-css">Element styles <i>only this element · & nests</i></label>
-            <div class="ed"><pre class="hl" aria-hidden="true"></pre><textarea id="b42-css" class="css" spellcheck="false" placeholder="Type CSS for this element, e.g. padding: 20px"></textarea></div><div class="err" hidden></div>
-            <label class="sec" for="b42-free">Stylesheet <i>new rules, sent with this batch</i></label>
-            <div class="ed"><pre class="hl" aria-hidden="true"></pre><textarea id="b42-free" class="free" spellcheck="false" placeholder="New rules, e.g. .name { … }"></textarea></div><div class="err" hidden></div>
-            <div class="sec">Computed <i>click a line to copy it into Element styles</i></div>
-            <div class="comp"></div>
+            <div class="tabs" role="tablist" aria-label="What the styles are for"><button type="button" role="tab" class="tab t-el">Element</button><button type="button" role="tab" class="tab t-gl" title="New rules for the page, sent with this batch">Global<i class="dot" hidden></i></button></div>
+            <div class="pane p-el" role="tabpanel" hidden>
+              <label class="sec" for="b42-cls">Classes</label>
+              <input id="b42-cls" class="cls" type="text" spellcheck="false" autocomplete="off" placeholder="Select an element to edit its classes">
+              <label class="sec" for="b42-css">Element styles <i>only this element · & nests</i></label>
+              <div class="ed"><pre class="hl" aria-hidden="true"></pre><textarea id="b42-css" class="css" spellcheck="false" placeholder="Type CSS for this element, e.g. padding: 20px"></textarea></div><div class="err" hidden></div>
+              <div class="sec">Computed <i>edit a value to add it to Element styles</i></div>
+              <div class="comp"></div>
+            </div>
+            <div class="pane p-gl" role="tabpanel">
+              <label class="sec" for="b42-free">Stylesheet <i>new rules, sent with this batch</i></label>
+              <div class="ed"><pre class="hl" aria-hidden="true"></pre><textarea id="b42-free" class="free" spellcheck="false" placeholder="New rules, e.g. .name { … }"></textarea></div><div class="err" hidden></div>
+            </div>
           </div></div></div>
-      <div class="bar" hidden><button type="button" class="m-brush" aria-label="Draw on the page" aria-pressed="false" title="Draw on the page · or hold ${isMac ? "⌥" : "alt"} and drag"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 9.3 13.6 3.3a1 1 0 0 0-1.5-1.4L6.6 8.2"/><path d="M6.2 8.2c1.4 0 2.6 1.1 2.6 2.5 0 1.8-1.7 3-3.6 3-1.4 0-2.6-.5-3.2-1.2 1-.3 1.5-1 1.6-2 .2-1.3 1.2-2.3 2.6-2.3z"/></svg></button><div class="pop" hidden></div>
+      <div class="bar" hidden><button type="button" class="m-brush" aria-label="Draw on the page" aria-pressed="false" title="Draw on the page · or hold ${isMac ? "⌥" : "alt"} and drag">${icon("brush")}</button><div class="pop" hidden></div>
         <div class="seg"><button type="button" class="m-notes on" title="Notes: point at something and say what to change">Notes</button><button type="button" class="m-canvas" title="Canvas: edit the page itself (${isMac ? "⌘" : "ctrl+"}E)">Canvas</button></div>
-        <button type="button" class="count" hidden></button>
+        <button type="button" class="count" hidden><span class="cn"></span>${icon("chevron-up", 12)}</button>
         <button type="button" class="act undo" title="Undo (${isMac ? "⌘" : "ctrl+"}Z)" hidden>Undo</button><button type="button" class="act reset" title="Remove every unsent edit (undoable)" hidden>Reset</button>
         <input class="cnote" type="text" spellcheck="false" autocomplete="off" placeholder="Add a note (optional)" hidden><span class="bmsg" hidden></span>
         <span class="bsend" hidden></span></div>
-      <div class="corner" hidden><div class="pop" hidden></div><button type="button" class="help" title="Keys and gestures" aria-label="Keys and gestures">?</button></div>`;
+      <div class="corner" hidden><div class="pop" hidden></div><button type="button" class="help" title="Keys and gestures" aria-label="Keys and gestures">${icon("help")}</button></div>`;
     ink = root.querySelector(".ink");
     strokesEl = ink.querySelector(".strokes");
     pencil = ink.querySelector("#b42-pencil");
