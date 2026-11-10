@@ -497,7 +497,7 @@ export function App() {
           </Show>
           <Show when={state.page.url === ""}>
             <div class="page-empty">
-              <SetupSteps at={3} />
+              <SetupSteps at={2} />
               <p class="chat-empty-lead">Open your running site.</p>
               <p>
                 Type its address above and press Enter. The page opens here, and you review it by clicking on it.

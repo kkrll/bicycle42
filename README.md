@@ -34,11 +34,10 @@ its own name and icon. It is not signed with a developer certificate, and there 
    **Use this computer**. (`opencode service start` starts one.) For a server on another machine,
    enter its address and password: `opencode service status` there shows the address (the
    `https://….opentunnel.xyz` one works from anywhere) and `~/.config/opencode/service.json`
-   holds the password.
-2. **Choose a model**, if the server offers more than one: the one new conversations start
-   with. It can be changed any time under the chat box, or under the server button.
-3. **Type your dev URL** in the top bar, for example `localhost:3000`.
-4. **Pick the site's folder** on the server, once per site.
+   holds the password. If the server offers more than one model, you then choose the one new
+   conversations start with; it can be changed any time under the chat box.
+2. **Type your dev URL** in the top bar, for example `localhost:3000`.
+3. **Pick the site's folder** on the server, once per site.
 
 After that, the app reopens the last page with its notes and conversation.
 

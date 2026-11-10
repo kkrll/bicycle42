@@ -24,13 +24,13 @@ export function connectionText(c: ConnectionState): string {
   }
 }
 
-/** The way in, the same line on all four first-run steps: connect, choose a model, open the
- *  site, pick its code folder. `at` is the step the reviewer is on. (The model step is skipped
- *  when the server leaves nothing to choose.) */
-export function SetupSteps(props: { at: 1 | 2 | 3 | 4 }) {
-  const names = ["Connect", "Model", "Site", "Folder"]
+/** The way in, the same line on every first-run screen: connect, open the site, pick its code
+ *  folder. `at` is the step the reviewer is on. Choosing a model belongs to connecting: its
+ *  screen shows step 1 as still current. */
+export function SetupSteps(props: { at: 1 | 2 | 3 }) {
+  const names = ["Connect", "Site", "Folder"]
   return (
-    <ol class="setup-steps" aria-label={`Setup, step ${props.at} of 4`}>
+    <ol class="setup-steps" aria-label={`Setup, step ${props.at} of 3`}>
       <For each={names}>
         {(name, i) => {
           const n = i() + 1
@@ -338,7 +338,7 @@ export function ModelScreen() {
   return (
     <div class="connect-screen">
       <div class="connect-card">
-        <SetupSteps at={2} />
+        <SetupSteps at={1} />
         <h1>Choose a model</h1>
         <p class="connect-lead">
           New conversations start with it. You can change it any time under the chat box.

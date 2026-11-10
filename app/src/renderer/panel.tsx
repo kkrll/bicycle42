@@ -395,7 +395,7 @@ function FolderPicker(props: { onCancel?: () => void; onDone?: () => void }) {
     <section class="folder" aria-label="Choose the site's code folder">
       <div class="folder-head">
         <Show when={!props.onCancel}>
-          <SetupSteps at={4} />
+          <SetupSteps at={3} />
         </Show>
         <h2>Where is this site's code?</h2>
         <p class="folder-lead">
@@ -633,7 +633,7 @@ export function Panel(props: {
             when={state.connection.status === "online"}
             fallback={
               <div class="panel-empty">
-                <SetupSteps at={4} />
+                <SetupSteps at={3} />
                 <p class="chat-empty-lead">Choose where this site's code lives.</p>
                 <p>You can pick the folder as soon as the server is reachable again.</p>
               </div>
