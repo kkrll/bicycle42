@@ -25,7 +25,8 @@ bun install          # or: npm install
 bun run start        # or: npm start. Builds, then opens the app
 ```
 
-It runs from source; there is no packaged build yet.
+`bun run pack` (or `npm run pack`) builds a real app for this computer in `app/release/`, with
+its own name and icon. It is not signed with a developer certificate, and there are no installers yet.
 
 ## First launch
 
@@ -72,7 +73,7 @@ a skill or a helper agent.
 
 ## Not built yet
 
-- Packaging and installers.
+- Signed builds and installers.
 - Tabs and device widths.
 - Before and after pictures of what the agent changed, and taking back one note
   (`/undo` takes back the last message and everything after it).

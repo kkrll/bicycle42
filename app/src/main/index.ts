@@ -55,8 +55,9 @@ const log = (level: Level, msg: string, data?: unknown) =>
 /** Errors meant for the person at the screen; anything else gets a generic prefix. */
 const say = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
-// Tests point the app at a scratch profile.
-if (process.env.BICYCLE42_DATA) app.setPath("userData", process.env.BICYCLE42_DATA)
+// Tests point the app at a scratch profile. Otherwise the folder is named here, so the packaged
+// app ("bicycle 42") and a run from source keep their settings and notes in the same place.
+app.setPath("userData", process.env.BICYCLE42_DATA || path.join(app.getPath("appData"), "bicycle42"))
 
 const store = createStore(app.getPath("userData"), { log })
 

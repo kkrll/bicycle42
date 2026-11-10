@@ -136,4 +136,4 @@ on its pin and in the chat. A note may be new CSS rules and nothing else.
 - Pending permission requests of the background conversation are only seen live, not after a reconnect.
 - The overlay shares the page's script world. The Enter check stops forged notes, but a hostile
   page could still read or alter the overlay; the full fix is running it in an isolated world.
-- Packaging. It runs from source.
+- Signed builds and installers. `npm run pack` makes an unsigned app for this computer.
