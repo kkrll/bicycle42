@@ -70,6 +70,13 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
 - **The overlay sits in the browser's top layer** (it is a popover), so a site's own dialogs and
   menus can't cover it, and it moves inside an open modal dialog, the only place typing still
   works while one is open.
+- **The model new conversations start with is the person's choice**, saved in `settings.json`
+  (`defaultModel`). Main asks for it once (`AppState.modelChoice`, answered by
+  `setDefaultModel`) when a server lists several models and none is saved, or the saved one has
+  left its list, and makes no new conversation until it has the answer. One model is saved
+  without asking; no models, or a list that cannot be read, asks nothing and leaves the choice
+  to the server. The picker under the chat box changes the open conversation and the default
+  together; the server dialog's "Default model" changes only the default.
 - **The backend is one interface** (`Backend` in `types.ts`). OpenCode implements it; an ACP
   backend could later without touching the rest.
 - **The app's own slash commands live in main** (`BUILTINS` in `index.ts`). The window asks

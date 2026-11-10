@@ -883,3 +883,117 @@ test("an older server without the events for summaries: the app still connects, 
     await h.close()
   }
 })
+
+// ── the model new conversations start with ───────────────────────────────────────────────────────
+
+const model = (providerID: string, id: string, images = true, variants: string[] = []) => ({ providerID, id, name: id, capabilities: { input: images ? ["text", "image"] : ["text"] }, variants: variants.map((v) => ({ id: v })), enabled: true, status: "active" })
+const THREE = [model("local", "text-only", false), model("acme", "vision", true, ["low", "high"]), model("acme", "vision-mini")]
+async function withModels(list: unknown[] | FakeReply, settings: Record<string, unknown> = {}) {
+  const fake = await fakeOpenCode()
+  fake.server.route("GET", "/api/model", Array.isArray(list) ? { json: { data: list } } : list)
+  const h = await boot({ server: fake, settings: { ...savedSite(), ...settings } })
+  await h.cmd("connect", { url: h.server.url, password: h.server.password })
+  const created = () => h.server.requests.filter((r) => r.method === "POST" && r.path === "/api/session").map((r) => (r.body as { model?: unknown }).model)
+  return { h, created }
+}
+
+test("first launch on a server with several models: the app asks, makes no conversation meanwhile, and the first one starts on the answer", async () => {
+  const { h, created } = await withModels(THREE)
+  try {
+    await until(() => !!h.snap().modelChoice)
+    assert.deepEqual(h.snap().modelChoice, { suggested: { providerID: "acme", id: "vision" } }, "the first that takes screenshots is offered")
+    await sleep(100)
+    assert.equal(h.snap().session, null)
+    assert.deepEqual(created(), [], "no conversation on a model nobody chose")
+
+    await assert.rejects(Promise.resolve(h.cmd("setDefaultModel", { providerID: "acme", id: "gone" })), /does not offer that model/)
+    await assert.rejects(Promise.resolve(h.cmd("setDefaultModel", null)), /does not offer that model/)
+    assert.ok(h.snap().modelChoice, "still asking")
+
+    // An effort level the model does not have is dropped; one it has is kept.
+    await h.cmd("setDefaultModel", { providerID: "acme", id: "vision-mini", variant: "high" })
+    assert.equal(h.snap().modelChoice, undefined)
+    assert.deepEqual(h.snap().defaultModel, { providerID: "acme", id: "vision-mini" })
+    await until(() => !!h.snap().session)
+    assert.deepEqual(created(), [{ providerID: "acme", id: "vision-mini" }])
+
+    // Changed later (the settings dialog): the open conversation stays as it is, the next new one follows.
+    const open = h.snap().session!.id
+    await h.cmd("setDefaultModel", { providerID: "acme", id: "vision", variant: "high" })
+    assert.equal(h.snap().session!.id, open)
+    assert.deepEqual(h.snap().defaultModel, { providerID: "acme", id: "vision", variant: "high" })
+    await h.cmd("newSession")
+    assert.deepEqual(created(), [{ providerID: "acme", id: "vision-mini" }, { providerID: "acme", id: "vision", variant: "high" }])
+    await sleep(400) // the store's debounce
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")).defaultModel, { providerID: "acme", id: "vision", variant: "high" })
+  } finally {
+    await h.close()
+  }
+})
+
+test("a saved model the server still lists: nothing is asked", async () => {
+  const { h, created } = await withModels(THREE, { defaultModel: { providerID: "local", id: "text-only" } })
+  try {
+    await until(() => !!h.snap().session)
+    assert.equal(h.snap().modelChoice, undefined)
+    assert.deepEqual(created(), [{ providerID: "local", id: "text-only" }], "the person's choice, even one that takes no screenshots")
+  } finally {
+    await h.close()
+  }
+})
+
+test("a saved model the server no longer lists: the app asks again and says which one went; the open conversation stays", async () => {
+  const fake = await fakeOpenCode()
+  fake.w.sessions.set("ses_live", { id: "ses_live", location: { directory: "/repo" }, title: "t", time: { created: 1, updated: 2 } })
+  fake.server.route("GET", "/api/model", { json: { data: THREE } })
+  const h = await boot({ server: fake, settings: { ...savedSite({ session: "ses_live" }), defaultModel: { providerID: "retired", id: "old-model", variant: "high" } } })
+  try {
+    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await until(() => !!h.snap().modelChoice && !!h.snap().session)
+    assert.deepEqual(h.snap().modelChoice, { suggested: { providerID: "acme", id: "vision" }, previous: { providerID: "retired", id: "old-model", variant: "high" } })
+    assert.equal(h.snap().session!.id, "ses_live", "a conversation that exists needs no answer to open")
+    assert.equal(h.w.creates, 0)
+    await h.cmd("setDefaultModel", { providerID: "acme", id: "vision" })
+    assert.equal(h.snap().modelChoice, undefined)
+    assert.equal(h.w.creates, 0)
+    // Another server, another list: the same question, for the same reason.
+    const other = await fakeOpenCode()
+    other.server.route("GET", "/api/model", { json: { data: [model("zeta", "a"), model("zeta", "b")] } })
+    await h.cmd("connect", { url: other.server.url, password: other.server.password })
+    await until(() => !!h.snap().modelChoice)
+    assert.deepEqual(h.snap().modelChoice, { suggested: { providerID: "zeta", id: "a" }, previous: { providerID: "acme", id: "vision" } })
+    await Promise.resolve(h.cmd("disconnect")).catch(() => undefined)
+    assert.equal(h.snap().modelChoice, undefined)
+    await other.server.stop()
+  } finally {
+    await h.close()
+  }
+})
+
+test("one model, no models, or a list that cannot be read: nothing is asked and setup goes on", async () => {
+  const one = await withModels([model("acme", "only", false)])
+  try {
+    await until(() => !!one.h.snap().session)
+    assert.equal(one.h.snap().modelChoice, undefined)
+    assert.deepEqual(one.created(), [{ providerID: "acme", id: "only" }])
+    await sleep(400)
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(one.h.dir, "settings.json"), "utf8")).defaultModel, { providerID: "acme", id: "only" }, "nothing to choose between: it is saved")
+  } finally {
+    await one.h.close()
+  }
+  for (const list of [[], { status: 500, json: { _tag: "UnknownError", message: "boom" } }] as const) {
+    const none = await withModels(list as unknown[] | FakeReply, { defaultModel: { providerID: "acme", id: "kept" } })
+    try {
+      await until(() => !!none.h.snap().session)
+      assert.equal(none.h.snap().modelChoice, undefined)
+      assert.equal(none.h.snap().defaultModel, undefined)
+      assert.deepEqual(none.created(), [undefined], "the server's own default, as before")
+      assert.deepEqual(none.h.snap().models, [])
+      await sleep(400)
+      const saved = fs.existsSync(path.join(none.h.dir, "settings.json")) ? JSON.parse(fs.readFileSync(path.join(none.h.dir, "settings.json"), "utf8")) : {}
+      assert.deepEqual(saved.defaultModel, { providerID: "acme", id: "kept" }, "an unreadable list does not cost the saved choice")
+    } finally {
+      await none.h.close()
+    }
+  }
+})

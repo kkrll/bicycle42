@@ -2273,6 +2273,45 @@ details[open] > summary > .caret {
   color: var(--muted);
 }
 
+/* Choosing a model: the folder step's rows in the connect card, the chosen one marked. The
+   list scrolls by itself, so the button under it stays in reach however many models there are. */
+.model-list {
+  max-height: min(320px, 40vh);
+  overflow-y: auto;
+  margin: 0 calc(var(--gutter) * -1);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.model-list:focus-visible {
+  outline-offset: -2px;
+}
+
+.model-list > .label {
+  padding: 10px var(--gutter) 2px;
+}
+
+.model-list > .quiet {
+  padding: 10px var(--gutter);
+}
+
+.model-list .row[aria-selected="true"] {
+  background: var(--surface);
+}
+
+.model-list .row[aria-selected="true"] > .icon {
+  color: var(--accent);
+}
+
+.dialog .model-form {
+  margin-bottom: 16px;
+}
+
+.model-note {
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
 .connect-form {
   display: flex;
   flex-direction: column;

@@ -51,6 +51,11 @@ const SHOTS = [
     run: [type("input[name=url]", "http://my-box.example:4096"), type("input[name=password]", "wrong"), click(".connect-form button[type=submit]")],
     wait: 300,
   },
+  // The second first-run step: which model conversations start with. Then narrowed by typing,
+  // and the same chooser in the settings dialog.
+  { name: "model-choice", mock: "model-choice" },
+  { name: "model-choice-filter", mock: "model-choice", query: "&previous", run: [type(".model-form input[type=search]", "gpt")], wait: 300, report: `[document.querySelector(".model-form button[type=submit]").textContent, document.querySelector(".connect-lead").textContent]` },
+  { name: "model-choice-settings", mock: "review", run: [click("[data-action=settings]"), pause(300), click("[data-action=default-model]")], wait: 500 },
   { name: "empty", mock: "empty" },
   { name: "folder", mock: "folder" },
   { name: "folder-browse", mock: "folder", run: [click(".folder .folder-actions .btn")], wait: 500 },

@@ -134,6 +134,7 @@ function snapshot(): AppState {
     models,
     agents,
     ...(model ? { defaultModel: model } : {}),
+    ...(modelChoice && model ? { modelChoice: { suggested: model, ...(modelChoice.previous ? { previous: modelChoice.previous } : {}) } } : {}),
     permissions: [...permissions.values()],
     questions: [...questions.values()],
   }
@@ -185,6 +186,24 @@ function defaultModel(): ModelRef | undefined {
   return pick ? { providerID: pick.providerID, id: pick.id } : undefined
 }
 
+/** Set while the person is being asked which model to start conversations with (see
+ *  `AppState.modelChoice`). `previous` is a saved choice this server no longer lists. */
+let modelChoice: { previous?: ModelRef } | undefined
+
+/** Run when a server's model list has arrived. Asks once: not when a saved choice is still on
+ *  the list, not when there is nothing to choose between (one model is simply saved), and not
+ *  when the list is empty or could not be read. */
+function settleDefaultModel() {
+  const saved = store.settings().defaultModel
+  modelChoice = undefined
+  if (!models.length || (saved && models.some((m) => sameModel(saved, m)))) return
+  if (models.length === 1) {
+    const only = models[0]!
+    return store.update((s) => void (s.defaultModel = { providerID: only.providerID, id: only.id }))
+  }
+  modelChoice = saved ? { previous: saved } : {}
+}
+
 // ── connection ──────────────────────────────────────────────────────────────────────────────────
 
 /** `box:49374` → `http://box:49374`. Public hosts get https; bare names, IPs and localhost http. */
@@ -210,6 +229,7 @@ function drop() {
   backend = undefined
   models = []
   agents = []
+  modelChoice = undefined
   session = null
   sessions = []
   permissions.clear()
@@ -238,6 +258,7 @@ async function connect(url: string, password: string, opts: { save?: "remote" | 
   if (backend !== next) return
   models = m
   agents = a
+  settleDefaultModel()
   push()
   await openSite()
 }
@@ -330,6 +351,9 @@ async function openSiteNow() {
   if (!b || !s || !saved) return
   try {
     let current = saved.session ? await b.session(saved.session) : null
+    // A new conversation starts on the model the person chose: while that is being asked,
+    // none is made. setDefaultModel comes back here.
+    if (!current && modelChoice) return
     if (!current) {
       current = await b.createSession({
         directory: saved.directory,
@@ -1013,6 +1037,16 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     store.update((s) => void (s.defaultModel = { providerID: model.providerID, id: model.id, ...(model.variant ? { variant: model.variant } : {}) }))
     if (session?.id === current.id) session = { ...session, model }
     push()
+  },
+  async setDefaultModel(model) {
+    const known = models.find((m) => typeof model?.providerID === "string" && typeof model.id === "string" && sameModel(model, m))
+    if (!known) throw new Error("This server does not offer that model. Choose another one.")
+    const variant = typeof model.variant === "string" && known.variants.includes(model.variant) ? model.variant : undefined
+    store.update((s) => void (s.defaultModel = { providerID: known.providerID, id: known.id, ...(variant ? { variant } : {}) }))
+    modelChoice = undefined
+    push()
+    // The conversation that waited for this answer can be made now.
+    if (!session) await openSite()
   },
   async setAgent(id) {
     const current = needSession()

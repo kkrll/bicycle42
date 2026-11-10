@@ -9,7 +9,7 @@
 //   · the panel is being resized (the native view would swallow the drag)
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import type { Rect, Shortcut } from "../shared/types"
-import { ConnectScreen, SettingsDialog, SetupSteps, connectionText, firstRunConnecting } from "./connect"
+import { ConnectScreen, ModelScreen, SettingsDialog, SetupSteps, connectionText, firstRunConnecting } from "./connect"
 import { Icon } from "./icons"
 import { Panel, countNotes, countWords, shortWords } from "./panel"
 import {
@@ -322,7 +322,10 @@ export function App() {
   let composerEl: HTMLTextAreaElement | undefined
 
   // The first-run screen: no server yet, or the form on that screen is waiting for main.
-  const setup = () => state.connection.status === "unconfigured" || firstRunConnecting()
+  const connectStep = () => state.connection.status === "unconfigured" || firstRunConnecting()
+  // …or connected, and main asks which model conversations should start with.
+  const modelStep = () => !connectStep() && !!state.modelChoice && state.connection.status === "online"
+  const setup = () => connectStep() || modelStep()
   // A page that failed to load is replaced by a card saying so, in the same place.
   const pageHidden = () => setup() || settings() || resizing() || state.page.url === "" || loadFailed() || pageCovered()
 
@@ -494,7 +497,7 @@ export function App() {
           </Show>
           <Show when={state.page.url === ""}>
             <div class="page-empty">
-              <SetupSteps at={2} />
+              <SetupSteps at={3} />
               <p class="chat-empty-lead">Open your running site.</p>
               <p>
                 Type its address above and press Enter. The page opens here, and you review it by clicking on it.
@@ -529,8 +532,11 @@ export function App() {
           <Panel composerRef={(el) => (composerEl = el)} openSettings={() => setSettings(true)} size={panelSize()} />
         </aside>
       </main>
-      <Show when={ready() && setup()}>
+      <Show when={ready() && connectStep()}>
         <ConnectScreen />
+      </Show>
+      <Show when={ready() && modelStep()}>
+        <ModelScreen />
       </Show>
       <Show when={settings()}>
         <SettingsDialog onClose={() => setSettings(false)} />

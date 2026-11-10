@@ -121,6 +121,23 @@ async function main() {
   const win = (await until(() => hook.window()))!
   const page = (await until(() => hook.page()))!
 
+  // ── first launch on this server: which model? ──────────────────────────────────────────────
+  // The profile has a server and a site but no model yet, and the server lists two.
+  const chooser = (code: string) => win.webContents.executeJavaScript(code)
+  await until(() => state().modelChoice)
+  const offered = (await until(() => chooser(`document.querySelector(".model-form button[type=submit]")?.textContent ?? ""`))) as string
+  check(
+    "after connecting, the app asks which model conversations start with, offering the first that takes screenshots",
+    state().modelChoice?.suggested.id === "sonnet" && offered === "Use Sonnet" && (await chooser(`document.querySelector(".connect-card h1")?.textContent`)) === "Choose a model",
+    `${JSON.stringify(state().modelChoice)} / ${offered}`,
+  )
+  await sleep(150)
+  check("no conversation is made before the answer", created.length === 0 && state().session === null)
+  // Enter straight away accepts what is offered.
+  await chooser(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))`)
+  await until(() => !state().modelChoice)
+  check("Enter accepts it, and the step is gone", !state().modelChoice && state().defaultModel?.id === "sonnet" && (await until(() => chooser(`!document.querySelector(".model-form")`))) === true)
+
   // ── start-up ───────────────────────────────────────────────────────────────────────────────
   await until(() => state().session)
   check("connects with the saved server", state().connection.status === "online", JSON.stringify(state().connection))
@@ -331,6 +348,7 @@ async function main() {
   const reviews = fs.readdirSync(path.join(profile, "reviews"))
   const review = reviews[0] ? JSON.parse(fs.readFileSync(path.join(profile, "reviews", reviews[0]), "utf8")) : undefined
   check("the notes are saved, versioned", reviews.length === 1 && review?.version === 1 && review.notes?.length === 4 && review.notes[3].edits?.[0]?.kind === "style", reviews.join())
+  check("the chosen model is saved for the next launch", saved().defaultModel?.providerID === "anthropic" && saved().defaultModel?.id === "sonnet", JSON.stringify(saved().defaultModel))
   check("the password is not in the window's state", !JSON.stringify(state()).includes(server.password))
 
   await server.stop()

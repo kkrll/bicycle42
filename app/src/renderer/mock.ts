@@ -533,6 +533,30 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       state.review = { enabled: false, autoReload: false, notes: [], unplaced: 0 }
       items = []
       break
+    case "model-choice":
+      // Just connected to a server with a long list: which model should conversations start with?
+      Object.assign(state, { site: null, session: null, sessions: [] })
+      state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }
+      state.review = { enabled: false, autoReload: false, notes: [], unplaced: 0 }
+      state.models = [
+        { providerID: "anthropic", id: "opus-4-5", name: "Opus 4.5", images: true, variants: ["low", "medium", "high"] },
+        { providerID: "anthropic", id: "sonnet-4-5", name: "Sonnet 4.5", images: true, variants: ["low", "medium", "high"] },
+        { providerID: "anthropic", id: "haiku-4-5", name: "Haiku 4.5", images: true, variants: [] },
+        { providerID: "openai", id: "gpt-5", name: "GPT-5", images: true, variants: ["minimal", "high"] },
+        { providerID: "openai", id: "gpt-5-mini", name: "GPT-5 mini", images: true, variants: [] },
+        { providerID: "openai", id: "gpt-5-codex", name: "GPT-5 Codex", images: false, variants: ["low", "high"] },
+        { providerID: "google", id: "gemini-2-5-pro", name: "Gemini 2.5 Pro", images: true, variants: [] },
+        { providerID: "google", id: "gemini-2-5-flash", name: "Gemini 2.5 Flash", images: true, variants: [] },
+        { providerID: "local", id: "qwen-coder", name: "Qwen Coder 32B", images: false, variants: [] },
+        { providerID: "local", id: "llama-3-3", name: "Llama 3.3 70B", images: false, variants: [] },
+        { providerID: "local", id: "deepseek-coder", name: "DeepSeek Coder 33B", images: false, variants: [] },
+        { providerID: "local", id: "mistral-small", name: "Mistral Small 24B", images: true, variants: [] },
+        { providerID: "local", id: "phi-4", name: "Phi-4 14B", images: false, variants: [] },
+      ]
+      state.defaultModel = { providerID: "anthropic", id: "opus-4-5" }
+      state.modelChoice = { suggested: { providerID: "anthropic", id: "opus-4-5" }, ...(params.has("previous") ? { previous: { providerID: "anthropic", id: "sonnet-4" } } : {}) }
+      items = []
+      break
     case "canvas":
       state.review.notes = canvasNotes()
       // The chat calls a note what the list calls it.
@@ -812,6 +836,11 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     },
     setModel(model) {
       if (state.session) state.session.model = model
+      push()
+    },
+    setDefaultModel(model) {
+      state.defaultModel = model
+      delete state.modelChoice
       push()
     },
     setAgent(id) {

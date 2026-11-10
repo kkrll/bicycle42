@@ -1,7 +1,7 @@
 // Connecting to the server that does the work. One form, used twice: full-window before the
 // first connection, and inside the settings dialog afterwards.
-import { For, Show, createResource, createSignal, onCleanup, onMount } from "solid-js"
-import type { ConnectionState } from "../shared/types"
+import { For, Show, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js"
+import type { ConnectionState, ModelInfo, ModelRef } from "../shared/types"
 import { Icon } from "./icons"
 import { act, host, message, b42, setNotice, state } from "./store"
 
@@ -24,12 +24,13 @@ export function connectionText(c: ConnectionState): string {
   }
 }
 
-/** The way in, the same line on all three first-run steps: connect, open the site, pick its code
- *  folder. `at` is the step the reviewer is on. */
-export function SetupSteps(props: { at: 1 | 2 | 3 }) {
-  const names = ["Connect", "Open your site", "Code folder"]
+/** The way in, the same line on all four first-run steps: connect, choose a model, open the
+ *  site, pick its code folder. `at` is the step the reviewer is on. (The model step is skipped
+ *  when the server leaves nothing to choose.) */
+export function SetupSteps(props: { at: 1 | 2 | 3 | 4 }) {
+  const names = ["Connect", "Model", "Site", "Folder"]
   return (
-    <ol class="setup-steps" aria-label={`Setup, step ${props.at} of 3`}>
+    <ol class="setup-steps" aria-label={`Setup, step ${props.at} of 4`}>
       <For each={names}>
         {(name, i) => {
           const n = i() + 1
@@ -189,7 +190,175 @@ export function ConnectScreen() {
   )
 }
 
+// ── the model new conversations start with ──────────────────────────────────────────────────────
+
+/** More models than this and the list gets a field to narrow it. */
+const FILTER_FROM = 12
+const sameModel = (a: { providerID: string; id: string } | undefined, b: { providerID: string; id: string }) =>
+  !!a && a.providerID === b.providerID && a.id === b.id
+
+/** The list of the server's models with one of them chosen, an effort level if it has any, and
+ *  one button that saves the choice. Used on the first-run step and in the settings dialog.
+ *  The keyboard never has to leave the form: type to narrow, ↑/↓ to move, Enter to choose. */
+export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void; autofocus?: boolean }) {
+  const [query, setQuery] = createSignal("")
+  const [picked, setPicked] = createSignal<ModelInfo | undefined>(state.models.find((m) => sameModel(props.suggested, m)) ?? state.models[0])
+  const [variant, setVariant] = createSignal(props.suggested?.variant ?? "")
+  const [saving, setSaving] = createSignal(false)
+  const [error, setError] = createSignal("")
+  let form!: HTMLFormElement
+  let list!: HTMLDivElement
+
+  const shown = createMemo(() => {
+    const q = query().trim().toLowerCase()
+    return q ? state.models.filter((m) => `${m.name} ${m.id} ${m.providerID}`.toLowerCase().includes(q)) : state.models
+  })
+  const groups = createMemo(() => {
+    const by = new Map<string, ModelInfo[]>()
+    for (const m of shown()) by.set(m.providerID, [...(by.get(m.providerID) ?? []), m])
+    return [...by]
+  })
+  /** The rows in the order they are drawn, which is by provider, not the server's order. */
+  const ordered = createMemo(() => groups().flatMap(([, models]) => models))
+  // Narrowing the list keeps the choice when it is still there, else takes the first left.
+  createEffect(on(shown, (models) => models.includes(picked()!) || setPicked(models[0])))
+  // An effort level belongs to its model.
+  createEffect(on(picked, (m) => m?.variants.includes(variant()) || setVariant(""), { defer: true }))
+  createEffect(() => {
+    const m = picked()
+    if (m) list.querySelector<HTMLElement>(`[data-model="${CSS.escape(`${m.providerID}/${m.id}`)}"]`)?.scrollIntoView({ block: "nearest" })
+  })
+  onMount(() => props.autofocus && (form.querySelector<HTMLElement>("input[type=search]") ?? list).focus())
+
+  const move = (by: number) => {
+    const rows = ordered()
+    if (!rows.length) return
+    const at = rows.indexOf(picked()!)
+    setPicked(rows[Math.max(0, Math.min(rows.length - 1, at + by))])
+  }
+  const keys = (e: KeyboardEvent) => {
+    const on = (e.target as HTMLElement).localName
+    if (on === "select") return
+    if (e.key === "ArrowDown") move(1)
+    else if (e.key === "ArrowUp") move(-1)
+    // Enter chooses from anywhere in the form but a button, which has its own.
+    else if (e.key === "Enter" && on !== "button") form.requestSubmit()
+    else return
+    e.preventDefault()
+  }
+  const submit = (e: SubmitEvent) => {
+    e.preventDefault()
+    const m = picked()
+    if (!m || saving()) return
+    setSaving(true)
+    setError("")
+    b42
+      .invoke("setDefaultModel", { providerID: m.providerID, id: m.id, ...(variant() ? { variant: variant() } : {}) })
+      .then(() => props.onDone?.())
+      .catch((err) => setError(message(err)))
+      .finally(() => setSaving(false))
+  }
+  return (
+    <form class="connect-form model-form" ref={form} onSubmit={submit} onKeyDown={keys}>
+      <Show when={state.models.length > FILTER_FROM}>
+        <input
+          class="input"
+          type="search"
+          aria-label="Find a model"
+          placeholder="Find a model"
+          spellcheck={false}
+          autocomplete="off"
+          value={query()}
+          onInput={(e) => setQuery(e.currentTarget.value)}
+        />
+      </Show>
+      <div class="model-list" ref={list} role="listbox" aria-label="Models" tabindex="0">
+        <For each={groups()} fallback={<p class="quiet">No model by that name.</p>}>
+          {([provider, models]) => (
+            <>
+              <h3 class="label">{provider}</h3>
+              <For each={models}>
+                {(m) => (
+                  <button
+                    class="row"
+                    type="button"
+                    role="option"
+                    tabindex="-1"
+                    data-model={`${m.providerID}/${m.id}`}
+                    aria-selected={m === picked()}
+                    onClick={() => setPicked(m)}
+                    onDblClick={() => form.requestSubmit()}
+                  >
+                    <Show when={m === picked()} fallback={<span />}>
+                      <Icon name="check" />
+                    </Show>
+                    <span class="row-main">{m.name}</span>
+                    <Show when={!m.images}>
+                      <span class="model-note">no screenshots</span>
+                    </Show>
+                  </button>
+                )}
+              </For>
+            </>
+          )}
+        </For>
+      </div>
+      <Show when={state.models.some((m) => !m.images)}>
+        <p class="form-help">A model marked “no screenshots” cannot see pictures: your notes reach it as text only.</p>
+      </Show>
+      <Show when={picked()?.variants.length}>
+        <label class="form-row">
+          <span class="label">Effort (optional)</span>
+          <select class="input" aria-label="Effort" value={variant()} onChange={(e) => setVariant(e.currentTarget.value)}>
+            <option value="">default</option>
+            <For each={picked()!.variants}>{(v) => <option value={v}>{v}</option>}</For>
+          </select>
+        </label>
+      </Show>
+      <Show when={error()}>
+        <p class="form-error" role="alert">
+          {error()}
+        </p>
+      </Show>
+      <div class="form-actions">
+        <button class="btn primary" type="submit" disabled={saving() || !picked()}>
+          <Show when={saving()}>
+            <Icon name="spinner" />
+          </Show>
+          {picked() ? `Use ${picked()!.name}` : "Choose a model"}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+/** The second first-run step. Also comes back when the saved model has left the server's list. */
+export function ModelScreen() {
+  const choice = () => state.modelChoice
+  return (
+    <div class="connect-screen">
+      <div class="connect-card">
+        <SetupSteps at={2} />
+        <h1>Choose a model</h1>
+        <p class="connect-lead">
+          New conversations start with it. You can change it any time under the chat box.
+          <Show when={choice()?.previous}>
+            {(was) => <> The one used before ({was().id}) is no longer offered by this server.</>}
+          </Show>
+        </p>
+        <ModelChooser suggested={choice()?.suggested} autofocus />
+      </div>
+    </div>
+  )
+}
+
 export function SettingsDialog(props: { onClose: () => void }) {
+  const [choosing, setChoosing] = createSignal(false)
+  const defaultName = () => {
+    const d = state.defaultModel
+    const m = d && state.models.find((x) => sameModel(d, x))
+    return m ? `${m.name}${d!.variant ? ` · ${d!.variant}` : ""}` : "none chosen"
+  }
   let dialog!: HTMLDialogElement
   onMount(() => dialog.showModal())
   onCleanup(() => dialog.close())
@@ -240,6 +409,22 @@ export function SettingsDialog(props: { onClose: () => void }) {
             Disconnect
           </button>
         </div>
+        <Show when={state.models.length}>
+          <div class="dialog-connected">
+            <p class="dialog-status">
+              <span>
+                Default model: {defaultName()}
+                <span class="dialog-sub">New conversations start with it</span>
+              </span>
+            </p>
+            <button class="btn" data-action="default-model" aria-expanded={choosing()} onClick={() => setChoosing(!choosing())}>
+              {choosing() ? "Cancel" : "Change"}
+            </button>
+          </div>
+          <Show when={choosing()}>
+            <ModelChooser suggested={state.defaultModel} autofocus onDone={() => setChoosing(false)} />
+          </Show>
+        </Show>
         <details class="disclosure">
           <summary>
             <Icon name="right" class="caret" />

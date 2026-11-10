@@ -233,6 +233,11 @@ export type AppState = {
   agents: AgentInfo[]
   /** The model new conversations start with. */
   defaultModel?: ModelRef
+  /** Set while the person has to choose that model: the server lists several and none is saved
+   *  (first launch), or the saved one is no longer on the server's list (`previous`). The window
+   *  shows the chooser with `suggested` preselected; `setDefaultModel` answers it. No new
+   *  conversation is made meanwhile. */
+  modelChoice?: { suggested: ModelRef; previous?: ModelRef }
   permissions: PermissionAsk[]
   questions: Question[]
 }
@@ -290,6 +295,9 @@ export type Commands = {
   newSession(): void
   openSession(id: string): void
   setModel(model: ModelRef): void
+  /** Saves the model new conversations start with. Works before any conversation exists, and
+   *  leaves the open one on the model it has. */
+  setDefaultModel(model: ModelRef): void
   setAgent(id: string): void
   replyPermission(id: string, decision: PermissionDecision): void
   answerQuestion(id: string, answer: Answer): void
