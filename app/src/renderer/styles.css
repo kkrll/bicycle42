@@ -1,0 +1,2445 @@
+/*
+ * The whole window's styling. Register: strictly functional. A thin frame around someone else's
+ * page, so it stays quiet: paper and hairlines, no shadows, one accent (review is on), and the
+ * four pin colours the reviewer already knows from the page.
+ *
+ * Sizes come from the design system's scale only: micro 10 · control 12 · ui 14 · lead 16.
+ */
+@import "@fontsource-variable/geist/wght.css";
+@import "@fontsource-variable/jetbrains-mono/wght.css";
+@import "@kkrll/design/tokens.css";
+@import "@kkrll/design/base.css";
+@import "@kkrll/design/motion.css";
+
+:root {
+  /* The one accent: olive on light, pale yellow on dark. The in-page overlay uses the same pair. */
+  --accent: #526737;
+
+  /* Note pins, the same four the overlay draws on the page. */
+  --status-queued: #6b7280;
+  --status-working: #f59e0b;
+  --status-done: #16a34a;
+  --status-failed: #dc2626;
+
+  /* Numbers on a pin. Grey and red take a light ink, amber and green a dark one (4.8:1 or
+     better each). The pins keep their colours in both themes, so the inks do too; paper is not
+     light enough on the grey and the red (4.05:1), hence the one white. */
+  --ink-light: #ffffff;
+  --ink-dark: var(--brand-dark);
+
+  --font-sans: "Geist Variable", var(--font-sans-stack);
+  --font-mono: "JetBrains Mono Variable", var(--font-mono-stack);
+
+  /* Secondary text. The ramp's -07/-05/-03 steps are not text colours in dark mode, so quiet
+     text is mixed from the two ends instead: 6.1:1 on paper, 8.4:1 on near-black, and no less
+     than 4.8:1 on the surfaces below. */
+  --muted: color-mix(in srgb, var(--foreground) 70%, var(--background));
+  /* Status colours dark (or light) enough to be read as text. */
+  --ink-bad: color-mix(in srgb, var(--status-failed) 55%, var(--foreground));
+  --ink-good: color-mix(in srgb, var(--status-done) 55%, var(--foreground));
+
+  --rule: var(--background-07);
+  --surface: color-mix(in srgb, var(--background-07) 32%, var(--background));
+  --surface-strong: color-mix(in srgb, var(--background-07) 62%, var(--background));
+  --add: color-mix(in srgb, var(--status-done) 20%, transparent);
+  --del: color-mix(in srgb, var(--status-failed) 18%, transparent);
+
+  --radius: 6px;
+  --bar: 40px;
+  --gutter: 12px;
+}
+
+/* A lighter, neutral paper for the light theme. (The design system's default is a warm beige,
+   which next to someone else's site reads as tinted.) */
+:root:not(.dark) {
+  --background: #fbfbfa;
+  --background-07: #dededb;
+  --background-05: #c2c2bf;
+  --background-03: #8e8e8b;
+  --background-semi: #fbfbfa4d;
+  --background-07-semi: #dededb4d;
+  --background-05-semi: #c2c2bf4d;
+}
+
+/* On the lighter paper the surfaces need a little more weight to read at all. */
+:root:not(.dark) {
+  --surface: color-mix(in srgb, var(--background-07) 45%, var(--background));
+  --surface-strong: color-mix(in srgb, var(--background-07) 80%, var(--background));
+}
+
+.dark {
+  --accent: #fffaa0;
+  --rule: color-mix(in srgb, var(--background-05) 55%, var(--background));
+  --surface: color-mix(in srgb, var(--background-07) 70%, var(--background));
+  --surface-strong: var(--background-07);
+}
+
+/* ── base ─────────────────────────────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: var(--text-ui);
+  line-height: var(--text-ui--line-height);
+  letter-spacing: 0;
+  /* An app window, not a document: text is selectable only where it is content. */
+  user-select: none;
+  cursor: default;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  letter-spacing: 0;
+}
+
+button {
+  border: 0;
+  padding: 0;
+  background: none;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+dl,
+dd,
+pre,
+fieldset {
+  margin: 0;
+  padding: 0;
+}
+
+fieldset {
+  border: 0;
+  min-width: 0;
+}
+
+ul {
+  list-style: none;
+}
+
+code,
+kbd,
+pre,
+.mono {
+  font-family: var(--font-mono);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.icon {
+  flex: none;
+}
+
+.spin {
+  animation: spin calc(var(--duration-slow) * 3) linear infinite;
+}
+
+@keyframes spin {
+  to {
+    rotate: 1turn;
+  }
+}
+
+/* Reduced motion: a spinner that does not travel still has to say "busy", so it breathes. */
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: fadeIn calc(var(--duration-slow) * 3) var(--ease-micro) infinite alternate;
+  }
+}
+
+.thin-scroll,
+.notes-list,
+.transcript,
+.asks,
+.menu,
+.rows,
+.diff,
+.output,
+.md pre {
+  scrollbar-width: thin;
+  scrollbar-color: var(--background-05) transparent;
+}
+
+/* ── controls ─────────────────────────────────────────────────────────────────────────────── */
+
+.icon-btn {
+  position: relative;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  transition: background var(--duration-micro) var(--ease-micro);
+}
+
+.icon-btn.small {
+  width: 24px;
+  height: 24px;
+}
+
+.icon-btn:not(:disabled):hover,
+.icon-btn[aria-pressed="true"] {
+  background: var(--surface-strong);
+}
+
+/* Disabled controls keep their words at 4.5:1 (muted text, no fading); they read as disabled by
+   losing their fill and border instead. Icons alone may fade. */
+.toggle:disabled,
+.btn:disabled {
+  color: var(--muted);
+}
+
+.icon-btn:disabled {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+.btn:disabled,
+.btn.primary:disabled {
+  background: transparent;
+  border-color: var(--rule);
+  color: var(--muted);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--background-05);
+  font-size: var(--text-control);
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background var(--duration-micro) var(--ease-micro);
+}
+
+.btn:not(:disabled):hover {
+  background: var(--surface-strong);
+}
+
+.btn.primary {
+  background: var(--foreground);
+  border-color: var(--foreground);
+  color: var(--background);
+}
+
+.btn.primary:not(:disabled):hover {
+  background: var(--muted);
+  border-color: var(--muted);
+}
+
+.text-btn {
+  flex: none;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: var(--radius);
+  font-size: var(--text-control);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--background-03);
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
+
+.text-btn:hover {
+  background: var(--surface-strong);
+}
+
+.input {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--background-05);
+  border-radius: var(--radius);
+  background: transparent;
+  font-size: var(--text-control);
+  user-select: text;
+}
+
+.input::placeholder,
+.url::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.label {
+  font-size: var(--text-control);
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.form-error {
+  font-size: var(--text-control);
+  color: var(--ink-bad);
+  user-select: text;
+}
+
+.quiet {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-ui);
+  color: var(--muted);
+}
+
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--background-05);
+}
+
+.dot.busy,
+.dot[data-status="connecting"] {
+  background: var(--status-working);
+}
+
+.dot[data-status="online"] {
+  background: var(--status-done);
+}
+
+.dot[data-status="offline"] {
+  background: var(--status-failed);
+}
+
+.caret {
+  color: var(--muted);
+  transition: rotate var(--duration-micro) var(--ease-micro);
+}
+
+[aria-expanded="true"] > .caret,
+details[open] > summary > .caret {
+  rotate: 90deg;
+}
+
+/* A note's number: a disc for the main lane, a square for the background lane, in the colour of
+   its pin on the page. */
+.badge {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: var(--status-queued);
+  color: var(--ink-light);
+  font-family: var(--font-mono);
+  font-size: var(--text-control);
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.badge[data-lane="bg"] {
+  border-radius: 4px;
+}
+
+.badge[data-status="working"] {
+  background: var(--status-working);
+  color: var(--ink-dark);
+}
+
+.badge[data-status="done"] {
+  background: var(--status-done);
+  color: var(--ink-dark);
+}
+
+.badge[data-status="failed"] {
+  background: var(--status-failed);
+}
+
+/* Stopped or set aside by the reviewer: not a failure, so quiet grey. */
+.badge[data-status="stopped"] {
+  background: var(--surface-strong);
+  color: var(--muted);
+}
+
+/* Started, but the server is out of reach: nothing is happening, so it does not look busy. */
+.badge[data-status="paused"] {
+  background: transparent;
+  color: var(--foreground);
+  box-shadow: inset 0 0 0 1.5px var(--status-working);
+}
+
+/* Not sent yet: the pin exists but the agent has not got it. */
+.badge[data-status="capturing"],
+.badge[data-status="sending"],
+.badge[data-status="gone"] {
+  background: transparent;
+  color: var(--foreground);
+  box-shadow: inset 0 0 0 1.5px var(--status-queued);
+}
+
+/* ── frame ────────────────────────────────────────────────────────────────────────────────── */
+
+.app {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+}
+
+.topbar {
+  flex: none;
+  height: var(--bar);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  -webkit-app-region: drag;
+}
+
+/* macOS draws the window's traffic lights inside the bar. */
+.topbar.mac {
+  padding-left: 76px;
+}
+
+.topbar button,
+.topbar input {
+  -webkit-app-region: no-drag;
+}
+
+.wordmark {
+  padding: 0 4px;
+  font-size: var(--text-control);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.nav,
+.tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tools {
+  gap: 4px;
+}
+
+.url {
+  flex: 1;
+  min-width: 80px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: var(--text-control);
+  text-overflow: ellipsis;
+  user-select: text;
+  cursor: text;
+  transition: background var(--duration-micro) var(--ease-micro);
+}
+
+.url:hover,
+.url:focus {
+  background: var(--surface-strong);
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  font-size: var(--text-control);
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.toggle[aria-checked="true"] {
+  color: var(--foreground);
+}
+
+.toggle:not(:disabled):hover {
+  background: var(--surface-strong);
+}
+
+.toggle-track {
+  position: relative;
+  width: 22px;
+  height: 12px;
+  border-radius: 6px;
+  background: var(--background-05);
+  transition: background var(--duration-exit) var(--ease-micro);
+}
+
+.toggle-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--background);
+  transition: translate var(--duration-exit) var(--ease-entrance);
+}
+
+/* Every switch looks the same: accent when on, grey when off. */
+.toggle[aria-checked="true"] .toggle-track {
+  background: var(--accent);
+}
+
+.toggle[aria-checked="true"] .toggle-track::after {
+  translate: 10px 0;
+}
+
+.icon-btn > .dot {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  box-shadow: 0 0 0 1.5px var(--background);
+}
+
+/* The server button says what is wrong in a word when it is not simply connected. */
+.icon-btn.labelled {
+  width: auto;
+  display: inline-flex;
+  gap: 6px;
+  padding: 0 8px 0 6px;
+  font-size: var(--text-control);
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.icon-btn.labelled[data-status="offline"] {
+  color: var(--ink-bad);
+}
+
+/* Said, not switched: the page reloads itself. */
+.tool-note {
+  padding: 0 8px;
+  font-size: var(--text-control);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.page-error {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 40%;
+  font-size: var(--text-control);
+  color: var(--ink-bad);
+}
+
+.page-error-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-error .text-btn {
+  color: var(--foreground);
+}
+
+.status-btn {
+  flex: none;
+}
+
+.counts-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  font-size: var(--text-control);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transition: background var(--duration-micro) var(--ease-micro);
+}
+
+.counts-full {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* A narrow window: one chip, "1 failed · 8 left", instead of every count. */
+.counts-btn .counts-short {
+  display: none;
+}
+
+@media (max-width: 1100px) {
+  .counts-btn .counts-full {
+    display: none;
+  }
+
+  .counts-btn .counts-short {
+    display: inline-flex;
+  }
+}
+
+.counts-btn:hover {
+  background: var(--surface-strong);
+}
+
+.count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.count-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-queued);
+}
+
+.count[data-status="failed"] {
+  color: var(--ink-bad);
+  font-weight: 600;
+}
+
+.count[data-status="done"],
+.count[data-status="stopped"] {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.count[data-status="failed"] .count-dot {
+  background: var(--status-failed);
+}
+
+.count[data-status="working"] .count-dot {
+  background: var(--status-working);
+}
+
+.count[data-status="paused"] .count-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--status-working);
+}
+
+.strips {
+  flex: none;
+}
+
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px var(--gutter);
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+}
+
+.strip.bad > .icon:first-child {
+  color: var(--ink-bad);
+}
+
+.strip-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.work {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.work[inert] {
+  display: none;
+}
+
+/* The page sits in the window as a pane of its own: a little air around it, a hairline and
+   rounded corners. The native page view fills the inside of the border (main rounds its corners
+   to match, see PAGE_RADIUS in main/page.ts). */
+.page {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  /* Flush under the top bar: the pane's own top edge is the line between them. */
+  margin: 0 8px 8px;
+  border: 1px solid var(--background-05);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* The page view is away for a moment (a dialog, a resize): a quiet surface holds its place. */
+/* The same paper as the panel, so a dialog's backdrop dims the whole window evenly. */
+.page.veiled {
+  background: var(--background);
+}
+
+.page-failed-host {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Before there is a site: one calm sentence in the middle of the panel. */
+.panel-waiting {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.panel-waiting > p {
+  max-width: 260px;
+}
+
+.page-failed {
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0 24px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.page-failed > .icon {
+  margin-bottom: 4px;
+  color: var(--ink-bad);
+}
+
+.page-failed .chat-empty-lead {
+  margin: 0;
+  font-size: var(--text-lead);
+  overflow-wrap: anywhere;
+}
+
+.page-failed-detail {
+  font-family: var(--font-mono);
+  font-size: var(--text-control);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.page-failed .btn {
+  margin-top: 10px;
+}
+
+.chat-empty {
+  max-width: 320px;
+  color: var(--muted);
+  font-size: var(--text-control);
+}
+
+.page-empty {
+  max-width: 400px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.panel-empty {
+  padding: 20px var(--gutter);
+  color: var(--muted);
+}
+
+.chat-empty-lead {
+  margin-bottom: 4px;
+  font-size: var(--text-ui);
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+/* The three first-run steps, one line, the same on each step's screen. */
+.setup-steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-bottom: 16px;
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+.page-empty .setup-steps {
+  justify-content: center;
+}
+
+.setup-steps li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.setup-steps li + li::before {
+  content: "";
+  width: 16px;
+  height: 1px;
+  margin-right: 2px;
+  background: var(--background-05);
+}
+
+.setup-steps li[data-state="current"] {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.step-mark {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px var(--background-05);
+  font-size: var(--text-control);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.setup-steps li[data-state="current"] .step-mark {
+  background: var(--foreground);
+  box-shadow: none;
+  color: var(--background);
+}
+
+.setup-steps li[data-state="done"] .step-mark {
+  background: var(--surface-strong);
+  box-shadow: none;
+  color: var(--foreground);
+}
+
+/* The handle lives wholly inside the panel's edge: anything over the page would be under it. */
+.resizer {
+  flex: none;
+  width: 9px;
+  margin-right: -8px;
+  z-index: 1;
+  /* No line of its own: the page pane's border is the edge between page and panel. The handle
+     shows when it is pointed at, dragged or focused. */
+  border-left: 2px solid transparent;
+  cursor: col-resize;
+  touch-action: none;
+  transition: border-color var(--duration-micro) var(--ease-micro);
+}
+
+.resizer:hover,
+.resizer.active,
+.resizer:focus-visible {
+  border-left: 2px solid var(--accent);
+  outline: none;
+}
+
+.panel {
+  flex: none;
+  width: clamp(320px, var(--panel-width), 50vw);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel[hidden] {
+  display: none;
+}
+
+/* ── notes ────────────────────────────────────────────────────────────────────────────────── */
+
+.notes {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--rule);
+}
+
+/* Between the notes and the conversation. The notes' bottom rule is the visible line; the handle
+   is a few pixels of hit area on it. */
+.divider {
+  flex: none;
+  height: 7px;
+  margin: -4px 0 -3px;
+  z-index: 1;
+  position: relative;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.divider::after {
+  content: "";
+  position: absolute;
+  inset: 3px 0 auto;
+  height: 2px;
+  background: transparent;
+  transition: background var(--duration-micro) var(--ease-micro);
+}
+
+.divider:hover::after,
+.divider.active::after,
+.divider:focus-visible::after {
+  background: var(--accent);
+}
+
+.divider:focus-visible {
+  outline: none;
+}
+
+.section-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 6px 0 4px;
+}
+
+.section-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 6px 0 4px;
+  border-radius: var(--radius);
+  text-align: left;
+}
+
+.section-toggle:hover {
+  background: var(--surface);
+}
+
+.section-name {
+  font-size: var(--text-control);
+  font-weight: 600;
+}
+
+.notes-legend {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--gutter);
+  font-size: var(--text-control);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* The key's sample: a real parallel badge, a little smaller. */
+.badge.legend-badge {
+  min-width: 18px;
+  height: 18px;
+}
+
+/* Whole parts or nothing: parts that do not fit wrap onto a second line, which is clipped. */
+.section-meta {
+  flex: 1;
+  min-width: 0;
+  height: calc(1em * var(--text-control--line-height));
+  display: flex;
+  flex-wrap: wrap;
+  overflow: hidden;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.section-meta > span + span::before {
+  content: "·";
+  padding: 0 5px;
+}
+
+/* Every count in words while they fit; otherwise the short form that drops nothing (panel.tsx). */
+.section-meta.hide {
+  display: none;
+}
+
+.notes-lost {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+  padding: 0 6px 4px var(--gutter);
+  color: var(--muted);
+}
+
+.notes-lost > .icon {
+  margin: 0 2px;
+}
+
+.notes-lost-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notes-lost-more {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 0 var(--gutter) 10px calc(var(--gutter) + 30px);
+  color: var(--muted);
+}
+
+/* About five rows unless the divider says otherwise; the conversation keeps the rest. A list that
+   goes on says so twice: its scrollbar, and the "more below" line under it. */
+.notes-list {
+  position: relative;
+  min-height: 0;
+  max-height: var(--list-h);
+  overflow-y: auto;
+  padding-bottom: 6px;
+}
+
+.notes-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 28px;
+  border-top: 1px solid var(--rule);
+}
+
+.notes-more {
+  flex: 1;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 var(--gutter);
+  font-size: var(--text-control);
+  color: var(--muted);
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+.notes-more:hover {
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.notes-more:focus-visible {
+  outline-offset: -2px;
+}
+
+.note-line {
+  display: flex;
+  align-items: center;
+  padding-right: 6px;
+}
+
+.note-line > .text-btn {
+  margin-left: 2px;
+}
+
+.note-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 var(--gutter);
+  text-align: left;
+}
+
+.note-main:hover {
+  background: var(--surface);
+}
+
+.note-main:focus-visible {
+  outline-offset: -2px;
+}
+
+.note-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-status {
+  flex: none;
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+/* Importance by colour, and weight for the one that needs the reviewer: failed is red and
+   strong, working is plain text, everything else is quiet. */
+.note-status[data-status="working"] {
+  color: var(--foreground);
+}
+
+.note-status[data-status="failed"] {
+  color: var(--ink-bad);
+  font-weight: 600;
+}
+
+.note-lost {
+  flex: none;
+  display: inline-grid;
+  color: var(--muted);
+}
+
+/* The note whose pin was clicked: marked while it is the one, flashed when it is clicked. */
+.note[aria-current] .note-main {
+  background: var(--surface);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.note.flash .note-main {
+  animation: note-flash calc(var(--duration-slow) * 5) var(--ease-exit);
+}
+
+@keyframes note-flash {
+  from {
+    background: color-mix(in srgb, var(--accent) 24%, var(--background));
+  }
+}
+
+/* Above the conversation: the server is unreachable, or no conversation would open. */
+.banner {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px var(--gutter);
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+}
+
+.banner > .icon {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.banner.bad > .icon {
+  color: var(--ink-bad);
+}
+
+.banner-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.note-error.quiet {
+  color: var(--muted);
+}
+
+/* Why it failed, under the note's words: gutter + badge + gap. */
+.note-error {
+  margin-top: -4px;
+  padding: 0 var(--gutter) 6px calc(var(--gutter) + 30px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-control);
+  color: var(--ink-bad);
+  user-select: text;
+}
+
+/* What a canvas note changed on the page, one edit per line, under the row whose pin was
+   clicked. Set like the line under a stopped note. */
+.note-edits {
+  margin: -4px 0 0;
+  padding: 0 var(--gutter) 6px calc(var(--gutter) + 30px);
+  list-style: none;
+  font-size: var(--text-control);
+  color: var(--muted);
+  user-select: text;
+}
+
+.note-edits > li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── folder picker ────────────────────────────────────────────────────────────────────────── */
+
+.folder {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px var(--gutter) var(--gutter);
+}
+
+.folder h2 {
+  margin: 0;
+  font-size: var(--text-lead);
+  line-height: var(--text-lead--line-height);
+  font-weight: 600;
+}
+
+.folder-head {
+  display: flex;
+  flex-direction: column;
+}
+
+.folder-lead {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.folder-lead strong {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.folder h3 {
+  margin-top: 4px;
+}
+
+.rows {
+  align-self: stretch;
+  min-height: 0;
+  overflow-y: auto;
+  margin: -4px calc(var(--gutter) * -1) 0;
+}
+
+.rows.browse {
+  flex: 1;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  margin-top: 0;
+}
+
+.row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  padding: 7px var(--gutter);
+  text-align: left;
+}
+
+.row:not(:disabled):hover {
+  background: var(--surface);
+}
+
+.row:focus-visible {
+  outline-offset: -2px;
+}
+
+.row > .icon {
+  color: var(--muted);
+}
+
+.row-main {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.row-sub {
+  grid-column: 2;
+  direction: rtl;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--text-control);
+}
+
+.crumb {
+  height: 24px;
+  padding: 0 5px;
+  border-radius: 4px;
+  color: var(--muted);
+}
+
+.crumb + .crumb::before {
+  content: "/";
+  margin-right: 7px;
+  margin-left: -5px;
+  color: var(--background-03);
+}
+
+.crumb:first-child + .crumb::before {
+  content: none;
+}
+
+.crumb:hover {
+  background: var(--surface-strong);
+}
+
+.crumb[aria-current] {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.folder-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── conversation ─────────────────────────────────────────────────────────────────────────── */
+
+.chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.convo {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 6px 0 4px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.convo-current {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 6px 0 8px;
+  margin-right: auto;
+  border-radius: var(--radius);
+  font-size: var(--text-control);
+  font-weight: 600;
+}
+
+.convo-current:not(:disabled):hover,
+.convo-current[aria-expanded="true"] {
+  background: var(--surface);
+}
+
+.convo-current > .icon {
+  color: var(--muted);
+}
+
+.convo-title,
+.menu-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  max-height: min(320px, 50vh);
+  overflow-y: auto;
+  padding: 4px;
+  margin: 0 6px;
+  border: 1px solid var(--background-05);
+  border-top: 0;
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: var(--background);
+  animation: fadeIn var(--duration-exit) var(--ease-entrance);
+}
+
+.menu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  text-align: left;
+}
+
+.menu button:hover,
+.menu button:focus-visible {
+  background: var(--surface);
+}
+
+.menu button[aria-checked="true"] {
+  font-weight: 600;
+}
+
+.menu button[aria-checked="true"] .dot:not(.busy) {
+  background: var(--foreground);
+}
+
+.menu-title {
+  flex: 1;
+}
+
+.menu time {
+  flex: none;
+  min-width: 7ch;
+  text-align: right;
+  font-size: var(--text-control);
+  font-weight: 400;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.menu-empty {
+  padding: 8px;
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+.transcript-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.transcript {
+  height: 100%;
+  overflow-y: auto;
+  /* We follow the bottom ourselves; the browser's own anchoring would fight it. */
+  overflow-anchor: none;
+}
+
+/* The conversation follows OpenCode's session view: one reading size (14) for everything that
+   is read, sans throughout, and weight and colour, not size or monospace, to tell a tool's verb
+   from its argument. The small size is kept for labels and code only. */
+.transcript-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  line-height: 1.6;
+  user-select: text;
+  cursor: auto;
+}
+
+.chat-empty {
+  padding: 8px 0;
+  user-select: none;
+}
+
+.shortcuts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  margin-top: 16px;
+  align-items: center;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 24px;
+  padding: 2px 6px;
+  border: 1px solid var(--background-05);
+  border-radius: 4px;
+  font-size: var(--text-micro);
+  line-height: var(--text-micro--line-height);
+  text-align: center;
+  color: var(--foreground);
+}
+
+.msg {
+  min-width: 0;
+}
+
+.user {
+  align-self: flex-end;
+  max-width: min(86%, 64ch);
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--surface-strong);
+  line-height: var(--text-ui--line-height);
+}
+
+.user-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.user-line .badge {
+  margin-top: 1px;
+}
+
+.user-text {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.user.pending {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--background-05);
+}
+
+/* The "Working" line belongs to what is happening now, above the messages that still wait. It
+   comes last in the document, so the waiting ones are ordered after it. */
+.user.pending {
+  order: 1;
+}
+
+.user-wait {
+  margin-top: 2px;
+  font-size: var(--text-micro);
+  line-height: var(--text-micro--line-height);
+  color: var(--muted);
+  user-select: none;
+}
+
+.thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.thumbs img {
+  display: block;
+  height: 56px;
+  max-width: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--background-05);
+}
+
+.assistant {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Steps of one turn (think, read, edit, …) sit closer together than turns do. */
+.assistant + .assistant {
+  margin-top: -8px;
+}
+
+.marker {
+  display: flex;
+  align-items: center;
+  overflow-wrap: anywhere;
+  gap: 10px;
+  font-size: var(--text-control);
+  color: var(--muted);
+  user-select: none;
+}
+
+.marker::before,
+.marker::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+.marker.bad {
+  color: var(--ink-bad);
+}
+
+/* An error is a sentence to read, not a divider. */
+.marker.bad::before,
+.marker.bad::after {
+  content: none;
+}
+
+.msg-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--ink-bad);
+}
+
+.msg-error .icon {
+  margin-top: 1px;
+}
+
+.working {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: var(--muted);
+  user-select: none;
+}
+
+.jump {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--background-05);
+  border-radius: 14px;
+  background: var(--background);
+  font-size: var(--text-control);
+  font-weight: 500;
+  animation: fadeIn var(--duration-enter) var(--ease-entrance);
+}
+
+.jump:hover {
+  background: var(--surface-strong);
+}
+
+/* Tool calls and thinking: one quiet line each, opened on demand. */
+.tool-row,
+.thinking > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 8px;
+  margin: 0 -8px;
+  border-radius: var(--radius);
+  line-height: var(--text-ui--line-height);
+  list-style: none;
+  user-select: none;
+}
+
+summary.tool-row,
+.thinking > summary {
+  cursor: pointer;
+}
+
+summary.tool-row:hover,
+.thinking > summary:hover {
+  background: var(--surface);
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-row > .icon:first-child,
+.thinking > summary > .icon:first-child {
+  color: var(--muted);
+}
+
+/* A run of tool calls reads as one list, not as separate paragraphs. */
+.tool + .tool,
+.tool + .thinking,
+.thinking + .tool,
+.thinking + .thinking {
+  margin-top: -10px;
+}
+
+/* The arrow that opens a row shows when the row is pointed at, focused or open. */
+.tool-row > .caret,
+.thinking > summary > .caret {
+  opacity: 0;
+}
+
+.tool-row:hover > .caret,
+.tool-row:focus-visible > .caret,
+.thinking > summary:hover > .caret,
+.thinking > summary:focus-visible > .caret,
+details[open] > summary > .caret {
+  opacity: 1;
+}
+
+.tool-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-right: auto;
+}
+
+.tool-verb {
+  flex: none;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.tool-arg {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.thinking > summary > span:first-of-type {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.tool-state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.tool-state.bad,
+.tool-error {
+  color: var(--ink-bad);
+}
+
+.tool-error {
+  padding: 0 0 4px 24px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tool-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 6px;
+}
+
+.counts {
+  flex: none;
+  display: inline-flex;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--text-control);
+  font-variant-numeric: tabular-nums;
+}
+
+.plus {
+  color: var(--ink-good);
+}
+
+.minus {
+  color: var(--ink-bad);
+}
+
+.change {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.change-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 28px;
+  padding: 0 8px;
+  background: var(--surface);
+}
+
+.path {
+  min-width: 0;
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: var(--text-control);
+}
+
+.path-dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.path-name {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff,
+.output,
+.md pre {
+  overflow-x: auto;
+  font-size: var(--text-control);
+  line-height: 1.5;
+  tab-size: 2;
+}
+
+.diff {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.dl {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  padding: 0 8px;
+  white-space: pre;
+}
+
+.dl.add {
+  background: var(--add);
+}
+
+.dl.del {
+  background: var(--del);
+}
+
+.dl.hunk {
+  color: var(--muted);
+}
+
+.output {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.thinking-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.thinking[open] .thinking-preview {
+  visibility: hidden;
+}
+
+.thinking-body {
+  padding: 2px 0 4px 24px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Assistant prose. Blocks are spaced by the column's gap, so streamed blocks (each parsed into
+   its own wrapper, see markdown.tsx) and a final single parse lay out identically. */
+.md,
+.md > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.md {
+  overflow-wrap: anywhere;
+}
+
+.md > div:empty {
+  display: none;
+}
+
+.md :is(p, ul, ol, pre, blockquote, table, h1, h2, h3, h4, h5, h6) {
+  margin: 0;
+}
+
+.md :is(h1, h2, h3, h4, h5, h6) {
+  margin-top: 4px;
+  font-size: var(--text-ui);
+  line-height: var(--text-ui--line-height);
+  font-weight: 600;
+}
+
+.md :is(h1, h2) {
+  font-size: var(--text-lead);
+  line-height: var(--text-lead--line-height);
+}
+
+.md :is(ul, ol) {
+  padding-left: 20px;
+}
+
+.md ul {
+  list-style: disc;
+}
+
+.md li + li,
+.md li > :is(ul, ol),
+.md li > p + p {
+  margin-top: 2px;
+}
+
+.md li::marker {
+  color: var(--muted);
+}
+
+.md code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--surface);
+  font-size: var(--text-control);
+}
+
+.md pre {
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.md pre code {
+  padding: 0;
+  background: none;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.md blockquote {
+  padding-left: 10px;
+  border-left: 2px solid var(--background-05);
+  color: var(--muted);
+}
+
+.md a,
+.md-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--background-03);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.md hr {
+  width: 100%;
+  height: 1px;
+  margin: 4px 0;
+  border: 0;
+  background: var(--rule);
+}
+
+.md table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: var(--text-control);
+}
+
+.md :is(th, td) {
+  padding: 4px 8px;
+  border: 1px solid var(--rule);
+  text-align: left;
+}
+
+/* ── permissions and questions ────────────────────────────────────────────────────────────── */
+
+.asks {
+  flex: none;
+  max-height: 65%;
+  overflow-y: auto;
+  border-top: 1px solid var(--rule);
+}
+
+.ask {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px var(--gutter);
+  /* The accent marks the one place that is waiting on the reviewer. */
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.ask + .ask {
+  border-top: 1px solid var(--rule);
+}
+
+.ask-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.ask-verb {
+  font-weight: 600;
+}
+
+.ask-title code {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-control);
+  user-select: text;
+}
+
+.ask-more,
+.ask-text {
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+.ask-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ask-diff .diff {
+  max-height: 168px;
+}
+
+.ask-actions,
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: var(--text-control);
+  font-weight: 600;
+}
+
+.field-optional,
+.field-desc,
+.option-desc {
+  font-size: var(--text-control);
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 24px;
+  font-size: var(--text-control);
+}
+
+.option input {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 1.5px 0 0;
+  accent-color: var(--accent);
+}
+
+.option-desc {
+  display: block;
+}
+
+/* ── composer ─────────────────────────────────────────────────────────────────────────────── */
+
+.composer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+}
+
+.composer-box {
+  border: 1px solid var(--background-05);
+  border-radius: 8px;
+  transition: border-color var(--duration-micro) var(--ease-micro);
+}
+
+.composer-box:focus-within {
+  border-color: var(--foreground);
+}
+
+.composer textarea {
+  display: block;
+  width: 100%;
+  /* Grows with its text from three lines to twelve, then scrolls. No script involved. */
+  field-sizing: content;
+  min-height: calc(3lh + 16px);
+  max-height: calc(12lh + 16px);
+  padding: 9px 10px 7px;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  user-select: text;
+}
+
+.composer-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 10px 6px;
+}
+
+.composer-image {
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 1px solid var(--background-05);
+  border-radius: 6px;
+  overflow: hidden;
+  background: transparent;
+  cursor: pointer;
+}
+
+.composer-image:hover {
+  opacity: 0.6;
+}
+
+.composer-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.composer-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px 4px 4px;
+}
+
+.pickers {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.select {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 56px;
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+
+.select:hover,
+.select:focus-within {
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.select select {
+  appearance: none;
+  /* As wide as the chosen option, not the longest one in the list. */
+  field-sizing: content;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 22px 0 6px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  font-size: var(--text-control);
+  text-overflow: ellipsis;
+}
+
+.select option,
+.select optgroup {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.select > .icon {
+  position: absolute;
+  right: 4px;
+  pointer-events: none;
+}
+
+.icon-btn.send:not(:disabled) {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.icon-btn.send:not(:disabled):hover {
+  background: var(--muted);
+}
+
+.composer-hint {
+  padding: 0 4px;
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+.composer > .form-error {
+  padding: 0 4px;
+}
+
+/* ── connect ──────────────────────────────────────────────────────────────────────────────── */
+
+/* Anchored at the top, not centred: an error appearing under the form must not move it. */
+.connect-screen {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  justify-items: center;
+  align-items: start;
+  padding: max(24px, 12vh) 24px 24px;
+}
+
+.connect-card {
+  width: min(400px, 100%);
+}
+
+.connect-card h1 {
+  font-size: var(--text-display);
+  line-height: var(--text-display--line-height);
+  letter-spacing: var(--text-display--letter-spacing);
+  font-weight: 600;
+}
+
+.connect-lead {
+  margin: 10px 0 24px;
+  color: var(--muted);
+}
+
+.connect-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.connect-local {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.connect-local-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.connect-local-row .btn {
+  flex: none;
+}
+
+.connect-form h3 {
+  font-weight: 500;
+}
+
+.connect-remote {
+  margin-top: 4px;
+}
+
+.form-help {
+  color: var(--muted);
+}
+
+.form-help code {
+  color: var(--foreground);
+  white-space: nowrap;
+}
+
+.form-help-more {
+  margin-top: 6px;
+}
+
+/* Settings while connected: the connection, then changing it one quiet step away. */
+.dialog-connected {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.dialog-connected .dialog-status {
+  margin: 0;
+}
+
+.dialog-sub {
+  display: block;
+  font-size: var(--text-control);
+}
+
+.disclosure {
+  border-top: 1px solid var(--rule);
+}
+
+.disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  margin: 0 -6px;
+  padding: 0 6px;
+  border-radius: var(--radius);
+  list-style: none;
+  font-size: var(--text-control);
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.disclosure > summary:hover {
+  color: var(--foreground);
+}
+
+.disclosure[open] > summary {
+  margin-bottom: 8px;
+}
+
+
+.form-actions {
+  margin-top: 4px;
+}
+
+.dialog {
+  width: min(400px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--background-05);
+  border-radius: 10px;
+  background: var(--background);
+  color: var(--foreground);
+  animation: fadeInFromBottom var(--duration-enter) var(--ease-entrance);
+}
+
+.dialog::backdrop {
+  background: var(--overlay);
+  animation: fadeIn var(--duration-enter) var(--ease-entrance);
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -4px -6px 8px 0;
+}
+
+.dialog-head h2 {
+  font-size: var(--text-lead);
+  line-height: var(--text-lead--line-height);
+  font-weight: 600;
+}
+
+.dialog-status {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 16px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.dialog-status .dot {
+  translate: 0 -1px;
+}
+
+.dialog-status[data-status="online"] .dot {
+  background: var(--status-done);
+}
+
+.dialog-status[data-status="offline"] .dot {
+  background: var(--status-failed);
+}
+
+.dialog-status[data-status="connecting"] .dot {
+  background: var(--status-working);
+}
+
+.dialog-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+}
+
+.dialog-foot p {
+  flex: 1;
+}
+
+/* The message box menus, attachments and other chat additions live in their own file. */

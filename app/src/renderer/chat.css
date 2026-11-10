@@ -1,0 +1,922 @@
+/* Chat additions: the message box menus (/ and @), attachments, long output, requests.
+   Tokens only; sizes from the scale (10 · 12 · 14 · 16). */
+
+/* ── the / and @ menu ─────────────────────────────────────────────────────────────────────── */
+
+.composer-box {
+  position: relative;
+}
+
+/* Anchored above the box and laid over the conversation, so opening it moves nothing. */
+.suggest {
+  position: absolute;
+  left: -1px;
+  right: -1px;
+  bottom: calc(100% + 8px);
+  z-index: 3;
+  max-height: min(288px, 45vh);
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--background-03);
+  border-radius: 8px;
+  background: var(--background);
+  scrollbar-width: thin;
+  scrollbar-color: var(--background-05) transparent;
+  animation: fadeIn var(--duration-micro) var(--ease-entrance);
+}
+
+.suggest-group {
+  padding: 6px 8px 2px;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.suggest-group:first-child {
+  padding-top: 2px;
+}
+
+.suggest-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  font-size: var(--text-control);
+  cursor: pointer;
+}
+
+.suggest-item[aria-selected="true"] {
+  background: var(--surface-strong);
+}
+
+.suggest-item > .icon {
+  color: var(--muted);
+}
+
+.suggest-item[aria-selected="true"] > .icon {
+  color: var(--foreground);
+}
+
+.suggest-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 65%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.suggest-detail {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+/* A path gives way from its start: the end of it says more. */
+.suggest-detail.cut-start {
+  direction: rtl;
+  text-align: left;
+}
+
+.suggest-empty {
+  padding: 6px 8px;
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+/* ── the text and its mentions ────────────────────────────────────────────────────────────── */
+
+.composer-field {
+  position: relative;
+}
+
+.composer-field textarea {
+  position: relative;
+  z-index: 1;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--background-05) transparent;
+}
+
+/* Lies exactly under the textarea, same box and same wrapping, with the text itself invisible:
+   only the tint under each @mention shows through. */
+.composer-mirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: 9px 10px 7px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  pointer-events: none;
+  user-select: none;
+}
+
+.composer-mirror mark {
+  color: transparent;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  /* Room around the word without moving a single character. */
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+/* ── pictures ─────────────────────────────────────────────────────────────────────────────── */
+
+.composer-image {
+  position: relative;
+}
+
+.composer-image:hover {
+  opacity: 1;
+}
+
+.composer-image-x {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.composer-image-x .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.composer-image:hover .composer-image-x {
+  background: var(--ink-bad);
+}
+
+/* With pictures attached the box starts at one line, so they sit right under the words. */
+.composer-box:has(.composer-images) textarea {
+  min-height: calc(1lh + 16px);
+}
+
+.composer-images {
+  padding-top: 2px;
+}
+
+/* One dashed edge: the box's own border, nothing drawn inside it. */
+.composer-box.dropping {
+  border-style: dashed;
+  border-color: var(--accent);
+}
+
+.composer-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--background));
+  font-size: var(--text-control);
+  font-weight: 500;
+  pointer-events: none;
+  animation: fadeIn var(--duration-micro) var(--ease-entrance);
+}
+
+/* ── hints under the box ──────────────────────────────────────────────────────────────────── */
+
+.ask-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+}
+
+/* One line, never two: it gives way at the end rather than wrapping. */
+.composer-keys {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.composer-keys > kbd {
+  flex: none;
+}
+
+.composer-keys-gap {
+  flex: none;
+  width: 8px;
+}
+
+.ask-keys > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* ── messages ─────────────────────────────────────────────────────────────────────────────── */
+
+.user-wait {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+}
+
+.wait-cancel {
+  height: 22px;
+  padding: 0 6px;
+  margin: -2px -6px -2px auto;
+  border-radius: var(--radius);
+  font-size: var(--text-control);
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.wait-cancel:hover {
+  background: var(--surface-strong);
+}
+
+/* A pin clicked on the page points at its message. */
+.msg.flash {
+  animation: flash calc(var(--duration-slow) * 5) var(--ease-micro);
+}
+
+@keyframes flash {
+  0%,
+  40% {
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+/* Copy a reply: out of the way until the reader is in the message. */
+.msg-tools {
+  display: flex;
+  margin: -8px 0 -4px -6px;
+  opacity: 0;
+  transition: opacity var(--duration-micro) var(--ease-micro);
+}
+
+.assistant:hover > .msg-tools,
+.msg-tools:focus-within {
+  opacity: 1;
+}
+
+.copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: var(--radius);
+  font-size: var(--text-control);
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.copy-btn:hover {
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.copy-btn.copied,
+.code-copy.copied {
+  color: var(--ink-good);
+}
+
+/* ── long output and code ─────────────────────────────────────────────────────────────────── */
+
+.more-btn {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  height: 24px;
+  padding: 0 6px;
+  margin-left: -6px;
+  border-radius: var(--radius);
+  font-family: var(--font-sans);
+  font-size: var(--text-control);
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.more-btn:hover {
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.output-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* Folded to 20 lines by the component instead of a scroll box inside the scroll box. */
+.output {
+  max-height: none;
+}
+
+/* A code block: a header strip (language, Copy) over the code, which wraps instead of scrolling
+   sideways. Each line hangs under its own indentation (--indent, in characters). */
+.md .code {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 28px;
+  padding: 0 4px 0 10px;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--font-sans);
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+.md .code > pre {
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: transparent;
+  overflow-x: hidden;
+}
+
+.md .code > pre > code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cl {
+  display: block;
+  padding-left: calc(var(--indent, 0) * 1ch);
+  text-indent: calc(var(--indent, 0) * -1ch);
+}
+
+.md .code.folded > pre {
+  max-height: calc(20lh + 16px);
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, var(--foreground) 70%, transparent);
+}
+
+.md .code > .more-btn {
+  margin: 0 0 4px 4px;
+}
+
+.code-copy {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  font-family: var(--font-sans);
+  font-size: var(--text-control);
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.code-copy:hover,
+.code-copy:focus-visible {
+  background: var(--surface-strong);
+  color: var(--foreground);
+}
+
+/* Diffs wrap instead of scrolling sideways; the +/− stays in a gutter of its own and wrapped
+   lines line up after it. */
+.diff {
+  overflow-x: hidden;
+}
+
+.diff {
+  max-height: none;
+  overflow-y: visible;
+}
+
+.dl {
+  display: grid;
+  grid-template-columns: 2ch minmax(0, 1fr);
+  width: auto;
+  min-width: 0;
+  padding: 0 8px 0 2px;
+  white-space: normal;
+}
+
+.dl-sign {
+  text-align: center;
+  user-select: none;
+}
+
+.dl.add > .dl-sign {
+  color: var(--ink-good);
+}
+
+.dl.del > .dl-sign {
+  color: var(--ink-bad);
+}
+
+/* Wrapped lines hang under the line's own indentation (--indent, in characters). */
+.dl-text {
+  min-width: 0;
+  padding-left: calc(var(--indent, 0) * 1ch);
+  text-indent: calc(var(--indent, 0) * -1ch);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.dl.hunk > .dl-text {
+  padding-left: 0;
+  text-indent: 0;
+}
+
+.diff-more {
+  margin: 0 0 4px 4px;
+}
+
+/* ── requests ─────────────────────────────────────────────────────────────────────────────── */
+
+.ask:focus {
+  outline: none;
+}
+
+.ask:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* A request never takes more than this from the conversation; it scrolls inside instead. */
+/* At most 60% of the conversation's height, scrolling inside, and it gives way before the
+   transcript drops below 200px. */
+.asks {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 60%;
+}
+
+.transcript-wrap {
+  min-height: min(200px, 40%);
+}
+
+
+.ask-diff .diff {
+  max-height: none;
+}
+
+.ask .more-btn .counts {
+  margin-left: 4px;
+}
+
+/* Narrow or short: a compact bar above the box; the key hints are in the buttons' tooltips. */
+.ask.compact .ask-keys {
+  display: none;
+}
+
+.ask {
+  position: relative;
+}
+
+.ask-count {
+  margin-bottom: -4px;
+  font-size: var(--text-control);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ask-target {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  max-width: 100%;
+}
+
+.ask-file {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.ask-keys {
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+/* ── the "Latest" button ──────────────────────────────────────────────────────────────────── */
+
+/* It sits on the transcript's bottom edge, and while it shows the last 40px of the transcript
+   fade out under it: it never lies on top of words or pictures. */
+.jump {
+  bottom: 6px;
+  z-index: 1;
+  height: 26px;
+}
+
+/* Once something has scrolled under the conversation bar, the top edge fades over 28px, so a
+   line cut by the edge disappears instead of showing as a sliver. */
+/* Painted as gradients of the paper colour lying over the edges, not as a mask on the scrolling
+   transcript: a mask makes the whole transcript repaint through it on every scrolled or streamed
+   frame, and a gradient on top costs nothing. */
+.transcript-wrap::before,
+.transcript-wrap::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 8px; /* the scrollbar stays clear */
+  pointer-events: none;
+  opacity: 0;
+}
+
+.transcript-wrap::before {
+  top: 0;
+  height: 28px;
+  background: linear-gradient(to bottom, var(--background) 4px, transparent);
+}
+
+.transcript-wrap::after {
+  bottom: 0;
+  height: 64px;
+  background: linear-gradient(to top, var(--background) 26px, transparent);
+}
+
+.transcript-wrap:has(> .transcript.scrolled)::before,
+.transcript-wrap.away::after {
+  opacity: 1;
+}
+
+/* ── code scrollbars ──────────────────────────────────────────────────────────────────────── */
+
+.md pre,
+.md .code > pre,
+.md table,
+.output {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--background-05) transparent;
+}
+
+
+/* ── buttons: question card, stop ─────────────────────────────────────────────────────────── */
+
+/* Filled either way: a quiet fill while nothing is chosen, the accent once something is. */
+.answer-btn:not(.ready) {
+  background: var(--surface-strong);
+  border-color: var(--surface-strong);
+  color: var(--muted);
+  cursor: help;
+}
+
+.answer-btn.ready {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--background);
+}
+
+.answer-btn.ready:not(:disabled):hover {
+  background: color-mix(in srgb, var(--accent) 85%, var(--foreground));
+}
+
+.btn.ghost {
+  border-color: transparent;
+  color: var(--muted);
+}
+
+.btn.ghost:not(:disabled):hover {
+  color: var(--foreground);
+}
+
+.stop-btn {
+  flex: none;
+  gap: 4px;
+  padding: 0 8px 0 6px;
+}
+
+.stop-btn > .icon {
+  width: 12px;
+  height: 12px;
+}
+
+/* ── model, effort, mode at narrow widths ─────────────────────────────────────────────────── */
+
+.composer {
+  container: composer / inline-size;
+}
+
+.pick {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 4px 0 6px;
+  border-radius: var(--radius);
+  font-size: var(--text-control);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pick:hover,
+.pick:focus-within {
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.pick:focus-within:has(:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.pick-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pick-prefix {
+  margin-right: 4px;
+}
+
+.pick-long {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.pick-short {
+  display: none;
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+/* Covers the whole label: the native list opens wherever the label is clicked. */
+.pick-native {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font-size: var(--text-control);
+}
+
+.pick-native option,
+.pick-native optgroup {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.pick.effort {
+  flex: none;
+}
+
+/* Narrow: the words stay, shorter ("Med", "Build"); the full sentence is in the tooltip. */
+@container composer (width < 370px) {
+  .pick-prefix,
+  .pick.effort .pick-long {
+    display: none;
+  }
+
+  .pick.effort .pick-short {
+    display: inline;
+  }
+}
+
+/* ── pictures in a message, and large ─────────────────────────────────────────────────────── */
+
+.thumbs .thumb {
+  display: block;
+  padding: 0;
+  border-radius: 6px;
+  cursor: zoom-in;
+}
+
+.thumbs .thumb:hover img {
+  box-shadow: 0 0 0 1px var(--foreground);
+}
+
+.lightbox {
+  position: fixed;
+  margin: 0;
+  max-width: none;
+  max-height: none;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  padding: 0;
+  border: 0;
+  background: var(--background);
+  color: var(--foreground);
+  display: none;
+  flex-direction: column;
+  animation: fadeIn var(--duration-enter) var(--ease-entrance);
+}
+
+.lightbox[open] {
+  display: flex;
+}
+
+.lightbox::backdrop {
+  background: transparent;
+}
+
+.lightbox-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--text-control);
+}
+
+.lightbox-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.lightbox-count {
+  flex: none;
+  margin-right: 4px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.lightbox-img {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding: 12px;
+  object-fit: contain;
+}
+
+/* ── the conversation switcher ────────────────────────────────────────────────────────────── */
+
+.convo > .menu {
+  left: 6px;
+  right: 6px;
+  top: calc(100% + 6px);
+  padding: 4px;
+  border: 1px solid var(--background-03);
+  border-radius: 8px;
+}
+
+.convo > .menu button {
+  height: 36px;
+  font-size: var(--text-ui);
+}
+
+.convo > .menu time {
+  min-width: 4ch;
+  text-align: right;
+  font-size: var(--text-control);
+}
+
+/* ── a reply still arriving ───────────────────────────────────────────────────────────────── */
+
+.md-caret {
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  border-radius: 1px;
+  background: var(--accent);
+  animation: caret-blink calc(var(--duration-slow) * 3) steps(2, jump-none) infinite;
+}
+
+@keyframes caret-blink {
+  to {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md-caret {
+    animation: none;
+  }
+}
+
+/* ── send ─────────────────────────────────────────────────────────────────────────────────── */
+
+.icon-btn.send:disabled {
+  opacity: 1;
+  background: var(--surface-strong);
+  color: var(--muted);
+}
+
+.icon-btn.send:not(:disabled) {
+  background: var(--accent);
+  color: var(--background);
+}
+
+.icon-btn.send:not(:disabled):hover {
+  background: color-mix(in srgb, var(--accent) 85%, var(--foreground));
+}
+
+/* ── what the agent is on ─────────────────────────────────────────────────────────────────── */
+
+.working {
+  min-width: 0;
+}
+
+.working .badge,
+.working > span:first-of-type {
+  flex: none;
+  white-space: nowrap;
+}
+
+.working-note {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+}
+
+/* ── round 4 ──────────────────────────────────────────────────────────────────────────────── */
+
+/* Sits above the box and takes room only while there is something to say: the box stays at the
+   bottom and it is the transcript that gives up a line. */
+.composer-hints {
+  order: -1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 20px;
+}
+
+.composer-hints:empty {
+  display: none;
+}
+
+
+.composer-hints > .composer-hint {
+  min-width: 0;
+}
+
+.pick.off {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.ask-question {
+  overflow-wrap: anywhere;
+}
+
+.ask-question strong {
+  font-weight: 600;
+}
+
+.ask-question code {
+  font-size: var(--text-control);
+  user-select: text;
+}
+
+.ask-count {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.ask-count > span + span::before {
+  content: "·";
+  margin: 0 6px;
+}
+
+.ask-of {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.tool-note {
+  padding-left: 24px;
+  font-size: var(--text-control);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Acme: sample page</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.5 system-ui, sans-serif; color: #111; background: #fafafa; }
+    nav { display: flex; align-items: center; gap: 20px; padding: 14px 24px; background: #fff; border-bottom: 1px solid #eee; }
+    nav .logo { font-weight: 700; margin-right: auto; }
+    nav a { color: #444; text-decoration: none; }
+    .hero { padding: 48px 24px; text-align: center; }
+    .hero h1 { margin: 0 0 8px; font-size: 40px; }
+    .hero p { margin: 0 auto 20px; max-width: 520px; color: #555; }
+    .btn { display: inline-block; padding: 10px 18px; border-radius: 8px; border: 0; font: inherit; cursor: pointer; }
+    .btn.primary { background: #2563eb; color: #fff; }
+    .btn.ghost { background: #e5e7eb; color: #111; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; padding: 8px 24px 32px; }
+    .toolbar button { padding: 6px 12px; border: 1px solid #ccc; background: #fff; border-radius: 6px; }
+    .toolbar button:nth-child(2) { border-radius: 14px; font-weight: 600; }
+    #cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; padding: 0 24px 48px; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; }
+    .card h3 { margin: 0 0 6px; }
+    .card p { margin: 0; color: #555; }
+    footer { display: flex; gap: 16px; padding: 20px 24px; border-top: 1px solid #eee; color: #666; }
+    form { display: flex; gap: 8px; padding: 0 24px 32px; justify-content: center; }
+    input { padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font: inherit; }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="logo">Acme</span>
+    <a href="#features">Features</a>
+    <a href="#pricing">Pricing</a>
+    <a href="#docs">Docs</a>
+    <button class="btn ghost" id="menu">Menu</button>
+  </nav>
+  <section class="hero">
+    <h1>Ship calmer interfaces</h1>
+    <p>Acme helps small teams review UI changes before they land.</p>
+    <button class="btn primary" id="cta" data-testid="cta">Start free trial</button>
+    <button class="btn ghost">Book a demo</button>
+  </section>
+  <div class="toolbar" aria-label="Filters">
+    <button>All</button><button>Design</button><button>Code</button><button>Review</button><button>Ship</button>
+  </div>
+  <form onsubmit="return false">
+    <input name="email" placeholder="you@example.com">
+    <button class="btn primary">Subscribe</button>
+  </form>
+  <section id="cards"></section>
+  <footer>
+    <span>© Acme</span><a href="#privacy">Privacy</a><a href="#terms">Terms</a><a href="#status">Status</a>
+  </footer>
+  <script>
+    // Page-side activity counters, so tests can check that review mode keeps input away from the page.
+    window.pageClicks = 0;
+    window.pageKeys = 0;
+    document.addEventListener("click", () => window.pageClicks++);
+    document.addEventListener("keydown", () => window.pageKeys++);
+
+    // Simulates a framework re-render: replaces the cards' DOM nodes with fresh ones.
+    window.rerender = function () {
+      const items = [
+        ["Annotate", "Click, drag or draw on any element."],
+        ["Queue", "Notes run one after another while you keep going."],
+        ["Review", "Pins turn green when the agent is done."],
+      ];
+      document.getElementById("cards").innerHTML = items
+        .map(([h, p]) => `<article class="card"><h3>${h}</h3><p>${p}</p></article>`)
+        .join("");
+    };
+    window.rerender();
+  </script>
+</body>
+</html>

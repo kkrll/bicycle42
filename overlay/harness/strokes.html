@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stroke Styles</title>
+<style>
+  :root {
+    --bg: #f6f6f7; --panel: #ffffff; --text: #18181b; --muted: #71717a; --line: #e4e4e7;
+    --accent: #7c3aed; --ui: #e9e9ec;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, sans-serif;
+    display: grid; grid-template-rows: auto 1fr; }
+  header { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 10px 16px;
+    background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 14px; margin: 0; font-weight: 650; }
+  .group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .group > span { color: var(--muted); font-size: 12px; }
+  button { font: inherit; font-size: 12.5px; padding: 4px 10px; border-radius: 7px; border: 1px solid var(--line);
+    background: transparent; color: inherit; cursor: pointer; }
+  button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button kbd { font: 600 10px ui-monospace, monospace; opacity: .65; margin-right: 5px; }
+  .swatch { width: 22px; height: 22px; padding: 0; border-radius: 50%; }
+  .swatch[aria-pressed="true"] { outline: 2px solid var(--text); outline-offset: 2px; }
+  input[type=range] { width: 90px; }
+  main { display: grid; grid-template-columns: 1fr 340px; min-height: 0; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; grid-template-rows: 1fr auto; } }
+
+  /* the page under review: a plain mock, like the harness */
+  .stage { position: relative; overflow: hidden; margin: 16px; border-radius: 12px; background: #fafafa;
+    border: 1px solid var(--line); touch-action: none; min-height: 420px; }
+  .mock { position: absolute; inset: 0; padding: 22px 28px; color: #111; pointer-events: none; user-select: none; }
+  .mock nav { display: flex; justify-content: space-between; font-weight: 600; }
+  .mock nav span { color: #555; font-weight: 400; margin-left: 18px; }
+  .mock h2 { font-size: 34px; text-align: center; margin: 56px 0 8px; letter-spacing: -.02em; }
+  .mock p { text-align: center; color: #555; margin: 0 0 20px; }
+  .mock .cta { display: flex; gap: 10px; justify-content: center; }
+  .mock .cta b { padding: 10px 18px; border-radius: 8px; background: #2563eb; color: #fff; font-weight: 500; }
+  .mock .cta i { padding: 10px 18px; border-radius: 8px; background: var(--ui); font-style: normal; }
+  .mock .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 44px; }
+  .mock .cards div { border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; padding: 16px; height: 96px; }
+  svg.ink { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
+  .hint { position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: var(--muted); pointer-events: none; }
+
+  aside { padding: 16px 16px 16px 0; display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow: auto; }
+  @media (max-width: 900px) { aside { padding: 0 16px 16px; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .card h3 { margin: 0 0 4px; font-size: 13px; }
+  .card p { margin: 0; color: var(--muted); font-size: 12.5px; }
+  .preview img { width: 100%; border-radius: 6px; border: 1px solid var(--line); display: block; margin-top: 8px;
+    image-rendering: auto; background: #fff; }
+  .preview .zoom { image-rendering: pixelated; }
+  code { font: 12px ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Stroke styles</h1>
+  <div class="group" id="styles"></div>
+  <div class="group" id="colors"><span>Colour</span></div>
+  <div class="group"><span>Width</span><input id="width" type="range" min="1.5" max="10" step="0.5" value="3"><span id="wv">3</span></div>
+  <div class="group"><button id="demo">Demo strokes</button><button id="clear"><kbd>esc</kbd>Clear</button></div>
+</header>
+<main>
+  <div class="stage" id="stage">
+    <div class="mock">
+      <nav>Acme<div><span>Features</span><span>Pricing</span><span>Docs</span></div></nav>
+      <h2>Ship calmer interfaces</h2>
+      <p>Acme helps small teams review UI changes before they land.</p>
+      <div class="cta"><b>Start free trial</b><i>Book a demo</i></div>
+      <div class="cards"><div></div><div></div><div></div></div>
+    </div>
+    <svg class="ink" id="ink" xmlns="http://www.w3.org/2000/svg"><defs id="defs"></defs><g id="strokes"></g></svg>
+    <div class="hint">Drag to draw · 1–7 switch style · ⌘Z undo · Esc clear</div>
+  </div>
+  <aside>
+    <div class="card"><h3 id="name"></h3><p id="about"></p></div>
+    <div class="card preview">
+      <h3>What the agent gets</h3>
+      <p>The strokes as the viewport thumbnail: 2× capture, scaled to 600 px wide, JPEG 80. (Strokes on white; the mock page isn't in it.)</p>
+      <img id="shot" alt="Agent's thumbnail of the strokes">
+      <p style="margin-top:8px">Same thumbnail, a part at 3× zoom:</p>
+      <img id="zoom" class="zoom" alt="Zoomed part of the thumbnail">
+    </div>
+  </aside>
+</main>
+
+<script>
+"use strict";
+const SVGNS = "http://www.w3.org/2000/svg";
+const $ = (id) => document.getElementById(id);
+const stage = $("stage"), ink = $("ink"), defs = $("defs"), layer = $("strokes");
+
+// Every filter works in page coordinates (userSpaceOnUse), so the noise is fixed to the page:
+// grain doesn't crawl along a stroke while you draw it.
+const REGION = 'filterUnits="userSpaceOnUse" x="-50" y="-50" width="4000" height="3000"';
+const FILTERS = `
+  <filter id="f-rough" ${REGION}>
+    <feTurbulence type="fractalNoise" baseFrequency="0.06" numOctaves="2" seed="3" result="n"/>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="3.5" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+  <filter id="f-wobble" ${REGION}>
+    <feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="7" result="n"/>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="16" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+  <filter id="f-pencil" ${REGION}>
+    <feTurbulence type="fractalNoise" baseFrequency="0.07" numOctaves="2" seed="11" result="edge"/>
+    <feDisplacementMap in="SourceGraphic" in2="edge" scale="2" xChannelSelector="R" yChannelSelector="G" result="line"/>
+    <feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="1" seed="2" result="grain"/>
+    <!-- alpha = 4.4·R − 1.3: most of the paper "tooth" takes graphite, with small breaks -->
+    <feColorMatrix in="grain" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  4.4 0 0 0 -1.3" result="tooth"/>
+    <feComposite in="line" in2="tooth" operator="in"/>
+  </filter>
+  <filter id="f-crayon" ${REGION}>
+    <feTurbulence type="fractalNoise" baseFrequency="0.045" numOctaves="3" seed="5" result="edge"/>
+    <feDisplacementMap in="SourceGraphic" in2="edge" scale="5" xChannelSelector="R" yChannelSelector="G" result="line"/>
+    <feTurbulence type="fractalNoise" baseFrequency="0.55 0.9" numOctaves="2" seed="9" result="grain"/>
+    <feColorMatrix in="grain" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  4 0 0 0 -1.25" result="tooth"/>
+    <feComposite in="line" in2="tooth" operator="in"/>
+  </filter>
+  <filter id="f-marker" ${REGION}>
+    <feTurbulence type="fractalNoise" baseFrequency="0.05" numOctaves="2" seed="4" result="edge"/>
+    <feDisplacementMap in="SourceGraphic" in2="edge" scale="2.5" xChannelSelector="R" yChannelSelector="G" result="line"/>
+    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="1" seed="8" result="grain"/>
+    <!-- gentle tooth: the ink mostly covers, with a little paper showing through -->
+    <feColorMatrix in="grain" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1.6 0 0 0 0.05" result="tooth"/>
+    <feComposite in="line" in2="tooth" operator="in"/>
+  </filter>`;
+defs.innerHTML = FILTERS;
+
+// ── styles ───────────────────────────────────────────────────────────────────────────────────
+// Each returns SVG markup for one stroke (points in stage coordinates). `w` is the base width.
+const STYLES = [
+  { id: "clean", name: "Clean (today)", about: "What the overlay draws now: a plain round-capped 3 px line. The baseline to compare against.",
+    draw: (pts, c, w) => path(smooth(pts), c, w) },
+  { id: "rough", name: "Rough edge", about: "A low-frequency noise nudges the edge a few pixels: a hand-inked feel without noise inside the line. One feTurbulence + feDisplacementMap.",
+    draw: (pts, c, w) => path(smooth(pts), c, w, 'filter="url(#f-rough)"') },
+  { id: "wobble", name: "Hand wobble", about: "Same filter, larger and slower noise: the whole line wobbles like a quick marker sketch. Still one filter.",
+    draw: (pts, c, w) => path(smooth(pts), c, w, 'filter="url(#f-wobble)"') },
+  { id: "sketchy", name: "Sketchy (double line)", about: "Rough.js style: the stroke drawn twice, each pass jittered a little differently, thinner. No filter, just two paths.",
+    draw: (pts, c, w, seed) => [1, 2].map((k) => path(smooth(jitter(pts, seed * 13 + k, w * 0.55)), c, Math.max(1.2, w * 0.6), 'opacity="0.9"')).join("") },
+  { id: "pencil", name: "Pencil grain", about: "Fine paper grain masks the line, so it breaks up like graphite on paper, plus a slight edge wobble. Draw slowly over one spot to see the tooth.",
+    draw: (pts, c, w) => path(smooth(pts), c, w * 1.25, 'filter="url(#f-pencil)"') },
+  { id: "crayon", name: "Crayon / charcoal", about: "Wider line, coarser and streaky grain, a rougher edge. The most textured; the one most likely to go mushy in the agent's JPEG.",
+    draw: (pts, c, w) => path(smooth(pts), c, w * 2.2, 'filter="url(#f-crayon)"') },
+  { id: "marker", name: "Felt marker", about: "Wide, slightly see-through, multiplied into the page like a real marker, with a soft paper tooth and a gentle edge.",
+    draw: (pts, c, w) => path(smooth(pts), c, w * 2.6, 'filter="url(#f-marker)" opacity="0.7" style="mix-blend-mode:multiply"') },
+];
+const COLORS = [["#ef4444", "Red (today)"], ["#7c3aed", "Purple"], ["#1f2937", "Graphite"], ["#f97316", "Orange"]];
+
+let style = 0, color = COLORS[0][0], width = 3;
+const strokes = []; // { pts: [[x,y]], seed }
+
+function path(d, c, w, extra = "") {
+  return `<path d="${d}" fill="none" stroke="${c}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" ${extra}/>`;
+}
+// Quadratic curves through the midpoints: smooth without overshoot.
+function smooth(pts) {
+  if (pts.length < 2) return pts.length ? `M${pts[0][0]} ${pts[0][1]}l0.01 0` : "";
+  let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const [x, y] = pts[i], [nx, ny] = pts[i + 1];
+    d += `Q${x.toFixed(1)} ${y.toFixed(1)} ${((x + nx) / 2).toFixed(1)} ${((y + ny) / 2).toFixed(1)}`;
+  }
+  const last = pts[pts.length - 1];
+  return d + `L${last[0].toFixed(1)} ${last[1].toFixed(1)}`;
+}
+// A smooth offset that changes slowly along the stroke (sines on arc length), seeded per pass.
+function jitter(pts, seed, amp) {
+  let s = 0;
+  return pts.map(([x, y], i) => {
+    if (i) s += Math.hypot(x - pts[i - 1][0], y - pts[i - 1][1]);
+    const t = s / 9;
+    return [x + amp * Math.sin(t * 0.7 + seed) + amp * 0.5 * Math.sin(t * 1.9 + seed * 2.3),
+            y + amp * Math.cos(t * 0.6 + seed * 1.7) + amp * 0.5 * Math.cos(t * 2.3 + seed)];
+  });
+}
+
+function render() {
+  const s = STYLES[style];
+  layer.innerHTML = strokes.map((k) => s.draw(k.pts, color, width, k.seed)).join("");
+  $("name").textContent = `${style + 1}. ${s.name}`;
+  $("about").textContent = s.about;
+  for (const b of document.querySelectorAll("#styles button")) b.setAttribute("aria-pressed", String(+b.dataset.i === style));
+  for (const b of document.querySelectorAll("#colors button")) b.setAttribute("aria-pressed", String(b.dataset.c === color));
+  schedulePreview();
+}
+
+// ── drawing ──────────────────────────────────────────────────────────────────────────────────
+let live = null;
+const local = (e) => { const r = ink.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+ink.addEventListener("pointerdown", (e) => {
+  ink.setPointerCapture(e.pointerId);
+  live = { pts: [local(e)], seed: Math.random() * 100 };
+  strokes.push(live);
+  render();
+});
+ink.addEventListener("pointermove", (e) => {
+  if (!live) return;
+  const p = local(e), q = live.pts[live.pts.length - 1];
+  if (Math.hypot(p[0] - q[0], p[1] - q[1]) < 1.5) return;
+  live.pts.push(p);
+  render();
+});
+const end = () => { live = null; schedulePreview(); };
+ink.addEventListener("pointerup", end);
+ink.addEventListener("pointercancel", end);
+
+// ── controls ─────────────────────────────────────────────────────────────────────────────────
+STYLES.forEach((s, i) => {
+  const b = document.createElement("button");
+  b.dataset.i = i;
+  b.innerHTML = `<kbd>${i + 1}</kbd>${s.name}`;
+  b.onclick = () => { style = i; render(); };
+  $("styles").append(b);
+});
+for (const [c, label] of COLORS) {
+  const b = document.createElement("button");
+  b.className = "swatch"; b.dataset.c = c; b.title = label; b.style.background = c;
+  b.onclick = () => { color = c; render(); };
+  $("colors").append(b);
+}
+$("width").oninput = (e) => { width = +e.target.value; $("wv").textContent = width; render(); };
+$("clear").onclick = () => { strokes.length = 0; render(); };
+$("demo").onclick = demo;
+addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  const n = +e.key;
+  if (n >= 1 && n <= STYLES.length) { style = n - 1; render(); }
+  else if (e.key === "Escape") { strokes.length = 0; render(); }
+  else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); strokes.pop(); render(); }
+});
+
+// A circle round the button, an underline under the heading, an arrow to the cards.
+function demo() {
+  const r = stage.getBoundingClientRect(), W = r.width, cx = W / 2;
+  const ring = [];
+  for (let a = -0.3; a < Math.PI * 2 + 0.25; a += 0.12)
+    ring.push([cx - 70 + Math.cos(a) * 95 + Math.sin(a * 3) * 3, 206 + Math.sin(a) * 34 + Math.cos(a * 2) * 2]);
+  const under = [];
+  for (let x = cx - 190; x <= cx + 190; x += 8) under.push([x, 142 + Math.sin(x / 40) * 2.5 + (x - cx) * 0.01]);
+  const arrow = [];
+  for (let t = 0; t <= 1; t += 0.04) arrow.push([W - 90 - t * 120 + Math.sin(t * 5) * 6, 240 + t * 90]);
+  const head = [[W - 196, 312], [W - 210, 330], [W - 188, 334]];
+  strokes.length = 0;
+  for (const pts of [ring, under, arrow, head]) strokes.push({ pts, seed: Math.random() * 100 });
+  render();
+}
+
+// ── the agent's view ─────────────────────────────────────────────────────────────────────────
+// Serialise the SVG (filters included) into an image, draw it at 2× on white, then scale to the
+// overlay's thumbnail size and JPEG quality, as the app does with capturePage.
+let previewTimer;
+function schedulePreview() { clearTimeout(previewTimer); previewTimer = setTimeout(preview, live ? 400 : 60); }
+async function preview() {
+  const r = stage.getBoundingClientRect(), W = Math.round(r.width), H = Math.round(r.height);
+  const s = STYLES[style];
+  const body = strokes.map((k) => s.draw(k.pts, color, width, k.seed)).join("");
+  const svg = `<svg xmlns="${SVGNS}" width="${W * 2}" height="${H * 2}" viewBox="0 0 ${W} ${H}"><rect width="100%" height="100%" fill="#fff"/><defs>${FILTERS}</defs>${body}</svg>`;
+  const img = new Image();
+  img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  try { await img.decode(); } catch { return; }
+  const big = Object.assign(document.createElement("canvas"), { width: W * 2, height: H * 2 });
+  big.getContext("2d").drawImage(img, 0, 0);
+  const k = Math.min(1, 600 / Math.max(W * 2, H * 2));
+  const tw = Math.round(W * 2 * k), th = Math.round(H * 2 * k);
+  const small = Object.assign(document.createElement("canvas"), { width: tw, height: th });
+  const g = small.getContext("2d");
+  g.imageSmoothingQuality = "high";
+  g.drawImage(big, 0, 0, tw, th);
+  $("shot").src = small.toDataURL("image/jpeg", 0.8);
+  // a third of the thumbnail around the middle, at 3×
+  const zw = Math.round(tw / 3), zh = Math.round(th / 3);
+  const z = Object.assign(document.createElement("canvas"), { width: zw * 3, height: zh * 3 });
+  const zg = z.getContext("2d");
+  zg.imageSmoothingEnabled = false;
+  const jpeg = new Image();
+  jpeg.src = $("shot").src;
+  await jpeg.decode();
+  zg.drawImage(jpeg, Math.round(tw / 2 - zw / 1.4), Math.round(th / 3 - zh / 2), zw, zh, 0, 0, zw * 3, zh * 3);
+  $("zoom").src = z.toDataURL("image/png");
+}
+
+render();
+requestAnimationFrame(demo);
+</script>
+</body>
+</html>

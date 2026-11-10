@@ -1,0 +1,35 @@
+{
+  "name": "bicycle42",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "bicycle 42: a standalone design-review app. The page is the interface; an OpenCode server does the work.",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node scripts/build.mjs && electron .",
+    "dev": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/build.mjs --tests && node --test --test-force-exit dist/test/*.test.cjs && electron --ozone-platform=headless --disable-gpu dist/test/page.e2e.cjs && electron --ozone-platform=headless --disable-gpu dist/test/app.e2e.cjs",
+    "test:unit": "node scripts/build.mjs --tests && node --test --test-force-exit dist/test/*.test.cjs",
+    "check:design": "kkrll-check src/renderer"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.2.5",
+    "@fontsource-variable/jetbrains-mono": "^5.2.5",
+    "@kkrll/design": "github:kkrll/kkrll-design",
+    "dompurify": "^3.2.0",
+    "marked": "^15.0.0",
+    "solid-js": "^1.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "electron": "44.9.1",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.0.0",
+    "vite-plugin-solid": "^2.11.0"
+  },
+  "trustedDependencies": ["electron", "esbuild"]
+}

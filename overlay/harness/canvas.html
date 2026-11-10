@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Canvas mode test page</title>
+  <style>
+    :root { --bg-200: #f0f0ea; --bg-300: #d8d8d2; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px 32px 0; font: 15px/1.5 system-ui, -apple-system, sans-serif; color: #1c1c1e; background: #fafaf8; }
+    header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: 28px; }
+    h2 { margin: 28px 0 12px; font-size: 18px; }
+    button { font: inherit; padding: 8px 14px; border: 0; border-radius: 8px; background: #1c1c1e; color: #fff; cursor: pointer; }
+    .row { display: flex; gap: 16px; }
+    .card { width: 200px; padding: 16px; border: 1px solid #d8d8d2; border-radius: 12px; background: #fff; }
+    .card h3 { margin: 0 0 6px; font-size: 16px; }
+    .card p { margin: 0; color: #5c5c58; }
+    .grid { display: grid; grid-template-columns: repeat(3, 120px); gap: 12px; }
+    .tile { height: 60px; display: grid; place-items: center; border-radius: 8px; background: #e9e9e2; }
+    .stack { width: 360px; }
+    .item { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; background: #fff; border: 1px solid #d8d8d2; }
+    dialog { border: 0; border-radius: 12px; padding: 20px; }
+    dialog .row { gap: 8px; }
+    .tall { height: 1400px; }
+    #far { display: flex; gap: 10px; padding-bottom: 600px; }
+    #far span { display: block; width: 90px; padding: 8px; background: #e9e9e2; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="title">Simple pricing</h1>
+    <button id="cta" class="primary">Start free trial</button>
+  </header>
+
+  <h2>Flex row</h2>
+  <section id="plans" class="row"></section>
+
+  <h2>Grid</h2>
+  <section id="grid" class="grid">
+    <div class="tile">1</div><div class="tile">2</div><div class="tile">3</div>
+    <div class="tile">4</div><div class="tile">5</div><div class="tile">6</div>
+  </section>
+
+  <h2>Block flow</h2>
+  <div id="stack" class="stack"></div>
+
+  <p><button id="open-dialog" onclick="document.getElementById('dlg').showModal()">Open dialog</button></p>
+  <dialog id="dlg">
+    <div id="dlg-row" class="row"><button id="da">Alpha</button><button id="db">Beta</button><button id="dc">Gamma</button></div>
+  </dialog>
+
+  <div class="tall"></div>
+  <div id="far"><span>North</span><span>East</span><span>South</span></div>
+
+  <script>
+    // A stand-in for a framework: the lists are rendered from data, and rerender() throws the
+    // nodes away and builds them again (the cards), or patches text and attributes in place (the
+    // stack), which is what React, Solid or Vue do to their DOM between an edit and the agent's fix.
+    const plans = [["Free", "For trying it out"], ["Pro", "For small teams"], ["Scale", "For everyone else"]];
+    const steps = ["Annotate", "Review", "Ship", "Repeat"];
+    let rev = 0;
+    function card([name, blurb]) {
+      const a = document.createElement("article");
+      a.className = "card";
+      const h = document.createElement("h3");
+      h.textContent = name;
+      const p = document.createElement("p");
+      p.textContent = blurb;
+      a.append(h, p);
+      return a;
+    }
+    window.rerender = function () {
+      rev++;
+      document.getElementById("plans").replaceChildren(...plans.map(card));
+      const stack = document.getElementById("stack");
+      if (!stack.children.length) stack.append(...steps.map(() => document.createElement("p")));
+      [...stack.children].forEach((p, i) => {
+        p.className = "item"; // a patch: the framework sets what it thinks the attribute is
+        p.setAttribute("data-rev", String(rev));
+        p.textContent = steps[i];
+      });
+      document.getElementById("title").textContent = "Simple pricing";
+      document.getElementById("cta").className = "primary";
+    };
+    window.rerender();
+    window.pageClicks = 0;
+    window.pageKeys = 0;
+    document.addEventListener("click", () => window.pageClicks++);
+    for (const t of ["keydown", "keyup", "keypress", "input"]) document.addEventListener(t, () => window.pageKeys++);
+  </script>
+</body>
+</html>

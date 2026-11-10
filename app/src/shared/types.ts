@@ -1,0 +1,389 @@
+// Everything that crosses a boundary in the app lives here, and nothing else does.
+//
+//   app window (renderer) ⇄ main      AppState snapshots, ChatEvents, Commands      (via preload.ts)
+//   main ⇄ agent backend              the Backend interface and its BackendEvents   (main/opencode.ts)
+//
+// The UI speaks of sites, notes and changes. Backend words (session, inbox, provider) stop at
+// main: the renderer never sees a raw server payload.
+
+// ── models ──────────────────────────────────────────────────────────────────────────────────────
+
+export type ModelRef = { providerID: string; id: string; variant?: string }
+
+export type ModelInfo = {
+  providerID: string
+  id: string
+  name: string
+  /** Takes screenshots. Review notes need this. */
+  images: boolean
+  /** Effort levels, e.g. low | medium | high. Empty when the model has none. */
+  variants: string[]
+}
+
+export type AgentInfo = { id: string; name: string }
+
+// ── chat ────────────────────────────────────────────────────────────────────────────────────────
+// A conversation is a list of items, oldest first. An assistant item is one model step; a turn
+// with tools is several of them in a row.
+
+export type ChatImage = { name: string; src: string }
+
+export type ChatUser = {
+  kind: "user"
+  id: string
+  time: number
+  text: string
+  images: ChatImage[]
+  /** Set when this message is a review note: the note's number and the reviewer's own words. */
+  note?: { n: number; text: string }
+  /** Sent but not yet picked up by the agent (it is busy with earlier work). */
+  pending?: boolean
+}
+
+export type ToolStatus = "pending" | "running" | "done" | "error"
+
+export type FileChange = { file: string; patch: string; additions: number; deletions: number }
+
+export type ChatPart =
+  | { kind: "text"; key: string; text: string }
+  | { kind: "reasoning"; key: string; text: string }
+  | {
+      kind: "tool"
+      key: string
+      name: string
+      status: ToolStatus
+      /** One line saying what it does: "edit src/Button.tsx", "run npm test". */
+      title: string
+      /** Command output or result text, trimmed to a few KB. */
+      detail?: string
+      changes?: FileChange[]
+      error?: string
+    }
+
+export type ChatAssistant = {
+  kind: "assistant"
+  id: string
+  time: number
+  parts: ChatPart[]
+  /** False while the step is still running. */
+  done: boolean
+  error?: string
+}
+
+/** A line between messages: "Stopped", "Failed: …", "Model changed to Sonnet". */
+export type ChatMarker = { kind: "marker"; id: string; time: number; text: string; tone: "info" | "error" }
+
+export type ChatItem = ChatUser | ChatAssistant | ChatMarker
+
+/** Incremental updates to the open conversation. `session` lets a late event for a conversation
+ *  that is no longer shown be dropped. */
+export type ChatEvent =
+  | { type: "reset"; session: string; items: ChatItem[] }
+  /** Append the item, or replace the one with the same id. */
+  | { type: "item"; session: string; item: ChatItem }
+  /** Append the part to the assistant item, or replace the one with the same key. */
+  | { type: "part"; session: string; item: string; part: ChatPart }
+  /** Append text to a text or reasoning part. */
+  | { type: "delta"; session: string; item: string; key: string; text: string }
+  | { type: "remove"; session: string; item: string }
+  /** The agent picked up a waiting user message: it is no longer pending and moves to the end of
+   *  the conversation. (Not a remove + item pair: its screenshots are already in the window.) */
+  | { type: "delivered"; session: string; item: string; time: number }
+
+// ── the message box: commands and mentions ──────────────────────────────────────────────────────
+
+/** A server-side command, run by typing `/name arguments`. */
+export type SlashCommand = { name: string; description?: string }
+
+/** Something that can be named with `@` in a message: a file or folder of the site's code, a
+ *  skill, or a helper agent. `id` is the path (relative to the site's folder), the skill's id
+ *  or the agent's name. */
+export type MentionOption = { kind: "file" | "folder" | "skill" | "agent"; id: string; label: string; detail?: string }
+
+/** A mention as it sits in a message: characters `start`..`end` of the text are `@label`. */
+export type Mention = { kind: MentionOption["kind"]; id: string; start: number; end: number }
+
+/** How a message is delivered while the agent is working: wait for its turn, or interrupt and
+ *  steer what it is doing now. */
+export type Delivery = "queue" | "steer"
+
+export type SendOptions = { mentions?: Mention[]; delivery?: Delivery }
+
+// ── things that need an answer ──────────────────────────────────────────────────────────────────
+
+export type PermissionAsk = {
+  id: string
+  session: string
+  /** "edit", "shell", "webfetch", … */
+  action: string
+  /** Paths, commands or URLs it wants to act on. */
+  resources: string[]
+  /** For edits: the proposed change, before it is applied. */
+  changes?: FileChange[]
+  message?: string
+}
+
+export type PermissionDecision = "once" | "always" | "reject"
+
+export type QuestionField = {
+  key: string
+  type: "string" | "multiselect" | "boolean" | "number"
+  title?: string
+  description?: string
+  placeholder?: string
+  options?: { value: string; label: string; description?: string }[]
+  /** Free text is allowed next to the options. */
+  custom?: boolean
+  required?: boolean
+}
+
+export type Question = { id: string; session: string; title: string; fields: QuestionField[] }
+
+export type Answer = Record<string, string | number | boolean | string[]>
+
+// ── review notes ────────────────────────────────────────────────────────────────────────────────
+
+export type NoteStatus = "capturing" | "sending" | "queued" | "working" | "done" | "failed"
+
+/** "bg" notes go to a second conversation that runs beside the main one (alt+Enter). */
+export type Lane = "main" | "bg"
+
+export type NoteRow = {
+  id: string
+  n: number
+  /** The reviewer's words, or for a canvas note without words a summary of its edits. */
+  text: string
+  status: NoteStatus
+  lane: Lane
+  /** A canvas note: what the reviewer changed on the live page, one sentence per edit (and one
+   *  for the new CSS rules that came with them, if any). */
+  edits?: string[]
+  error?: string
+  /** It did not fail: the reviewer stopped the agent or took the note out of the queue. Shown
+   *  quietly, with Retry, and not counted as a failure. (`status` is still "failed".) */
+  stopped?: true
+  /** Its pin can't find its element on the page right now. */
+  lost?: true
+}
+
+// ── app state ───────────────────────────────────────────────────────────────────────────────────
+// Main owns it and pushes the whole snapshot on every change. It stays small: the conversation
+// travels separately as ChatEvents.
+
+export type ConnectionState =
+  /** No server configured yet: show the connect form. */
+  | { status: "unconfigured" }
+  | { status: "connecting"; url: string }
+  | { status: "online"; url: string; version: string }
+  | { status: "offline"; url: string; error: string }
+
+export type SessionSummary = {
+  id: string
+  /** The server folder it works in. */
+  directory: string
+  /** Set on a child conversation (the background one); those stay out of the switcher. */
+  parent?: string
+  title: string
+  updated: number
+  busy: boolean
+  model?: ModelRef
+  agent?: string
+}
+
+export type AppState = {
+  connection: ConnectionState
+  page: {
+    /** What the URL bar shows. Empty before the first page. */
+    url: string
+    loading: boolean
+    error?: string
+    canGoBack: boolean
+    canGoForward: boolean
+    /** The page hot-reloads by itself, so the app leaves reloading to it. */
+    hmr: boolean
+  }
+  review: {
+    enabled: boolean
+    autoReload: boolean
+    notes: NoteRow[]
+    /** Pins whose element can no longer be found on the page. */
+    unplaced: number
+  }
+  /** The site under review and the server folder that holds its code. `null` before a page is
+   *  open; `directory` is absent until the user has picked it (once per site). */
+  site: { origin: string; directory?: string } | null
+  /** The open conversation. `null` until a site has a folder. */
+  session: SessionSummary | null
+  /** Other conversations in the same folder, newest first, for the switcher. */
+  sessions: SessionSummary[]
+  models: ModelInfo[]
+  agents: AgentInfo[]
+  /** The model new conversations start with. */
+  defaultModel?: ModelRef
+  permissions: PermissionAsk[]
+  questions: Question[]
+}
+
+export type Rect = { x: number; y: number; width: number; height: number }
+
+export type DirEntry = { name: string; path: string }
+
+/** Renderer → main. Each returns a promise; a rejection carries a message fit to show the user. */
+export type Commands = {
+  // page
+  navigate(url: string): void
+  reload(): void
+  back(): void
+  forward(): void
+  /** Where the page sits inside the window, in CSS pixels. `null` hides it (a dialog is open). */
+  setPageBounds(bounds: Rect | null): void
+  // review
+  toggleReview(): void
+  toggleAutoReload(): void
+  clearNotes(): void
+  retryNote(id: string): void
+  /** Takes a note off the list, whatever its state. The agent is not told. */
+  removeNote(id: string): void
+  /** Scrolls the page to the note's pin. */
+  showNote(id: string): void
+  // connection and site
+  connect(server: { url: string; password: string }): void
+  /** The OpenCode server running on this computer, if there is one. Only its address: the
+   *  password stays in main. */
+  localServer(): { url: string } | null
+  /** Connects to that server, and remembers to use whichever one runs here from now on. */
+  connectLocal(): void
+  /** Tries the saved server again. The outcome shows in `connection`. */
+  reconnect(): void
+  disconnect(): void
+  /** Folders the server already knows, most recently used first. */
+  projects(): string[]
+  /** Sub-folders of an absolute path on the server, for the folder picker. */
+  listFolders(path: string): DirEntry[]
+  setDirectory(directory: string): void
+  // chat
+  /** `images` are pictures pasted or dropped into the message box, as data URIs. */
+  send(text: string, images?: PromptFile[], options?: SendOptions): void
+  /** The server's slash commands for the open site. Empty when there are none. */
+  commands(): SlashCommand[]
+  /** Runs `/name args` in the open conversation. */
+  runCommand(name: string, args: string, images?: PromptFile[], options?: SendOptions): void
+  /** What `@query` could mean: files and folders of the site's code, skills, helper agents.
+   *  At most 20, best first. An empty query lists skills and agents. */
+  mentions(query: string): MentionOption[]
+  /** Takes a message that is still waiting for its turn out of the queue. */
+  cancelQueued(item: string): void
+  stop(): void
+  newSession(): void
+  openSession(id: string): void
+  setModel(model: ModelRef): void
+  setAgent(id: string): void
+  replyPermission(id: string, decision: PermissionDecision): void
+  answerQuestion(id: string, answer: Answer): void
+  dismissQuestion(id: string): void
+}
+
+export type CommandName = keyof Commands
+
+/** App-level shortcuts caught while the page has focus, forwarded to the window. */
+export type Shortcut = "focus-url" | "toggle-panel" | "focus-chat"
+
+/** Main → window: the reviewer clicked a note's pin on the page. */
+export type NoteFocus = { id: string }
+
+/** What preload.ts exposes as `window.b42`. */
+export type Bridge = {
+  invoke<K extends CommandName>(name: K, ...args: Parameters<Commands[K]>): Promise<ReturnType<Commands[K]>>
+  /** Calls back with the current state at once, then on every change. Returns an unsubscribe. */
+  onState(fn: (state: AppState) => void): () => void
+  onChat(fn: (event: ChatEvent) => void): () => void
+  onShortcut(fn: (shortcut: Shortcut) => void): () => void
+  onNoteFocus(fn: (focus: NoteFocus) => void): () => void
+  platform: "darwin" | "linux" | "win32"
+}
+
+// ── backend ─────────────────────────────────────────────────────────────────────────────────────
+// The seam to whatever runs the agent. OpenCode implements it today (main/opencode.ts); an ACP
+// backend could later. Nothing outside the implementation knows the server's wire format.
+
+export type InboxStatus = "queued" | "working" | "cancelled"
+
+export type BackendEvent =
+  | { type: "connection"; state: ConnectionState }
+  /** Events were missed. Without `session`: the stream reconnected, re-read whatever is on
+   *  screen. With it: only that conversation has a gap. */
+  | { type: "resync"; session?: string }
+  /** A sent message moved through the queue. `id` is the id `prompt` returned. */
+  | { type: "inbox"; session: string; id: string; status: InboxStatus }
+  /** The agent started, or stopped for the given reason. `succeeded` means its queue ran dry. */
+  | { type: "run"; session: string; status: "started" | "succeeded" | "failed" | "interrupted"; error?: string }
+  | { type: "session"; session: SessionSummary }
+  /** The conversation was deleted on the server. Nothing sent to it will finish. */
+  | { type: "session-gone"; session: string }
+  | { type: "chat"; event: ChatEvent }
+  | { type: "permission"; ask: PermissionAsk }
+  | { type: "permission-done"; session: string; id: string }
+  | { type: "question"; question: Question }
+  | { type: "question-done"; session: string; id: string }
+
+export type PromptFile = { uri: string; name: string }
+
+export type Transcript = {
+  items: ChatItem[]
+  permissions: PermissionAsk[]
+  questions: Question[]
+}
+
+export type Backend = {
+  /** Checks the URL and password. Rejects with a message fit to show the user. */
+  info(): Promise<{ version: string }>
+  projects(): Promise<string[]>
+  listFolders(path: string): Promise<DirEntry[]>
+  models(): Promise<ModelInfo[]>
+  agents(): Promise<AgentInfo[]>
+
+  sessions(directory: string): Promise<SessionSummary[]>
+  /** Resolves `null` when the session no longer exists. */
+  session(id: string): Promise<SessionSummary | null>
+  createSession(input: { directory: string; model?: ModelRef; title?: string; parent?: string }): Promise<SessionSummary>
+  setModel(session: string, model: ModelRef): Promise<void>
+  setAgent(session: string, agent: string): Promise<void>
+
+  /** A fresh id for a message this client is about to send. */
+  messageId(): string
+  /** Queues a message as its own turn and returns its id at once, without waiting for the agent.
+   *  With an `id` (from `messageId`), sending is safe to repeat: if the server already has that
+   *  message, nothing is queued twice and the call resolves with the same id. That is what makes
+   *  a retry after a lost reply safe. */
+  prompt(
+    session: string,
+    input: { id?: string; text: string; files?: PromptFile[]; mentions?: Mention[]; delivery?: Delivery },
+  ): Promise<{ id: string }>
+  /** The server's slash commands for a folder. */
+  commands(directory: string): Promise<SlashCommand[]>
+  /** Runs a slash command in a session. Resolves once the server has accepted it. */
+  command(
+    session: string,
+    input: { name: string; text: string; files?: PromptFile[]; mentions?: Mention[]; delivery?: Delivery },
+  ): Promise<void>
+  /** Skills available in a folder, as mention options (kind "skill"). */
+  skills(directory: string): Promise<MentionOption[]>
+  /** Files and folders under a folder whose path matches `query`, as mention options with `id`
+   *  relative to the folder. */
+  findFiles(directory: string, query: string): Promise<MentionOption[]>
+  /** Removes a queued message the agent has not picked up. */
+  cancelQueued(session: string, id: string): Promise<void>
+  /** Ids of sent messages the agent has not picked up yet, oldest first. */
+  waiting(session: string): Promise<string[]>
+  stop(session: string): Promise<void>
+  /** The whole conversation as it stands, including messages still waiting in the queue. */
+  transcript(session: string): Promise<Transcript>
+
+  replyPermission(session: string, id: string, decision: PermissionDecision): Promise<void>
+  answerQuestion(session: string, id: string, answer: Answer): Promise<void>
+  dismissQuestion(session: string, id: string): Promise<void>
+
+  /** Opens the event stream and keeps it open (reconnecting) until the returned function is
+   *  called. Events for every session arrive here; callers filter by `session`. */
+  listen(on: (event: BackendEvent) => void): () => void
+}

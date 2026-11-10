@@ -1,0 +1,19 @@
+{
+  "name": "@bicycle42/overlay",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "In-page review layer shared by every bicycle 42 host.",
+  "exports": {
+    "./overlay.js": "./overlay.js",
+    "./prompt.js": "./prompt.js"
+  },
+  "scripts": {
+    "harness": "node scripts/serve.mjs",
+    "test": "node --test test/"
+  },
+  "devDependencies": {
+    "playwright-core": "1.65.0"
+  }
+}

@@ -1,0 +1,1131 @@
+{
+ "session": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+ "directory": "/home/dev/api-fixture",
+ "events": [
+  {
+   "id": "evt_1c2541bf100174HsCqX7uFJhRw",
+   "created": 1794261654513,
+   "type": "session.created",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "slug": "witty-knight",
+    "version": "2.2.6",
+    "projectID": "d53d64fe0d3a175a90851778756042c160056fc0",
+    "location": {
+     "directory": "/home/dev/api-fixture"
+    },
+    "subpath": "",
+    "title": "api capture (throwaway)",
+    "permissions": [
+     {
+      "action": "edit",
+      "resource": "*",
+      "effect": "ask"
+     }
+    ],
+    "model": {
+     "id": "haiku",
+     "providerID": "anthropic"
+    }
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 0,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2541d400015jeHdIyzG5D6Ko",
+   "created": 1794261654848,
+   "type": "session.inbox.enqueued",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "inboxID": "msg_1c2541c24001enA8QbAWDxCwBf",
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "item": {
+     "type": "user",
+     "payload": {
+      "text": "Look at the attached screenshot. In index.html in the current directory, change the <h1> text to exactly the label shown on the button in the screenshot. Use the edit tool once. Reply in one short line.",
+      "files": [
+       {
+        "data": "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgo",
+        "mime": "image/jpeg",
+        "source": {
+         "type": "inline"
+        },
+        "name": "shot.jpg"
+       }
+      ]
+     },
+     "delivery": "steer"
+    }
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 1,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2541d43001mrhGljKR5usf7w",
+   "created": 1794261654851,
+   "type": "session.execution.started",
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 2,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2541d4f001DN6ogP5Xw3oCEL",
+   "created": 1794261654863,
+   "metadata": {
+    "instructions": {
+     "initial": true
+    }
+   },
+   "type": "session.instructions.updated",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "delta": {
+     "core/codemode": "1f1291478accf8b3e4d96a40c150bf844d60557dede4aae56c47ea0043bbdce2",
+     "core/skill-guidance": "d2adbb52b6ac2e7451026f62e853665ce99d400f71dc51cc58a37e9fcf59c462",
+     "core/date": "92b15ba69e41b58abd2e121f9dbae18f05891be3cf4e617a4d55342d2626508a",
+     "core/environment": "a8d66d10dcb08e12541cc29dd6dc3abc234bdbb76f4872dd7309c8de080b1d14"
+    }
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 3,
+    "version": 2
+   }
+  },
+  {
+   "id": "evt_1c2541d52001yr1JPDgIrnFDYf",
+   "created": 1794261654866,
+   "type": "session.inbox.delivered",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "inboxID": "msg_1c2541c24001enA8QbAWDxCwBf"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 4,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2541d66001r97w9XAP9DyqF0",
+   "created": 1794261654886,
+   "type": "session.step.started",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "agent": "build",
+    "model": {
+     "id": "haiku",
+     "providerID": "anthropic",
+     "variant": "default"
+    },
+    "assistantMessageID": "msg_1c2541d5c001Y4HSQSTmCPqLnf",
+    "started": 1794261654884
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 5,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c25423680016Ys5ThGYfS7VZ5",
+   "created": 1794261656424,
+   "type": "session.reasoning.started",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2541d5c001Y4HSQSTmCPqLnf",
+    "ordinal": 0
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 6,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2542831001TjLX8I0Tb6Vd9A",
+   "created": 1794261657649,
+   "type": "session.reasoning.delta",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2541d5c001Y4HSQSTmCPqLnf",
+    "ordinal": 0,
+    "delta": "The screenshot shows the button label as \"PELICAN42,\" so I'll note that exact text. Before I can use the edit tool, I have to read index.html to get the current h1 text, since that's what the edit's old string needs to match. I'll read the file first.\n\n"
+   }
+  },
+  {
+   "id": "evt_1c2542831002ZgQUxRMMzWrHnV",
+   "created": 1794261657649,
+   "type": "session.reasoning.ended",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2541d5c001Y4HSQSTmCPqLnf",
+    "ordinal": 0,
+    "text": "The screenshot shows the button label as \"PELICAN42,\" so I'll note that exact text. Before I can use the edit tool, I have to read index.html to get the current h1 text, since that's what the edit's old string needs to match. I'll read the file first.\n\n"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 7,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c25428360018757AUYskWw2xT",
+   "created": 1794261657654,
+   "type": "session.tool.input.started",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2541d5c001Y4HSQSTmCPqLnf",
+    "id": "toolu_01EzPtgwiwwYWfUdSVbMbEZ8",
+    "name": "read"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 8,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2542839001g4vRsHm4z9mC1x",
+   "created": 1794261657657,
+   "type": "session.tool.input.ended",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2541d5c001Y4HSQSTmCPqLnf",
+    "id": "toolu_01EzPtgwiwwYWfUdSVbMbEZ8",
+    "text": ""
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 9,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c254283d001aASvw2ewtNgdPe",
+   "created": 1794261657661,
+   "type": "session.tool.called",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2541d5c001Y4HSQSTmCPqLnf",
+    "id": "toolu_01EzPtgwiwwYWfUdSVbMbEZ8",
+    "input": {
+     "path": "/home/dev/api-fixture/index.html"
+    },
+    "executed": false
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 10,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2542847001jvIXQURGh1eM5F",
+   "created": 1794261657671,
+   "type": "session.step.streamed",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2541d5c001Y4HSQSTmCPqLnf"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 11,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c254284f001iOwU97cYkixN42",
+   "created": 1794261657679,
+   "type": "session.tool.success",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2541d5c001Y4HSQSTmCPqLnf",
+    "id": "toolu_01EzPtgwiwwYWfUdSVbMbEZ8",
+    "content": [
+     {
+      "type": "text",
+      "text": "Read file /home/dev/api-fixture/index.html, lines 1-8\n1: <!doctype html>\n2: <html>\n3:   <head><meta charset=\"utf-8\"><title>fixture</title></head>\n4:   <body>\n5:     <h1>Hello</h1>\n6:     <p>Throwaway fixture for API capture.</p>\n7:   </body>\n8: </html>"
+     }
+    ],
+    "metadata": {
+     "truncated": false
+    },
+    "executed": false
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 12,
+    "version": 2
+   }
+  },
+  {
+   "id": "evt_1c2542852001GASed6XTJ3DOPn",
+   "created": 1794261657682,
+   "type": "session.step.ended",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2541d5c001Y4HSQSTmCPqLnf",
+    "finish": "tool-calls",
+    "rawFinish": "tool_use"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 13,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2542856001gwWIOzBRU5Urnr",
+   "created": 1794261657686,
+   "type": "session.usage.updated",
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA"
+   }
+  },
+  {
+   "id": "evt_1c2542868001RWhPlrsKwqZ2Ot",
+   "created": 1794261657704,
+   "type": "session.step.started",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "agent": "build",
+    "model": {
+     "id": "haiku",
+     "providerID": "anthropic",
+     "variant": "default"
+    },
+    "assistantMessageID": "msg_1c2542860001vXRYIfOOTf0J3g",
+    "started": 1794261657702
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 14,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2542d140016Z9hqs2BWetoc3",
+   "created": 1794261658900,
+   "type": "session.tool.input.started",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2542860001vXRYIfOOTf0J3g",
+    "id": "toolu_01LyXAXBQcGdXJy5HXAedygz",
+    "name": "edit"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 15,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2542d17001j8t6XDFI40Ono6",
+   "created": 1794261658903,
+   "type": "session.tool.input.ended",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2542860001vXRYIfOOTf0J3g",
+    "id": "toolu_01LyXAXBQcGdXJy5HXAedygz",
+    "text": ""
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 16,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2542d18001sLrtfDu82cJaBi",
+   "created": 1794261658905,
+   "type": "session.tool.called",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2542860001vXRYIfOOTf0J3g",
+    "id": "toolu_01LyXAXBQcGdXJy5HXAedygz",
+    "input": {
+     "path": "/home/dev/api-fixture/index.html",
+     "oldString": "    <h1>Hello</h1>",
+     "newString": "    <h1>PELICAN42</h1>"
+    },
+    "executed": false
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 17,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2542d1f001YG7QoX8IQdXQz0",
+   "created": 1794261658911,
+   "type": "session.step.streamed",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2542860001vXRYIfOOTf0J3g"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 18,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2542d24002SvZJ27mWmdX1i9",
+   "created": 1794261658917,
+   "type": "permission.asked",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "id": "per_1c2542d24001TlB2bANg4moaIW",
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "action": "edit",
+    "resources": [
+     "index.html"
+    ],
+    "save": [
+     "*"
+    ],
+    "metadata": {
+     "files": [
+      {
+       "file": "index.html",
+       "patch": "Index: index.html\n===================================================================\n--- index.html\n+++ index.html\n@@ -1,8 +1,8 @@\n <!doctype html>\n <html>\n   <head><meta charset=\"utf-8\"><title>fixture</title></head>\n   <body>\n-    <h1>Hello</h1>\n+    <h1>PELICAN42</h1>\n     <p>Throwaway fixture for API capture.</p>\n   </body>\n </html>\n",
+       "status": "modified",
+       "additions": 1,
+       "deletions": 1
+      }
+     ]
+    },
+    "source": {
+     "type": "tool",
+     "messageID": "msg_1c2542860001vXRYIfOOTf0J3g",
+     "id": "toolu_01LyXAXBQcGdXJy5HXAedygz"
+    }
+   }
+  },
+  {
+   "id": "evt_1c2542d51001de8zIu38PP6bEp",
+   "created": 1794261658961,
+   "type": "session.inbox.enqueued",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "inboxID": "msg_1c2542d50001E56KSKbHALGrlu",
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "item": {
+     "type": "user",
+     "payload": {
+      "text": "After that, run the shell command `sleep 25 && echo slept` and then reply with the single word done."
+     },
+     "delivery": "steer"
+    }
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 19,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2542d63001Ql3lDegBRSnTa0",
+   "created": 1794261658979,
+   "type": "permission.replied",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "requestID": "per_1c2542d24001TlB2bANg4moaIW",
+    "reply": "once"
+   }
+  },
+  {
+   "id": "evt_1c2542d65001itrRZD0RnUa5nz",
+   "created": 1794261658981,
+   "type": "session.tool.success",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2542860001vXRYIfOOTf0J3g",
+    "id": "toolu_01LyXAXBQcGdXJy5HXAedygz",
+    "content": [
+     {
+      "type": "text",
+      "text": "Edited index.html (1 replacement)"
+     }
+    ],
+    "metadata": {
+     "files": [
+      {
+       "file": "index.html",
+       "patch": "Index: index.html\n===================================================================\n--- index.html\n+++ index.html\n@@ -1,8 +1,8 @@\n <!doctype html>\n <html>\n   <head><meta charset=\"utf-8\"><title>fixture</title></head>\n   <body>\n-    <h1>Hello</h1>\n+    <h1>PELICAN42</h1>\n     <p>Throwaway fixture for API capture.</p>\n   </body>\n </html>\n",
+       "status": "modified",
+       "additions": 1,
+       "deletions": 1
+      }
+     ],
+     "truncated": false
+    },
+    "executed": false
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 20,
+    "version": 2
+   }
+  },
+  {
+   "id": "evt_1c2542d67001pECuXYn77fniy1",
+   "created": 1794261658983,
+   "type": "session.step.ended",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2542860001vXRYIfOOTf0J3g",
+    "finish": "tool-calls",
+    "rawFinish": "tool_use"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 21,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2542d6a001NnRZY7Kzw3abcF",
+   "created": 1794261658986,
+   "type": "session.usage.updated",
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA"
+   }
+  },
+  {
+   "id": "evt_1c2542d6d001ekKVmIVisEn9CW",
+   "created": 1794261658989,
+   "type": "session.inbox.delivered",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "inboxID": "msg_1c2542d50001E56KSKbHALGrlu"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 22,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2542d80001BNZAT11q8sTAo5",
+   "created": 1794261659008,
+   "type": "session.step.started",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "agent": "build",
+    "model": {
+     "id": "haiku",
+     "providerID": "anthropic",
+     "variant": "default"
+    },
+    "assistantMessageID": "msg_1c2542d73001LLtUDXfWLhzWx4",
+    "started": 1794261659006
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 23,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2543181001YTwZ68NTaVrfo8",
+   "created": 1794261660033,
+   "type": "session.tool.input.started",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2542d73001LLtUDXfWLhzWx4",
+    "id": "toolu_01YcC8bvYb6NUrU94gBhGDkA",
+    "name": "shell"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 24,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2543184001xL4fPc3ruVon5P",
+   "created": 1794261660036,
+   "type": "session.tool.input.ended",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2542d73001LLtUDXfWLhzWx4",
+    "id": "toolu_01YcC8bvYb6NUrU94gBhGDkA",
+    "text": ""
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 25,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2543187001LHuqmB148ZD9V1",
+   "created": 1794261660039,
+   "type": "session.tool.called",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2542d73001LLtUDXfWLhzWx4",
+    "id": "toolu_01YcC8bvYb6NUrU94gBhGDkA",
+    "input": {
+     "command": "sleep 25 && echo slept"
+    },
+    "executed": false
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 26,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c254318c00146P1YtrhhPHjJI",
+   "created": 1794261660044,
+   "type": "session.step.streamed",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2542d73001LLtUDXfWLhzWx4"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 27,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2543196001HoRqGZrIJVOg9m",
+   "created": 1794261660054,
+   "type": "shell.created",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "info": {
+     "id": "sh_1c2543191001uEAJQ7IQBkJn51",
+     "status": "running",
+     "command": "sleep 25 && echo slept",
+     "cwd": "/home/dev/api-fixture",
+     "shell": "/usr/bin/bash",
+     "file": "/home/dev/.local/share/opencode/shell/d53d64fe0d3a175a90851778756042c160056fc0/sh_1c2543191001uEAJQ7IQBkJn51.out",
+     "metadata": {
+      "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA"
+     },
+     "time": {
+      "started": 1794261660049
+     }
+    }
+   }
+  },
+  {
+   "id": "evt_1c2543196002Xu25TGAaL8k2zd",
+   "created": 1794261660054,
+   "type": "session.tool.progress",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2542d73001LLtUDXfWLhzWx4",
+    "id": "toolu_01YcC8bvYb6NUrU94gBhGDkA",
+    "metadata": {
+     "shellID": "sh_1c2543191001uEAJQ7IQBkJn51"
+    }
+   }
+  },
+  {
+   "id": "evt_1c2543d73001jJXuuUtf0JxLUN",
+   "created": 1794261663091,
+   "type": "session.tool.failed",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2542d73001LLtUDXfWLhzWx4",
+    "id": "toolu_01YcC8bvYb6NUrU94gBhGDkA",
+    "error": {
+     "type": "aborted",
+     "message": "Tool execution interrupted"
+    },
+    "metadata": {
+     "shellID": "sh_1c2543191001uEAJQ7IQBkJn51"
+    },
+    "executed": false
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 28,
+    "version": 2
+   }
+  },
+  {
+   "id": "evt_1c2543d760015NShlnurWiuqK5",
+   "created": 1794261663094,
+   "type": "session.step.failed",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "assistantMessageID": "msg_1c2542d73001LLtUDXfWLhzWx4",
+    "error": {
+     "type": "aborted",
+     "message": "Step interrupted"
+    },
+    "rawFinish": "tool_use"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 29,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2543d79001wcF0ggIni3I5Og",
+   "created": 1794261663097,
+   "type": "session.usage.updated",
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA"
+   }
+  },
+  {
+   "id": "evt_1c2543d7a001r3jGSIHhYdW8uW",
+   "created": 1794261663098,
+   "type": "session.execution.interrupted",
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "reason": "user"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 30,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2544630001x0MKKnCUzKcZnk",
+   "created": 1794261665328,
+   "type": "session.model.selected",
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "model": {
+     "id": "sonnet",
+     "providerID": "anthropic",
+     "variant": "low"
+    },
+    "previous": {
+     "id": "haiku",
+     "providerID": "anthropic",
+     "variant": "default"
+    }
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 31,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2544634001BW2Fu8Zi3SGbTw",
+   "created": 1794261665332,
+   "type": "session.agent.selected",
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "agent": "plan"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 32,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2544636002tZ4cg2iyTzxW4g",
+   "created": 1794261665334,
+   "type": "session.inbox.enqueued",
+   "location": {
+    "directory": "/home/dev/api-fixture"
+   },
+   "data": {
+    "inboxID": "msg_1c2544636001fFjo1breBMs0dN",
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "item": {
+     "type": "synthetic",
+     "payload": {
+      "text": "<system-reminder>\nYou are in Plan mode. Discuss the plan with the user directly in the conversation. Do not create or update plan files unless the user explicitly asks you to; when they do, write them…[trimmed 462 chars]"
+     },
+     "delivery": "steer"
+    }
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 33,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c254463a001DB06L32jVtAAcW",
+   "created": 1794261665338,
+   "type": "session.renamed",
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "title": "api capture (renamed)"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 34,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c254463e001UXFloPIiRodEgX",
+   "created": 1794261665342,
+   "type": "session.permissions",
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "permissions": [
+     {
+      "action": "edit",
+      "resource": "*",
+      "effect": "allow"
+     }
+    ]
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 35,
+    "version": 1
+   }
+  },
+  {
+   "id": "evt_1c2544641001HKQLxETI67Bryb",
+   "created": 1794261665345,
+   "type": "session.archived",
+   "data": {
+    "sessionID": "ses_e3dabe411ffeXcfC5gQuPk8WcA"
+   },
+   "durable": {
+    "aggregateID": "ses_e3dabe411ffeXcfC5gQuPk8WcA",
+    "seq": 36,
+    "version": 1
+   }
+  }
+ ],
+ "messages": [
+  {
+   "id": "msg_1c2541c24001enA8QbAWDxCwBf",
+   "time": {
+    "created": 1794261654866
+   },
+   "text": "Look at the attached screenshot. In index.html in the current directory, change the <h1> text to exactly the label shown on the button in the screenshot. Use the edit tool once. Reply in one short line.",
+   "files": [
+    {
+     "data": "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgo",
+     "mime": "image/jpeg",
+     "source": {
+      "type": "inline"
+     },
+     "name": "shot.jpg"
+    }
+   ],
+   "type": "user"
+  },
+  {
+   "id": "msg_1c2541d5c001Y4HSQSTmCPqLnf",
+   "time": {
+    "created": 1794261654884,
+    "streamed": 1794261657671,
+    "completed": 1794261657682
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "haiku",
+    "providerID": "anthropic",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "reasoning",
+     "text": "The screenshot shows the button label as \"PELICAN42,\" so I'll note that exact text. Before I can use the edit tool, I have to read index.html to get the current h1 text, since that's what the edit's old string needs to match. I'll read the file first.\n\n",
+     "time": {
+      "created": 1794261656424,
+      "completed": 1794261657649
+     }
+    },
+    {
+     "type": "tool",
+     "id": "toolu_01EzPtgwiwwYWfUdSVbMbEZ8",
+     "name": "read",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "path": "/home/dev/api-fixture/index.html"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Read file /home/dev/api-fixture/index.html, lines 1-8\n1: <!doctype html>\n2: <html>\n3:   <head><meta charset=\"utf-8\"><title>fixture</title></head>\n4:   <body>\n5:     <h1>Hello</h1>\n6:     <p>Throwaway fixture for API capture.</p>\n7:   </body>\n8: </html>"
+       }
+      ],
+      "metadata": {
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1794261657654,
+      "ran": 1794261657661,
+      "completed": 1794261657679
+     }
+    }
+   ],
+   "finish": "tool-calls",
+   "rawFinish": "tool_use"
+  },
+  {
+   "id": "msg_1c2542860001vXRYIfOOTf0J3g",
+   "time": {
+    "created": 1794261657702,
+    "streamed": 1794261658911,
+    "completed": 1794261658983
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "haiku",
+    "providerID": "anthropic",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "toolu_01LyXAXBQcGdXJy5HXAedygz",
+     "name": "edit",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "path": "/home/dev/api-fixture/index.html",
+       "oldString": "    <h1>Hello</h1>",
+       "newString": "    <h1>PELICAN42</h1>"
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "Edited index.html (1 replacement)"
+       }
+      ],
+      "metadata": {
+       "files": [
+        {
+         "file": "index.html",
+         "patch": "Index: index.html\n===================================================================\n--- index.html\n+++ index.html\n@@ -1,8 +1,8 @@\n <!doctype html>\n <html>\n   <head><meta charset=\"utf-8\"><title>fixture</title></head>\n   <body>\n-    <h1>Hello</h1>\n+    <h1>PELICAN42</h1>\n     <p>Throwaway fixture for API capture.</p>\n   </body>\n </html>\n",
+         "status": "modified",
+         "additions": 1,
+         "deletions": 1
+        }
+       ],
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1794261658900,
+      "ran": 1794261658905,
+      "completed": 1794261658981
+     }
+    }
+   ],
+   "finish": "tool-calls",
+   "rawFinish": "tool_use"
+  },
+  {
+   "id": "msg_1c2542d50001E56KSKbHALGrlu",
+   "time": {
+    "created": 1794261658989
+   },
+   "text": "After that, run the shell command `sleep 25 && echo slept` and then reply with the single word done.",
+   "type": "user"
+  },
+  {
+   "id": "msg_1c2542d73001LLtUDXfWLhzWx4",
+   "time": {
+    "created": 1794261659006,
+    "streamed": 1794261660044,
+    "completed": 1794261663094
+   },
+   "type": "assistant",
+   "agent": "build",
+   "model": {
+    "id": "haiku",
+    "providerID": "anthropic",
+    "variant": "default"
+   },
+   "content": [
+    {
+     "type": "tool",
+     "id": "toolu_01YcC8bvYb6NUrU94gBhGDkA",
+     "name": "shell",
+     "executed": false,
+     "state": {
+      "status": "error",
+      "input": {
+       "command": "sleep 25 && echo slept"
+      },
+      "error": {
+       "type": "aborted",
+       "message": "Tool execution interrupted"
+      },
+      "metadata": {
+       "shellID": "sh_1c2543191001uEAJQ7IQBkJn51"
+      }
+     },
+     "time": {
+      "created": 1794261660033,
+      "ran": 1794261660039,
+      "completed": 1794261663091
+     }
+    }
+   ],
+   "finish": "error",
+   "rawFinish": "tool_use",
+   "error": {
+    "type": "aborted",
+    "message": "Step interrupted"
+   }
+  },
+  {
+   "id": "msg_1c2543d7a001r3jGSIHhYdW8uW",
+   "time": {
+    "created": 1794261663098
+   },
+   "type": "idle",
+   "outcome": "interrupted"
+  },
+  {
+   "id": "msg_1c2544630001x0MKKnCUzKcZnk",
+   "time": {
+    "created": 1794261665328
+   },
+   "type": "model-switched",
+   "model": {
+    "id": "sonnet",
+    "providerID": "anthropic",
+    "variant": "low"
+   },
+   "previous": {
+    "id": "haiku",
+    "providerID": "anthropic",
+    "variant": "default"
+   }
+  },
+  {
+   "id": "msg_1c2544634001BW2Fu8Zi3SGbTw",
+   "time": {
+    "created": 1794261665332
+   },
+   "type": "agent-switched",
+   "agent": "plan"
+  }
+ ]
+}

@@ -1,0 +1,73 @@
+// Every icon in the app: stroked paths on a 24 grid, drawn at 16 or 20. One component, one table,
+// so there is no icon font, no glyph character and no per-icon file.
+import type { JSX } from "solid-js"
+
+const PATHS = {
+  back: "M15 5l-7 7 7 7",
+  forward: "M9 5l7 7-7 7",
+  reload: "M20 12a8 8 0 1 1-2.6-5.9M20 4v5h-5",
+  spinner: "M12 3a9 9 0 1 0 9 9",
+  panel: "M4 5h16v14H4zM14.5 5v14",
+  server: "M4 5h16v6H4zM4 13h16v6H4zM8 8h.01M8 16h.01",
+  down: "M6 9l6 6 6-6",
+  right: "M9 6l6 6-6 6",
+  plus: "M12 5v14M5 12h14",
+  close: "M6 6l12 12M18 6L6 18",
+  send: "M12 19V5M6 11l6-6 6 6",
+  stop: "M7 7h10v10H7z",
+  pencil: "M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1zM14.5 6.5l3 3",
+  terminal: "M4 5h16v14H4zM8 10l3 2.5L8 15M13 15h3",
+  file: "M7 3h7l4 4v14H7zM14 3v4h4",
+  search: "M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14zM16 16l4.5 4.5",
+  globe: "M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18zM3 12h18M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3z",
+  tool: "M14.5 6.5a4 4 0 0 0 5 5L11 20a2.1 2.1 0 0 1-3-3l8.5-8.5a4 4 0 0 0-2-2z",
+  list: "M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01",
+  check: "M5 12.5l4.5 4.5L19 7.5",
+  alert: "M12 4l9 16H3zM12 10v4.5M12 17.5h.01",
+  folder: "M3 6h6l2 2.5h10V19H3z",
+  jump: "M12 5v14M6 13l6 6 6-6",
+  thought: "M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1",
+  up: "M6 15l6-6 6 6",
+  attach: "M19 11.5l-7.4 7.4a4.6 4.6 0 0 1-6.5-6.5l7.8-7.8a3 3 0 0 1 4.3 4.3l-7.8 7.8a1.5 1.5 0 0 1-2.1-2.1L14.5 7.5",
+  copy: "M9 9h11v11H9zM15 9V4H4v11h5",
+  skill: "M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11M9 8h6",
+  agent: "M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4.5 21a7.5 7.5 0 0 1 15 0",
+  slash: "M15 4L9 20",
+  gauge: "M4.5 17a8.5 8.5 0 1 1 15 0M12 13.5l3.5-4.5M12 15a1.5 1.5 0 1 0 0-3",
+  mode: "M4 7h10M18 7h2M4 17h2M10 17h10M16 4.5v5M8 14.5v5",
+} as const
+
+export type IconName = keyof typeof PATHS
+
+export function Icon(props: { name: IconName; size?: 16 | 20 | 24; class?: string }): JSX.Element {
+  const size = () => props.size ?? 16
+  return (
+    <svg
+      class={props.class}
+      classList={{ icon: true, spin: props.name === "spinner" }}
+      width={size()}
+      height={size()}
+      viewBox="0 0 24 24"
+      fill={props.name === "stop" ? "currentColor" : "none"}
+      stroke="currentColor"
+      stroke-width={size() === 16 ? 2 : 1.75}
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d={PATHS[props.name]} />
+    </svg>
+  )
+}
+
+/** Which icon stands for a tool, from its backend name. Unknown tools get the generic one. */
+export function toolIcon(name: string): IconName {
+  const n = name.toLowerCase()
+  if (/edit|write|patch/.test(n)) return "pencil"
+  if (/bash|shell|exec|run/.test(n)) return "terminal"
+  if (/grep|glob|search|find|ls|list/.test(n)) return "search"
+  if (/read|view|open/.test(n)) return "file"
+  if (/web|fetch|http/.test(n)) return "globe"
+  if (/todo|task|plan/.test(n)) return "list"
+  return "tool"
+}
