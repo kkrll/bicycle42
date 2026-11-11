@@ -28,7 +28,8 @@
  *                           Each has selector, tag, label, component?, repeated?.
  *     note.css?: string     the batch stylesheet (new rules), verbatim
  *     note.targets          the edited elements; note.bounds their rects before and after, united
- *   The draft carries the unsent batch as draft.edits (opaque: { els, sheet, ops }) and draft.note.
+ *   The draft carries the unsent batch as draft.edits (opaque: { els, sheet, ops }), draft.paths
+ *   (where its elements were, to find them after a reload) and draft.note.
  *
  * host → page   window.__b42.receive(msg)
  *   { type: "state", enabled, draft?, pins?, templates? } templates: [{ name, hint }], offered after "/"
@@ -70,6 +71,8 @@
  * edit); "?" lists these keys. After sending, the bar says the preview stays until the note is done.
  * Previews never touch the page's inline styles: styles, order and hiding are rules in constructed
  * stylesheets; class and text edits write the DOM and are re-applied when a framework re-renders.
+ * An edited element without an id of its own carries a `data-b42e` attribute while a batch names
+ * it: the edit's rules select by it, so the edit stays on its element when the page moves it.
  * A sent batch stays applied until its pin is done, failed or stopped, or the page reloads.
  */
 (() => {
@@ -418,6 +421,22 @@
   // ── draft ───────────────────────────────────────────────────────────────────────────────────
   const hasDraft = () => S.sel.length > 0 || S.strokes.length > 0 || !!S.area;
 
+  /** Where the stamped elements of a batch last were: after a reload their stamps are gone. */
+  function pathsOf(B) {
+    const out = {};
+    const add = (x) => {
+      const p = x && stampOf(x.rs) && C.paths.get(x.rs);
+      if (p) out[x.rs] = [p.path, p.tag];
+    };
+    for (const rs in B.els) add(B.els[rs]);
+    for (const op of B.ops) {
+      add(op);
+      add(op.parent);
+      add(op.before);
+    }
+    return out;
+  }
+
   function serializeDraft() {
     const noteDraft = !S.pending && (hasDraft() || !!textarea.value);
     const edits = C.snap !== EMPTY ? C.draft.B : null;
@@ -426,7 +445,7 @@
     // (Between a send and its "captured", S.sel holds the sent note's outlines: not a draft.)
     return {
       text: textarea.value, targets: (noteDraft ? S.sel : []).map(selectorFor), area: S.area, strokes: S.strokes, template: S.template,
-      ...(edits ? { edits } : {}), ...(words ? { note: words } : {}),
+      ...(edits ? { edits, paths: pathsOf(edits) } : {}), ...(words ? { note: words } : {}),
     };
   }
 
@@ -919,6 +938,7 @@
   //    constructed stylesheets (adopted by the document, so they leave no node behind and survive
   //    a framework re-render); class and text edits have to write the DOM, so they are recorded
   //    with their original value, re-applied when the page re-renders, and put back exactly;
+  //    the one other write is the stamp that says which element an edit is on (see stamp());
   //  - the batch is plain data ({ els, sheet, ops }), so undo is a stack of snapshots, the draft is
   //    the batch itself, and a sent batch is the same object with a note id.
   const MAX_EDITS = 40;
@@ -949,7 +969,7 @@
   const C = {
     on: false,
     sel: null, // the selected element
-    selRs: "", // its stable selector, to find it again after a re-render
+    selRs: "", // its stable selector: its key in the batch, and how it is found again after a re-render
     hover: null,
     draft: { id: "draft", B: newBatch() }, // the unsent batch (+ its two stylesheets, made on demand)
     sent: [], // batches already sent, still applied as previews: [{ id, B, seen }]
@@ -960,6 +980,8 @@
     future: [],
     applied: new Map(), // Element → { cls?: original class attribute, text?: original text } written by us
     found: new Map(), // stable selector → Element
+    paths: new Map(), // an element's stamp (as a selector) → { path, tag }: where it last was
+    pathsDirty: false, pathsAt: 0,
     moves: {}, // the stylesheet of `order` rules, shared by all batches
     orders: new Map(), // parent selector → the `order` rules last worked out for it
     marks: new Map(), // Element → "ed" | "hid" | "ed hid": what the tree marks
@@ -996,9 +1018,10 @@
   const clean = (s) => s.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, ""); // tabs and line breaks stay
   const kids = (P) => [...P.children].filter((c) => c !== hostEl);
 
-  /** A selector for our own rules and for finding the element again. Unlike selectorFor it uses no
-   *  class names, so it still matches after the reviewer edits the class list. */
-  function stableSel(el) {
+  /** Where an element is: a path of tags and places from the nearest id. Unlike selectorFor it
+   *  uses no class names, so it still matches after the reviewer edits the class list. It says
+   *  where, not which: when the page adds a sibling before the element, its path is another one. */
+  function pathSel(el) {
     const parts = [];
     for (let cur = el; cur && cur.nodeType === 1; cur = cur.parentElement) {
       if (cur === document.body || cur === document.documentElement) {
@@ -1017,19 +1040,77 @@
     return parts.join(" > ");
   }
 
+  // An element with an edit is stamped (an attribute: like the class and text edits a write to
+  // the DOM, taken off again when no batch names it), and the edit's rules and its key in the
+  // batch are that stamp. So an edit stays on its element when the page adds, removes or reorders
+  // the ones around it. The stamp is lost when the page builds the element anew (or reloads):
+  // then the element is the one where the old one last was, as before. An element with an id of
+  // its own needs no stamp.
+  const STAMP = "data-b42e";
+  const stampSel = (id) => `[${STAMP}="${id}"]`;
+  const stampOf = (rs) => /^\[data-b42e="([a-z0-9]+)"\]$/.exec(rs)?.[1];
+  const stampBase = `${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 5)}`; // (a restored draft has stamps of an earlier load)
+  let stampN = 0;
+
+  /** The selector that says which element this is: its stamp if it has one, else its path. */
+  const stableSel = (el) => (el.hasAttribute(STAMP) ? stampSel(el.getAttribute(STAMP)) : pathSel(el));
+
+  /** The same for an element that is being edited: it gets its stamp now. */
+  function stamp(el) {
+    const path = pathSel(el);
+    if (!el.hasAttribute(STAMP)) {
+      if (el === document.body || el === document.documentElement || (el.id && path === `#${CSS.escape(el.id)}`)) return path;
+      el.setAttribute(STAMP, `${stampBase}${(++stampN).toString(36)}`);
+    }
+    const rs = stampSel(el.getAttribute(STAMP));
+    C.paths.set(rs, { path, tag: el.localName });
+    C.found.set(rs, el);
+    if (el === C.sel) C.selRs = rs;
+    return rs;
+  }
+
   function elOf(rs) {
     let el = C.found.get(rs);
-    if (!el || !el.isConnected) {
-      el = q(rs);
-      if (el) C.found.set(rs, el);
-      else C.found.delete(rs);
+    const id = stampOf(rs);
+    if (el && el.isConnected) {
+      // (Taken off when nothing named it any more; an undo, or a refused note, names it again.)
+      if (id && el.getAttribute(STAMP) !== id) el.setAttribute(STAMP, id);
+      return el;
     }
+    el = q(rs);
+    if (!el && id) {
+      const p = C.paths.get(rs);
+      const at = p && q(p.path);
+      if (at && at !== hostEl && at.localName === p.tag && !at.hasAttribute(STAMP)) {
+        at.setAttribute(STAMP, id);
+        el = at;
+      }
+    }
+    if (el) C.found.set(rs, el);
+    else C.found.delete(rs);
     return el;
+  }
+
+  /** Where each stamped element is now, for the day the page builds it anew. Read after the page
+   *  changed its tree, while the element is still there: one that just went keeps its last place. */
+  function readPaths() {
+    C.pathsDirty = false;
+    C.pathsAt = performance.now();
+    let changed = false;
+    for (const [rs, el] of C.found) {
+      if (!stampOf(rs) || !el.isConnected) continue;
+      const path = pathSel(el), p = C.paths.get(rs);
+      if (p && p.path === path) continue;
+      C.paths.set(rs, { path, tag: el.localName });
+      changed = true;
+    }
+    if (C.sel && C.sel.isConnected) C.selRs = stableSel(C.sel);
+    if (changed && C.snap !== EMPTY) draftChanged(); // the draft carries the paths (see serializeDraft)
   }
 
   /** What every edit says about its element (the wire names), plus `rs` for our own use. */
   function meta(el) {
-    const m = { selector: editSel(el), rs: stableSel(el), tag: el.tagName.toLowerCase(), label: line(plainLabel(el)) };
+    const m = { selector: editSel(el), rs: stamp(el), tag: el.tagName.toLowerCase(), label: line(plainLabel(el)) };
     const c = component(el);
     if (c) m.component = line(c.name);
     const cls = el.getAttribute("class");
@@ -1040,9 +1121,8 @@
   }
 
   function entry(el) {
-    const rs = el === C.sel ? C.selRs : stableSel(el);
     const els = C.draft.B.els;
-    return els[rs] || (els[rs] = { ...meta(el), rs, css: "" });
+    return (el.hasAttribute(STAMP) && els[stampSel(el.getAttribute(STAMP))]) || els[stamp(el)] || (els[stamp(el)] = { ...meta(el), css: "" });
   }
 
   // ── typed CSS: scanning, checking ───────────────────────────────────────────────────────────
@@ -1269,6 +1349,7 @@
       return el;
     };
     let watchClass = false, watchDom = false, dirty = false;
+    const named = new Set();
     for (const b of [...C.sent, C.draft]) {
       const off = C.hide.has(b.id);
       const ok = b.ok || (b.ok = {}); // per element (and "" for the stylesheet): the last complete text
@@ -1276,6 +1357,7 @@
       const rules = [];
       for (const rs in b.B.els) {
         const e = b.B.els[rs];
+        named.add(rs);
         // While a brace is still open the last complete text stays applied, so a rule being typed
         // does not switch the rest of the box off and on.
         if (usable(e.css, MAX_CSS)) ok[rs] = e.css;
@@ -1290,6 +1372,9 @@
         w.cls = { from: w.cls ? w.cls.from : e.cls.from, to: e.cls.to };
       }
       for (const op of b.B.ops) {
+        named.add(op.rs);
+        if (op.parent) named.add(op.parent.rs);
+        if (op.before) named.add(op.before.rs);
         note(op.rs, op.kind === "hide" ? "hid" : "ed");
         if (op.kind === "hide") rules.push(`${op.rs} { display: none !important; }`);
         if (off || op.kind === "hide") continue;
@@ -1376,6 +1461,15 @@
         st.text = w.text.from;
       }
       C.applied.set(el, st);
+    }
+    // A stamp no batch names any more comes off its element (an undo puts it back, see elOf).
+    for (const [rs, el] of C.found) {
+      if (named.has(rs)) continue;
+      if (stampOf(rs) && el.getAttribute(STAMP) === stampOf(rs)) {
+        el.removeAttribute(STAMP);
+        if (el === C.sel) C.selRs = stableSel(el);
+      }
+      if (!el.isConnected) C.found.delete(rs);
     }
     C.marks = marks;
     watch(watchClass ? 2 : watchDom ? 1 : 0);
@@ -1468,6 +1562,11 @@
     if (cnote && typeof d.note === "string" && !cnote.value) cnote.value = d.note;
     const B = d.edits;
     if (B && typeof B === "object" && B.els && typeof B.els === "object" && Array.isArray(B.ops)) {
+      const paths = d.paths && typeof d.paths === "object" ? d.paths : {};
+      for (const rs in paths) {
+        const v = paths[rs];
+        if (stampOf(rs) && !C.paths.has(rs) && Array.isArray(v) && typeof v[0] === "string" && typeof v[1] === "string") C.paths.set(rs, { path: v[0], tag: v[1] });
+      }
       C.draft.B = { els: B.els, sheet: typeof B.sheet === "string" ? B.sheet : "", ops: B.ops };
       C.snap = JSON.stringify(C.draft.B);
       applyAll();
@@ -1476,8 +1575,8 @@
   }
 
   // ── sending ─────────────────────────────────────────────────────────────────────────────────
-  const tidy = (e) => {
-    const out = { selector: e.selector, tag: e.tag, label: e.label };
+  const tidy = (e, selector = e.selector) => {
+    const out = { selector, tag: e.tag, label: e.label };
     if (e.component) out.component = e.component;
     if (e.repeated) out.repeated = e.repeated;
     return out;
@@ -1520,6 +1619,20 @@
     C.hide.add("measuring");
     applyAll();
     const before = measure();
+    // Each element is reported under the selector it has now, read while the batch is off: the
+    // page may have moved it since the edit was made, and its classes are the page's own here.
+    const where = new Map();
+    const locate = (x) => {
+      const el = x && !where.has(x.rs) && elOf(x.rs);
+      if (el) where.set(x.rs, editSel(el));
+    };
+    for (const e of entries) locate(e);
+    for (const op of B.ops) {
+      locate(op);
+      locate(op.parent);
+      locate(op.before);
+    }
+    const sel = (x) => where.get(x.rs) || x.selector;
     C.hide.delete("measuring");
     applyAll();
     const after = measure();
@@ -1527,18 +1640,18 @@
     const edits = [];
     for (const e of entries) {
       if (e.css.trim())
-        edits.push({ kind: "style", ...tidy(e), css: e.css,
+        edits.push({ kind: "style", ...tidy(e, sel(e)), css: e.css,
           changes: props.get(e.rs).map((prop, i) => ({ prop, from: before.vals.get(e.rs)[i], to: after.vals.get(e.rs)[i] })) });
-      if (e.cls) edits.push({ kind: "class", ...tidy(e), from: line(e.cls.from), to: line(e.cls.to) });
+      if (e.cls) edits.push({ kind: "class", ...tidy(e, sel(e)), from: line(e.cls.from), to: line(e.cls.to) });
     }
     for (const op of B.ops) {
-      const out = { kind: op.kind, ...tidy(op) };
+      const out = { kind: op.kind, ...tidy(op, sel(op)) };
       if (op.kind === "text") Object.assign(out, { from: line(op.from), to: line(op.to) });
       if (op.kind === "move")
         Object.assign(out, {
-          parent: { selector: op.parent.selector, label: op.parent.label, layout: op.parent.layout },
+          parent: { selector: sel(op.parent), label: op.parent.label, layout: op.parent.layout },
           fromIndex: op.fromIndex, toIndex: op.toIndex,
-          before: op.before ? { selector: op.before.selector, label: op.before.label } : null,
+          before: op.before ? { selector: sel(op.before), label: op.before.label } : null,
         });
       edits.push(out);
     }
@@ -1554,7 +1667,7 @@
       targets: els.map((el) => {
         const rs = stableSel(el);
         const known = B.els[rs] || B.ops.find((o) => o.rs === rs);
-        return { ...describe(el), ...(known ? { selector: known.selector } : {}) };
+        return { ...describe(el), ...(known ? { selector: sel(known) } : {}) };
       }),
       area: null,
       strokes: [],
@@ -2348,10 +2461,10 @@
   }
 
   function commitMove(el, P, beforeEl, layout) {
-    const prs = stableSel(P), B = C.draft.B;
+    const prs = stamp(P), B = C.draft.B;
     const prior = [...C.sent.filter((b) => !C.hide.has(b.id)), C.draft].flatMap((b) => b.B.ops.filter((o) => o.kind === "move" && o.parent.rs === prs));
     const from = ordered(kids(P), prior).indexOf(el);
-    const side = (x) => ({ selector: editSel(x), rs: stableSel(x), label: line(plainLabel(x)) });
+    const side = (x) => ({ selector: editSel(x), rs: stamp(x), label: line(plainLabel(x)) });
     const op = { kind: "move", ...meta(el), parent: { ...side(P), layout }, before: beforeEl ? side(beforeEl) : null, fromIndex: from, toIndex: from };
     op.toIndex = ordered(kids(P), [...prior, op]).indexOf(el);
     const last = B.ops[B.ops.length - 1];
@@ -3092,7 +3205,7 @@
     let r = null;
     if (C.sel && !C.sel.isConnected) {
       if (C.edit) endEdit(false);
-      const again = q(C.selRs);
+      const again = stampOf(C.selRs) ? elOf(C.selRs) : q(C.selRs);
       if (again) {
         C.sel = again;
         reveal(again);
@@ -3492,6 +3605,7 @@
     const visible = [];
     const unplaced = [];
     const now = performance.now();
+    if (C.pathsDirty && now - C.pathsAt > 50) readPaths();
     for (const p of S.pins) {
       let at = null;
       let approx = false;
@@ -3908,6 +4022,11 @@
     // Any other change leaves it where it is, and the document is not searched for dialogs.
     new MutationObserver((records) => {
       if (!hostEl.isConnected || (hostEl.showPopover && !hostEl.matches(":popover-open")) || records.some((r) => r.type === "attributes")) seat();
+      // (Before any batch is applied again: this observer was made first, so it is told first.)
+      if ((C.found.size || C.sel) && records.some((r) => r.type === "childList")) {
+        if (performance.now() - C.pathsAt > 50) readPaths();
+        else C.pathsDirty = true;
+      }
       domVersion++;
       kick();
     }).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributeFilter: ["open"] });

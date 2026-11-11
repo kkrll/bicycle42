@@ -1411,3 +1411,86 @@ test("one chain of frames: a drag that selects its element does not leave the la
   assert.ok(per > 0.8 && per < 1.2, `${per.toFixed(2)} frames asked for per frame (two chains: 2)`);
   await page.close();
 });
+
+test("an edit stays on its element when the page adds or removes the ones around it, and is sent under the selector it has then", async () => {
+  const { page, f } = await open();
+  const red = () => f.evaluate(() => [...document.querySelectorAll("#grid .tile")].filter((t) => getComputedStyle(t).backgroundColor === "rgb(255, 0, 0)").map((t) => t.textContent));
+  const stamps = () => f.evaluate(() => document.querySelectorAll("[data-b42e]").length);
+  const start = await pageState(f);
+  // Selected first, then the page puts a tile in front of it, then the edit is typed.
+  await clickAt(page, f, "#grid .tile:nth-of-type(2)");
+  await f.evaluate(() => document.getElementById("grid").insertAdjacentHTML("afterbegin", '<div class="tile">0</div>'));
+  await settle(f);
+  await field(f, "css").fill("background: red;");
+  await settle(f);
+  assert.deepEqual(await red(), ["2"]);
+  assert.equal(await ui(f, (r) => r.querySelector(".trow.on")?.textContent.trim().startsWith("div")), true);
+  // Typed, and then the page changes around it: one more in front, then the first two gone.
+  await f.evaluate(() => document.getElementById("grid").insertAdjacentHTML("afterbegin", '<div class="tile">-1</div>'));
+  await settle(f);
+  assert.deepEqual(await red(), ["2"]);
+  await f.evaluate(() => { const g = document.getElementById("grid"); g.firstElementChild.remove(); g.firstElementChild.remove(); });
+  await settle(f);
+  assert.deepEqual(await red(), ["2"]);
+  // The page builds the grid anew, with one tile more in front: the edit is on the one in the old one's last place.
+  await f.evaluate(() => { document.getElementById("grid").innerHTML = ["a", "b", "c", "d"].map((t) => `<div class="tile">${t}</div>`).join(""); });
+  await settle(f);
+  assert.deepEqual(await red(), ["b"]);
+  // Sent under the selector the element has now.
+  await f.evaluate(() => document.getElementById("grid").insertAdjacentHTML("afterbegin", '<div class="tile">z</div>'));
+  await settle(f);
+  assert.deepEqual(await red(), ["b"]);
+  await clickAt(page, f, "#title");
+  const n = await send(page);
+  assert.deepEqual(n.edits.map((e) => [e.kind, e.selector]), [["style", "#grid > div.tile:nth-of-type(3)"]]);
+  assert.equal(n.targets[0].selector, "#grid > div.tile:nth-of-type(3)");
+  // The stamp is the only thing written to the page for a style edit, and it goes with the edit.
+  assert.equal(await stamps(), 1);
+  await page.waitForFunction(() => window.__harness.notes[0]?.status === "done");
+  await f.waitForFunction(() => document.querySelectorAll("[data-b42e]").length === 0);
+  await f.evaluate(() => { document.getElementById("grid").innerHTML = [1, 2, 3, 4, 5, 6].map((t) => `<div class="tile">${t}</div>`).join("\n    "); });
+  // An unsent edit taken back with undo leaves nothing either, and redo finds its element again.
+  await clickAt(page, f, "#grid .tile:nth-of-type(5)");
+  await field(f, "css").fill("background: red;");
+  await clickAt(page, f, "#title");
+  assert.equal(await stamps(), 1);
+  await page.keyboard.press(`${MOD}+z`);
+  await settle(f);
+  assert.deepEqual([await red(), await stamps()], [[], 0]);
+  await f.evaluate(() => document.getElementById("grid").insertAdjacentHTML("afterbegin", '<div class="tile">0</div>'));
+  await page.keyboard.press(`${MOD}+Shift+z`);
+  await settle(f);
+  assert.deepEqual(await red(), ["5"]);
+  await page.keyboard.press(`${MOD}+z`);
+  await settle(f);
+  await f.evaluate(() => document.getElementById("grid").firstElementChild.remove());
+  assert.deepEqual((await pageState(f)).rules, start.rules);
+  assert.equal(await stamps(), 0);
+  await page.close();
+});
+
+test("a move and a hide follow their elements too: the page adds a card in front, the order and the hidden one stay right", async () => {
+  const { page, f } = await open();
+  const b = await box(f, "#plans article:nth-of-type(1)");
+  const c = await box(f, "#plans article:nth-of-type(3)");
+  // "Free" goes to the end of its row; "Pro" is hidden.
+  await drag(page, f, b.x + 100, b.y + 80, c.x + c.width + 30, c.y + 80);
+  await clickAt(page, f, "#plans article:nth-of-type(2)", 100, 80);
+  await page.keyboard.press("Delete");
+  await settle(f);
+  const seen = () => f.evaluate(() => [...document.querySelectorAll("#plans article")]
+    .filter((a) => getComputedStyle(a).display !== "none")
+    .sort((x, y) => x.getBoundingClientRect().left - y.getBoundingClientRect().left)
+    .map((a) => a.querySelector("h3").textContent));
+  assert.deepEqual(await seen(), ["Scale", "Free"]);
+  // The page adds a card in front (the same nodes stay).
+  await f.evaluate(() => {
+    const a = document.querySelector("#plans article").cloneNode(true);
+    a.removeAttribute("data-b42e");
+    a.querySelector("h3").textContent = "Trial";
+    document.getElementById("plans").prepend(a);
+  });
+  await settle(f);
+  assert.deepEqual(await seen(), ["Trial", "Scale", "Free"]);
+  await page.close();
+});
