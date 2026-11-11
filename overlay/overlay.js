@@ -795,7 +795,8 @@
     name.className = "vname";
     const keep = button("Keep", "Keep this variant and delete the others", keepVariant);
     keep.className = "vkeep";
-    bar.append(button("chevron-left", "Previous variant", (g) => chooseVariant(g, -1)), name, button("chevron-right", "Next variant", (g) => chooseVariant(g, 1)), keep);
+    // Both arrows lead, so they stay put while the label's width changes from variant to variant.
+    bar.append(button("chevron-left", "Previous variant", (g) => chooseVariant(g, -1)), button("chevron-right", "Next variant", (g) => chooseVariant(g, 1)), name, keep);
     return bar;
   }
 
@@ -3764,8 +3765,9 @@
     .vbar { position: fixed; left: 0; top: 0; display: flex; align-items: center; gap: 2px; height: 28px; padding: 0 3px; box-sizing: border-box;
       pointer-events: auto; background: #1a1a1b; color: #ededed; border-radius: 8px; white-space: nowrap;
       box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.12); font: 13px/1 system-ui, -apple-system, sans-serif; }
-    .vbar button { all: unset; box-sizing: border-box; min-width: 26px; height: 22px; padding: 0 6px; border-radius: 5px; text-align: center;
-      cursor: pointer; font: inherit; line-height: 22px; }
+    .vbar button { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+      min-width: 26px; height: 22px; padding: 0 6px; border-radius: 5px; cursor: pointer; font: inherit; }
+    .vbar button .ic { display: block; flex: none; }
     .vbar button:hover { background: rgba(255, 255, 255, 0.1); }
     .vbar button:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
     .vname { padding: 0 6px; font-variant-numeric: tabular-nums; }
