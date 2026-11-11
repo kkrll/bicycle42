@@ -3560,27 +3560,28 @@
     items.forEach(([r, cls], i) => placeBox(divs[i], r, cls));
 
     // ink: committed strokes, area, and the live drag
-    // Strokes are drawn in document coordinates inside a group shifted by the scroll, so the
-    // pencil grain (noise in the group's own coordinates) stays put on the page as it scrolls.
-    // The filter only works out the visible part of the page.
+    // All of it is drawn in document coordinates, and the whole picture is moved against the
+    // scroll by a CSS transform on a compositor layer of its own. So scrolling paints nothing:
+    // the layer is drawn once and then only moved, and the pencil grain (noise in the picture's
+    // own coordinates) stays put on the page.
     const show = S.enabled || capturing;
     const paths = show ? S.strokes.slice() : [];
     if (d && d.mode === "draw") paths.push(d.pts);
     const sx = VP.sx, sy = VP.sy;
-    const inkKey = `${sx}|${sy}|${VP.w}|${VP.h}`;
-    // Only strokes need the ink moved with the scroll: with none drawn, scrolling writes nothing here.
-    if (paths.length && ink._key !== inkKey) {
-      ink._key = inkKey;
-      strokesEl.setAttribute("transform", `translate(${-sx} ${-sy})`);
-      pencil.setAttribute("x", sx - 50);
-      pencil.setAttribute("y", sy - 50);
-      pencil.setAttribute("width", VP.w + 100);
-      pencil.setAttribute("height", VP.h + 100);
-    }
     const areas = [];
-    if (show && S.area) areas.push(docToViewRect(S.area));
-    if (d && d.mode === "area") areas.push({ x: Math.min(d.x0, d.x), y: Math.min(d.y0, d.y), w: Math.abs(d.x - d.x0), h: Math.abs(d.y - d.y0) });
+    if (show && S.area) areas.push(S.area);
+    if (d && d.mode === "area") areas.push({ x: Math.min(d.x0, d.x) + sx, y: Math.min(d.y0, d.y) + sy, w: Math.abs(d.x - d.x0), h: Math.abs(d.y - d.y0) });
+    const drawn = paths.length + areas.length > 0;
+    if (ink._on !== drawn) ink.classList.toggle("on", (ink._on = drawn)); // a layer only while there is ink
+    // With nothing drawn, scrolling writes nothing here.
+    const inkAt = `${sx}|${sy}`;
+    if (drawn && ink._at !== inkAt) {
+      ink._at = inkAt;
+      ink.style.transform = `translate(${-sx}px, ${-sy}px)`;
+    }
     const pathEls = pool(strokesEl, paths.length, () => document.createElementNS(SVG, "path"));
+    let redrawn = pathEls.length !== strokesEl._n;
+    strokesEl._n = pathEls.length;
     paths.forEach((pts, i) => {
       // A drawn stroke stays as it is, and the one being drawn only grows: the same points and
       // the same count mean the same path. Writing it again would repaint the ink every frame.
@@ -3589,13 +3590,31 @@
       el._pts = pts;
       el._n = pts.length;
       el.setAttribute("d", `M${pts.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L")}`);
+      redrawn = true;
     });
+    // The pencil filter is worked out for the strokes' own box, wherever the page is scrolled to
+    // (the line is nudged by 2px at most; the margin is for its width and round ends).
+    if (redrawn && paths.length) {
+      const b = union(paths.map((pts) => (pts === (d && d.pts) ? bboxOf(pts) : strokeBox.get(pts) || strokeBox.set(pts, bboxOf(pts)).get(pts))));
+      const key = `${Math.floor(b.x) - 12}|${Math.floor(b.y) - 12}|${Math.ceil(b.w) + 24}|${Math.ceil(b.h) + 24}`;
+      if (pencil._key !== key) {
+        pencil._key = key;
+        const [x, y, w, h] = key.split("|");
+        pencil.setAttribute("x", x);
+        pencil.setAttribute("y", y);
+        pencil.setAttribute("width", w);
+        pencil.setAttribute("height", h);
+      }
+    }
     const rectEls = pool(ink.querySelector(".areas"), areas.length, () => document.createElementNS(SVG, "rect"));
     areas.forEach((r, i) => {
-      rectEls[i].setAttribute("x", r.x);
-      rectEls[i].setAttribute("y", r.y);
-      rectEls[i].setAttribute("width", r.w);
-      rectEls[i].setAttribute("height", r.h);
+      const el = rectEls[i], key = `${r.x}|${r.y}|${r.w}|${r.h}`;
+      if (el._k === key) return; // (an area that stays is not written again either)
+      el._k = key;
+      el.setAttribute("x", r.x);
+      el.setAttribute("y", r.y);
+      el.setAttribute("width", r.w);
+      el.setAttribute("height", r.h);
     });
 
     // card
@@ -3630,12 +3649,15 @@
       if (at && !capturing) visible.push([p, at, approx]);
     }
     const pinEls = pool(pinsEl, visible.length, makePin);
+    const dpr = window.devicePixelRatio || 1;
     if (!visible.length) hideTip();
     visible.forEach(([p, [x, y], approx], i) => {
       const el = pinEls[i];
       el._pin = p;
-      const cx = Math.min(Math.max(10, x), VP.w - 10);
-      const cy = Math.min(Math.max(10, y), VP.h - 10);
+      // On whole device pixels: a pin is a layer, drawn once and then moved, and a layer moved by
+      // part of a pixel is shown blurred.
+      const cx = Math.round(Math.min(Math.max(10, x), VP.w - 10) * dpr) / dpr;
+      const cy = Math.round(Math.min(Math.max(10, y), VP.h - 10) * dpr) / dpr;
       // Most frames nothing moved: don't touch the DOM for a pin that looks the same.
       const drawn = `${p.n}|${p.status}|${p.lane}|${approx}|${cx}|${cy}`;
       if (el._drawn === drawn) return;
@@ -3698,17 +3720,23 @@
   const STYLES = `
     :host { all: initial; }
     .ink { position: fixed; inset: 0; width: 100vw; height: 100vh; overflow: visible; pointer-events: none; }
+    .ink.on { will-change: transform; }
     .ink path { fill: none; stroke: #ef4444; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
     .ink rect { fill: color-mix(in srgb, var(--pa) 10%, transparent); stroke: var(--pa); stroke-width: 1.5; stroke-dasharray: 5 4; }
     .box { position: fixed; left: 0; top: 0; box-sizing: border-box; border-radius: 3px; pointer-events: none; }
     .box.hover { border: 1.5px dashed #3b82f6; background: rgba(59, 130, 246, 0.06); }
     .box.sel { border: 2px solid var(--pa); background: color-mix(in srgb, var(--pa) 10%, transparent); }
+    /* A selection's outline and the pins are compositor layers of their own: they keep their size
+       and only move, with the scroll, so the page under them (which may be large) is not painted
+       again. Not the hover outline: it changes size with every element, and a layer that is
+       resized is drawn anew each time (measured: no gain in software, a third more GPU time). */
+    .box.sel, .box.csel { will-change: transform; }
     /* The same badge as in the app's notes list: 20 px, the same rounded-square corners, bold mono
        digits, dark ink on amber and green, no ring. */
     .pin { position: fixed; left: -10px; top: -10px; box-sizing: border-box; min-width: 20px; height: 20px; padding: 0 5px;
       border-radius: 10px; corner-shape: superellipse(1.333); font: 700 12px/20px ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace; text-align: center;
       font-variant-numeric: tabular-nums; color: #fff; background: #6b7280;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); pointer-events: none; }
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); pointer-events: none; will-change: transform; }
     .pins.live .pin { pointer-events: auto; cursor: pointer; }
     .pins.live .pin:hover { box-shadow: 0 0 0 2px var(--pa); }
     .vbar { position: fixed; left: 0; top: 0; display: flex; align-items: center; gap: 2px; height: 28px; padding: 0 3px; box-sizing: border-box;
@@ -3734,8 +3762,12 @@
     .sent { padding: 6px 10px; color: #fffaa0; font-weight: 600; font-variant-numeric: tabular-nums;
       animation: sent 1.8s ease-out both; }
     @keyframes sent { 0% { opacity: 0; } 8% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
-    @media (prefers-reduced-motion: reduce) { .sent { animation: none; } .pin.working { animation: none; } }
-    .pin.working { background: #f59e0b; color: #10100e; animation: pulse 1s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) { .sent { animation: none; } }
+    /* The pulse of a working pin goes in four steps each way, not sixty frames a second: a pin can
+       pulse for minutes with review off, and every frame of it is a frame the whole window is
+       drawn again (measured: 107 ms of CPU a second smooth, 38 in steps, 12 to 27 with none). */
+    .pin.working { background: #f59e0b; color: #10100e; animation: pulse 1s steps(4, jump-none) infinite; }
+    @media (prefers-reduced-motion: reduce) { .pin.working { animation: none; } }
     .pin.done { background: #16a34a; color: #10100e; }
     .pin.failed { background: #dc2626; }
     .pin.stopped { background: #fff; color: #171717; box-shadow: inset 0 0 0 1.5px #6b7280, 0 1px 3px rgba(0, 0, 0, 0.3); }

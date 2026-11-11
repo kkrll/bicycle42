@@ -149,9 +149,10 @@ on its pin and in the chat. A note may be new CSS rules and nothing else.
 - An Enter that does something else in the page (a new line in the note, picking a template,
   keeping a text edit) still opens the one-second window in which the page's own script could
   slip a note in; closing it needs the isolated world below.
-- The overlay while scrolling or hovering on a heavy page: strokes are repainted on every scroll
-  frame, a hover outline repaints the page's layer, and a working pin's pulse keeps the
-  compositor drawing with review off. Each needs the drawing moved onto its own layer.
+- The overlay on a heavy page: a hover outline that changes size repaints what is under it
+  (a layer of its own did not help: it is drawn anew at every size), and the note card is
+  painted again as it follows the scroll. Outlines of a fixed look, moved and scaled by
+  transform only, would need square corners and a solid line.
 - Session rotation every N notes.
 - A failed note can be retried until the app restarts; after that its screenshot is gone.
 - Pending permission requests of the background conversation are only seen live, not after a reconnect.

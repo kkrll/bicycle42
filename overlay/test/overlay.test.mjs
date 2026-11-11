@@ -449,6 +449,27 @@ test("a note being made costs nothing while nothing moves: no stroke is written 
   await f.evaluate(() => { document.body.style.minHeight = "3000px"; window.scrollTo(0, 120); });
   await frames(f, 3);
   assert.equal(Math.round(before - (await root(f, (r) => r.querySelector(".card").getBoundingClientRect().top))), 120);
+  // Scrolling moves the ink as one layer: nothing inside it is written, and it stays on the page.
+  const inkAt = () => root(f, (r) => r.querySelector(".strokes path").getBoundingClientRect().top);
+  const top = await inkAt();
+  await f.evaluate(() => {
+    const svg = document.querySelector("b42-review").shadowRoot.querySelector(".ink");
+    window.__ink = 0;
+    // What is written inside the picture; its own transform is the one thing that may change.
+    window.__inkObs = new MutationObserver((list) => (window.__ink += list.filter((m) => m.target !== svg).length));
+    window.__inkObs.observe(svg, { subtree: true, childList: true, attributes: true });
+  });
+  for (let y = 140; y <= 300; y += 40) {
+    await f.evaluate((to) => window.scrollTo(0, to), y);
+    await frames(f, 2);
+  }
+  const ink = await f.evaluate(() => {
+    const svg = document.querySelector("b42-review").shadowRoot.querySelector(".ink");
+    window.__inkObs.disconnect();
+    return { inside: window.__ink, layer: getComputedStyle(svg).willChange, at: svg.style.transform };
+  });
+  assert.deepEqual(ink, { inside: 0, layer: "transform", at: "translate(0px, -300px)" });
+  assert.equal(Math.round(top - (await inkAt())), 180);
   await page.close();
 });
 
