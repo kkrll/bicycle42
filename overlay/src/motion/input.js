@@ -1,0 +1,304 @@
+// Motion mode, input: the page's pointer, the timeline's, the small sheet over the dock, clicks,
+// fields and keys; the dock's elements found and listened to; and what the rest of the overlay sees.
+
+// ── the page's pointer ───────────────────────────────────────────────────────────────────
+function pointerDown(e) {
+  if (popEl && !popEl.hidden) closePop();
+  block(e);
+  if (e.button !== 0) return;
+  const el = pick(e.clientX, e.clientY);
+  if (root.activeElement && root.activeElement.blur) root.activeElement.blur();
+  selectEl(el);
+}
+function pointerMove(e) {
+  if (isOurs(e)) {
+    if (M.hover) {
+      M.hover = null;
+      kick();
+    }
+    return;
+  }
+  const next = pick(e.clientX, e.clientY);
+  if (next !== M.hover) {
+    M.hover = next;
+    kick();
+  }
+}
+
+// ── the timeline's pointer ───────────────────────────────────────────────────────────────
+// Click a keyframe (the page shows that frame), drag it, press twice on a lane to add one,
+// drag the ruler or an empty lane to scrub.
+const spanOf = () => tlEl.querySelector(".m-kspan[data-prop]") || tlEl.querySelector("[data-ruler]");
+function atOf(e, free, span) {
+  const r = span.getBoundingClientRect(), pad = span.classList.contains("m-kspan") ? 0 : 16;
+  const at = clamp(((e.clientX - r.left - pad) / (r.width - 2 * pad)) * 100, 0, 100);
+  return free ? r1(at) : Math.round(at / 5) * 5;
+}
+function tlDown(e) {
+  if (e.button || !M.open || e.target.closest("input, button, textarea")) return;
+  const key = e.target.closest(".m-key"), seg = e.target.closest("[data-seg]"), trk = e.target.closest(".m-kspan[data-prop], [data-ruler]");
+  const now = performance.now(), l = M.last;
+  const twice = !!l && now - l.t < 350 && Math.abs(e.clientX - l.x) < 5 && Math.abs(e.clientY - l.y) < 5;
+  M.last = twice ? null : { t: now, x: e.clientX, y: e.clientY };
+  const span = spanOf();
+  if (!span) return;
+  if (twice && !key && trk && trk.dataset.prop !== undefined && openKf()) {
+    e.preventDefault();
+    addKey(trk.dataset.prop || null, atOf(e, mod(e), span));
+    return focusLater("[data-k=val]");
+  }
+  if (key || seg) {
+    const at = Number(key ? key.dataset.at : seg.dataset.seg), prop = (key || seg).dataset.prop || null;
+    M.key = { at, prop };
+    M.drag = key && !readOnly() ? { type: "key", at, prop, moved: false } : null;
+    seek(at / 100);
+    draw();
+  } else if (trk) {
+    M.drag = { type: "scrub" };
+    seek(atOf(e, true, span) / 100);
+    if (M.key) {
+      M.key = null; // a press beside the keyframes lets go of the selected one
+      draw();
+    }
+  } else return;
+  if (M.drag) tlEl.setPointerCapture(e.pointerId);
+  e.preventDefault();
+  tlEl.focus({ preventScroll: true });
+}
+function tlMove(e) {
+  const d = M.drag;
+  if (!d) return;
+  const span = spanOf();
+  if (!span) return;
+  if (d.type === "scrub") return seek(atOf(e, true, span) / 100);
+  const to = atOf(e, mod(e), span);
+  if (to === d.at || !moveKey(d.prop, d.at, to)) return;
+  d.at = to;
+  M.key = { at: to, prop: d.prop };
+  d.moved = true;
+  apply();
+  seek(to / 100);
+  drawLanes();
+  if (!typingIn(kbEl)) kbEl.innerHTML = keyEditor();
+}
+function tlUp() {
+  const d = M.drag;
+  M.drag = null;
+  if (d && d.moved) commit();
+}
+const focusLater = (sel) =>
+  setTimeout(() => {
+    const f = dock.querySelector(sel);
+    if (f && !f.disabled) f.select ? f.select() : f.focus();
+  }, 0);
+
+// ── a small sheet over the dock ──────────────────────────────────────────────────────────
+function openPop(anchor, html) {
+  popEl.innerHTML = html;
+  popEl.hidden = false;
+  popAnchor = anchor;
+  const r = anchor.getBoundingClientRect(), w = popEl.offsetWidth, h = popEl.offsetHeight;
+  popEl.style.left = `${clamp(r.right - w, 8, innerWidth - w - 8)}px`;
+  popEl.style.top = `${clamp(r.top - h - 8 >= 8 ? r.top - h - 8 : r.bottom + 8, 8, innerHeight - h - 8)}px`;
+}
+function closePop() {
+  if (popEl) popEl.hidden = true;
+  popAnchor = null;
+}
+function morePop(b) {
+  const t = timing(), u = openUse(), ro = readOnly() ? "disabled" : "";
+  const count = { ...COUNT, ...(COUNT[t.count] ? {} : { [t.count]: [`${t.count}×`] }) };
+  const how = u ? Object.fromEntries(Object.entries(HOW).filter(([k]) => !(u.isNew && k === "asnow")).map(([k, v]) => [k, [v]])) : {};
+  const chips = (key, lab, map, cur) => `<div class="m-tchips"><span>${lab}</span><div class="m-chips" data-tkey="${key}">${Object.entries(map).map(([v, [text, what]]) =>
+    `<button type="button" class="m-chip${String(cur) === v ? " on" : ""}" data-m="tset" data-v="${esc(v)}" ${ro} title="${esc(what ? `${what} (${v})` : v)}">${esc(text)}</button>`).join("")}</div></div>`;
+  openPop(b, chips("count", "Repeat", count, t.count) + chips("direction", "Direction", DIRECTION, t.direction) + chips("fill", "Fill", FILL, t.fill) +
+    (u ? chips("how", "Starts", how, u.plays.how) : ""));
+}
+function easePop(b) {
+  const k = keyInfo();
+  if (!k) return;
+  const cur = k.ease || k.dflt;
+  openPop(b, `<div class="m-ez">${[...new Set([cur, ...EASINGS])].map((e) => `<button type="button" data-m="ez" data-v="${esc(e)}" class="${e === cur ? "on" : ""}">${curve(e)}${esc(e)}</button>`).join("")}</div>`);
+}
+
+// ── clicks, fields and keys ──────────────────────────────────────────────────────────────
+function onClick(e) {
+  const row = e.target.closest("[data-row]");
+  if (row) {
+    const r = listEl._rows[row.dataset.row];
+    if (r && !r.off) {
+      r.open();
+      reveal(M.sel);
+    }
+    return;
+  }
+  const b = e.target.closest("[data-m]");
+  if (!b || b.disabled) return;
+  const act = b.dataset.m;
+  if (act === "play") toggle();
+  else if (act === "rate") {
+    M.rate = RATES[(RATES.indexOf(M.rate) + 1) % RATES.length];
+    const a = animOf();
+    if (a) a.playbackRate = M.rate;
+  } else if (act === "loop") (M.loop = !M.loop), (M.loopAt = 0);
+  else if (act === "iso") {
+    M.isolate = !M.isolate;
+    apply();
+  } else if (act === "undo") return travel(M.past, M.future);
+  else if (act === "discard") return discard();
+  else if (act === "new") return newAnimation();
+  else if (act === "rmkey") return removeKey();
+  else if (act === "rmlane") return removeLane(b.dataset.prop);
+  else if (act === "detach") return detach();
+  else if (act === "view") M.view = b.dataset.v;
+  else if (act === "more") return popAnchor === b ? closePop() : morePop(b);
+  else if (act === "kease") return popAnchor === b ? closePop() : easePop(b);
+  else if (act === "ez") {
+    setKey("ease", b.dataset.v, true);
+    return closePop();
+  } else if (act === "tset") {
+    // a chip: set, and marked in its row here (the popover is not drawn again)
+    const row2 = b.closest("[data-tkey]");
+    setTiming(row2.dataset.tkey, b.dataset.v, true);
+    for (const c of row2.children) c.classList.toggle("on", c === b);
+    return;
+  } else if (act === "send") return submit(e.altKey);
+  draw();
+}
+function onField(e, done) {
+  const f = e.target;
+  if (f === noteEl) return drawFoot();
+  if (f.dataset.css !== undefined) {
+    const why = setCss(f.value), err = f.parentElement.querySelector(".m-err");
+    if (err) (err.hidden = !why), (err.textContent = why);
+    if (!why) drawFoot();
+    return;
+  }
+  if (f.dataset.t !== undefined) {
+    const ok = setTiming(f.dataset.t, f.value, done);
+    f.classList.toggle("bad", !ok);
+    if (ok && !done) drawLanes();
+  } else if (f.dataset.k !== undefined) {
+    const ok = setKey(f.dataset.k, f.value, done);
+    f.classList.toggle("bad", !ok);
+    if (ok && !done) drawLanes();
+  } else if (f.dataset.addp !== undefined && done && f.value.trim()) {
+    if (!addLane(f.value)) f.classList.add("bad");
+    else focusLater("[data-k=val]");
+  }
+}
+/** Keys while motion mode is on. Typing in the dock's fields never reaches the page. */
+function key(e) {
+  const f = root.activeElement;
+  const field = f && /^(INPUT|TEXTAREA)$/.test(f.tagName) && (dock.contains(f) || popEl.contains(f)) ? f : null;
+  if (field) {
+    if (e.key === "Enter" && !e.isComposing && (field.tagName === "INPUT" || mod(e))) {
+      block(e);
+      if (field === noteEl || mod(e)) return submit(e.altKey);
+      field.blur(); // its change event makes the undo step
+      return;
+    }
+    if (e.key === "Escape") {
+      block(e);
+      field.blur();
+      // Esc in a keyframe's field is done with that keyframe too.
+      if (field.dataset.k !== undefined) {
+        M.key = null;
+        draw();
+      }
+      return;
+    }
+    e.stopImmediatePropagation(); // typing: the page's handlers never see it
+    return;
+  }
+  if (mod(e) && e.key.toLowerCase() === "z") {
+    block(e);
+    return e.shiftKey ? travel(M.future, M.past) : travel(M.past, M.future);
+  }
+  if (mod(e) || e.altKey && e.key !== "Enter") return;
+  if (e.key === " ") {
+    block(e);
+    toggle();
+    return draw();
+  }
+  if (e.key === "Enter" && !e.isComposing) {
+    block(e);
+    return submit(e.altKey);
+  }
+  if ((e.key === "Delete" || e.key === "Backspace") && M.key && openKf()) {
+    block(e);
+    return removeKey();
+  }
+  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+    if (!M.open) return;
+    block(e);
+    return seek((position() ?? M.pos) + (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 0.1 : 0.01));
+  }
+  if (e.key === "Escape") {
+    block(e);
+    if (popEl && !popEl.hidden) closePop();
+    else if (M.key) {
+      M.key = null;
+      draw();
+    } else if (M.open || M.sel) selectEl(null);
+    else setOn(false);
+  }
+}
+
+// ── mount ────────────────────────────────────────────────────────────────────────────────
+function mount() {
+  dock = root.querySelector(".m-dock");
+  listEl = dock.querySelector(".m-list");
+  hdEl = dock.querySelector(".m-hd");
+  tlEl = dock.querySelector(".m-tl");
+  cssEl = dock.querySelector(".m-css");
+  kbEl = dock.querySelector(".m-kb");
+  ftEl = dock.querySelector(".m-ft");
+  noteEl = dock.querySelector(".m-note");
+  msgEl = dock.querySelector(".m-msg");
+  popEl = root.querySelector(".m-pop");
+  tagEl = root.querySelector(".m-tag");
+  root.querySelector(".m-lists").innerHTML = `<datalist id="b42-m-easings">${EASINGS.map((x) => `<option value="${x}">`).join("")}</datalist><datalist id="b42-m-props">${PROPS.map((x) => `<option value="${x}">`).join("")}</datalist>`;
+  for (const el of [dock, popEl]) {
+    el.addEventListener("click", onClick);
+    el.addEventListener("input", (e) => onField(e, false));
+    el.addEventListener("change", (e) => onField(e, true));
+    // Keys typed into the dock must not reach the page's own shortcuts.
+    for (const t of ["keydown", "keyup", "keypress", "input", "beforeinput", "paste", "copy", "cut"]) el.addEventListener(t, (e) => e.stopPropagation());
+  }
+  dock.addEventListener("focusout", (e) => {
+    if (e.target.dataset && e.target.dataset.css !== undefined) commit();
+    if (e.target === noteEl) {
+      drawFoot();
+      draftChanged();
+    }
+  });
+  noteEl.addEventListener("focus", drawFoot);
+  // A button keeps the caret where it was (the note, a value being typed).
+  dock.addEventListener("mousedown", (e) => e.target.closest("button") && e.preventDefault());
+  listEl.addEventListener("pointerover", (e) => {
+    const row = e.target.closest("[data-row]");
+    const r = row && listEl._rows[row.dataset.row];
+    M.rowEls = r && r.els && r.els.length ? r.els : null;
+    kick();
+  });
+  listEl.addEventListener("pointerleave", () => {
+    M.rowEls = null;
+    kick();
+  });
+  tlEl.addEventListener("pointerdown", tlDown);
+  tlEl.addEventListener("pointermove", tlMove);
+  tlEl.addEventListener("pointerup", tlUp);
+  tlEl.addEventListener("pointercancel", tlUp);
+}
+
+const api = {
+  get on() {
+    return M.on;
+  },
+  mount, setOn, resume, syncUi, letGo, frame, busyFrames, key, pointerDown, pointerMove, submit, refuse, finish, dropFinished, draft, restore,
+  hasSent: () => M.sent.length > 0,
+  busy: () => !!M.drag,
+  /** For tests: the engine's state and a few actions. */
+  debug: { M, seek, play, pause, position, select: selectEl, openCss, setTiming, setKey, rows },
+};

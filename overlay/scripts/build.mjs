@@ -45,7 +45,17 @@ export const PARTS = [
       "canvas/api.js", // on and off, and what the rest of the overlay sees
     ],
   },
-  "motion.js", // motion mode (the module MO): what moves on the page, one animation per note
+  {
+    module: "MO", // motion mode: what moves on the page, one animation per note
+    files: [
+      "motion/model.js", // motion mode: the constants, the state M, the page's animations read and applied
+      "motion/open.js", // opening one, and playing it with the page's own Animation object
+      "motion/edit.js", // undo, shared keyframes, keyframes and timing edited, the text, the list's rows
+      "motion/send.js", // the open animation sent as a note, and the draft the host keeps
+      "motion/draw.js", // the mode on and off, the dock drawn, one frame
+      "motion/input.js", // the pointer, the small sheet, clicks, fields and keys, mount; the api
+    ],
+  },
   "mode.js", // which mode is on: the host's switch, the brush
   "input.js", // the page's pointer and keys, routed to the mode
   "render.js", // outlines, strokes and pins, one frame at a time
