@@ -2,12 +2,12 @@
 // and every frame the playhead, the time and the outlines on the page.
 
 // ── mode ─────────────────────────────────────────────────────────────────────────────────
+/** Motion mode's own part of switching it on or off. The switch is setMode (mode.js): it
+ *  turns the other modes off first. */
 function setOn(on) {
   if (on === M.on || !dock) return;
   closePop();
   if (on) {
-    if (C.on) setCanvas(false);
-    setBrush(false);
     M.on = true;
     // A note in progress becomes the start: its element is looked at.
     const el = S.sel.length === 1 ? S.sel[0] : null;
@@ -34,7 +34,7 @@ function setOn(on) {
     sessionStorage.setItem("b42-motion", on ? "1" : "");
   } catch {}
   syncUi();
-  drawBar(); // the host hears the mode
+  Canvas.drawBar(); // the host hears the mode
   kick();
 }
 /** After a reload (the agent's own edits cause many) the reviewer is still in motion mode. */
@@ -43,7 +43,7 @@ function resume() {
   try {
     was = sessionStorage.getItem("b42-motion") === "1";
   } catch {}
-  if (was && !M.on && !C.on && !S.card && !hasDraft()) setOn(true);
+  if (was && modeOn() === "notes" && !S.card && !hasDraft()) setMode("motion");
 }
 /** Room for the dock: the page can scroll its last part out from under it. */
 function syncUi() {

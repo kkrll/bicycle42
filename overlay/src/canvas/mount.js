@@ -69,7 +69,7 @@ function mountCanvas() {
   for (const box of [bar, corner, insp, cv])
     for (const t of ["keydown", "keyup", "keypress", "input", "beforeinput", "paste", "copy", "cut", "click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup", "wheel"])
       box.addEventListener(t, (e) => e.stopPropagation());
-  bar.querySelector(".count").addEventListener("click", () => (C.on ? setPop("list") : setCanvas(true)));
+  bar.querySelector(".count").addEventListener("click", () => (C.on ? setPop("list") : setMode("canvas")));
   corner.querySelector(".help").addEventListener("click", () => setPop("help"));
   cnote.addEventListener("focus", drawBar);
   cnote.addEventListener("blur", drawBar);

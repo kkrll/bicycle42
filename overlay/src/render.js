@@ -46,11 +46,11 @@ function render() {
   const d = S.drag;
   drawVariants(capturing);
   const canvasBoxes = Canvas.frame(capturing);
-  const motionBoxes = MO.frame(capturing);
+  const motionBoxes = Motion.frame(capturing);
 
   // boxes: hover + selection
   const items = [];
-  if (S.enabled && !capturing && !d && !Canvas.on && !MO.on && S.hover && S.hover.isConnected && !S.sel.includes(S.hover))
+  if (S.enabled && !capturing && !d && modeOn() === "notes" && S.hover && S.hover.isConnected && !S.sel.includes(S.hover))
     items.push([rectOf(S.hover), "hover"]);
   if (S.enabled || capturing) for (const el of S.sel) if (el.isConnected) items.push([rectOf(el), "sel"]);
   if (canvasBoxes) items.push(...canvasBoxes);
@@ -192,7 +192,7 @@ function frame() {
   render();
   // Through kick(): something in render() may have asked for the next frame already, and a
   // second request here would start a second chain (two renders a frame until the selection goes).
-  if (S.card || S.sel.length || S.drag || S.pending || Canvas.busyFrames() || MO.busyFrames() || performance.now() - lastInput < ACTIVE_MS)
+  if (S.card || S.sel.length || S.drag || S.pending || Canvas.busyFrames() || Motion.busyFrames() || performance.now() - lastInput < ACTIVE_MS)
     kick();
   else if ((S.enabled || S.pins.length) && !idleTimer)
     idleTimer = setTimeout(() => {

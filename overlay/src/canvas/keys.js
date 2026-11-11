@@ -25,7 +25,7 @@ function cvKey(e) {
       val.blur();
     } else if (field || f === treeEl || tab) f.blur();
     else if (C.sel) select(null);
-    else setCanvas(false);
+    else setMode("notes");
     return;
   }
   if (e.key === "Enter" && !e.isComposing) {

@@ -81,7 +81,7 @@ function mount() {
   tip = root.querySelector(".tip");
   sentEl = root.querySelector(".sent");
   Canvas.mount();
-  MO.mount();
+  Motion.mount();
   seat();
 
   // A change to the page may have removed the layer, closed it (an element taken out of the
@@ -163,7 +163,7 @@ function mount() {
 
 window.__b42 = {
   version: VERSION,
-  busy: () => !!(S.card || S.pending || S.drag || hasDraft() || Canvas.busy() || MO.busy()),
+  busy: () => !!(S.card || S.pending || S.drag || hasDraft() || Canvas.busy() || Motion.busy()),
   receive(msg) {
     if (typeof msg === "string") msg = JSON.parse(msg);
     if (!root) return;
@@ -174,7 +174,7 @@ window.__b42 = {
         if (msg.pins) setPins(msg.pins);
         if (msg.draft && !hasDraft() && !Canvas.hasEdits()) restoreDraft(msg.draft);
         Canvas.resume();
-        MO.resume();
+        Motion.resume();
         modeTold = ""; // a new page, or a host that asks again: it hears the mode whatever it was
         tellMode();
         break;

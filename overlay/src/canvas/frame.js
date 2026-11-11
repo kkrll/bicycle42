@@ -25,7 +25,7 @@ const say = (el, text, x, y, cls) => {
  *  Returns the outlines to draw with the others, or null when canvas mode shows nothing. */
 function cvFrame(capturing) {
   if (!bar) return null;
-  const show = S.enabled && !capturing && !MO.on; // motion mode has its own dock
+  const show = S.enabled && !capturing && modeOn() !== "motion"; // motion mode has its own dock
   if (bar._shown !== show) bar.hidden = corner.hidden = !(bar._shown = show);
   const on = C.on && show;
   if (insp._shown !== on) insp.hidden = !(insp._shown = on);

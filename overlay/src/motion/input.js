@@ -3,12 +3,17 @@
 
 // ── the page's pointer ───────────────────────────────────────────────────────────────────
 function pointerDown(e) {
+  if (S.pending) return block(e); // the screenshot is being taken: nothing new until it is
   if (popEl && !popEl.hidden) closePop();
   block(e);
   if (e.button !== 0) return;
   const el = pick(e.clientX, e.clientY);
   if (root.activeElement && root.activeElement.blur) root.activeElement.blur();
   selectEl(el);
+}
+/** A press let go on the page is kept from it, as the press was. */
+function pointerUp(e) {
+  if (!isOurs(e)) block(e);
 }
 function pointerMove(e) {
   if (isOurs(e)) {
@@ -241,7 +246,7 @@ function key(e) {
       M.key = null;
       draw();
     } else if (M.open || M.sel) selectEl(null);
-    else setOn(false);
+    else setMode("notes");
   }
 }
 
@@ -296,7 +301,7 @@ const api = {
   get on() {
     return M.on;
   },
-  mount, setOn, resume, syncUi, letGo, frame, busyFrames, key, pointerDown, pointerMove, submit, refuse, finish, dropFinished, draft, restore,
+  mount, setOn, resume, syncUi, letGo, frame, busyFrames, key, pointerDown, pointerMove, pointerUp, submit, refuse, finish, dropFinished, draft, restore,
   hasSent: () => M.sent.length > 0,
   busy: () => !!M.drag,
   /** For tests: the engine's state and a few actions. */

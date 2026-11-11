@@ -4,7 +4,7 @@ const hasDraft = () => S.sel.length > 0 || S.strokes.length > 0 || !!S.area;
 function serializeDraft() {
   const noteDraft = !S.pending && (hasDraft() || !!textarea.value);
   const canvas = Canvas.draft();
-  const motion = MO.draft();
+  const motion = Motion.draft();
   if (!noteDraft && !canvas && !motion) return null;
   // (Between a send and its "captured", S.sel holds the sent note's outlines: not a draft.)
   return {
@@ -27,7 +27,7 @@ function restoreDraft(d) {
   setTemplate(S.templates.some((t) => t.name === d.template) ? d.template : null);
   if (hasDraft() || textarea.value) openCard();
   Canvas.restore(d);
-  MO.restore(d.motion);
+  Motion.restore(d.motion);
 }
 
 function clearDraft() {

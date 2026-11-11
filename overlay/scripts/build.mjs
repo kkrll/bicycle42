@@ -21,6 +21,10 @@ export const PARTS = [
   "ui.js", // the layer's icons, and words with key symbols drawn in them
   "page.js", // geometry, element identity, picking, the rules previews adopt
   "notes.js", // notes mode: the draft, the card, templates, pictures, submit
+  {
+    module: "Notes", // notes mode's handlers for the page's pointer and keys
+    files: ["notes/input.js"],
+  },
   "variants.js", // the page's own variants, switched from a small bar
   "sent.js", // after a note is sent: the chip, undo, the pins' tooltip, the host's answer
   {
@@ -46,7 +50,7 @@ export const PARTS = [
     ],
   },
   {
-    module: "MO", // motion mode: what moves on the page, one animation per note
+    module: "Motion", // motion mode: what moves on the page, one animation per note
     files: [
       "motion/model.js", // motion mode: the constants, the state M, the page's animations read and applied
       "motion/open.js", // opening one, and playing it with the page's own Animation object
@@ -56,8 +60,8 @@ export const PARTS = [
       "motion/input.js", // the pointer, the small sheet, clicks, fields and keys, mount; the api
     ],
   },
-  "mode.js", // which mode is on: the host's switch, the brush
-  "input.js", // the page's pointer and keys, routed to the mode
+  "mode.js", // which mode is on, the one switch between them, the host's switch, the brush
+  "input.js", // the page's pointer and keys: what every mode shares, then the mode that is on
   "render.js", // outlines, strokes and pins, one frame at a time
   "mount.js", // the shadow root, the host's API
 ];

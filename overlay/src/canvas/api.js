@@ -1,5 +1,5 @@
 // ── on and off ──────────────────────────────────────────────────────────────────────────────
-/** Canvas mode's own part of switching it on or off. The switch is setCanvas (mode.js): it
+/** Canvas mode's own part of switching it on or off. The switch is setMode (mode.js): it
  *  turns the other modes off first. */
 function setOn(on) {
   if (on === C.on || !bar) return;
@@ -40,7 +40,7 @@ function resumeCanvas() {
   try {
     was = sessionStorage.getItem("b42-canvas") === "1";
   } catch {}
-  if (was && !C.on && !S.card && !hasDraft()) setCanvas(true);
+  if (was && !C.on && !S.card && !hasDraft()) setMode("canvas");
 }
 
 /** Review is switched off: text being edited in place is kept, a drag is dropped. */
@@ -60,7 +60,8 @@ const api = {
   },
   html: HTML,
   mount: mountCanvas, setOn, resume: resumeCanvas, letGo, syncUi, drawBar, frame: cvFrame,
-  pointerDown: cvDown, pointerMove: cvMove, pointerUp: cvUp, key: cvKey, zoneOf, closePop, select,
+  pointerDown: (e, z) => pagePress(e) && cvDown(e, z), // after what notes mode does with a press too (input.js)
+  pointerMove: cvMove, pointerUp: cvUp, key: cvKey, zoneOf, closePop, select,
   draft, restore: restoreEdits, refuse: unsendCanvas, finish, dropFinished, showEdits, treeChanged, readPathsIfDue,
   /** The event is inside the text being edited in place: the caret is the reviewer's there. */
   inEdit: (e) => !!C.edit && inEdit(e),

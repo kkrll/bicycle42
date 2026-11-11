@@ -82,7 +82,7 @@ function refuseCapture(id, why) {
   const say = `Not sent: ${typeof why === "string" && why.trim() ? line(why).slice(0, 80) : "the app did not take the note"}`;
   if (S.quiet === id) {
     S.quiet = null;
-    if (!MO.refuse(id, say)) Canvas.refuse(id, say);
+    if (!Motion.refuse(id, say)) Canvas.refuse(id, say);
   } else {
     openCard();
     setHint(say);
@@ -94,7 +94,7 @@ function finishCapture(id) {
   if (!S.pending || S.pending !== id) return;
   S.pending = null;
   Canvas.finish();
-  MO.finish(id);
+  Motion.finish(id);
   if (S.quiet === id) S.quiet = null;
   else showSent(id);
   S.sel = [];
@@ -107,7 +107,7 @@ function finishCapture(id) {
   const b = S.buffered;
   S.buffered = null;
   const el = b && pick(b.x, b.y);
-  if (el && Canvas.on) Canvas.select(el);
+  if (el && modeOn() === "canvas") Canvas.select(el);
   else if (el) {
     S.sel = [el];
     openCard();
