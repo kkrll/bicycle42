@@ -2,7 +2,7 @@
 //   main.cjs      the Electron main process          (esbuild, src/main/index.ts)
 //   preload.cjs   the bridge into the app window      (esbuild, src/preload.ts)
 //   renderer/     the app window's UI                 (vite + solid, src/renderer)
-//   overlay.js    the shared in-page review layer     (copied from ../overlay)
+//   overlay.js    the shared in-page review layer     (built from ../overlay/src)
 //   icon.png      the app icon, when there is one     (copied from ../assets)
 //   test/         with --tests: every test/*.ts bundled to .cjs
 //
@@ -13,6 +13,7 @@ import solid from "vite-plugin-solid"
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { build as buildOverlay } from "../../overlay/scripts/build.mjs"
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..")
 const dist = path.join(root, "dist")
@@ -63,14 +64,15 @@ const controller = flags.has("--tests")
   : undefined
 
 fs.mkdirSync(dist, { recursive: true })
-fs.copyFileSync(path.join(root, "../overlay/overlay.js"), path.join(dist, "overlay.js"))
+const overlay = buildOverlay()
+fs.writeFileSync(path.join(dist, "overlay.js"), overlay)
 // The app icon, for the window and the macOS dock. The app runs without it.
 const icon = path.join(root, "../assets/icon.png")
 if (fs.existsSync(icon)) fs.copyFileSync(icon, path.join(dist, "icon.png"))
 if (controller) {
   // The stubbed controller reads the overlay from beside itself, like the real one.
   fs.mkdirSync(path.join(dist, "test"), { recursive: true })
-  fs.copyFileSync(path.join(root, "../overlay/overlay.js"), path.join(dist, "test/overlay.js"))
+  fs.writeFileSync(path.join(dist, "test/overlay.js"), overlay)
 }
 
 const renderer = {

@@ -1,9 +1,10 @@
 // Benchmark of the overlay: what it costs the page under review, state by state.
 // Run: npm run bench -- [path/to/overlay.js] [--compare other.js] [--json out.json]
 // Prints one table (cell × metric, per second) and the invariants; exits 1 when one fails.
-import { writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { build } from "../scripts/build.mjs";
 import { start, displayRate, open, measure, sleep } from "./rig.mjs";
 import { CELLS, METRICS, WINDOW_MS, invariants } from "./cells.mjs";
 
@@ -18,7 +19,13 @@ const option = (name) => {
 const compare = option("--compare");
 const jsonFile = option("--json");
 const only = option("--cells")?.split(","); // for working on the benchmark itself: --cells off,strokes
-const files = [args[0] ?? join(dirname(fileURLToPath(import.meta.url)), "..", "overlay.js"), ...(compare ? [compare] : [])].map((f) => resolve(f));
+// With no file given, the overlay as src/ has it now.
+const here = () => {
+  const out = join(mkdtempSync(join(tmpdir(), "b42-bench-")), "overlay.js");
+  writeFileSync(out, build());
+  return out;
+};
+const files = [args[0] ?? here(), ...(compare ? [compare] : [])].map((f) => resolve(f));
 
 const median = (xs) => xs.slice().sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 const inShadow = (page, fn) => page.evaluate(`(${fn})(document.querySelector("b42-review").shadowRoot)`);

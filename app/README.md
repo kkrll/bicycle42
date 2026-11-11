@@ -13,7 +13,7 @@ bun run typecheck
 ```
 
 `scripts/build.mjs` bundles main and preload with esbuild, the window with Vite and Solid, and
-copies `../overlay/overlay.js` and `../assets/icon.png` beside them.
+puts the overlay (built from `../overlay/src`) and `../assets/icon.png` beside them.
 
 Settings and notes live in the app's user-data folder (`~/.config/bicycle42` on Linux);
 `BICYCLE42_DATA=/some/folder` puts them elsewhere.
@@ -40,7 +40,7 @@ node scripts/build.mjs && node_modules/.bin/electron --ozone-platform=headless -
 ```
 src/shared/types.ts     the contract: AppState, ChatEvent, Commands, Backend. Read this first.
 src/main/index.ts       controller: owns AppState, wires the four parts below
-src/main/page.ts        the page: a WebContentsView with ../overlay/overlay.js injected over CDP
+src/main/page.ts        the page: a WebContentsView with the overlay injected over CDP
 src/main/review.ts      a site's notes and their status rules (pure, no Electron)
 src/main/images.ts      screenshot → area crop + viewport thumbnail
 src/main/opencode.ts    the backend: fetch + one SSE stream → BackendEvents (no Electron)

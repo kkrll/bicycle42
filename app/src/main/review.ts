@@ -83,7 +83,7 @@ export type Motion = {
   current?: string
 }
 
-/** The overlay's note, as it sends it (see the protocol at the top of overlay.js). */
+/** The overlay's note, as it sends it (see the protocol in overlay/src/protocol.js). */
 export type PageNote = {
   id: string
   text: string

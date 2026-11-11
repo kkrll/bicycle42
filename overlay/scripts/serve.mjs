@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { build } from "./build.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".json": "application/json" };
@@ -19,7 +20,8 @@ export function serve(port = 0, host = "127.0.0.1") {
     const file = normalize(join(ROOT, path));
     if (!file.startsWith(ROOT)) return res.writeHead(403).end();
     try {
-      const body = await readFile(file);
+      // overlay.js is built from src/ on every request, so a reload has the latest edit.
+      const body = path === "/overlay.js" ? build() : await readFile(file);
       res.writeHead(200, { "content-type": TYPES[extname(file)] ?? "application/octet-stream", "cache-control": "no-store" });
       res.end(body);
     } catch {

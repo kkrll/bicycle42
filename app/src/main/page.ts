@@ -1,8 +1,8 @@
 // The page under review: one WebContentsView inside the app window, with the overlay injected.
 //
-// The overlay (../../../overlay/overlay.js) goes in over CDP before the page's own scripts run, and
-// talks back through a CDP binding (window.__review), so it needs nothing from the page and
-// survives reloads. This file knows nothing about notes: it hands the overlay's messages to the
+// The overlay (dist/overlay.js, built from ../../../overlay/src) goes in over CDP before the
+// page's own scripts run, and talks back through a CDP binding (window.__review), so it needs
+// nothing from the page and survives reloads. This file knows nothing about notes: it hands the overlay's messages to the
 // controller and offers load / capture / send.
 import { WebContentsView, type BrowserWindow, type NativeImage } from "electron"
 import type { Rect } from "../shared/types"

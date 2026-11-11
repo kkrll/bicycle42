@@ -63,7 +63,7 @@ async function main() {
   /** What the host hands back on "ready": the unsent note, as the overlay last reported it. */
   let draft: unknown = null
   const page = await createPage(win, {
-    overlay: fs.readFileSync(path.join(overlayDir, "overlay.js"), "utf8"),
+    overlay: fs.readFileSync(path.join(__dirname, "overlay.js"), "utf8"), // built beside this test
     partition: "page-e2e", // in memory: nothing kept between runs
     onMessage(msg) {
       messages.push(msg)

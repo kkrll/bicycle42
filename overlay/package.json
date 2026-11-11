@@ -10,6 +10,7 @@
     "./prompt.js": "./prompt.js"
   },
   "scripts": {
+    "build": "node scripts/build.mjs",
     "harness": "node scripts/serve.mjs",
     "test": "node --test test/",
     "bench": "node bench/bench.mjs"

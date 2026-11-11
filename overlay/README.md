@@ -2,8 +2,13 @@
 
 The in-page review layer of bicycle 42: `overlay.js` (one dependency-free script that a host
 injects into the page) and `prompt.js` (note → prompt text). The protocol between the overlay and
-its host is at the top of [`overlay.js`](overlay.js). What it is for and its keys are in the
+its host is in [`src/protocol.js`](src/protocol.js). What it is for and its keys are in the
 [root README](../README.md).
+
+`overlay.js` is built, not written: `npm run build` joins the pieces in [`src/`](src) into one
+closure, in the order listed in [`scripts/build.mjs`](scripts/build.mjs), which also says how a
+piece and a module see each other. The harness server builds it on every request, the app's build
+and the benchmark build it themselves; it is not committed.
 
 ![harness](docs/harness.png)
 
@@ -32,12 +37,12 @@ node scripts/screenshot.mjs        # regenerates docs/harness.png
 ## Benchmark
 
 ```bash
-npm run bench                                  # overlay.js as it is here, two to three minutes
-npm run bench -- path/to/overlay.js            # another copy
+npm run bench                                  # the overlay as src/ has it, two to three minutes
+npm run bench -- path/to/overlay.js            # a built copy
 npm run bench -- --json out.json               # also writes every window's numbers
 npm run bench -- --cells strokes,selected      # only some states
 BENCH_GPU=1 npm run bench                      # drawn by the graphics card, as in the app
-git show main:overlay/overlay.js > /tmp/old.js && npm run bench -- --compare /tmp/old.js
+git stash && npm run build -- /tmp/old.js && git stash pop && npm run bench -- --compare /tmp/old.js
 ```
 
 What the overlay costs the page under review, in twelve states (`bench/cells.mjs`): review off,
