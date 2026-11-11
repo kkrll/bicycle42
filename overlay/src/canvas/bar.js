@@ -1,55 +1,4 @@
-// ── mode ────────────────────────────────────────────────────────────────────────────────────
-/** The brush belongs to notes mode: while it is on, a plain drag draws (what alt+drag always does). */
-function setBrush(on) {
-  if (S.brush === on) return;
-  S.brush = on;
-  drawBar();
-}
-
-function setCanvas(on) {
-  if (on === C.on || !bar) return;
-  if (on) MO.setOn(false);
-  if (on) setBrush(false);
-  hush();
-  if (C.pop) setPop(C.pop);
-  if (on) {
-    // A note in progress becomes the start of the canvas session: its element is selected and
-    // its words move to the bar's note field. (A drawing or an area has no place here.)
-    const el = S.sel.length === 1 ? S.sel[0] : null;
-    const words = textarea.value.trim();
-    if (S.card || hasDraft()) clearDraft();
-    hideSent();
-    if (words && !cnote.value) cnote.value = words;
-    C.on = true;
-    select(el && el.isConnected ? el : null);
-  } else {
-    endEdit(true);
-    cancelDrag();
-    if (C.typeTimer) commit();
-    select(null);
-    C.on = false;
-    C.hover = null;
-  }
-  S.hover = null;
-  try {
-    sessionStorage.setItem("b42-canvas", on ? "1" : "");
-  } catch {}
-  syncUi();
-  syncFields(true);
-  drawBar();
-  draftChanged();
-  kick();
-}
-
-/** After a reload (the agent's own edits cause many) the reviewer is still in canvas mode. */
-function resumeCanvas() {
-  let was = false;
-  try {
-    was = sessionStorage.getItem("b42-canvas") === "1";
-  } catch {}
-  if (was && !C.on && !S.card && !hasDraft()) setCanvas(true);
-}
-
+// ── the bar ─────────────────────────────────────────────────────────────────────────────────
 function flash(text) {
   C.msg = text;
   drawBar();
@@ -116,31 +65,6 @@ function drawBar() {
   // The button says which key does the same from where the keyboard is now.
   $(".bsend").title = n ? `Send ${n === 1 ? "this edit" : `these ${n} edits`} as one note (${inField ? (isMac ? "⌘" : "ctrl+") : ""}↵)` : "Nothing to send yet";
   $(".bsend").disabled = !n;
-}
-
-/** The host has the mode switch and the brush: it is told whenever either changes here (a key,
- *  Esc, a note sent, a reload that comes back in edit mode). */
-function tellMode() {
-  const mode = C.on ? "canvas" : MO.on ? "motion" : "notes", key = `${mode}|${S.brush}`;
-  if (C.told === undefined || key === C.told) return; // nothing before the host's first "state"
-  C.told = key;
-  send({ type: "mode", mode, brush: !!S.brush });
-}
-
-/** From the host's switch. The brush belongs to notes mode: switching it on leaves edit mode. */
-function hostMode(msg) {
-  if (msg.brush === true) {
-    setCanvas(false);
-    MO.setOn(false);
-    return setBrush(true);
-  }
-  if (msg.mode === "motion") MO.setOn(true);
-  else if (msg.mode === "canvas" || msg.mode === "notes") {
-    MO.setOn(false);
-    setCanvas(msg.mode === "canvas");
-  }
-  drawBar(); // says the mode, whichever it is now
-  if (msg.brush === false) setBrush(false);
 }
 
 // ── the bar's lists: what is in the batch, and the keys ─────────────────────────────────────
@@ -286,58 +210,5 @@ function drawPop() {
       });
       return row;
     }));
-}
-
-// In canvas mode the page's cursor is the plain arrow, by one rule that never changes (changing a
-// rule that matches every element restyles the whole document). The arrows over a handle or a
-// gap come from the layer's own elements; during a drag a shield over the viewport carries the
-// cursor. The second rule gives the page room to scroll its last part out from under the dock.
-const dock = () => (C.collapsed ? 30 : C.ph);
-function syncUi() {
-  if (!(C.on && S.enabled)) {
-    if (C.ui) adopt(C.ui, false);
-    return;
-  }
-  if (!C.ui) {
-    C.ui = new CSSStyleSheet();
-    C.ui.replaceSync("html[data-b42-review], html[data-b42-review] * { cursor: default !important; } html[data-b42-review] { padding-bottom: 0px !important; }");
-  }
-  adopt(C.ui, true);
-  const room = `${dock()}px`;
-  if (room !== C.room) C.ui.cssRules[1].style.setProperty("padding-bottom", (C.room = room), "important");
-}
-
-/** The caret cursor over text being edited in place: a rule for that element only. */
-function editCursor(rs) {
-  if (!C.caret) C.caret = new CSSStyleSheet();
-  if (rs)
-    try {
-      C.caret.replaceSync(`${rs}${BOOST}, ${rs}${BOOST} * { cursor: text !important; }`);
-    } catch {}
-  adopt(C.caret, !!rs);
-}
-
-function shield(cursor) {
-  shieldEl.hidden = !cursor;
-  if (cursor) shieldEl.style.cursor = cursor;
-}
-
-// A drag previews through one rule of its own, changed in place each frame; on release the
-// value is written into the element's styles and the rule goes.
-function liveSet(sel, prop, val) {
-  if (!C.live) {
-    C.live = new CSSStyleSheet();
-    C.live.replaceSync("b42-none {}");
-  }
-  const rule = C.live.cssRules[0];
-  if (rule.selectorText !== sel) rule.selectorText = sel;
-  adopt(C.live, true);
-  if (val == null) rule.style.removeProperty(prop);
-  else rule.style.setProperty(prop, val, "important");
-}
-function liveEnd() {
-  if (!C.live) return;
-  adopt(C.live, false);
-  C.live.cssRules[0].style.cssText = "";
 }
 

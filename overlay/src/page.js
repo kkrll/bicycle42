@@ -30,6 +30,15 @@ const bboxOf = (pts) => {
 };
 const docToViewRect = (r) => r && { x: r.x - window.scrollX, y: r.y - window.scrollY, w: r.w, h: r.h };
 
+// The window's scroll and size, read once at the top of each frame (before anything is written).
+const VP = { sx: 0, sy: 0, w: 0, h: 0 };
+const readView = () => {
+  VP.sx = window.scrollX;
+  VP.sy = window.scrollY;
+  VP.w = window.innerWidth;
+  VP.h = window.innerHeight;
+};
+
 // ── element identity ────────────────────────────────────────────────────────────────────────
 const unique = (sel) => {
   try {
@@ -46,6 +55,7 @@ const q = (sel) => {
     return null;
   }
 };
+const SKIP = /^(SCRIPT|STYLE|HEAD|LINK|META|TITLE|NOSCRIPT|TEMPLATE|B42-REVIEW)$/;
 
 /** One step of a selector path: tag, up to two classes, and its place among siblings of its tag. */
 function segment(cur) {
@@ -175,6 +185,7 @@ function textOf(el) {
   text = text.replace(/\s+/g, " ").trim();
   return text.length > 80 ? `${text.slice(0, 79)}…` : text;
 }
+const line = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 
 /** Re-find a pin's element after the page changed. The agent's own edit is what changes the
  *  element, so the selector often points at the wrong node (or none). Order: selector whose
@@ -286,4 +297,15 @@ function walk(dir) {
   draftChanged();
   kick();
 }
+
+// ── rules the page adopts ───────────────────────────────────────────────────────────────────
+// Typed declarations must win over the site's rules the way an inline style would, without
+// "!important" in what the agent reads: three ids' worth of specificity that matches anything.
+const BOOST = ":not(#b42-x#b42-x#b42-x)";
+const adopt = (sheet, on) => {
+  const list = document.adoptedStyleSheets;
+  const has = list.includes(sheet);
+  if (on && !has) document.adoptedStyleSheets = [...list, sheet];
+  else if (!on && has) document.adoptedStyleSheets = list.filter((s) => s !== sheet);
+};
 

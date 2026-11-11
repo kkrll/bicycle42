@@ -38,7 +38,6 @@ const S = {
   unplaced: "",
 };
 
-let corner, bar, insp, cv, cnote, treeEl, trows, tspace, clsEl, cssEl, freeEl, compEl, ipath, bandEl, ghostEl, insEl, labEl, dimEl, handles, edges, hitEl, gzEl, shieldEl;
 let hostEl, root, ink, strokesEl, pencil, boxes, pinsEl, card, what, refs, textarea, cursorStyle, tip, sentEl, chip, menuEl, variantsEl, variantStyle;
 const PLACEHOLDER = "Note…"; // what else the card does (/, a pasted picture) is behind its "?"
 // The card's keys: behind its "?", shown while the pointer (or focus) is on it. The card itself

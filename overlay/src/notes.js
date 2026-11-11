@@ -1,22 +1,6 @@
 // ── draft ───────────────────────────────────────────────────────────────────────────────────
 const hasDraft = () => S.sel.length > 0 || S.strokes.length > 0 || !!S.area;
 
-/** Where the stamped elements of a batch last were: after a reload their stamps are gone. */
-function pathsOf(B) {
-  const out = {};
-  const add = (x) => {
-    const p = x && stampOf(x.rs) && C.paths.get(x.rs);
-    if (p) out[x.rs] = [p.path, p.tag];
-  };
-  for (const rs in B.els) add(B.els[rs]);
-  for (const op of B.ops) {
-    add(op);
-    add(op.parent);
-    add(op.before);
-  }
-  return out;
-}
-
 function serializeDraft() {
   const noteDraft = !S.pending && (hasDraft() || !!textarea.value);
   const edits = C.snap !== EMPTY ? C.draft.B : null;
