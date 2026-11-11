@@ -31,7 +31,17 @@ export const PARTS = [
   "canvas/keys.js",
   "canvas/inspector.js",
   "canvas/frame.js",
-  "motion.js",
+  {
+    module: "MO",
+    files: [
+      "motion/model.js", // motion mode: the constants, the state M, the page's animations read and applied
+      "motion/open.js", // opening one, and playing it with the page's own Animation object
+      "motion/edit.js", // undo, shared keyframes, keyframes and timing edited, the text, the list's rows
+      "motion/send.js", // the open animation sent as a note, and the draft the host keeps
+      "motion/draw.js", // the mode on and off, the dock drawn, one frame
+      "motion/input.js", // the pointer, the small sheet, clicks, fields and keys, mount; the api
+    ],
+  },
   "input.js", // the page's pointer and keys, routed to the mode
   "render.js", // outlines, strokes and pins, one frame at a time
   "mount.js", // the shadow root, the host's API
