@@ -157,11 +157,15 @@ async function main() {
   await key("Enter", "Enter", 13, "\r")
   await until(() => logs.some((l) => l.includes("dropped a note")), 2000)
   check("a note sent without a real Enter is dropped", count("note") === 0 && logs.filter((l) => l.includes("dropped a note")).length === 1)
-  // The overlay gave up its selection to that note; let its capture timeout pass and start over.
-  await until(async () => (await page.evaluate("window.__b42.busy()")) === false, 4000)
-  await click("#cta")
-  await dbg.sendCommand("Input.insertText", { text: "make this button bigger" })
-  await sleep(150)
+  // The overlay is told (the reviewer's own note can be late too, on a page that stalls): the
+  // card is back with its words and the reason, and nothing says "Sent".
+  const refused = await until(async () => ((await js(`${shadow}.querySelector('.hint.warn')?.textContent`)) as string) || "", 2000)
+  check("…and the overlay is told: the card comes back and says why", refused === "Not sent: the page was busy. Press Enter again", String(refused))
+  await sleep(2200) // past the overlay's own two-second timer
+  check(
+    "…with its words, and never as sent",
+    (await js(`[!${shadow}.querySelector('.card').hidden, ${shadow}.querySelector('textarea').value, ${shadow}.querySelector('.sent').hidden].join('|')`)) === "true|make this button bigger|true",
+  )
   enter()
 
   const sent = await until(() => messages.find((m) => m.type === "note"))

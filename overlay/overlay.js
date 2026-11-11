@@ -17,6 +17,7 @@
  *                                                         (to the host's background session)
  *   { type: "pins-placement", unplaced: [id] }            pins whose element can't be found (shown
  *                                                         at their stored position, if any, dimmed)
+ *   { type: "pin", id }                                   a pin was clicked
  *   { type: "edits-shown", id, show }                     reply to "edits", two frames after the page
  *                                                         changed; id and show are echoed as received
  *
@@ -30,14 +31,19 @@
  *   The draft carries the unsent batch as draft.edits (opaque: { els, sheet, ops }) and draft.note.
  *
  * host → page   window.__b42.receive(msg)
- *   { type: "state", enabled, draft?, pins? }
+ *   { type: "state", enabled, draft?, pins?, templates? } templates: [{ name, hint }], offered after "/"
  *   { type: "enabled", enabled }
  *   { type: "pins", pins: [Pin] }
- *       Pin = { id, n, status: queued|working|done|failed, lane?: "bg",
+ *       Pin = { id, n, status: queued|working|done|failed|paused|stopped, lane?: "bg", note?,
  *               selector?, tag?, text?, component?,      from the note's first target, for re-finding
  *               at?: [x, y] }                            document coords, the last-resort position
  *   { type: "captured", id }                              screenshot taken; clear the selection.
  *                                                         Clicks made before this are held, then applied
+ *   { type: "captured", id, ok: false, why? }             the host did not take the note: nothing is
+ *                                                         cleared, the card (or the canvas batch) comes
+ *                                                         back and says why. A host answers every note
+ *                                                         one way or the other; with no answer in 2 s
+ *                                                         the note counts as taken (a slow screenshot)
  *   { type: "edits", id, show }                           hide (show: false) or show again everything
  *                                                         the sent canvas note `id` applied: styles,
  *                                                         classes, text, order, its stylesheet. While
@@ -98,6 +104,7 @@
     card: false,
     brush: false, // the bar's brush is on: a plain drag draws
     pending: null, // note id awaiting "captured"
+    quiet: null, // that id when it is a canvas note: the bar says "Sent", not a chip over the page
     buffered: null, // a click made while pending: {x,y,shift}
     pins: [], // [{id,n,status,selector?,at?,el?}]
     images: [], // [{name,uri}] pictures pasted into the note
@@ -112,6 +119,7 @@
   let corner, bar, insp, cv, cnote, treeEl, trows, tspace, clsEl, cssEl, freeEl, compEl, ipath, bandEl, ghostEl, insEl, labEl, dimEl, handles, edges, hitEl, gzEl, shieldEl;
   let hostEl, root, ink, strokesEl, pencil, boxes, pinsEl, card, what, refs, textarea, cursorStyle, tip, sentEl, chip, menuEl, variantsEl, variantStyle;
   const PLACEHOLDER = "Note…  ( / for templates, paste a picture to attach it )";
+  const HINT = `↵ send · ${isMac ? "⌥↵" : "alt+↵"} in parallel · / templates · esc`;
   let cardAt = null; // where the note card last sat: the "Sent" chip appears there
   let sentTimer = 0;
   let raf = 0;
@@ -344,27 +352,22 @@
     return el;
   }
 
-  const maximal = (els) => {
-    const set = new Set(els);
-    return els.filter((el) => {
-      for (let p = el.parentElement; p; p = p.parentElement) if (set.has(p)) return false;
-      return true;
-    });
-  };
-
-  /** Elements fully inside a viewport rect, reduced to the outermost ones. */
+  /** Elements fully inside a viewport rect, reduced to the outermost ones: the first 20 in
+   *  document order. The tree is walked, and what is inside an element that is itself inside is
+   *  not looked at. (Children can overflow a parent that lies outside, so those are all visited.) */
   function elementsIn(r) {
     if (!document.body) return [];
-    const all = document.body.getElementsByTagName("*");
     const out = [];
-    for (let i = 0; i < all.length && i < 10000; i++) {
-      const el = all[i];
-      if (el === hostEl) continue;
-      const b = el.getBoundingClientRect();
-      if (b.width < 2 || b.height < 2) continue;
-      if (b.left >= r.x - 1 && b.top >= r.y - 1 && b.right <= r.x + r.w + 1 && b.bottom <= r.y + r.h + 1) out.push(el);
-    }
-    return maximal(out).slice(0, 20);
+    const visit = (el) => {
+      for (let k = el.firstElementChild; k && out.length < 20; k = k.nextElementSibling) {
+        if (k === hostEl) continue;
+        const b = k.getBoundingClientRect();
+        if (b.width >= 2 && b.height >= 2 && b.left >= r.x - 1 && b.top >= r.y - 1 && b.right <= r.x + r.w + 1 && b.bottom <= r.y + r.h + 1) out.push(k);
+        else visit(k);
+      }
+    };
+    visit(document.body);
+    return out;
   }
 
   /** Elements a stroke points at: a closed loop selects what it encloses, an open line what it crosses. */
@@ -479,9 +482,20 @@
     kick();
   }
 
+  /** The line beside the card's title: the keys, or why the note did not go (until it is changed). */
+  function setHint(why) {
+    const hint = card.querySelector(".hint");
+    const text = why || HINT;
+    if (hint.textContent === text) return;
+    hint.textContent = text;
+    hint.title = why || "";
+    hint.classList.toggle("warn", !!why);
+  }
+
   function closeCard() {
     S.card = false;
     card.hidden = true;
+    setHint("");
     if (root && root.activeElement === textarea) textarea.blur();
   }
 
@@ -601,10 +615,17 @@
     for (const f of files.slice(0, MAX_IMAGES)) void addImage(f);
   }
 
+  // A stroke's box in document coordinates, worked out once: a stroke is never changed after it
+  // is drawn (undo drops it whole, a restored draft brings new arrays).
+  const strokeBox = new WeakMap();
   function anchorRect() {
     const rects = S.sel.map(rectOf);
     if (S.area) rects.push(docToViewRect(S.area));
-    for (const s of S.strokes) rects.push(bboxOf(s.map(toView)));
+    for (const s of S.strokes) {
+      let b = strokeBox.get(s);
+      if (!b) strokeBox.set(s, (b = bboxOf(s)));
+      rects.push(docToViewRect(b));
+    }
     return union(rects);
   }
 
@@ -836,7 +857,7 @@
   }
 
   function hideTip() {
-    if (tip) tip.hidden = true;
+    if (tip && !tip.hidden) tip.hidden = true; // (writing `hidden` again restyles, even unchanged)
   }
 
   function makePin() {
@@ -848,9 +869,28 @@
     return el;
   }
 
+  /** The host did not take the note ("captured" with ok: false): it must not look sent. Nothing
+   *  of a plain note was cleared yet (finishCapture does that), so its card opens again with
+   *  the words in it; a canvas batch goes back to being the unsent one. */
+  function refuseCapture(id, why) {
+    if (!S.pending || S.pending !== id) return;
+    S.pending = null;
+    S.buffered = null;
+    const say = `Not sent: ${typeof why === "string" && why.trim() ? line(why).slice(0, 80) : "the app did not take the note"}`;
+    if (S.quiet === id) {
+      S.quiet = null;
+      unsendCanvas(id, say);
+    } else {
+      openCard();
+      setHint(say);
+    }
+    kick();
+  }
+
   function finishCapture(id) {
     if (!S.pending || S.pending !== id) return;
     S.pending = null;
+    C.unsent = null;
     if (S.quiet === id) S.quiet = null;
     else showSent(id);
     S.sel = [];
@@ -885,6 +925,7 @@
   const MAX_CSS = 4000;
   const MAX_SHEET = 8000;
   const MAX_CLASS = 1000;
+  const MAX_TEXT = 2000;
   // Typed declarations must win over the site's rules the way an inline style would, without
   // "!important" in what the agent reads: three ids' worth of specificity that matches anything.
   const BOOST = ":not(#b42-x#b42-x#b42-x)";
@@ -913,6 +954,7 @@
     draft: { id: "draft", B: newBatch() }, // the unsent batch (+ its two stylesheets, made on demand)
     sent: [], // batches already sent, still applied as previews: [{ id, B, seen }]
     hide: new Set(), // ids of sent batches switched off for a "before" picture
+    unsent: null, // what the batch being sent was, until the host takes it: { id, snap, past, future, note, sel }
     snap: EMPTY, // the draft batch as last committed; past and future are the undo stacks
     past: [],
     future: [],
@@ -1421,12 +1463,15 @@
   }
 
   function restoreEdits(d) {
-    const B = d && d.edits;
-    if (!B || typeof B !== "object" || typeof B.els !== "object" || !Array.isArray(B.ops) || C.snap !== EMPTY) return;
-    C.draft.B = { els: B.els || {}, sheet: typeof B.sheet === "string" ? B.sheet : "", ops: B.ops };
-    C.snap = JSON.stringify(C.draft.B);
-    if (cnote) cnote.value = typeof d.note === "string" ? d.note : "";
-    applyAll();
+    if (!d || C.snap !== EMPTY) return;
+    // The words typed for the batch are a draft on their own: they come back with or without edits.
+    if (cnote && typeof d.note === "string" && !cnote.value) cnote.value = d.note;
+    const B = d.edits;
+    if (B && typeof B === "object" && B.els && typeof B.els === "object" && Array.isArray(B.ops)) {
+      C.draft.B = { els: B.els, sheet: typeof B.sheet === "string" ? B.sheet : "", ops: B.ops };
+      C.snap = JSON.stringify(C.draft.B);
+      applyAll();
+    }
     syncFields(true);
   }
 
@@ -1448,6 +1493,9 @@
     if (!countEdits(B) && !css) return flash("Nothing to send yet: edit something first");
     if (css.length > MAX_SHEET || entries.some((e) => e.css.length > MAX_CSS || (e.cls && e.cls.to.length > MAX_CLASS)))
       return flash("Too long to send: shorten the text marked in the inspector");
+    // (The host takes no longer text: sent as it is, the edit would be dropped there without a word.)
+    if (B.ops.some((o) => o.kind === "text" && line(o.to).length > MAX_TEXT))
+      return flash(`Too long to send: a text edit holds ${MAX_TEXT} characters at most. Double-click the text to shorten it`);
     const rss = [...new Set([...entries.map((e) => e.rs), ...B.ops.map((o) => o.rs)])];
     const els = rss.map(elOf).filter(Boolean);
     const props = new Map(entries.map((e) => [e.rs, topProps(e.css)]));
@@ -1517,6 +1565,7 @@
       ...(css ? { css } : {}),
     };
     // The batch stays applied under the note's id; a new empty draft takes its place.
+    C.unsent = { id: note.id, snap: C.snap, past: C.past, future: C.future, note: cnote.value, sel: C.sel };
     C.draft.id = note.id;
     C.sent.push(C.draft);
     C.draft = { id: "draft", B: newBatch() };
@@ -1532,6 +1581,43 @@
     syncFields(true);
     drawBar();
     dispatch(note);
+  }
+
+  /** The host refused the note: its batch is the unsent one again, with its undo steps and its
+   *  words, and the bar says why. Anything typed since (the Global box and the note field stay
+   *  usable while the answer is awaited) is added to it, not lost. */
+  function unsendCanvas(id, say) {
+    const u = C.unsent;
+    C.unsent = null;
+    const i = C.sent.findIndex((b) => b.id === id);
+    if (i < 0 || !u || u.id !== id) return flash(say);
+    if (C.typeTimer) commit();
+    const b = C.sent.splice(i, 1)[0];
+    const later = C.draft;
+    C.hide.delete(id);
+    for (const k of ["gen", "free"]) if (later[k]) adopt(later[k], false);
+    b.id = "draft";
+    b.seen = b.n = undefined;
+    for (const rs in later.B.els) {
+      const e = later.B.els[rs], old = b.B.els[rs];
+      if (!old) b.B.els[rs] = e;
+      else {
+        if (e.css.trim()) old.css = old.css.trim() ? `${old.css}\n${e.css}` : e.css;
+        if (e.cls) old.cls = { from: old.cls ? old.cls.from : e.cls.from, to: e.cls.to };
+      }
+    }
+    b.B.ops.push(...later.B.ops);
+    if (later.B.sheet.trim()) b.B.sheet = b.B.sheet.trim() ? `${b.B.sheet}\n${later.B.sheet}` : later.B.sheet;
+    C.draft = b;
+    C.snap = u.snap;
+    C.past = u.past;
+    C.future = u.future;
+    cnote.value = [u.note, cnote.value].filter((w) => w.trim()).join(" ");
+    S.sel = []; // the outlines that were for the screenshot
+    commit(); // what was added since, if anything, is one more undo step
+    select(u.sel && u.sel.isConnected ? u.sel : null);
+    syncFields(true);
+    flash(say);
   }
 
   /** A sent batch is a preview until the agent is finished with its note. */
@@ -2686,11 +2772,26 @@
 
   function drawComputed() {
     const el = C.sel;
-    const key = `${C.selRs}|${C.rev}|${domVersion}|${C.collapsed}`;
-    if (key === C.compKey || performance.now() - C.compAt < 150) return;
+    const now = performance.now();
+    // The page changes an element's look without changing the tree: a class or an inline style
+    // set by its script (the agent's edit, hot-reloaded, is often just that). domVersion does not
+    // count those, so the selection's own two attributes are part of the key; and once a second
+    // the values are read again whatever happened (a stylesheet swapped, a class on a parent).
+    const attrs = el && el.isConnected ? `${el.getAttribute("class")}|${el.getAttribute("style")}` : "";
+    const key = `${C.selRs}|${C.rev}|${domVersion}|${C.collapsed}|${attrs}`;
+    if ((key === C.compKey && now - C.compAt < 1000) || now - C.compAt < 150) return;
     C.compKey = key;
-    C.compAt = performance.now();
+    C.compAt = now;
     const live = el && el.isConnected && !C.collapsed;
+    // The class line shows the attribute as it is now, unless it is being typed in: typing on
+    // top of an old list would record the page's newer classes as removed.
+    if (live && root.activeElement !== clsEl) {
+      const cls = el.getAttribute("class") ?? "";
+      if (clsEl.value !== cls) {
+        clsEl.value = cls;
+        markAll();
+      }
+    }
     const cs = live ? getComputedStyle(el) : null;
     const flex = live && cs.display.includes("flex"), grid = live && cs.display.includes("grid");
     // Only what can apply: the flex and grid properties show when the element is one.
@@ -3367,7 +3468,15 @@
     if (show && S.area) areas.push(docToViewRect(S.area));
     if (d && d.mode === "area") areas.push({ x: Math.min(d.x0, d.x), y: Math.min(d.y0, d.y), w: Math.abs(d.x - d.x0), h: Math.abs(d.y - d.y0) });
     const pathEls = pool(strokesEl, paths.length, () => document.createElementNS(SVG, "path"));
-    paths.forEach((pts, i) => pathEls[i].setAttribute("d", `M${pts.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L")}`));
+    paths.forEach((pts, i) => {
+      // A drawn stroke stays as it is, and the one being drawn only grows: the same points and
+      // the same count mean the same path. Writing it again would repaint the ink every frame.
+      const el = pathEls[i];
+      if (el._pts === pts && el._n === pts.length) return;
+      el._pts = pts;
+      el._n = pts.length;
+      el.setAttribute("d", `M${pts.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L")}`);
+    });
     const rectEls = pool(ink.querySelector(".areas"), areas.length, () => document.createElementNS(SVG, "rect"));
     areas.forEach((r, i) => {
       rectEls[i].setAttribute("x", r.x);
@@ -3382,14 +3491,20 @@
     // pins
     const visible = [];
     const unplaced = [];
+    const now = performance.now();
     for (const p of S.pins) {
       let at = null;
       let approx = false;
       if (p.selector || p.text) {
         // Search again only after the DOM changed (a text search is too heavy for every frame).
-        if ((!p.el || !p.el.isConnected) && p.searched !== domVersion) {
+        // The first search after an element goes is immediate, and so is the next (a re-render
+        // often removes and adds in two steps); a pin that stays missing on a page that keeps
+        // changing is then looked for less and less often, down to once a second.
+        if ((!p.el || !p.el.isConnected) && p.searched !== domVersion && now >= (p.retryAt || 0)) {
           p.searched = domVersion;
           p.el = findPin(p);
+          p.misses = p.el ? 0 : (p.misses || 0) + 1;
+          p.retryAt = p.misses > 1 ? now + Math.min(1000, 16 * 2 ** (p.misses - 1)) : 0;
         }
         if (p.el && p.el.isConnected) at = pinPoint(p.el);
       }
@@ -3440,8 +3555,10 @@
   function frame() {
     raf = 0;
     render();
+    // Through kick(): something in render() may have asked for the next frame already, and a
+    // second request here would start a second chain (two renders a frame until the selection goes).
     if (S.card || S.sel.length || S.drag || S.pending || (C.on && (C.sel || C.drag || C.edit)) || performance.now() - lastInput < ACTIVE_MS)
-      raf = requestAnimationFrame(frame);
+      kick();
     else if ((S.enabled || S.pins.length) && !idleTimer)
       idleTimer = setTimeout(() => {
         idleTimer = 0;
@@ -3518,6 +3635,7 @@
     .meta { display: flex; justify-content: space-between; gap: 12px; margin: 0 2px 8px; color: #d4d4d4; font-size: 12px; }
     .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fffaa0; font-weight: 500; }
     .hint { flex: none; }
+    .hint.warn { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fbbf24; }
     textarea { all: unset; display: block; width: 100%; box-sizing: border-box; min-height: 44px; max-height: 240px;
       overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 4px 2px; color: #ededed; font: inherit;
       cursor: text; }
@@ -3732,7 +3850,7 @@
     root.innerHTML = `<style>${STYLES}</style>
       <svg class="ink" xmlns="${SVG}"><defs>${PENCIL}</defs><g class="areas"></g><g class="strokes" filter="url(#b42-pencil)"></g></svg>
       <div class="boxes"></div><div class="pins"></div>
-      <div class="card" hidden><div class="meta"><span class="what"></span><span class="hint">↵ send · ${isMac ? "⌥↵" : "alt+↵"} in parallel · / templates · esc</span></div>
+      <div class="card" hidden><div class="meta"><span class="what"></span><span class="hint">${HINT}</span></div>
       <button type="button" class="chip" title="Remove the template" hidden></button>
       <textarea rows="2" placeholder="${PLACEHOLDER}" spellcheck="false"></textarea><div class="menu" hidden></div><div class="refs" hidden></div></div>
       <div class="variants"></div><div class="tip" hidden></div><div class="sent" hidden></div>
@@ -3785,9 +3903,11 @@
     mountCanvas();
     seat();
 
-    // Any change to the page may have removed the layer or opened a modal dialog: seat it again.
-    new MutationObserver(() => {
-      seat();
+    // A change to the page may have removed the layer, closed it (an element taken out of the
+    // document leaves the top layer) or opened or closed a modal dialog: seat it again then.
+    // Any other change leaves it where it is, and the document is not searched for dialogs.
+    new MutationObserver((records) => {
+      if (!hostEl.isConnected || (hostEl.showPopover && !hostEl.matches(":popover-open")) || records.some((r) => r.type === "attributes")) seat();
       domVersion++;
       kick();
     }).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributeFilter: ["open"] });
@@ -3817,6 +3937,7 @@
       textarea.focus({ preventScroll: true });
     });
     textarea.addEventListener("input", () => {
+      setHint("");
       updateMenu();
       autosize();
       draftChanged();
@@ -3839,7 +3960,9 @@
 
   window.__b42 = {
     version: VERSION,
-    busy: () => !!(S.card || S.pending || S.drag || hasDraft() || C.drag || C.edit || C.snap !== EMPTY || (C.on && C.sel)),
+    // (C.typeTimer: CSS or classes typed but not yet an undo step. Until that pause ends the batch
+    // still looks empty and the host has no draft of it: a reload then would lose what was typed.)
+    busy: () => !!(S.card || S.pending || S.drag || hasDraft() || C.drag || C.edit || C.typeTimer || C.snap !== EMPTY || (C.on && C.sel)),
     receive(msg) {
       if (typeof msg === "string") msg = JSON.parse(msg);
       if (!root) return;
@@ -3858,7 +3981,8 @@
           setPins(msg.pins);
           break;
         case "captured":
-          finishCapture(msg.id);
+          if (msg.ok === false) refuseCapture(msg.id, msg.why);
+          else finishCapture(msg.id);
           break;
         case "edits":
           showEdits(msg);

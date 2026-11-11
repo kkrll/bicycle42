@@ -13,6 +13,7 @@ const H = {
   notes: [],
   unplaced: [],
   delay: Number(new URLSearchParams(location.search).get("delay") ?? 1500),
+  refuse: "", // set by a test: the next notes are refused with this reason
   selected: null,
   log: [],
 };
@@ -42,6 +43,10 @@ function onMessage(msg) {
       break;
     case "note": {
       const note = msg.note;
+      if (H.refuse) {
+        toPage({ type: "captured", id: note.id, ok: false, why: H.refuse });
+        break;
+      }
       const n = H.notes.length + 1;
       const at = note.bounds ? [note.bounds.x + note.viewport.scrollX, note.bounds.y + note.viewport.scrollY] : undefined;
       H.notes.push({ ...note, n, at, status: "queued", prompt: notePrompt(note, n, { images: 2 }) });

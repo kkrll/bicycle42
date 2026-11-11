@@ -1283,3 +1283,131 @@ test("icons are SVG: no glyph stands in for one, and what is clicked is at least
   assert.deepEqual(await ui(f, (r) => [r.querySelector(".ifold").title, r.querySelector(".ifold svg path").getAttribute("d")]), ["Open the inspector", "m4 10 4-4 4 4"]);
   await page.close();
 });
+
+test("a canvas note the host refuses is the unsent batch again: its edits, its words and its undo steps, and the bar says why", async () => {
+  const { page, f } = await open();
+  await page.evaluate(() => (window.__harness.refuse = "the app could not read the note"));
+  await clickAt(page, f, SECOND, 100, 80);
+  await field(f, "css").fill("width: 320px;");
+  await field(f, "free").fill(".tile { color: red; }");
+  await f.locator("b42-review .cnote").fill("wider, and red tiles");
+  await clickAt(page, f, "#title");
+  await page.keyboard.press("Enter");
+  await f.waitForFunction(() => /^Not sent/.test(document.querySelector("b42-review").shadowRoot.querySelector(".bmsg").textContent));
+  await frames(f);
+  let s = await ui(f, (r) => ({ msg: r.querySelector(".bmsg").textContent, count: r.querySelector(".count").textContent, free: r.querySelector(".free").value, sel: r.querySelectorAll(".box.sel").length, undo: r.querySelector(".undo").disabled, busy: window.__b42.busy() }));
+  assert.deepEqual(s, { msg: "Not sent: the app could not read the note", count: "2 edits", free: ".tile { color: red; }", sel: 0, undo: false, busy: true });
+  assert.equal((await box(f, SECOND)).width, 320);
+  assert.equal(await style(f, "#grid .tile", "color"), "rgb(255, 0, 0)");
+  assert.equal(await page.evaluate(() => window.__harness.notes.length), 0);
+  await page.waitForFunction(() => window.__harness.draft?.note === "wider, and red tiles" && !!window.__harness.draft.edits?.sheet);
+  // Not sent after all by the two-second timer, no pin-less preview left behind, and the reason goes.
+  await page.waitForTimeout(2800);
+  s = await ui(f, (r) => ({ count: r.querySelector(".count").textContent, note: r.querySelector(".cnote").value, msg: r.querySelector(".bmsg").textContent }));
+  assert.deepEqual(s, { count: "2 edits", note: "wider, and red tiles", msg: "" });
+  // Its undo steps are its own again.
+  await page.keyboard.press(`${MOD}+z`);
+  await settle(f);
+  assert.equal(await style(f, "#grid .tile", "color"), "rgb(28, 28, 30)");
+  await page.keyboard.press(`${MOD}+Shift+z`);
+  await settle(f);
+  assert.equal(await style(f, "#grid .tile", "color"), "rgb(255, 0, 0)");
+  // And it goes once the host takes it.
+  await page.evaluate(() => (window.__harness.refuse = ""));
+  const n = await send(page);
+  assert.equal(n.text, "wider, and red tiles");
+  assert.deepEqual(n.edits.map((e) => e.kind), ["style"]);
+  assert.equal(n.css, ".tile { color: red; }");
+  await page.close();
+});
+
+test("a text edit too long for the host is said before sending, and stays to be shortened", async () => {
+  const { page, f } = await open();
+  const b = await box(f, "#title");
+  await page.mouse.click(b.x + 40, b.y + 20);
+  await page.mouse.click(b.x + 40, b.y + 20);
+  await frames(f);
+  await page.keyboard.insertText("x".repeat(2001));
+  await page.keyboard.press("Enter");
+  await frames(f);
+  assert.equal(await ui(f, (r) => r.querySelector(".count").textContent), "1 edit");
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(200);
+  assert.match(await ui(f, (r) => r.querySelector(".bmsg").textContent), /^Too long to send: a text edit holds 2000 characters at most/);
+  assert.equal(await page.evaluate(() => window.__harness.notes.length), 0);
+  assert.equal(await f.evaluate(() => document.getElementById("title").textContent.length), 2001);
+  assert.equal(await ui(f, (r) => r.querySelector(".count").textContent), "1 edit");
+  await page.close();
+});
+
+test("busy() is true from the first key typed into a field, and a note's words alone survive a reload", async () => {
+  const { page, f } = await open();
+  assert.equal(await f.evaluate(() => window.__b42.busy()), false);
+  // The rule is not an undo step yet (that takes a pause in the typing), and the host has no draft of it.
+  await field(f, "free").fill(".tile { color: red; }");
+  assert.deepEqual(await f.evaluate(() => [window.__b42.busy(), window.parent.__harness.draft]), [true, null]);
+  await page.waitForFunction(() => window.__harness.draft?.edits?.sheet === ".tile { color: red; }");
+  await field(f, "free").fill("");
+  await page.waitForFunction(() => window.__harness.draft === null);
+  // Words for the batch, and no edits.
+  await f.locator("b42-review .cnote").fill("tighten this up");
+  await page.waitForFunction(() => window.__harness.draft?.note === "tighten this up" && !window.__harness.draft.edits);
+  await page.click("#reload");
+  await page.waitForTimeout(150);
+  const f2 = await pageFrame(page);
+  await f2.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelector(".cnote").value === "tighten this up");
+  assert.equal(await ui(f2, (r) => !r.querySelector(".insp").hidden), true);
+  await page.close();
+});
+
+test("the inspector follows a class the page itself changes: the class line and the computed values, and a class typed after it keeps the page's", async () => {
+  const { page, f } = await open();
+  await clickAt(page, f, "#cta");
+  await settle(f);
+  const read = () => ui(f, (r) => ({ cls: r.querySelector(".cls").value, size: [...r.querySelectorAll(".crow")].find((x) => x.firstChild.textContent === "font-size").lastChild.value }));
+  assert.deepEqual(await read(), { cls: "primary", size: "15px" });
+  // What an agent's edit, hot-reloaded, looks like from here: an attribute changes, no node does.
+  await f.evaluate(() => {
+    document.head.appendChild(document.createElement("style")).textContent = ".big { font-size: 30px; }";
+    document.getElementById("cta").className = "primary big";
+  });
+  await f.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelector(".cls").value === "primary big", null, { timeout: 1500 });
+  assert.deepEqual(await read(), { cls: "primary big", size: "30px" });
+  // An inline style set by the page shows too.
+  await f.evaluate(() => (document.getElementById("cta").style.fontSize = "12px"));
+  await f.waitForFunction(() => [...document.querySelector("b42-review").shadowRoot.querySelectorAll(".crow")].find((x) => x.firstChild.textContent === "font-size").lastChild.value === "12px", null, { timeout: 1500 });
+  await f.evaluate(() => (document.getElementById("cta").style.fontSize = ""));
+  // A class added now is added to what the page has.
+  await field(f, "cls").fill("primary big wide");
+  await settle(f);
+  await page.keyboard.press(`${MOD}+Enter`);
+  await waitNotes(page, 1);
+  const n = (await sentNotes(page))[0];
+  assert.deepEqual(n.edits.map((e) => [e.kind, e.from, e.to]), [["class", "primary big", "primary big wide"]]);
+  await page.close();
+});
+
+test("one chain of frames: a drag that selects its element does not leave the layer drawing twice a frame", async () => {
+  const { page, f } = await open();
+  const b = await box(f, SECOND);
+  // Not selected yet: the drag selects it, from inside a frame.
+  await drag(page, f, b.x + 100, b.y + 80, b.x - 150, b.y + 80);
+  assert.equal(await ui(f, (r) => r.querySelector(".ipath").textContent), "Card · Pro For small teams");
+  await frames(f, 40); // past the half second in which the pointer still counts as moving
+  const per = await f.evaluate(() => new Promise((done) => {
+    const real = window.requestAnimationFrame;
+    let asked = 0, left = 30;
+    window.requestAnimationFrame = (cb) => {
+      if (cb.name === "frame") asked++;
+      return real.call(window, cb);
+    };
+    const step = () => {
+      if (left-- > 0) return void real.call(window, step);
+      window.requestAnimationFrame = real;
+      done(asked / 30);
+    };
+    real.call(window, step);
+  }));
+  assert.ok(per > 0.8 && per < 1.2, `${per.toFixed(2)} frames asked for per frame (two chains: 2)`);
+  await page.close();
+});

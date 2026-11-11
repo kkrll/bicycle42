@@ -576,6 +576,37 @@ test("a canvas note with no screenshot at all still goes, and a plain note asks 
   }
 })
 
+test("a note the app does not take is answered, so the page never shows it as sent; a second one with the same id is left alone", async () => {
+  const h = await boot()
+  try {
+    await h.ready()
+    h.page.sent.length = 0
+    const answers = () => h.page.sent.filter((m) => m.type === "captured")
+    // Edits the page made up are dropped; with no words either there is nothing to send.
+    h.page.message(canvasNote("empty", { edits: [{ kind: "teleport", selector: "x" }] }))
+    // Not a note at all.
+    h.page.message({ type: "note", note: { id: "broken", text: 5 } })
+    h.page.message({ type: "note", note: "nothing" })
+    await sleep(50)
+    assert.deepEqual(answers(), [
+      { type: "captured", id: "empty", ok: false, why: "there is nothing in it the app can send" },
+      { type: "captured", id: "broken", ok: false, why: "the app could not read the note" },
+    ])
+    assert.equal(h.notes(), "")
+    // A note that is taken is answered once, without `ok`; its double gets no answer of its own
+    // (it has the same id: a refusal would take the first one back in the page).
+    h.page.sent.length = 0
+    h.note("a", "same")
+    h.note("a", "same")
+    await until(() => h.w.prompts.length >= 1)
+    await sleep(100)
+    assert.deepEqual(answers(), [{ type: "captured", id: "same" }])
+    assert.equal(h.notes(), "1:queued")
+  } finally {
+    await h.close()
+  }
+})
+
 test("Retry of a canvas note sends its edits and both pictures again", async () => {
   const h = await boot()
   try {

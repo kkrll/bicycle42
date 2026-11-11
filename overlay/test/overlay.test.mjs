@@ -345,3 +345,166 @@ test("screenshot moment: card and pins hidden, outline kept", async () => {
   assert.deepEqual(state, { card: false, pins: 0, sel: 1 });
   await page.close();
 });
+
+const root = (f, fn, arg) => f.evaluate(`(${fn})(document.querySelector("b42-review").shadowRoot, ${JSON.stringify(arg ?? null)})`);
+const frames = (f, n = 2) => f.evaluate((k) => new Promise((done) => {
+  const step = () => (k-- > 0 ? requestAnimationFrame(step) : done());
+  step();
+}), n);
+const altDrag = async (page, x0, y0, x1, y1, steps = 30) => {
+  await page.keyboard.down("Alt");
+  await page.mouse.move(x0, y0);
+  await page.mouse.down();
+  await page.mouse.move(x1, y1, { steps });
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+};
+
+test("a note the host refuses does not look sent: the card comes back with its words and says why", async () => {
+  const { page, f } = await open();
+  await page.evaluate(() => (window.__harness.refuse = "there is nothing in it the app can send"));
+  await clickAt(page, f, "#cta");
+  await page.keyboard.type("make it bigger");
+  await page.keyboard.press("Enter");
+  await f.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelector(".hint.warn"));
+  const s = await root(f, (r) => ({
+    card: !r.querySelector(".card").hidden, text: r.querySelector("textarea").value, hint: r.querySelector(".hint").textContent,
+    sent: !r.querySelector(".sent").hidden, sel: r.querySelectorAll(".box.sel").length, busy: window.__b42.busy(), typing: r.activeElement === r.querySelector("textarea"),
+  }));
+  assert.deepEqual(s, { card: true, text: "make it bigger", hint: "Not sent: there is nothing in it the app can send", sent: false, sel: 1, busy: true, typing: true });
+  assert.equal(await page.evaluate(() => window.__harness.notes.length), 0);
+  await page.waitForFunction(() => window.__harness.draft?.text === "make it bigger");
+  // The old two-second timer must not call it sent after all.
+  await page.waitForTimeout(2200);
+  assert.deepEqual(await root(f, (r) => [!r.querySelector(".card").hidden, r.querySelector("textarea").value, r.querySelector(".sent").hidden]), [true, "make it bigger", true]);
+  // Typing takes the reason away; the same note goes once the host takes it.
+  await page.evaluate(() => (window.__harness.refuse = ""));
+  await page.keyboard.type("!");
+  assert.equal(await root(f, (r) => r.querySelector(".hint").className), "hint");
+  await page.keyboard.press("Enter");
+  await waitNotes(page, 1);
+  assert.equal((await notes(page))[0].text, "make it bigger!");
+  await f.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelector(".card").hidden);
+  await page.close();
+});
+
+test("a note being made costs nothing while nothing moves: no stroke is written again, nothing in the layer changes", async () => {
+  const { page, f } = await open();
+  const count = async (n) => {
+    await f.evaluate(() => {
+      const w = (window.__w = { d: 0, records: 0, obs: null });
+      const real = (window.__realSet ||= Element.prototype.setAttribute);
+      Element.prototype.setAttribute = function (k, v) {
+        if (k === "d") w.d++;
+        return real.call(this, k, v);
+      };
+      w.obs = new MutationObserver((list) => (w.records += list.length));
+      w.obs.observe(document.querySelector("b42-review").shadowRoot, { subtree: true, childList: true, attributes: true, characterData: true });
+    });
+    await frames(f, n);
+    return f.evaluate(() => {
+      const w = window.__w;
+      w.records += w.obs.takeRecords().length;
+      w.obs.disconnect();
+      Element.prototype.setAttribute = window.__realSet;
+      return { d: w.d, records: w.records };
+    });
+  };
+  const ds = () => root(f, (r) => [...r.querySelectorAll(".strokes path")].map((p) => p.getAttribute("d").length));
+  // A selection with its card open, and no pins.
+  await clickAt(page, f, "#cta");
+  await frames(f, 40); // past the half second in which the pointer still counts as moving
+  assert.deepEqual(await count(20), { d: 0, records: 0 });
+  // Three strokes, each above the last (the card opens under them): drawn once each.
+  await page.keyboard.press("Escape");
+  for (let i = 0; i < 3; i++) await altDrag(page, 300 + i * 20, 420 - i * 40, 700, 440 - i * 40);
+  await frames(f, 40);
+  const three = await ds();
+  assert.equal(three.length, 3);
+  assert.deepEqual(await count(20), { d: 0, records: 0 });
+  // The stroke being drawn grows on screen as it is drawn.
+  await page.keyboard.down("Alt");
+  await page.mouse.move(300, 300);
+  await page.mouse.down();
+  await page.mouse.move(400, 290, { steps: 10 });
+  await frames(f, 2);
+  const short = (await ds())[3];
+  await page.mouse.move(700, 280, { steps: 20 });
+  await frames(f, 2);
+  const long = (await ds())[3];
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+  assert.ok(short > 0 && long > short, `the fourth path grew: ${short} → ${long}`);
+  // Undo drops the last one; a new one drawn into its path element is that new one.
+  await page.keyboard.press(`${MOD}+z`);
+  await frames(f, 2);
+  assert.deepEqual(await ds(), three);
+  await altDrag(page, 320, 260, 420, 250, 8);
+  await frames(f, 2);
+  const four = await ds();
+  assert.deepEqual(four.slice(0, 3), three);
+  assert.ok(four[3] > 0 && four[3] < long, "the redrawn fourth stroke is the short new one, not the undone one");
+  // The card still sits under the strokes after a scroll (their boxes are kept in page coordinates).
+  const before = await root(f, (r) => r.querySelector(".card").getBoundingClientRect().top);
+  await f.evaluate(() => { document.body.style.minHeight = "3000px"; window.scrollTo(0, 120); });
+  await frames(f, 3);
+  assert.equal(Math.round(before - (await root(f, (r) => r.querySelector(".card").getBoundingClientRect().top))), 120);
+  await page.close();
+});
+
+test("a pin whose element is gone is looked for less and less often on a page that keeps changing", async () => {
+  const { page, f } = await open();
+  await f.evaluate(() => {
+    window.__searches = 0;
+    const real = Element.prototype.querySelectorAll;
+    Element.prototype.querySelectorAll = function (s) {
+      if (this === document.body) window.__searches++;
+      return real.call(this, s);
+    };
+    // A page that never rests: one text node changes every frame.
+    const t = document.querySelector(".hero p").firstChild;
+    let i = 0;
+    (function tick() {
+      t.data = `Acme helps small teams review UI changes before they land. ${++i}`;
+      requestAnimationFrame(tick);
+    })();
+    window.__b42.receive({ type: "pins", pins: [{ id: "gone", n: 1, status: "queued", selector: "#no-such-element", tag: "p", text: "No such words anywhere", at: [100, 100] }] });
+  });
+  await page.waitForFunction(() => window.__harness.unplaced.length === 1);
+  await page.waitForTimeout(1000);
+  const first = await f.evaluate(() => window.__searches);
+  assert.ok(first >= 2 && first <= 12, `${first} searches in the first second (without the back-off: one per redraw, about 30)`);
+  await page.waitForTimeout(2000);
+  const later = (await f.evaluate(() => window.__searches)) - first;
+  assert.ok(later >= 1 && later <= 4, `${later} searches in the next two seconds`);
+  // It is still found the moment it appears.
+  await f.evaluate(() => {
+    const p = document.createElement("p");
+    p.textContent = "No such words anywhere";
+    document.querySelector(".hero").append(p);
+  });
+  await page.waitForFunction(() => window.__harness.unplaced.length === 0, null, { timeout: 1500 });
+  await page.close();
+});
+
+test("an area selects what is inside it on a page of more than 10,000 elements", async () => {
+  const { page, f } = await open();
+  await f.evaluate(() => {
+    const d = document.createElement("div");
+    d.hidden = true;
+    d.innerHTML = "<i></i>".repeat(10500);
+    document.body.prepend(d);
+  });
+  const bs = await Promise.all([1, 2, 3, 4, 5].map((i) => box(f, `.toolbar button:nth-child(${i})`)));
+  const x0 = Math.min(...bs.map((b) => b.x)) - 4, y0 = Math.min(...bs.map((b) => b.y)) - 4;
+  const x1 = Math.max(...bs.map((b) => b.x + b.width)) + 4, y1 = Math.max(...bs.map((b) => b.y + b.height)) + 4;
+  await page.mouse.move(x0, y0);
+  await page.mouse.down();
+  await page.mouse.move(x1, y1, { steps: 6 });
+  await page.mouse.up();
+  await page.keyboard.type("same style");
+  await page.keyboard.press("Enter");
+  await waitNotes(page, 1);
+  assert.equal((await notes(page))[0].targets.length, 5);
+  await page.close();
+});

@@ -65,6 +65,12 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   kinds, short one-line strings, a property name that looks like one. What fails is dropped.
   CSS typed in the inspector has a length limit and goes into the prompt inside a fence longer
   than any run of backticks in it, so it cannot end its own block.
+- **Every note is answered.** The app replies `captured` once the pictures are taken, or
+  `captured` with `ok: false` and a reason when it does not take the note (nothing in it it can
+  send, not readable, or it came more than a second after Enter because the page stalled). The
+  overlay then puts the card, or the canvas batch with its undo steps, back as it was and says
+  why, so nothing shows as sent that went nowhere. Only the second of two notes with one id
+  gets no answer of its own.
 - **A note has one name** (`noteWords` in `../overlay/prompt.js`): the reviewer's words, or a
   summary of its canvas edits. The list, the pin's tooltip and the chat all show that.
 - **The overlay sits in the browser's top layer** (it is a popover), so a site's own dialogs and
@@ -138,6 +144,12 @@ on its pin and in the chat. A note may be new CSS rules and nothing else.
 - An Enter that does something else in the page (a new line in the note, picking a template,
   keeping a text edit) still opens the one-second window in which the page's own script could
   slip a note in; closing it needs the isolated world below.
+- Canvas mode: a preview is tied to its element by its place among its siblings (unless it has
+  an id). When the page adds or removes a sibling before it, the preview moves to the neighbour
+  and a note sent then names the wrong element.
+- The overlay while scrolling or hovering on a heavy page: strokes are repainted on every scroll
+  frame, a hover outline repaints the page's layer, and a working pin's pulse keeps the
+  compositor drawing with review off. Each needs the drawing moved onto its own layer.
 - Session rotation every N notes.
 - A failed note can be retried until the app restarts; after that its screenshot is gone.
 - Pending permission requests of the background conversation are only seen live, not after a reconnect.

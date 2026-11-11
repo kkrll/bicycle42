@@ -555,9 +555,16 @@ function pinsOf(review: Review) {
 /** What the note card offers after "/": names and one-line hints. The prompts stay in main. */
 const NOTE_TEMPLATES = (TEMPLATES as Array<{ name: string; hint: string }>).map(({ name, hint }) => ({ name, hint }))
 
+/** Tells the overlay its note was not taken, so it does not show "Sent" for something that went
+ *  nowhere: the card (or the canvas batch) comes back with the reason. */
+function refuseNote(raw: unknown, why: string) {
+  const id = typeof raw === "object" && raw !== null ? (raw as { id?: unknown }).id : undefined
+  if (typeof id === "string" && id.length <= 64) page?.send({ type: "captured", id, ok: false, why })
+}
+
 function onPage(msg: PageMessage) {
   const s = site
-  if (!s) return
+  if (!s) return void (msg.type === "note" && refuseNote(msg.note, "no site is open"))
   const review = s.review
   switch (msg.type) {
     case "ready":
@@ -590,7 +597,10 @@ function onPage(msg: PageMessage) {
       // The page can call the binding with anything; only a well-formed note goes further.
       const note = pageNote(msg.note)
       if (note) void onNote(s, note)
-      else log("warn", "the page sent a malformed note; ignored")
+      else {
+        log("warn", "the page sent a malformed note; ignored")
+        refuseNote(msg.note, "the app could not read the note")
+      }
       return
     }
   }
@@ -602,8 +612,12 @@ async function onNote(s: Site, pn: PageNote) {
   if (url) pn = { ...pn, url }
   // A template with no words is still a note ("/grade"), and so are canvas edits or new CSS
   // rules with no words; words with none of those need words.
-  if (!noteWords(pn).trim()) return log("warn", "the page sent an empty note; ignored", pn.id)
+  if (!noteWords(pn).trim()) {
+    log("warn", "the page sent an empty note; ignored", pn.id)
+    return refuseNote(pn, "there is nothing in it the app can send")
+  }
   const note = s.review.add({ ...pn, text: noteWords(pn) })
+  // (No answer to the second: it has the id of the first, whose own answer is on its way.)
   if (!note) return log("warn", "the page sent a note twice; the second is ignored", pn.id)
   changed(s)
   let files: PromptFile[] = []

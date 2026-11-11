@@ -102,6 +102,8 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   let disposed = false
   /** When the reviewer last pressed Enter in this view; 0 once that Enter has admitted its note. */
   let enterAt = 0
+  /** When a note was last refused here (see below): at most one answer a second. */
+  let refusedAt = 0
   let forgeryLogged = false
   let reloadTimer: ReturnType<typeof setTimeout> | undefined
   let probeTimer: ReturnType<typeof setTimeout> | undefined
@@ -131,6 +133,14 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       if (!real) {
         if (!forgeryLogged) log("warn", "page: dropped a note that no Enter key press came with (sent by the page's own script?)", { url })
         forgeryLogged = true // once per page load: a hostile page would call it in a loop
+        // The reviewer's own note can be late too (a page that stalls for a second after Enter).
+        // The overlay is told, so the note does not look sent; it ignores an id it is not
+        // waiting on, so a page's own script learns nothing and changes nothing with this.
+        const id = (msg as { note?: { id?: unknown } }).note?.id
+        if (typeof id === "string" && id.length <= 64 && Date.now() - refusedAt > 1000) {
+          refusedAt = Date.now()
+          send({ type: "captured", id, ok: false, why: "the page was busy. Press Enter again" })
+        }
         return
       }
     }
@@ -300,6 +310,13 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     opts.onChange()
   }
 
+  function send(msg: unknown) {
+    if (gone()) return
+    // No overlay on the page (placeholder, mid-navigation) is not an error: it asks for state on "ready".
+    const expr = `window.__b42 && window.__b42.receive(${JSON.stringify(JSON.stringify(msg))})`
+    wc.executeJavaScript(expr, false).catch(() => undefined)
+  }
+
   function reload() {
     clearTimeout(reloadTimer)
     // After a failed load the view shows an error page (or still the previous one): ask for the URL again.
@@ -337,12 +354,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       view.setBounds({ x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height) })
       view.setVisible(true)
     },
-    send(msg) {
-      if (gone()) return
-      // No overlay on the page (placeholder, mid-navigation) is not an error: it asks for state on "ready".
-      const expr = `window.__b42 && window.__b42.receive(${JSON.stringify(JSON.stringify(msg))})`
-      wc.executeJavaScript(expr, false).catch(() => undefined)
-    },
+    send,
     capture: () => wc.capturePage(),
     reloadWhenIdle,
     evaluate: (js) => (gone() ? Promise.resolve(undefined) : wc.executeJavaScript(js, false).catch(() => undefined)),
