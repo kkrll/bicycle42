@@ -1,4 +1,41 @@
 // ── mount ───────────────────────────────────────────────────────────────────────────────────
+// Its part of the layer: the grab elements around the selection, the inspector, the bar and
+// the "?" in the corner. mount.js puts it in its place among the rest; mountCanvas finds them.
+const HTML = `<div class="cv" hidden><div class="band" hidden></div>
+      <div class="hit" hidden><div class="gzs"></div><div class="eg" hidden></div><div class="eg" hidden></div><div class="eg" hidden></div><div class="eg" hidden></div>
+        <div class="hd" hidden></div><div class="hd" hidden></div><div class="hd" hidden></div><div class="hd" hidden></div></div>
+      <div class="ghost" hidden></div><div class="ins" hidden></div><div class="lab dim" hidden></div><div class="lab live" hidden></div>
+      <div class="shield" hidden></div></div>
+    <div class="insp" hidden><div class="grip" title="Drag to resize"></div>
+      <div class="ihead"><span class="ititle">Inspector</span><span class="ipath"></span>
+        <div class="tabs" role="tablist" aria-label="What the styles are for"><button type="button" role="tab" class="tab t-el">Element</button><button type="button" role="tab" class="tab t-gl" title="New rules for the page, sent with this batch">Global<i class="dot" hidden></i></button></div>
+        <button type="button" class="ifold"></button></div>
+      <div class="ibody"><div class="tree" tabindex="0" role="tree" aria-label="Page elements"><div class="tspace"><div class="trows"></div></div></div>
+        <div class="side">
+          <div class="pane p-el" role="tabpanel" hidden>
+            <div class="col c-in">
+              <label class="sec" for="b42-cls">Classes</label>
+              <input id="b42-cls" class="cls" type="text" spellcheck="false" autocomplete="off" placeholder="Select an element to edit its classes">
+              <label class="sec" for="b42-css">Element styles <i>only this element · & nests</i></label>
+              <div class="ed"><pre class="hl" aria-hidden="true"></pre><textarea id="b42-css" class="css" spellcheck="false" placeholder="Type CSS for this element, e.g. padding: 20px"></textarea></div><div class="err" hidden></div>
+            </div>
+            <div class="col c-comp">
+              <div class="sec">Computed <i>edit a value to add it to Element styles</i></div>
+              <div class="comp"></div>
+            </div>
+          </div>
+          <div class="pane p-gl" role="tabpanel">
+            <label class="sec" for="b42-free">Stylesheet <i>new rules, sent with this batch</i></label>
+            <div class="ed"><pre class="hl" aria-hidden="true"></pre><textarea id="b42-free" class="free" spellcheck="false" placeholder="New rules, e.g. .name { … }"></textarea></div><div class="err" hidden></div>
+          </div>
+        </div></div></div>
+    <div class="bar" hidden><div class="pop" hidden></div>
+      <div class="brow"><button type="button" class="count" hidden><span class="cn"></span>${icon("chevron-up", 12)}</button><span class="bgap"></span>
+        <button type="button" class="act ib undo" aria-label="Undo" title="Undo (${isMac ? "⌘" : "ctrl+"}Z)" hidden>${icon("undo")}</button><button type="button" class="act ib redo" aria-label="Redo" title="Redo (${isMac ? "⌘⇧" : "ctrl+shift+"}Z)" hidden>${icon("redo")}</button><button type="button" class="act reset" title="Remove every unsent edit (undoable)" hidden>Reset</button>
+        <button type="button" class="bsend" hidden>Send</button></div>
+      <input class="cnote" type="text" spellcheck="false" autocomplete="off" placeholder="Add a note…" hidden><span class="bmsg" hidden></span></div>
+    <div class="corner" hidden><div class="pop" hidden></div><button type="button" class="help" title="Keys and gestures" aria-label="Keys and gestures">${icon("help")}</button></div>`;
+
 let corner, bar, insp, cv, cnote, treeEl, trows, tspace, clsEl, cssEl, freeEl, compEl, ipath, bandEl, ghostEl, insEl, labEl, dimEl, handles, edges, hitEl, gzEl, shieldEl;
 
 function mountCanvas() {

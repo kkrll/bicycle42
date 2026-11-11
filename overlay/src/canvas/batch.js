@@ -91,3 +91,11 @@ function pathsOf(B) {
   return out;
 }
 
+/** The unsent batch and the words typed for it, for the draft the host keeps; null without either. */
+function draft() {
+  const edits = C.snap !== EMPTY ? C.draft.B : null;
+  const words = cnote ? cnote.value : "";
+  if (!edits && !words) return null;
+  return { ...(edits ? { edits, paths: pathsOf(edits) } : {}), ...(words ? { note: words } : {}) };
+}
+

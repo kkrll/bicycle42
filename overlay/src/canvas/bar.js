@@ -161,6 +161,13 @@ function setPop(which) {
   drawBar();
 }
 
+/** Closes whichever list is open; false when none was. */
+function closePop() {
+  if (!C.pop) return false;
+  setPop(C.pop);
+  return true;
+}
+
 function drawPop() {
   // Two lists, one open at a time: the batch above the bar, the keys above the "?" in the corner.
   const rows = C.pop === "list" ? editRows() : [];

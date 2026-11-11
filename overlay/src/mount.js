@@ -56,40 +56,7 @@ function mount() {
       <button type="button" class="csend" aria-label="Send" title="Send (↵) · ${isMac ? "⌥" : "alt+"}click to work in parallel" disabled>${icon("↵")}</button></div>
     <div class="menu" hidden></div><div class="refs" hidden></div></div>
     <div class="variants"></div><div class="tip" hidden></div><div class="sent" hidden></div>
-    <div class="cv" hidden><div class="band" hidden></div>
-      <div class="hit" hidden><div class="gzs"></div><div class="eg" hidden></div><div class="eg" hidden></div><div class="eg" hidden></div><div class="eg" hidden></div>
-        <div class="hd" hidden></div><div class="hd" hidden></div><div class="hd" hidden></div><div class="hd" hidden></div></div>
-      <div class="ghost" hidden></div><div class="ins" hidden></div><div class="lab dim" hidden></div><div class="lab live" hidden></div>
-      <div class="shield" hidden></div></div>
-    <div class="insp" hidden><div class="grip" title="Drag to resize"></div>
-      <div class="ihead"><span class="ititle">Inspector</span><span class="ipath"></span>
-        <div class="tabs" role="tablist" aria-label="What the styles are for"><button type="button" role="tab" class="tab t-el">Element</button><button type="button" role="tab" class="tab t-gl" title="New rules for the page, sent with this batch">Global<i class="dot" hidden></i></button></div>
-        <button type="button" class="ifold"></button></div>
-      <div class="ibody"><div class="tree" tabindex="0" role="tree" aria-label="Page elements"><div class="tspace"><div class="trows"></div></div></div>
-        <div class="side">
-          <div class="pane p-el" role="tabpanel" hidden>
-            <div class="col c-in">
-              <label class="sec" for="b42-cls">Classes</label>
-              <input id="b42-cls" class="cls" type="text" spellcheck="false" autocomplete="off" placeholder="Select an element to edit its classes">
-              <label class="sec" for="b42-css">Element styles <i>only this element · & nests</i></label>
-              <div class="ed"><pre class="hl" aria-hidden="true"></pre><textarea id="b42-css" class="css" spellcheck="false" placeholder="Type CSS for this element, e.g. padding: 20px"></textarea></div><div class="err" hidden></div>
-            </div>
-            <div class="col c-comp">
-              <div class="sec">Computed <i>edit a value to add it to Element styles</i></div>
-              <div class="comp"></div>
-            </div>
-          </div>
-          <div class="pane p-gl" role="tabpanel">
-            <label class="sec" for="b42-free">Stylesheet <i>new rules, sent with this batch</i></label>
-            <div class="ed"><pre class="hl" aria-hidden="true"></pre><textarea id="b42-free" class="free" spellcheck="false" placeholder="New rules, e.g. .name { … }"></textarea></div><div class="err" hidden></div>
-          </div>
-        </div></div></div>
-    <div class="bar" hidden><div class="pop" hidden></div>
-      <div class="brow"><button type="button" class="count" hidden><span class="cn"></span>${icon("chevron-up", 12)}</button><span class="bgap"></span>
-        <button type="button" class="act ib undo" aria-label="Undo" title="Undo (${isMac ? "⌘" : "ctrl+"}Z)" hidden>${icon("undo")}</button><button type="button" class="act ib redo" aria-label="Redo" title="Redo (${isMac ? "⌘⇧" : "ctrl+shift+"}Z)" hidden>${icon("redo")}</button><button type="button" class="act reset" title="Remove every unsent edit (undoable)" hidden>Reset</button>
-        <button type="button" class="bsend" hidden>Send</button></div>
-      <input class="cnote" type="text" spellcheck="false" autocomplete="off" placeholder="Add a note…" hidden><span class="bmsg" hidden></span></div>
-    <div class="corner" hidden><div class="pop" hidden></div><button type="button" class="help" title="Keys and gestures" aria-label="Keys and gestures">${icon("help")}</button></div>
+    ${Canvas.html}
     <div class="m-tag" hidden></div>
     <div class="m-dock" hidden><div class="m-list" role="list" aria-label="What moves on the page"></div>
       <div class="m-main"><div class="m-hd" hidden></div><div class="m-body"><div class="m-tl" tabindex="0"></div><div class="m-css" hidden></div></div>
@@ -113,7 +80,7 @@ function mount() {
   menuEl = root.querySelector(".menu");
   tip = root.querySelector(".tip");
   sentEl = root.querySelector(".sent");
-  mountCanvas();
+  Canvas.mount();
   MO.mount();
   seat();
 
@@ -123,10 +90,7 @@ function mount() {
   new MutationObserver((records) => {
     if (!hostEl.isConnected || (hostEl.showPopover && !hostEl.matches(":popover-open")) || records.some((r) => r.type === "attributes")) seat();
     // (Before any batch is applied again: this observer was made first, so it is told first.)
-    if ((C.found.size || C.sel) && records.some((r) => r.type === "childList")) {
-      if (performance.now() - C.pathsAt > 50) readPaths();
-      else C.pathsDirty = true;
-    }
+    Canvas.treeChanged(records);
     domVersion++;
     kick();
   }).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributeFilter: ["open"] });
@@ -199,9 +163,7 @@ function mount() {
 
 window.__b42 = {
   version: VERSION,
-  // (C.typeTimer: CSS or classes typed but not yet an undo step. Until that pause ends the batch
-  // still looks empty and the host has no draft of it: a reload then would lose what was typed.)
-  busy: () => !!(S.card || S.pending || S.drag || hasDraft() || C.drag || C.edit || C.typeTimer || C.snap !== EMPTY || (C.on && C.sel) || MO.busy()),
+  busy: () => !!(S.card || S.pending || S.drag || hasDraft() || Canvas.busy() || MO.busy()),
   receive(msg) {
     if (typeof msg === "string") msg = JSON.parse(msg);
     if (!root) return;
@@ -210,10 +172,10 @@ window.__b42 = {
         if (Array.isArray(msg.templates)) S.templates = msg.templates.filter((t) => t && typeof t.name === "string");
         setEnabled(!!msg.enabled);
         if (msg.pins) setPins(msg.pins);
-        if (msg.draft && !hasDraft() && C.snap === EMPTY) restoreDraft(msg.draft);
-        resumeCanvas();
+        if (msg.draft && !hasDraft() && !Canvas.hasEdits()) restoreDraft(msg.draft);
+        Canvas.resume();
         MO.resume();
-        C.told = ""; // a new page, or a host that asks again: it hears the mode whatever it was
+        modeTold = ""; // a new page, or a host that asks again: it hears the mode whatever it was
         tellMode();
         break;
       case "mode":
@@ -230,7 +192,7 @@ window.__b42 = {
         else finishCapture(msg.id);
         break;
       case "edits":
-        showEdits(msg);
+        Canvas.showEdits(msg);
         break;
     }
   },

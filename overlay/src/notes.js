@@ -3,14 +3,13 @@ const hasDraft = () => S.sel.length > 0 || S.strokes.length > 0 || !!S.area;
 
 function serializeDraft() {
   const noteDraft = !S.pending && (hasDraft() || !!textarea.value);
-  const edits = C.snap !== EMPTY ? C.draft.B : null;
-  const words = cnote ? cnote.value : "";
+  const canvas = Canvas.draft();
   const motion = MO.draft();
-  if (!noteDraft && !edits && !words && !motion) return null;
+  if (!noteDraft && !canvas && !motion) return null;
   // (Between a send and its "captured", S.sel holds the sent note's outlines: not a draft.)
   return {
     text: textarea.value, targets: (noteDraft ? S.sel : []).map(selectorFor), area: S.area, strokes: S.strokes, template: S.template,
-    ...(edits ? { edits, paths: pathsOf(edits) } : {}), ...(words ? { note: words } : {}), ...(motion ? { motion } : {}),
+    ...canvas, ...(motion ? { motion } : {}),
   };
 }
 
@@ -27,7 +26,7 @@ function restoreDraft(d) {
   textarea.value = d.text || "";
   setTemplate(S.templates.some((t) => t.name === d.template) ? d.template : null);
   if (hasDraft() || textarea.value) openCard();
-  restoreEdits(d);
+  Canvas.restore(d);
   MO.restore(d.motion);
 }
 

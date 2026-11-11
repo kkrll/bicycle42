@@ -1,8 +1,8 @@
 // ── on and off ──────────────────────────────────────────────────────────────────────────────
-function setCanvas(on) {
+/** Canvas mode's own part of switching it on or off. The switch is setCanvas (mode.js): it
+ *  turns the other modes off first. */
+function setOn(on) {
   if (on === C.on || !bar) return;
-  if (on) MO.setOn(false);
-  if (on) setBrush(false);
   hush();
   if (C.pop) setPop(C.pop);
   if (on) {
@@ -42,4 +42,33 @@ function resumeCanvas() {
   } catch {}
   if (was && !C.on && !S.card && !hasDraft()) setCanvas(true);
 }
+
+/** Review is switched off: text being edited in place is kept, a drag is dropped. */
+function letGo() {
+  endEdit(true);
+  cancelDrag();
+}
+
+// ── what the rest of the overlay sees ───────────────────────────────────────────────────────
+const api = {
+  get on() {
+    return C.on;
+  },
+  /** A sent batch is switched off for the host's "before" picture: that counts as a capture. */
+  get hiding() {
+    return C.hide.size > 0;
+  },
+  html: HTML,
+  mount: mountCanvas, setOn, resume: resumeCanvas, letGo, syncUi, drawBar, frame: cvFrame,
+  pointerDown: cvDown, pointerMove: cvMove, pointerUp: cvUp, key: cvKey, zoneOf, closePop, select,
+  draft, restore: restoreEdits, refuse: unsendCanvas, finish, dropFinished, showEdits, treeChanged, readPathsIfDue,
+  /** The event is inside the text being edited in place: the caret is the reviewer's there. */
+  inEdit: (e) => !!C.edit && inEdit(e),
+  hasEdits: () => C.snap !== EMPTY,
+  hasSent: () => C.sent.length > 0,
+  busyFrames: () => C.on && (C.sel || C.drag || C.edit),
+  // (C.typeTimer: CSS or classes typed but not yet an undo step. Until that pause ends the batch
+  // still looks empty and the host has no draft of it: a reload then would lose what was typed.)
+  busy: () => !!(C.drag || C.edit || C.typeTimer || C.snap !== EMPTY || (C.on && C.sel)),
+};
 

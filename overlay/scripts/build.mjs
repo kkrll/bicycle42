@@ -23,25 +23,30 @@ export const PARTS = [
   "notes.js", // notes mode: the draft, the card, templates, pictures, submit
   "variants.js", // the page's own variants, switched from a small bar
   "sent.js", // after a note is sent: the chip, undo, the pins' tooltip, the host's answer
-  "canvas/state.js", // canvas mode's rules, its limits and its state
-  "canvas/stamps.js", // which element an edit is on, after the page re-renders or reloads
-  "canvas/css.js", // typed CSS: where declarations start and end, what the browser rejects
-  "canvas/apply.js", // the batches shown on the page: adopted rules, DOM writes put back exactly
-  "canvas/batch.js", // the unsent batch: commit, undo, reset, its draft
-  "canvas/send.js", // a batch sent as one note, given back when refused, dropped when done
-  "canvas/select.js", // the selection, what can be grabbed around it, hide, parent and child
-  "canvas/drag.js", // drags: resize, gap, reorder
-  "canvas/text.js", // text edited in place
-  "canvas/cursor.js", // the page's cursor and room under the dock, a drag's live rule
-  "canvas/bar.js", // the bar: the batch's count and actions, messages, the two lists
-  "canvas/keys.js", // canvas mode's keys
-  "canvas/tree.js", // the inspector's tree of the page's elements
-  "canvas/inspector.js", // the inspector's fields: classes, element styles, stylesheet, computed
-  "canvas/frame.js", // one frame: the drag's write, the selection's geometry, the drawing
-  "canvas/mount.js", // its elements in the layer, and their listeners
-  "canvas/api.js", // on and off
-  "motion.js",
-  "mode.js", // which mode is on: the host's switch and the brush
+  {
+    module: "Canvas", // canvas mode: the page's real elements edited, the batch sent as one note
+    files: [
+      "canvas/state.js", // its rules, its limits and its state
+      "canvas/stamps.js", // which element an edit is on, after the page re-renders or reloads
+      "canvas/css.js", // typed CSS: where declarations start and end, what the browser rejects
+      "canvas/apply.js", // the batches shown on the page: adopted rules, DOM writes put back exactly
+      "canvas/batch.js", // the unsent batch: commit, undo, reset, its draft
+      "canvas/send.js", // a batch sent as one note, given back when refused, dropped when done
+      "canvas/select.js", // the selection, what can be grabbed around it, hide, parent and child
+      "canvas/drag.js", // drags: resize, gap, reorder
+      "canvas/text.js", // text edited in place
+      "canvas/cursor.js", // the page's cursor and room under the dock, a drag's live rule
+      "canvas/bar.js", // the bar: the batch's count and actions, messages, the two lists
+      "canvas/keys.js", // its keys
+      "canvas/tree.js", // the inspector's tree of the page's elements
+      "canvas/inspector.js", // the inspector's fields: classes, element styles, stylesheet, computed
+      "canvas/frame.js", // one frame: the drag's write, the selection's geometry, the drawing
+      "canvas/mount.js", // its elements in the layer, and their listeners
+      "canvas/api.js", // on and off, and what the rest of the overlay sees
+    ],
+  },
+  "motion.js", // motion mode (the module MO): what moves on the page, one animation per note
+  "mode.js", // which mode is on: the host's switch, the brush
   "input.js", // the page's pointer and keys, routed to the mode
   "render.js", // outlines, strokes and pins, one frame at a time
   "mount.js", // the shadow root, the host's API

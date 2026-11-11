@@ -13,10 +13,10 @@ function onPointerDown(e) {
     if (S.pending) return block(e); // the screenshot is being taken: nothing new until it is
     return MO.pointerDown(e);
   }
-  const zone = C.on ? zoneOf(e) : null; // a handle, an edge or a gap of the canvas selection: ours, but a page gesture
+  const zone = Canvas.on ? Canvas.zoneOf(e) : null; // a handle, an edge or a gap of the canvas selection: ours, but a page gesture
   if (isOurs(e) && !zone) return;
-  if (C.pop) setPop(C.pop); // a click on the page closes whichever list is open
-  if (C.edit && inEdit(e)) return void e.stopImmediatePropagation(); // the caret goes where it is clicked
+  Canvas.closePop(); // a click on the page closes whichever list is open
+  if (Canvas.inEdit(e)) return void e.stopImmediatePropagation(); // the caret goes where it is clicked
   block(e);
   if (e.button !== 0) return;
   if (S.pending) {
@@ -25,7 +25,7 @@ function onPointerDown(e) {
     S.buffered = { x: e.clientX, y: e.clientY, shift: e.shiftKey };
     return;
   }
-  if (C.on) return cvDown(e, zone);
+  if (Canvas.on) return Canvas.pointerDown(e, zone);
   S.drag = {
     x0: e.clientX,
     y0: e.clientY,
@@ -40,7 +40,7 @@ function onPointerDown(e) {
 
 function onPointerMove(e) {
   if (!S.enabled) return;
-  if (C.on) return cvMove(e);
+  if (Canvas.on) return Canvas.pointerMove(e);
   if (MO.on) return MO.pointerMove(e);
   const d = S.drag;
   if (!d) {
@@ -63,7 +63,7 @@ function onPointerMove(e) {
 }
 
 function onPointerUp(e) {
-  if (C.on) return void (S.enabled && cvUp(e));
+  if (Canvas.on) return void (S.enabled && Canvas.pointerUp(e));
   if (MO.on) return void (S.enabled && !isOurs(e) && block(e));
   const d = S.drag;
   if (!S.enabled || !d) return;
@@ -103,7 +103,7 @@ function blockIfActive(e) {
   if (!S.enabled || isOurs(e)) return;
   // While text is edited in place, the mouse works inside it (caret, selection); the page's own
   // handlers still see nothing, and a click still does nothing (no link is followed).
-  if (C.edit && inEdit(e) && /^(mousedown|mouseup|selectstart|dblclick)$/.test(e.type)) e.stopImmediatePropagation();
+  if (Canvas.inEdit(e) && /^(mousedown|mouseup|selectstart|dblclick)$/.test(e.type)) e.stopImmediatePropagation();
   else block(e);
 }
 
@@ -116,14 +116,13 @@ function onKeyDown(e) {
   if (!S.enabled) return;
   if (mod(e) && !e.shiftKey && !e.altKey && e.code === "KeyE") {
     block(e);
-    setCanvas(!C.on);
+    setCanvas(!Canvas.on);
     return;
   }
-  if (C.on) return cvKey(e);
+  if (Canvas.on) return Canvas.key(e);
   if (MO.on) return MO.key(e);
-  if (e.key === "Escape" && C.pop) {
+  if (e.key === "Escape" && Canvas.closePop()) {
     block(e);
-    setPop(C.pop);
     return;
   }
   if (e.key === "Escape") {
@@ -205,15 +204,14 @@ function setEnabled(on) {
     card.hidden = true;
     hideTip();
     hideSent();
-    endEdit(true);
-    cancelDrag();
+    Canvas.letGo();
     setBrush(false);
     MO.letGo(); // the page is used as it is: nothing stays stopped at a frame
   } else if (S.card) {
     card.hidden = false;
     textarea.focus({ preventScroll: true });
   }
-  syncUi();
+  Canvas.syncUi();
   MO.syncUi();
   kick();
 }
@@ -221,7 +219,7 @@ function setEnabled(on) {
 function setPins(pins) {
   const old = new Map(S.pins.map((p) => [p.id, p]));
   S.pins = (pins || []).map((p) => ({ ...p, el: old.get(p.id)?.el }));
-  if (C.sent.length) dropFinished();
+  if (Canvas.hasSent()) Canvas.dropFinished();
   if (MO.hasSent()) MO.dropFinished();
   kick();
 }

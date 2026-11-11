@@ -86,7 +86,20 @@ function readPaths() {
     changed = true;
   }
   if (C.sel && C.sel.isConnected) C.selRs = stableSel(C.sel);
-  if (changed && C.snap !== EMPTY) draftChanged(); // the draft carries the paths (see serializeDraft)
+  if (changed && C.snap !== EMPTY) draftChanged(); // the draft carries the paths (see draft)
+}
+
+/** The page changed its tree (the layer's own observer says so): the paths are read now, or,
+ *  while the page keeps changing, in a frame soon after (readPathsIfDue). */
+function treeChanged(records) {
+  if ((C.found.size || C.sel) && records.some((r) => r.type === "childList")) {
+    if (performance.now() - C.pathsAt > 50) readPaths();
+    else C.pathsDirty = true;
+  }
+}
+
+function readPathsIfDue(now) {
+  if (C.pathsDirty && now - C.pathsAt > 50) readPaths();
 }
 
 /** What every edit says about its element (the wire names), plus `rs` for our own use. */

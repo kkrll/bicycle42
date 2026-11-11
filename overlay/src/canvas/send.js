@@ -157,6 +157,11 @@ function unsendCanvas(id, say) {
   flash(say);
 }
 
+/** The host took the note: its batch is no longer one to give back. */
+function finish() {
+  C.unsent = null;
+}
+
 /** A sent batch is a preview until the agent is finished with its note. */
 function dropFinished() {
   let changed = false;
