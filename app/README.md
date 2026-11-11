@@ -71,11 +71,19 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   lost, a note or the run failed (`descend`), the agent finished with nothing still on its way
   (`f-staccato`). What the reviewer did themselves (Stop, a note removed, another conversation) is
   silent. `renderer/sound.ts` plays them; the settings dialog turns them off.
-- **The mode switch is the window's, the mode is the page's.** Preview | Annotate | Edit and the
+- **The mode switch is the window's, the mode is the page's.** Preview | Annotate | Edit | Motion and the
   pencil (the brush, in the code) are in the top bar (`setMode`, `toggleBrush`); main tells the overlay, and shows what the
   overlay says back (`{ type: "mode" }`), so the page's own keys (`mod+E`, `Esc`) move the switch
   too. "Edit" is the overlay's canvas mode; "Preview" is review off. The mode is not saved: the
   page remembers it across a reload and says it again.
+- **A motion note is one animation.** The overlay sends it as `note.motion` (`Motion` in
+  `review.ts`): the keyframes' name, the element, how many elements share the keyframes, the
+  `animation` value and the `@keyframes` text before and after, what changed in the timing, and
+  what should start it. `pageMotion` checks it field by field (names are CSS identifiers, values
+  one line, the keyframes 4000 characters at most); a note whose motion can't be read is refused,
+  since its words would lose what they are about. `prompt.js` fences the CSS and writes the rest
+  as sentences; the row lists the same sentences and has the motion icon. Like a canvas batch,
+  a sent animation stays applied on the page until its note is done, failed or stopped.
 - **Every note is answered.** The app replies `captured` once the pictures are taken, or
   `captured` with `ok: false` and a reason when it does not take the note (nothing in it it can
   send, not readable, or it came more than a second after Enter because the page stalled). The

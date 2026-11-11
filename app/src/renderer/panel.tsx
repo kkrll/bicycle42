@@ -234,7 +234,12 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
                           {note.n}
                         </span>
                         <span class="note-text">{note.text}</span>
-                        <Show when={note.edits}>
+                        <Show when={note.motion}>
+                          <span class="note-lost" title="Motion note: one animation, changed on the page">
+                            <Icon name="motion" />
+                          </span>
+                        </Show>
+                        <Show when={!note.motion && note.edits}>
                           {(edits) => (
                             <span class="note-lost" title={`Canvas note: ${editCount(edits().length)} made on the page`}>
                               <Icon name="mode" />

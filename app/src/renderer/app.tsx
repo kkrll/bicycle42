@@ -144,13 +144,14 @@ function Hint() {
   )
 }
 
-/** Preview | Annotate | Edit: what a click on the page does (verbs, all three; "annotate" is
- *  the mode that makes notes, and `notes` in the state). Each shows what it does and its key
- *  when the pointer rests on it. */
-const MODES: { mode: ReviewMode; label: string; icon: IconName; what: string; keys: () => string }[] = [
+/** Preview | Annotate | Edit | Motion: what a click on the page does (verbs, all of them;
+ *  "annotate" is the mode that makes notes, and `notes` in the state). Each shows what it does
+ *  and its key, if it has one, when the pointer rests on it. */
+const MODES: { mode: ReviewMode; label: string; icon: IconName; what: string; keys?: () => string }[] = [
   { mode: "preview", label: "Preview", icon: "eye", what: "Use the page as it is", keys: () => keys("mod", "shift", "M") },
   { mode: "notes", label: "Annotate", icon: "note", what: "Point at something, say what to change", keys: () => keys("mod", "E") },
   { mode: "edit", label: "Edit", icon: "frame", what: "Change the page itself, then send", keys: () => keys("mod", "E") },
+  { mode: "motion", label: "Motion", icon: "motion", what: "See what moves on the page, change an animation, then send" },
 ]
 
 function ModeSwitch(props: { disabled: boolean }) {
@@ -164,10 +165,10 @@ function ModeSwitch(props: { disabled: boolean }) {
             data-mode={m.mode}
             aria-checked={state.review.mode === m.mode}
             aria-description={m.what}
-            aria-keyshortcuts={m.keys()}
+            aria-keyshortcuts={m.keys?.()}
             disabled={props.disabled}
             onClick={() => act("setMode", m.mode)}
-            {...hinted(() => ({ text: m.what, keys: [m.keys()] }))}
+            {...hinted(() => ({ text: m.what, keys: m.keys ? [m.keys()] : [] }))}
           >
             <Icon name={m.icon} />
             <span class="mode-label">{m.label}</span>

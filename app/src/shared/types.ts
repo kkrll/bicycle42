@@ -176,6 +176,8 @@ export type NoteRow = {
   /** A canvas note: what the reviewer changed on the live page, one sentence per edit (and one
    *  for the new CSS rules that came with them, if any). */
   edits?: string[]
+  /** A motion note: `edits` are then its animation in sentences. */
+  motion?: true
   error?: string
   /** It did not fail: the reviewer stopped the agent or took the note out of the queue. Shown
    *  quietly, with Retry, and not counted as a failure. (`status` is still "failed".) */
@@ -212,8 +214,9 @@ export type SessionSummary = {
 }
 
 /** The top bar's switch. "preview": the page as it is, review off. "notes": point at something
- *  and say what to change. "edit": change the page itself (the overlay's canvas mode). */
-export type ReviewMode = "preview" | "notes" | "edit"
+ *  and say what to change. "edit": change the page itself (the overlay's canvas mode). "motion":
+ *  look at what moves on the page and change one animation at a time. */
+export type ReviewMode = "preview" | "notes" | "edit" | "motion"
 
 export type AppState = {
   connection: ConnectionState
@@ -230,7 +233,7 @@ export type AppState = {
     hmr: boolean
   }
   review: {
-    /** Notes or edit mode is on. Off is "preview". */
+    /** Notes, edit or motion mode is on. Off is "preview". */
     enabled: boolean
     mode: ReviewMode
     /** The brush is on: a plain drag on the page draws. It belongs to notes mode. */

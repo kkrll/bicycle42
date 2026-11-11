@@ -9,7 +9,7 @@ const isMac = /Mac/.test(navigator.platform);
 
 const H = {
   enabled: true,
-  mode: "notes", // what the overlay last said: "notes" | "canvas"
+  mode: "notes", // what the overlay last said: "notes" | "canvas" | "motion"
   brush: false,
   draft: null,
   notes: [],
@@ -110,6 +110,7 @@ function render() {
   $("brush").classList.toggle("on", H.enabled && H.brush);
   $("m-notes").classList.toggle("on", H.enabled && H.mode === "notes");
   $("m-edit").classList.toggle("on", H.enabled && H.mode === "canvas");
+  $("m-motion").classList.toggle("on", H.enabled && H.mode === "motion");
   const c = { queued: 0, working: 0, done: 0 };
   for (const n of H.notes) c[n.status]++;
   $("counts").innerHTML = H.notes.length
@@ -140,6 +141,7 @@ $("toggle").addEventListener("click", () => setEnabled(!H.enabled));
 $("brush").addEventListener("click", () => toPage({ type: "mode", brush: !H.brush }));
 $("m-notes").addEventListener("click", () => toPage({ type: "mode", mode: "notes" }));
 $("m-edit").addEventListener("click", () => toPage({ type: "mode", mode: "canvas" }));
+$("m-motion").addEventListener("click", () => toPage({ type: "mode", mode: "motion" }));
 $("reload").addEventListener("click", () => frame.contentWindow.location.reload());
 $("rerender").addEventListener("click", () => frame.contentWindow.rerender?.());
 $("width").addEventListener("change", (e) => {
@@ -154,7 +156,9 @@ window.addEventListener("keydown", (e) => {
 });
 
 frame.addEventListener("load", inject);
-// ?page=canvas loads the canvas-mode test page instead of the default one.
-const PAGE = new URLSearchParams(location.search).get("page") === "canvas" ? "./canvas.html" : "./page.html";
+// ?page=canvas loads the canvas-mode test page instead of the default one; ?page=motion, the one
+// with animations, transitions and scripted motion.
+const PAGES = { canvas: "./canvas.html", motion: "./motion-page.html" };
+const PAGE = PAGES[new URLSearchParams(location.search).get("page")] || "./page.html";
 frame.src = new URL(PAGE, import.meta.url).href;
 render();

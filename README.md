@@ -47,8 +47,9 @@ finished everything you sent. They can be turned off in the settings (the server
 panel's conversation row), where reloading the page after a note is switched too.
 
 The top bar has the mode: **Preview** (the page as it is), **Annotate** (point at something
-and say what to change) and **Edit** (change the page itself, then press Send), with the pencil
-for drawing beside them.
+and say what to change), **Edit** (change the page itself, then press Send) and **Motion** (see
+what moves on the page, change one animation, then send it), with the pencil for drawing beside
+them.
 
 ## Keys
 
@@ -76,6 +77,22 @@ for drawing beside them.
 | `Delete` | Hide the selection |
 | `mod+Z` / `mod+shift+Z` | Undo / redo |
 | `Enter` (`mod+Enter` in a text box), or **Send** | Send all the edits as one note |
+
+| Motion mode | |
+|---|---|
+| click on the page, or a row of the list | Open what moves it (a row's elements are outlined while the pointer is on it) |
+| click a grip / drag it | Show that frame / move the keyframe in time (hold `mod`: no snapping to 5%) |
+| click a bar | Select the stretch between two keyframes, to change its easing |
+| press twice on a lane | Add a keyframe there |
+| `Space` / `←` `→` | Play or pause / step (`shift`: bigger steps) |
+| `Delete` | Remove the selected keyframe |
+| `mod+Z` / `mod+shift+Z` | Undo / redo |
+| `Enter`, or **Send** | Send the open animation as one note, with the words typed for it |
+| `Esc` | The keyframe, then the animation, then back to Annotate |
+
+Keyframes belong to their name, so a change to them changes every element that plays them (the
+timeline says how many); **Only this one** gives the element a copy of its own. Duration, delay,
+easing and the rest belong to the element.
 
 In the chat box, `/` lists commands: the app's own (`/compact`, `/new`, `/undo`, `/redo`,
 `/rename`, `/fork`), then the ones the site's folder defines on the server. `@` names a file,

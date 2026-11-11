@@ -11,7 +11,7 @@
 // A note belongs to the conversation (session) it was sent to, not to a lane: after "New
 // conversation" the lane points somewhere else, and that conversation's events are not about
 // the notes sent before. `lane` only says how the note is shown.
-import { cssWords, editWords } from "../../../overlay/prompt.js"
+import { cssWords, editWords, motionLines } from "../../../overlay/prompt.js"
 import type { InboxStatus, NoteRow, NoteStatus } from "../shared/types"
 
 /** Bump when the saved shape changes; store.ts moves files of any other version aside. */
@@ -56,6 +56,33 @@ export type Edit = {
   repeated?: number
 }
 
+/** One animation, changed in motion mode (or only talked about, for a transition or a script's
+ *  animation, which the page can't edit). Everything in it ends up in the prompt or in the panel. */
+export type Motion = {
+  kind: "keyframes" | "transition" | "script"
+  /** The keyframes' name (a script's animation id; "transition" for a transition). */
+  name: string
+  /** The element that plays it, and its plain name: "Heading · Ship calmer interfaces". */
+  selector: string
+  label: string
+  /** keyframes: how many elements play these keyframes. More than 1: a change to them changes all. */
+  shared?: number
+  /** keyframes: a new animation on the element. */
+  isNew?: true
+  /** keyframes: the element got keyframes of its own (`name`), copied from these. */
+  from?: string
+  /** keyframes: the element's `animation` value now, and before. */
+  animation?: { to: string; from?: string }
+  /** keyframes: the @keyframes text now, and before. */
+  keyframes?: { to: string; from?: string }
+  /** keyframes: what changed in how it plays, each with its value before and after. */
+  changes?: Array<{ prop: "duration" | "delay" | "easing" | "count" | "direction" | "fill"; from: string; to: string }>
+  /** keyframes: what should start it, when that is not what starts it now. */
+  starts?: "load" | "view" | "hover" | "click" | "appear" | "scroll"
+  /** transition and script: what the page has, in one line. */
+  current?: string
+}
+
 /** The overlay's note, as it sends it (see the protocol at the top of overlay.js). */
 export type PageNote = {
   id: string
@@ -82,6 +109,8 @@ export type PageNote = {
   /** Canvas mode: new CSS rules the reviewer typed for the whole batch, verbatim. A note may be
    *  nothing but this. */
   css?: string
+  /** Motion mode: the one animation the note is about. */
+  motion?: Motion
 }
 
 export type Pin = {
@@ -98,11 +127,13 @@ export type Pin = {
   note?: string
 }
 
-export type Note = Omit<NoteRow, "edits"> & {
+export type Note = Omit<NoteRow, "edits" | "motion"> & {
   /** Canvas edits, as the page sent them (checked). The row shows them as sentences. */
   edits?: Edit[]
   /** The canvas note's stylesheet of new rules, as typed. */
   css?: string
+  /** A motion note's animation (checked). */
+  motion?: Motion
   /** The message id the backend gave it; inbox events carry it. */
   message?: string
   /** The conversation that accepted it. Set together with `message`. */
@@ -283,6 +314,59 @@ export function pageEdits(raw: unknown): Edit[] {
   return edits
 }
 
+// Motion. Names are CSS identifiers; values are one line; keyframes are text the prompt fences.
+const MOTION_KINDS: readonly Motion["kind"][] = ["keyframes", "transition", "script"]
+const MOTION_PROPS: readonly NonNullable<Motion["changes"]>[number]["prop"][] = ["duration", "delay", "easing", "count", "direction", "fill"]
+const MOTION_STARTS: readonly NonNullable<Motion["starts"]>[] = ["load", "view", "hover", "click", "appear", "scroll"]
+const IDENT = /^-?[a-zA-Z_][a-zA-Z0-9_-]{0,63}$/
+const MAX_KEYFRAMES = 4000
+const MAX_ANIMATION = 400
+/** A motion note's animation, checked field by field. Undefined when it is not one the prompt can
+ *  describe: no name, no element, or text that can't be used (too long is refused, not cut). */
+export function pageMotion(raw: unknown): Motion | undefined {
+  if (!isObj(raw) || !MOTION_KINDS.includes(raw.kind as Motion["kind"])) return
+  const kind = raw.kind as Motion["kind"]
+  const name = typeof raw.name === "string" && (IDENT.test(raw.name) || (kind === "script" && line(raw.name, 64))) ? raw.name : undefined
+  const selector = line(raw.selector, MAX_NAME)
+  if (!name || !selector) return
+  const out: Motion = { kind, name, selector, label: line(raw.label, MAX_NAME) ?? "" }
+  if (kind !== "keyframes") {
+    const current = line(raw.current, MAX_ANIMATION)
+    if (current) out.current = current
+    return out
+  }
+  if (index(raw.shared) && raw.shared >= 1) out.shared = raw.shared
+  if (raw.isNew === true) out.isNew = true
+  if (typeof raw.from === "string") {
+    if (!IDENT.test(raw.from)) return
+    out.from = raw.from
+  }
+  const pair = (x: unknown, check: (v: unknown) => string | undefined) => {
+    if (x === undefined) return null
+    if (!isObj(x)) return undefined
+    const to = check(x.to)
+    if (to === undefined) return undefined
+    if (x.from === undefined) return { to }
+    const from = check(x.from)
+    return from === undefined ? undefined : { to, from }
+  }
+  const animation = pair(raw.animation, (v) => line(v, MAX_ANIMATION))
+  const keyframes = pair(raw.keyframes, (v) => typedCss(v, MAX_KEYFRAMES))
+  // Text that is there but can't be used makes the note unusable: half of it would mislead.
+  if (animation === undefined || keyframes === undefined) return
+  if (animation) out.animation = animation
+  if (keyframes) out.keyframes = keyframes
+  const changes: NonNullable<Motion["changes"]> = []
+  for (const c of Array.isArray(raw.changes) ? raw.changes.slice(0, MOTION_PROPS.length) : []) {
+    if (!isObj(c) || !MOTION_PROPS.includes(c.prop as (typeof MOTION_PROPS)[number])) continue
+    const [was, now] = [line(c.from, MAX_VALUE * 2), line(c.to, MAX_VALUE * 2)]
+    if (was !== undefined && now !== undefined) changes.push({ prop: c.prop as (typeof MOTION_PROPS)[number], from: was, to: now })
+  }
+  if (changes.length) out.changes = changes
+  if (MOTION_STARTS.includes(raw.starts as (typeof MOTION_STARTS)[number])) out.starts = raw.starts as (typeof MOTION_STARTS)[number]
+  return out
+}
+
 /** Checks a "note" message's payload. Undefined when it isn't a note the rest of the app can use. */
 export function pageNote(raw: unknown): PageNote | undefined {
   if (!isObj(raw) || typeof raw.id !== "string" || !raw.id || typeof raw.text !== "string") return
@@ -314,12 +398,16 @@ export function pageNote(raw: unknown): PageNote | undefined {
   }
   const edits = pageEdits(raw.edits)
   const css = pageCss(raw.css)
+  const motion = raw.motion === undefined ? undefined : pageMotion(raw.motion)
+  // A motion note that can't be read is not a note: sent without it, its words would lose what they are about.
+  if (raw.motion !== undefined && !motion) return
   return {
     id: raw.id,
     text: raw.text,
     ...(images.length ? { images } : {}),
     ...(edits.length ? { edits } : {}),
     ...(css ? { css } : {}),
+    ...(motion ? { motion } : {}),
     ...(typeof raw.template === "string" && /^[a-z][a-z-]{0,23}$/.test(raw.template) ? { template: raw.template } : {}),
     url: str(raw.url) ?? "",
     viewport: { w: v.w, h: v.h, dpr: num(v.dpr) ? v.dpr : 1, scrollX: num(v.scrollX) ? v.scrollX : 0, scrollY: num(v.scrollY) ? v.scrollY : 0 },
@@ -357,6 +445,8 @@ function savedNote(raw: unknown): Note | undefined {
   if (edits.length) note.edits = edits
   const css = pageCss(raw.css)
   if (css) note.css = css
+  const motion = pageMotion(raw.motion)
+  if (motion) note.motion = motion
   // The screenshot and prompt of a note still on its way out died with the app. So did our
   // knowledge of where a note went, if it was saved before notes recorded their session.
   const unsent = note.status === "capturing" || note.status === "sending"
@@ -458,6 +548,7 @@ export function createReview(saved?: unknown): Review {
         },
         ...(pn.edits?.length ? { edits: pn.edits } : {}),
         ...(pn.css ? { css: pn.css } : {}),
+        ...(pn.motion ? { motion: pn.motion } : {}),
       }
       notes.push(note)
       review.draft = null
@@ -583,6 +674,7 @@ export function createReview(saved?: unknown): Review {
         status: n.status,
         lane: n.lane,
         ...(n.edits || n.css ? { edits: [...(n.edits ?? []).map((e) => editWords(e)), ...(n.css ? [`${capital(cssWords(n.css))}.`] : [])] } : {}),
+        ...(n.motion ? { edits: motionLines(n.motion), motion: true as const } : {}),
         ...(n.error ? { error: n.error } : {}),
         ...(n.status === "failed" && (n.error === ERR.interrupted || n.error === ERR.cancelled) ? { stopped: true as const } : {}),
         ...(unplaced.includes(n.id) ? { lost: true as const } : {}),

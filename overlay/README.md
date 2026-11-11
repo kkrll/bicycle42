@@ -17,7 +17,9 @@ npm run harness      # http://127.0.0.1:4173/   (HOST=0.0.0.0 to reach it from a
 The harness plays the host: a sample page in an iframe, a fake agent queue (queued → working →
 done, `?delay=1500` ms per note), the prompt each note would produce, device widths, and
 **Reload page** / **Re-render** buttons to check that drafts and pins survive.
-`harness/canvas.html` is the page the canvas-mode tests use.
+`harness/canvas.html` is the page the canvas-mode tests use, and `?page=motion` loads
+`harness/motion-page.html` (animations, transitions, a script's `animate()`, a frame-by-frame
+bar) for motion mode and its tests.
 
 ## Test
 
@@ -62,10 +64,11 @@ The `hover` state is the worst case, a different element under the pointer on ev
 ## What the overlay does and doesn't do
 
 - **Does:** picking, outlines, area and stroke selection, the note card, pins, canvas mode (the
-  inspector and direct manipulation), element identity (selector, text, attributes, React/Vue
+  inspector and direct manipulation), motion mode (what moves on the page, one animation's
+  timeline, its preview, playback through the Web Animations API), element identity (selector, text, attributes, React/Vue
   component names and dev source location when present), blocking page input while active,
   holding clicks made during a capture, re-finding pins after a re-render or an agent's edit
   (selector → tag + text → last position, dimmed).
-- **Doesn't:** screenshots, storage, sending, status, or the switch between notes and canvas
-  mode and the brush (it tells the host which it is in, and takes `{ type: "mode" }` from it).
+- **Doesn't:** screenshots, storage, sending, status, or the switch between notes, canvas and
+  motion mode and the brush (it tells the host which it is in, and takes `{ type: "mode" }` from it).
   Those belong to the host, so the overlay survives hot reloads without losing anything.

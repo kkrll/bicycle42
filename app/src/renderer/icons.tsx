@@ -42,6 +42,8 @@ const PATHS = {
   // agent's file edit). Edit mode: a frame with its handles, and the code it turns into.
   draw: "M13 7C11 3.5 5 3.5 4.5 6.5 4 9.5 10.5 9 10.5 12 10.5 14.5 6 13.5 5 16M9 21l1-3.5 8-8a1.77 1.77 0 0 1 2.5 2.5l-8 8zM16.5 11l2.5 2.5",
   frame: "M3.5 3.5h3v3h-3zM15.5 3.5h3v3h-3zM3.5 15.5h3v3h-3zM6.5 5h9M5 6.5v9M17 6.5v4M6.5 17h2M14.5 13.5L11 17l3.5 3.5M17.5 13.5L21 17l-3.5 3.5",
+  // Motion mode, and a motion note: a ball, and the lines it leaves behind.
+  motion: "M16.5 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10zM3 9.5h6.5M1.5 12h7M3 14.5h6.5",
   sound: "M4 9.5h3.5L12 6v12l-4.5-3.5H4zM15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10",
   muted: "M4 9.5h3.5L12 6v12l-4.5-3.5H4zM16 9.5l5 5M21 9.5l-5 5",
 } as const

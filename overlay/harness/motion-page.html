@@ -1,0 +1,47 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Acme · motion test page</title><style>
+  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, sans-serif; color: #111; background: #fafafa; }
+  nav { display: flex; justify-content: space-between; align-items: center; padding: 16px 32px; font-weight: 600; }
+  nav span { color: #555; font-weight: 400; margin-left: 18px; }
+  .sync { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+  .spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #d4d4d8; border-top-color: #2563eb; animation: spin 900ms linear infinite; }
+  .hero { text-align: center; padding: 22px 0 4px; }
+  .hero h2 { font-size: 36px; letter-spacing: -0.02em; margin: 0 0 6px; animation: rise 700ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .hero p { color: #555; margin: 0 0 18px; animation: rise 700ms cubic-bezier(0.2, 0.8, 0.2, 1) 120ms both; }
+  .cta { display: flex; gap: 10px; justify-content: center; }
+  .cta button { font: inherit; border: 0; padding: 10px 18px; border-radius: 8px; cursor: pointer; }
+  .primary { background: #2563eb; color: #fff; font-weight: 500; animation: pulse 2.4s ease-in-out infinite;
+    transition: background-color 0.2s ease, transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  .primary:hover { background: #1e3a8a; transform: translateY(-3px); }
+  .ghost { background: #e9e9ec; transition: background-color 0.25s ease; }
+  .ghost:hover { background: #cfcfd6; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding: 28px 32px 0; }
+  .card { position: relative; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; padding: 14px 16px; height: 104px;
+    animation: card-in 500ms ease-out both; animation-delay: calc(var(--i) * 90ms + 300ms); }
+  .card h3 { margin: 0 0 2px; font-size: 15px; }
+  .card p { margin: 0; color: #666; font-size: 13px; }
+  .badge { position: absolute; top: 12px; right: 12px; padding: 1px 8px; border-radius: 99px; background: #fef3c7; color: #92400e; font-size: 11px; font-weight: 600; }
+  .meter { margin-top: 12px; height: 6px; border-radius: 3px; background: #eef0f3; overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; background: #16a34a; border-radius: 3px; }
+  @keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+  @keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.45); } 60% { box-shadow: 0 0 0 12px rgba(37, 99, 235, 0); } }
+  @keyframes card-in { from { opacity: 0; transform: translateY(14px) scale(0.98); } to { opacity: 1; transform: none; } }
+  @keyframes spin { to { rotate: 360deg; } }
+  @keyframes wiggle { 0%, 100% { rotate: 0deg; } 25% { rotate: -4deg; } 75% { rotate: 4deg; } }
+</style></head><body>
+  <nav>Acme<div><span>Features</span><span>Pricing</span><span class="sync"><i class="spinner"></i>Syncing</span></div></nav>
+  <section class="hero">
+    <h2>Ship calmer interfaces</h2>
+    <p>Acme helps small teams review UI changes before they land.</p>
+    <div class="cta"><button class="primary">Start free trial</button><button class="ghost">Book a demo</button></div>
+  </section>
+  <section class="cards">
+    <div class="card" style="--i: 0"><span class="badge">New</span><h3>Review</h3><p>Point at what is wrong.</p></div>
+    <div class="card" style="--i: 1"><h3>Canvas</h3><p>Or fix it in place.</p></div>
+    <div class="card" style="--i: 2"><h3>Ship</h3><p>The agent makes it real.</p><div class="meter"><i></i></div></div>
+  </section>
+  <script>
+    document.querySelector(".badge").animate([{ translate: "0 0" }, { translate: "0 -3px" }], { duration: 800, iterations: Infinity, direction: "alternate", easing: "ease-in-out", id: "bob" });
+    const bar = document.querySelector(".meter i");
+    (function step(t) { bar.style.width = (50 + 50 * Math.sin(t / 700)) + "%"; requestAnimationFrame(step); })(0);
+  </script>
+</body></html>

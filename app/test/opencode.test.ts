@@ -1691,3 +1691,38 @@ for (const [status, reply, shown] of [
         assert.ok(!connection(events).includes("online"))
       }),
     ))
+
+test("a motion note's prompt: the animation in words, its CSS fenced, what starts it, previews said", async () => {
+  const { notePrompt, noteWords } = await import("../../overlay/prompt.js")
+  const base = {
+    id: "n_m", url: "http://localhost:3000/", viewport: { w: 1280, h: 800, dpr: 2, scrollX: 0, scrollY: 0 },
+    targets: [{ selector: "section.hero > p", tag: "p", text: "Acme helps", rect: { x: 1, y: 2, w: 3, h: 4 } }], area: null, strokes: [], bounds: null,
+  }
+  const motion = {
+    kind: "keyframes", name: "rise", selector: "section.hero > p", label: "Text · Acme helps", shared: 2,
+    animation: { to: "rise 900ms ease-out", from: "rise 700ms ease-out" },
+    keyframes: { to: "@keyframes rise {\n  0% { opacity: 0; }\n  100% { opacity: 1; }\n}", from: "@keyframes rise {\n  0% { opacity: 0.2; }\n  100% { opacity: 1; }\n}" },
+    changes: [{ prop: "duration", from: "700ms", to: "900ms" }], starts: "view",
+  }
+  const p = notePrompt({ ...base, text: "", motion }, 3, { images: 2 })
+  assert.match(p, /^Note: Motion: "rise" on "Text · Acme helps": duration 700ms → 900ms, keyframes, starts in view$/m)
+  assert.match(p, /^Motion edit, made on the live page at 1280px wide\. Make it real in the code/m)
+  assert.match(p, /^Animation "rise" on "Text · Acme helps" \[section\.hero > p\]: duration 700ms → 900ms\.$/m)
+  assert.match(p, /```css\nanimation: rise 900ms ease-out;\n```/)
+  assert.match(p, /^It was: animation: rise 700ms ease-out;$/m)
+  assert.match(p, /The keyframes "rise", now \(2 elements play them: change them for all of them, unless the note says otherwise\):\n```css\n@keyframes rise \{/)
+  assert.match(p, /^They were:\n```css\n@keyframes rise \{\n  0% \{ opacity: 0\.2; \}/m)
+  assert.match(p, /^Start it when it scrolls into view: wire that up the way this project already does\.$/m)
+  assert.match(p, /prefers-reduced-motion/)
+  assert.match(p, /^Make the smallest change that makes this motion real\./m)
+  // its own keyframes: the other elements keep the shared ones
+  const own = notePrompt({ ...base, text: "", motion: { ...motion, name: "rise-2", from: "rise", keyframes: { to: "@keyframes rise-2 {\n  0% { opacity: 0; }\n}" } } }, 1)
+  assert.match(own, /Give "Text · Acme helps" \[section\.hero > p\] keyframes of its own, "rise-2", started from "rise"; the other elements keep "rise" as it is\./)
+  assert.doesNotMatch(own, /change them for all/)
+  // a transition is talked about, with what the page has
+  const tr = { kind: "transition", name: "transition", selector: "button.primary", label: "Button · Start", current: "transition: background-color 200ms ease" }
+  const tp = notePrompt({ ...base, text: "snappier", motion: tr }, 2)
+  assert.match(tp, /^About the transition on "Button · Start" \[button\.primary\], as the page has it now: "transition: background-color 200ms ease"\. The note says what to change\.$/m)
+  assert.match(tp, /^Make the smallest change that does this\./m)
+  assert.equal(noteWords({ ...base, text: "", motion: tr }), "")
+})

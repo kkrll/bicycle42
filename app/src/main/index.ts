@@ -96,9 +96,9 @@ const sites = new Map<string, Site>()
 /** A server's name is a label, not a description. */
 const SERVER_NAME_MAX = 60
 let site: Site | undefined
-/** What the overlay on the page last said about itself: in canvas ("edit") mode, the brush on.
- *  Not saved: the page remembers its own mode across a reload and says it again. */
-let pageMode = { canvas: false, brush: false }
+/** What the overlay on the page last said about itself: in canvas ("edit") or motion mode, the
+ *  brush on. Not saved: the page remembers its own mode across a reload and says it again. */
+let pageMode = { canvas: false, motion: false, brush: false }
 /** Which site's notes an event for a conversation belongs to. Entries are never removed: a
  *  conversation the reviewer switched away from may still be finishing notes. */
 const owners = new Map<string, string>()
@@ -130,7 +130,7 @@ function snapshot(): AppState {
     page: p ?? { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false },
     review: {
       enabled: review?.enabled ?? true,
-      mode: !(review?.enabled ?? true) ? "preview" : pageMode.canvas ? "edit" : "notes",
+      mode: !(review?.enabled ?? true) ? "preview" : pageMode.canvas ? "edit" : pageMode.motion ? "motion" : "notes",
       brush: (review?.enabled ?? true) && pageMode.brush,
       autoReload: review?.autoReload ?? true,
       notes: review?.rows() ?? [],
@@ -581,12 +581,12 @@ function onPage(msg: PageMessage) {
     case "ready":
       // A new document starts in notes mode with the brush off; if it comes back in edit mode
       // (a reload while editing), the overlay says so right after this.
-      pageMode = { canvas: false, brush: false }
+      pageMode = { canvas: false, motion: false, brush: false }
       page?.send({ type: "state", enabled: review.enabled, draft: review.draft, pins: pinsOf(review), templates: NOTE_TEMPLATES })
       return push()
     case "mode":
       // The overlay's own keys change it too (mod+E, Esc, a note sent): the top bar follows.
-      pageMode = { canvas: msg.mode === "canvas", brush: msg.brush === true }
+      pageMode = { canvas: msg.mode === "canvas", motion: msg.mode === "motion", brush: msg.brush === true }
       return push()
     case "toggle":
       review.enabled = typeof msg.enabled === "boolean" ? msg.enabled : !review.enabled
@@ -933,8 +933,8 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     }
     if (on) {
       // Shown at once; the overlay answers with the mode it is in, and that is what stays.
-      pageMode = { canvas: mode === "edit", brush: mode === "edit" ? false : pageMode.brush }
-      page?.send({ type: "mode", mode: pageMode.canvas ? "canvas" : "notes" })
+      pageMode = { canvas: mode === "edit", motion: mode === "motion", brush: mode === "notes" ? pageMode.brush : false }
+      page?.send({ type: "mode", mode: pageMode.canvas ? "canvas" : pageMode.motion ? "motion" : "notes" })
       page?.focus()
     }
     changed(site)
@@ -946,7 +946,7 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
       site.review.enabled = true
       page?.send({ type: "enabled", enabled: true })
     }
-    pageMode = { canvas: on ? false : pageMode.canvas, brush: on }
+    pageMode = { canvas: on ? false : pageMode.canvas, motion: on ? false : pageMode.motion, brush: on }
     page?.send({ type: "mode", brush: on })
     if (on) page?.focus()
     changed(site)

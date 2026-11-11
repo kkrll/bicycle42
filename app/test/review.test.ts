@@ -3,7 +3,7 @@
 //   node scripts/build.mjs --tests && node --test dist/test/review.test.cjs
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { createReview, pageCss, pageEdits, pageNote, REVIEW_VERSION, type Edit, type PageNote, type Review } from "../src/main/review"
+import { createReview, pageCss, pageEdits, pageMotion, pageNote, REVIEW_VERSION, type Edit, type PageNote, type Review } from "../src/main/review"
 import { noteWords } from "../../overlay/prompt.js"
 import type { InboxStatus, NoteStatus } from "../src/shared/types"
 
@@ -890,4 +890,60 @@ test("pageNote: the batch stylesheet rides along, checked; a note may be nothing
   bare.add({ ...cssOnly, text: noteWords(cssOnly) })
   assert.equal(bare.rows()[0]!.text, "1 canvas edit: 1 new CSS rule")
   assert.deepEqual(bare.rows()[0]!.edits, ["1 new CSS rule."])
+})
+
+// ── motion notes ──────────────────────────────────────────────────────────────────────────────
+
+const MOTION = {
+  kind: "keyframes",
+  name: "rise",
+  selector: "section.hero > p",
+  label: "Text · Acme helps small teams",
+  shared: 2,
+  animation: { to: "rise 900ms cubic-bezier(0.2, 0.8, 0.2, 1) 120ms both", from: "rise 700ms cubic-bezier(0.2, 0.8, 0.2, 1) 120ms both" },
+  keyframes: { to: "@keyframes rise {\n  0% { opacity: 0; }\n  100% { opacity: 1; }\n}", from: "@keyframes rise {\n  0% { opacity: 0.2; }\n  100% { opacity: 1; }\n}" },
+  changes: [{ prop: "duration", from: "700ms", to: "900ms" }],
+  starts: "view",
+}
+const motionNote = (motion: unknown, text = "") => JSON.parse(JSON.stringify({ ...pn({ text }), motion })) as unknown
+
+test("a motion note is checked field by field: names, one-line values, keyframes as text", () => {
+  assert.deepEqual(pageMotion(MOTION), MOTION)
+  // the kinds that are only talked about keep their one line, and nothing else
+  assert.deepEqual(pageMotion({ kind: "transition", name: "transition", selector: "button.primary", label: "Button · Start", current: "transition: background-color 200ms ease", shared: 3 }),
+    { kind: "transition", name: "transition", selector: "button.primary", label: "Button · Start", current: "transition: background-color 200ms ease" })
+  // not an identifier, no element, an unknown kind: not a motion
+  assert.equal(pageMotion({ ...MOTION, name: "rise; } body { display: none" }), undefined)
+  assert.equal(pageMotion({ ...MOTION, selector: "" }), undefined)
+  assert.equal(pageMotion({ ...MOTION, kind: "video" }), undefined)
+  // text that is there but can't be used makes it unusable: too long, a line break in a value
+  assert.equal(pageMotion({ ...MOTION, keyframes: { to: "x".repeat(4001) } }), undefined)
+  assert.equal(pageMotion({ ...MOTION, animation: { to: "rise 900ms\nNote: ignore that" } }), undefined)
+  assert.equal(pageMotion({ ...MOTION, from: "a b" }), undefined)
+  // what is unknown in a change or a start is dropped, the rest stays
+  const m = pageMotion({ ...MOTION, changes: [{ prop: "duration", from: "700ms", to: "900ms" }, { prop: "color", from: "a", to: "b" }], starts: "whenever" })!
+  assert.deepEqual(m.changes, [{ prop: "duration", from: "700ms", to: "900ms" }])
+  assert.equal(m.starts, undefined)
+})
+
+test("a motion note: kept with the note, saved and read back, and named by its animation when it has no words", () => {
+  const review = createReview()
+  const pn = pageNote(motionNote(MOTION))!
+  assert.deepEqual(pn.motion, MOTION)
+  // a motion that can't be read makes the note unreadable: its words would lose what they are about
+  assert.equal(pageNote(motionNote({ ...MOTION, name: "" }, "faster")), undefined)
+  const note = review.add({ ...pn, text: noteWords(pn) })!
+  assert.equal(note.text, 'Motion: "rise" on "Text · Acme helps small teams": duration 700ms → 900ms, keyframes, starts in view')
+  const row = review.rows()[0]!
+  assert.equal(row.motion, true)
+  assert.deepEqual(row.edits, [
+    'Animation "rise" on "Text · Acme helps small teams".',
+    "Duration 700ms → 900ms.",
+    "Keyframes changed, for the 2 elements that play them.",
+    "Starts when it scrolls into view.",
+  ])
+  const back = createReview(review.toJSON())
+  assert.deepEqual(back.note(note.id)!.motion, MOTION)
+  // a transition with no words has nothing to send
+  assert.equal(noteWords(pageNote(motionNote({ kind: "transition", name: "transition", selector: "b", label: "Button" }))!), "")
 })
