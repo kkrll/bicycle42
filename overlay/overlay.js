@@ -126,13 +126,14 @@
 
   let corner, bar, insp, cv, cnote, treeEl, trows, tspace, clsEl, cssEl, freeEl, compEl, ipath, bandEl, ghostEl, insEl, labEl, dimEl, handles, edges, hitEl, gzEl, shieldEl;
   let hostEl, root, ink, strokesEl, pencil, boxes, pinsEl, card, what, refs, textarea, cursorStyle, tip, sentEl, chip, menuEl, variantsEl, variantStyle;
-  const PLACEHOLDER = "Note…  ( / for templates, paste a picture to attach it )";
+  const PLACEHOLDER = "Note…"; // what else the card does (/, a pasted picture) is behind its "?"
   // The card's keys: behind its "?", shown while the pointer (or focus) is on it. The card itself
   // carries no instructions, only what is being noted and the ↵ that sends it.
   const CARD_KEYS = [
     ["↵", "send"],
     [isMac ? "⌥↵" : "alt+↵", "send, to work in parallel"],
     ["/", "templates"],
+    [isMac ? "⌘V" : "ctrl+V", "attach a copied picture"],
     ["↑ ↓", "parent, child (note empty)"],
     [isMac ? "⌘Z" : "ctrl+Z", "undo a stroke"],
     ["esc", "cancel the note"],
@@ -556,7 +557,7 @@
     chip.hidden = !S.template;
     chip.textContent = S.template ? `/${S.template}` : "";
     const t = S.templates.find((x) => x.name === S.template);
-    textarea.placeholder = t ? `${t.hint}. Add a note, or send it as it is` : PLACEHOLDER;
+    textarea.placeholder = t ? `${t.hint}. A note is optional` : PLACEHOLDER;
     drawCardSend();
     drawMenu();
   }
@@ -1934,7 +1935,7 @@
     const inField = f === clsEl || f === cssEl || f === freeEl;
     const busyNote = f === cnote || !!cnote.value; // words being typed are not covered by a status line
     const msg = !C.on ? ""
-      : C.msg || (C.edit ? "Editing text · ↵ keep · esc revert"
+      : C.msg || (C.edit ? "Editing text"
       : busyNote && n ? ""
       : C.done || (n ? "" : sentStatus())); // state only: the bar carries no standing instructions (the "?" has the keys)
     tellMode();

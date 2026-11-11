@@ -554,17 +554,6 @@ function Permission(props: { ask: PermissionAsk; count: number }) {
           Deny
         </button>
       </div>
-      <p class="ask-keys">
-        <span>
-          <Kbd keys={keys("enter")} /> once
-        </span>
-        <span>
-          <Kbd keys={keys("mod", "enter")} /> always
-        </span>
-        <span>
-          <Kbd keys="Esc" /> deny
-        </span>
-      </p>
     </section>
   )
 }

@@ -195,39 +195,6 @@
 
 /* ── hints under the box ──────────────────────────────────────────────────────────────────── */
 
-.ask-keys {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 14px;
-}
-
-/* One line, never two: it gives way at the end rather than wrapping. */
-.composer-keys {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.composer-keys > kbd {
-  flex: none;
-}
-
-.composer-keys-gap {
-  flex: none;
-  width: 8px;
-}
-
-.ask-keys > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-
 /* ── messages ─────────────────────────────────────────────────────────────────────────────── */
 
 .user-wait {
@@ -487,11 +454,6 @@
   margin-left: 4px;
 }
 
-/* Narrow or short: a compact bar above the box; the key hints are in the buttons' tooltips. */
-.ask.compact .ask-keys {
-  display: none;
-}
-
 .ask {
   position: relative;
 }
@@ -516,11 +478,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
-}
-
-.ask-keys {
-  font-size: var(--text-control);
-  color: var(--muted);
 }
 
 /* ── the "Latest" button ──────────────────────────────────────────────────────────────────── */

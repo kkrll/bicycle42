@@ -6,9 +6,9 @@
 // mention reads as a chip without the box becoming an editor of its own.
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, type JSX } from "solid-js"
 import type { Mention, MentionOption, ModelInfo, PromptFile, SendOptions, SlashCommand } from "../shared/types"
-import { Icon, Kbd, type IconName } from "./icons"
+import { Icon, type IconName } from "./icons"
 import { SuggestMenu, type MenuItem } from "./menu"
-import { act, chat, keys, mac, message, b42, recall, remember, setNotice, state } from "./store"
+import { act, chat, keys, mac, message, b42, setNotice, state } from "./store"
 
 // ── a line of news under the box ────────────────────────────────────────────────────────────────
 
@@ -21,14 +21,6 @@ export function announce(words: string, ms = 4000): void {
   setHint(words)
   clearTimeout(hintTimer)
   hintTimer = window.setTimeout(() => setHint(""), ms)
-}
-
-/** The "Enter waits, mod+Enter interrupts" line teaches; after three uses it has done its job. */
-const KEYS_TAUGHT = 3
-const [keysUsed, setKeysUsed] = createSignal(Number(recall("busy-keys.used")) || 0)
-function usedBusyKey() {
-  setKeysUsed(keysUsed() + 1)
-  remember("busy-keys.used", String(keysUsed()))
 }
 
 // ── model, effort ─────────────────────────────────────────────────────────────────────────
@@ -415,7 +407,6 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
     const name = known?.name ?? ""
     const args = command?.[2] ?? ""
     const delivery = busy() ? (steer ? "steer" : "queue") : undefined
-    if (delivery) usedBusyKey()
     const options = (shift: number): SendOptions => {
       const list: Mention[] = marks
         .filter((m) => m.start >= shift)
@@ -675,7 +666,7 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
           >
           <button
             class="icon-btn send"
-            title={busy() ? `Send when it's free (${keys("enter")})` : `Send (${keys("enter")})`}
+            title={busy() ? `Send when it's free (${keys("enter")}) · ${keys("mod", "enter")} interrupts now` : `Send (${keys("enter")})`}
             aria-label="Send"
             disabled={!text().trim() || !!blocked()}
             onClick={() => {
@@ -695,19 +686,10 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
         </Show>
       </div>
       {/* Shown above the box (CSS order) and only while there is a hint, so the box stays at the
-          bottom of the panel and no empty line is kept under it. */}
+          bottom of the panel and no empty line is kept under it. (No standing lines of keys: those
+          are in the buttons' tooltips.) */}
       <div class="composer-hints" role="status">
-        <Show
-          when={hint()}
-          fallback={
-            <Show when={busy() && !blocked() && keysUsed() < KEYS_TAUGHT}>
-              <p class="composer-hint composer-keys">
-                <Kbd keys={keys("enter")} /> waits its turn<span class="composer-keys-gap" />
-                <Kbd keys={keys("mod", "enter")} /> interrupts now
-              </p>
-            </Show>
-          }
-        >
+        <Show when={hint()}>
           <p class="composer-hint">{hint()}</p>
         </Show>
       </div>
