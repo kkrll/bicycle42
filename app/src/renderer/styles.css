@@ -1621,11 +1621,12 @@ details[open] > summary > .caret {
 kbd {
   display: inline-block;
   min-width: 24px;
-  padding: 2px 6px;
+  padding: 1px 5px;
   border: 1px solid var(--background-05);
   border-radius: 4px;
-  font-size: var(--text-micro);
-  line-height: var(--text-micro--line-height);
+  /* The size of the words around it: at micro, ⌘ and ↵ in the mono face are specks. */
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
   text-align: center;
   color: var(--foreground);
 }

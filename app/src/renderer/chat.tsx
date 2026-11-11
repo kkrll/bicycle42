@@ -222,14 +222,14 @@ function Output(props: { text: string }) {
   )
 }
 
-function Thinking(props: { text: string }) {
+function Thinking(props: { text: string; live: boolean }) {
   const [open, setOpen] = createSignal(false)
   // One line of what it is thinking about, cut early so a long thought costs nothing per delta.
   const preview = () => props.text.slice(0, 160).trimStart().split("\n", 1)[0]
   return (
     <details class="thinking" onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary>
-        <Icon name="thought" />
+        <Icon name="thought" spin={props.live} />
         <span>Thinking</span>
         <span class="thinking-preview">{preview()}</span>
         <Icon name="right" class="caret" />
@@ -335,12 +335,15 @@ function Assistant(props: { item: ChatAssistant }) {
         <Summary item={props.item} />
       </Show>
       <For each={props.item.summary ? [] : props.item.parts}>
-        {(part) => (
+        {(part, i) => (
           <Switch>
             <Match when={part.kind === "text" && part}>
               {(p) => <Markdown text={p().text} streaming={!props.item.done} />}
             </Match>
-            <Match when={part.kind === "reasoning" && part}>{(p) => <Thinking text={p().text} />}</Match>
+            {/* A part has no end of its own: a thought is still going while nothing has come after it. */}
+            <Match when={part.kind === "reasoning" && part}>
+              {(p) => <Thinking text={p().text} live={!props.item.done && i() === props.item.parts.length - 1} />}
+            </Match>
             <Match when={part.kind === "tool" && part}>{(p) => <Tool part={p()} quiet={!props.item.error} />}</Match>
           </Switch>
         )}

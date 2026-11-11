@@ -47,12 +47,13 @@ const PATHS = {
 
 export type IconName = keyof typeof PATHS
 
-export function Icon(props: { name: IconName; size?: 16 | 20 | 24; class?: string }): JSX.Element {
+/** `spin` turns any icon (the thought, say) while something is under way; the spinner always does. */
+export function Icon(props: { name: IconName; size?: 16 | 20 | 24; class?: string; spin?: boolean }): JSX.Element {
   const size = () => props.size ?? 16
   return (
     <svg
       class={props.class}
-      classList={{ icon: true, spin: props.name === "spinner" }}
+      classList={{ icon: true, spin: props.spin ?? props.name === "spinner" }}
       width={size()}
       height={size()}
       viewBox="0 0 24 24"
