@@ -15,6 +15,7 @@ export function serve(port = 0, host = "127.0.0.1") {
     // Redirect so the harness's relative URLs (./host.js, ../overlay.js) resolve under /harness/.
     if (path === "/" || path === "/harness" || path === "/harness/")
       return res.writeHead(302, { location: `/harness/index.html${url.search}` }).end();
+    if (path.endsWith("/")) path += "index.html"; // a folder: its index, as /harness/motion/
     const file = normalize(join(ROOT, path));
     if (!file.startsWith(ROOT)) return res.writeHead(403).end();
     try {

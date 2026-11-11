@@ -1,0 +1,59 @@
+/* The timeline as bars (bars.js). Neutral greys; the accent marks what is selected and the playhead. */
+.tl.bars { --pad: 16px; --lab: 156px; }
+.tl.bars .lrow .lab { font: 12px var(--sans); }
+
+/* the ruler: seconds on top, ticks, the whole keyframes along the bottom */
+.tl.bars .lrow.ruler { height: 56px; }
+.tl.bars .lrow.ruler .lab { align-items: flex-start; gap: 2px; padding: 8px 6px 0 8px; font-family: var(--mono); }
+.tl.bars .tick { position: absolute; top: 22px; left: calc(var(--pad) + (100% - 2 * var(--pad)) * var(--at)); width: 1px; height: 4px; background: rgba(255, 255, 255, 0.16); }
+.tl.bars .tick.big { height: 8px; top: 18px; background: rgba(255, 255, 255, 0.3); }
+.tl.bars .tick b { position: absolute; top: -15px; left: 0; translate: -50% 0; color: var(--dim); font: 400 10px/12px var(--mono); white-space: nowrap; }
+.tl.bars .tick:first-child b { translate: -2px 0; }
+.tl.bars .tick:last-child b { translate: calc(2px - 100%) 0; }
+.tl.bars .key { position: absolute; left: calc(var(--pad) + (100% - 2 * var(--pad)) * var(--at)); cursor: grab; z-index: 2; }
+.tl.bars .key::after { content: ""; position: absolute; }
+.tl.bars .key.wk { top: 44px; width: 16px; height: 16px; margin: -8px 0 0 -8px; }
+.tl.bars .key.wk::after { left: 4.5px; top: 4.5px; width: 7px; height: 7px; border-radius: 1.5px; rotate: 45deg; background: var(--dim); }
+.tl.bars .key.wk:hover::after { background: var(--text); }
+.tl.bars .key.wk.on::after { background: var(--acc); box-shadow: 0 0 0 3px rgba(255, 250, 160, 0.2); }
+
+/* the band: the keyframes, behind their lanes, headed by their name */
+.tl.bars .lanes { position: relative; padding-bottom: 4px; }
+.tl.bars .bands { position: absolute; inset: 0 0 0 var(--lab); pointer-events: none; }
+.tl.bars .band { position: absolute; top: 0; bottom: 0; left: 0; right: 0; border-radius: 12px; background: rgba(255, 255, 255, 0.025); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.045); }
+.tl.bars .lrow.ghead { height: 36px; }
+.tl.bars .lrow.ghead .lab { gap: 8px; color: var(--muted); }
+.tl.bars .lrow.ghead .lab b { font: 500 12px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+.tl.bars .lrow.ghead .trk { display: flex; align-items: center; gap: 8px; padding: 0 12px; cursor: default; }
+.tl.bars .shared { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; cursor: help; }
+.tl.bars .shared b { font: 500 12px var(--mono); color: var(--text); }
+.tl.bars .btn.own { height: 24px; background: var(--field); color: var(--text); }
+.tl.bars .btn.own:hover { background: var(--field-h); }
+
+/* a lane */
+.tl.bars .lrow.lane { height: 40px; }
+.tl.bars .lrow.lane .lab { padding-left: 40px; color: var(--muted); }
+.tl.bars .lrow.lane.kon .lab { color: var(--text); }
+/* the keyframes' span, 0…100% of the lane: --pad is the ruler's inset, so it is none in here */
+.tl.bars .kspan { --pad: 0px; position: absolute; top: 0; bottom: 0; left: 16px; right: 16px; cursor: pointer; }
+
+/* a bar: one stretch between two keyframes */
+.tl.bars .sb { position: absolute; top: 8px; bottom: 8px; left: calc(100% * var(--fa) + var(--l)); width: calc(100% * (var(--fb) - var(--fa)) - var(--l) + var(--r));
+  border-radius: 7px; background: rgba(255, 255, 255, 0.09); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07); cursor: pointer; }
+.tl.bars .sb:hover { background: rgba(255, 255, 255, 0.13); }
+.tl.bars .sb.flat { background: rgba(255, 255, 255, 0.04); }
+.tl.bars .sb.on { background: rgba(255, 250, 160, 0.14); box-shadow: inset 0 0 0 1px rgba(255, 250, 160, 0.45); }
+
+/* a grip: a keyframe */
+.tl.bars .key.grip { top: 50%; width: 14px; height: 24px; margin: -12px 0 0 -7px; }
+.tl.bars .key.grip::after { left: 6px; top: 6px; width: 2px; height: 12px; border-radius: 1px; background: rgba(255, 255, 255, 0.5); }
+.tl.bars .key.grip:hover::after { background: #fff; }
+.tl.bars .key.grip.on::after { background: var(--acc); }
+.tl.bars.ro .key { cursor: pointer; }
+
+/* the playhead: a flag on the ruler, the time above it, a line down the lanes */
+.tl.bars .phl { position: absolute; top: 0; bottom: 0; left: var(--lab); right: 0; pointer-events: none; z-index: 4; }
+.tl.bars .flag { position: absolute; top: 0; bottom: 0; left: calc(var(--pad) + (100% - 2 * var(--pad)) * var(--x, 0)); width: 1px; }
+.tl.bars .flag::after { content: ""; position: absolute; top: 30px; bottom: 0; left: 0; width: 1px; background: var(--acc); opacity: 0.8; }
+.tl.bars .flag::before { content: ""; position: absolute; top: 18px; left: -5.5px; width: 12px; height: 13px; background: var(--acc); clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%); border-radius: 2px; }
+.tl.bars .flag b { position: absolute; top: 1px; left: 0; translate: -50% 0; padding: 0 5px; border-radius: 4px; background: var(--acc); color: #161617; font: 600 10px/15px var(--mono); white-space: nowrap; font-variant-numeric: tabular-nums; }
