@@ -341,11 +341,11 @@
     span: "Text", label: "Label", ul: "List", ol: "List", li: "List item", nav: "Navigation", header: "Header", footer: "Footer",
     section: "Section", article: "Card", form: "Form", table: "Table", video: "Video", h1: "Heading", h2: "Heading", h3: "Heading",
     h4: "Heading", h5: "Heading", h6: "Heading" };
-  const plainLabel = (el) => {
+  const plainLabel = (el, max = 32) => {
     const tag = el.tagName.toLowerCase();
     const kind = component(el)?.name || KINDS[tag] || (el.getAttribute("role") ? el.getAttribute("role") : "Block");
     const words = (el.getAttribute("aria-label") || el.getAttribute("alt") || el.getAttribute("placeholder") || textOf(el)).trim();
-    return words ? `${kind} · ${words.length > 32 ? `${words.slice(0, 31)}…` : words}` : kind;
+    return words ? `${kind} · ${words.length > max ? `${words.slice(0, max - 1)}…` : words}` : kind;
   };
 
   // ── picking ─────────────────────────────────────────────────────────────────────────────────
@@ -2782,7 +2782,8 @@
     clsEl.disabled = cssEl.disabled = !el;
     const hint = el ? "No classes · type to add" : "Select an element to edit its classes";
     if (clsEl.placeholder !== hint) clsEl.placeholder = hint;
-    const name = el ? `${line(plainLabel(el))}${C.marks.get(el)?.includes("hid") ? " · hidden" : ""}` : "Nothing selected";
+    // The header has the room: the words are cut where it ends, not at a note's length.
+    const name = el ? `${line(plainLabel(el, 80))}${C.marks.get(el)?.includes("hid") ? " · hidden" : ""}` : "Nothing selected";
     if (ipath.textContent !== name) ipath.textContent = name;
     if (force) for (const row of compEl.children) unmarkValue(row);
     drawTabs();
@@ -3896,7 +3897,7 @@
     .ititle { font-weight: 600; }
     .ipath { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fffaa0; }
     .ifold { flex: none; display: grid; place-items: center; width: 28px; height: 24px; padding: 0; }
-    .ibody { flex: 1; min-height: 0; display: flex; }
+    .ibody { flex: 1; min-height: 0; display: flex; container-type: inline-size; }
     .insp.shut .ibody { display: none; }
     .tree { flex: 0 0 44%; min-width: 0; overflow: auto; outline: none; border-right: 1px solid rgba(255, 255, 255, 0.1);
       font: 12px/20px ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace; }
@@ -3915,9 +3916,11 @@
     .tt { color: #ededed; } .ti { color: #fffaa0; } .tc { color: #9ca3af; }
     .tx { margin-left: 8px; color: #6f7684; font-style: italic; }
     .side { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-    /* Element: the selection's classes, styles and computed values. Global: the batch's stylesheet. */
-    .tabs { flex: none; display: flex; gap: 2px; width: max-content; margin: 8px 12px 0; padding: 2px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); }
-    .tab { all: unset; box-sizing: border-box; height: 22px; padding: 0 10px; border-radius: 5px; color: #b4b4b4; font-size: 12px; line-height: 22px; cursor: pointer; }
+    /* Element: the selection's classes, styles and computed values. Global: the batch's stylesheet.
+       The switch is in the inspector's header, so the columns start at the top of the body. */
+    .tabs { flex: none; display: flex; gap: 2px; padding: 2px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); }
+    .insp.shut .tabs { display: none; }
+    .tab { all: unset; box-sizing: border-box; height: 20px; padding: 0 10px; border-radius: 4px; color: #b4b4b4; font-size: 12px; line-height: 20px; cursor: pointer; }
     .tab:hover { color: #fff; }
     .tab.on { background: rgba(255, 255, 255, 0.14); color: #fff; }
     .tab:disabled { color: #6b6b6b; cursor: default; }
@@ -3956,6 +3959,20 @@
     .cval:focus { background: rgba(255, 255, 255, 0.1); box-shadow: 0 0 0 1.5px rgba(255, 250, 160, 0.7); text-overflow: clip; }
     .cval.bad { text-decoration: underline wavy #f87171; text-decoration-skip-ink: none; box-shadow: 0 0 0 1.5px #f87171; }
     .crow.mine .cp, .crow.mine .cval { color: #fffaa0; }
+    /* With room for it, the inspector is three equal columns: the tree, what the selection
+       computes to, and what is typed for it. Each scrolls by itself, so the fields stay in view
+       down the list, and the styles box takes the height that is left, as the stylesheet's does.
+       (Tab still goes to the fields first: they come first in the markup.) */
+    @container (min-width: 900px) {
+      .tree { box-sizing: border-box; flex-basis: 33.333%; }
+      .p-el { display: flex; padding: 0; overflow: hidden; }
+      .p-el .col { box-sizing: border-box; min-width: 0; overflow: auto; padding: 0 12px 14px; }
+      .p-el .c-comp { order: -1; flex: 0 0 50%; border-right: 1px solid rgba(255, 255, 255, 0.1); }
+      .p-el .c-in { flex: 1; display: flex; flex-direction: column; }
+      .p-el .c-in > * { flex: none; }
+      .p-el .c-in .ed { flex: 1; min-height: 60px; }
+      .p-el .c-in .ed textarea { height: 100%; max-height: none; field-sizing: fixed; }
+    }
   `;
 
   // The layer has to be the topmost thing on the page and has to take typing, whatever the page
@@ -4006,17 +4023,22 @@
         <div class="ghost" hidden></div><div class="ins" hidden></div><div class="lab dim" hidden></div><div class="lab live" hidden></div>
         <div class="shield" hidden></div></div>
       <div class="insp" hidden><div class="grip" title="Drag to resize"></div>
-        <div class="ihead"><span class="ititle">Inspector</span><span class="ipath"></span><button type="button" class="ifold"></button></div>
+        <div class="ihead"><span class="ititle">Inspector</span><span class="ipath"></span>
+          <div class="tabs" role="tablist" aria-label="What the styles are for"><button type="button" role="tab" class="tab t-el">Element</button><button type="button" role="tab" class="tab t-gl" title="New rules for the page, sent with this batch">Global<i class="dot" hidden></i></button></div>
+          <button type="button" class="ifold"></button></div>
         <div class="ibody"><div class="tree" tabindex="0" role="tree" aria-label="Page elements"><div class="tspace"><div class="trows"></div></div></div>
           <div class="side">
-            <div class="tabs" role="tablist" aria-label="What the styles are for"><button type="button" role="tab" class="tab t-el">Element</button><button type="button" role="tab" class="tab t-gl" title="New rules for the page, sent with this batch">Global<i class="dot" hidden></i></button></div>
             <div class="pane p-el" role="tabpanel" hidden>
-              <label class="sec" for="b42-cls">Classes</label>
-              <input id="b42-cls" class="cls" type="text" spellcheck="false" autocomplete="off" placeholder="Select an element to edit its classes">
-              <label class="sec" for="b42-css">Element styles <i>only this element · & nests</i></label>
-              <div class="ed"><pre class="hl" aria-hidden="true"></pre><textarea id="b42-css" class="css" spellcheck="false" placeholder="Type CSS for this element, e.g. padding: 20px"></textarea></div><div class="err" hidden></div>
-              <div class="sec">Computed <i>edit a value to add it to Element styles</i></div>
-              <div class="comp"></div>
+              <div class="col c-in">
+                <label class="sec" for="b42-cls">Classes</label>
+                <input id="b42-cls" class="cls" type="text" spellcheck="false" autocomplete="off" placeholder="Select an element to edit its classes">
+                <label class="sec" for="b42-css">Element styles <i>only this element · & nests</i></label>
+                <div class="ed"><pre class="hl" aria-hidden="true"></pre><textarea id="b42-css" class="css" spellcheck="false" placeholder="Type CSS for this element, e.g. padding: 20px"></textarea></div><div class="err" hidden></div>
+              </div>
+              <div class="col c-comp">
+                <div class="sec">Computed <i>edit a value to add it to Element styles</i></div>
+                <div class="comp"></div>
+              </div>
             </div>
             <div class="pane p-gl" role="tabpanel">
               <label class="sec" for="b42-free">Stylesheet <i>new rules, sent with this batch</i></label>

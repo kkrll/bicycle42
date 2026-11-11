@@ -1261,6 +1261,54 @@ test("Element | Global: the stylesheet has its own tab; nothing selected shows i
   await page.close();
 });
 
+test("wide, the inspector is three equal columns: the tree, computed, the fields, each scrolling by itself; narrow, the fields are above the values. The Element | Global switch is in the header", async () => {
+  const { page, f } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  await page.waitForTimeout(250);
+  const lay = () => ui(f, (r) => {
+    const q = (s) => r.querySelector(s).getBoundingClientRect();
+    const body = q(".ibody"), tree = q(".tree"), comp = q(".c-comp"), inp = q(".c-in"), css = q(".css"), pane = r.querySelector(".p-el");
+    const head = q(".ihead"), tabs = q(".tabs"), path = q(".ipath"), fold = q(".ifold");
+    const same = (a, b) => Math.abs(a - b) <= 1;
+    return {
+      wide: body.width >= 900,
+      thirds: same(tree.width, comp.width) && same(comp.width, inp.width),
+      order: same(tree.right, comp.left) && same(comp.right, inp.left) && same(inp.right, body.right),
+      sameTop: same(comp.top, inp.top) && same(comp.top, body.top),
+      stacked: inp.bottom <= comp.top + 1,
+      scrolls: [pane, r.querySelector(".c-comp"), r.querySelector(".c-in")].map((x) => x.scrollHeight > x.clientHeight + 1),
+      fills: inp.bottom - css.bottom < 24 && css.height > 100,
+      // the switch: in the header, after the selection's name, before the fold button
+      tabs: r.querySelector(".ihead .tabs") !== null && tabs.top >= head.top && tabs.bottom <= head.bottom && path.right <= tabs.left && tabs.right <= fold.left,
+    };
+  });
+  assert.deepEqual(await lay(), { wide: true, thirds: true, order: true, sameTop: true, stacked: false, scrolls: [false, true, false], fills: true, tabs: true });
+  // Tab still goes to the fields first, then down the values
+  await f.locator("b42-review .cls").focus();
+  await page.keyboard.press("Tab");
+  assert.equal(await ui(f, (r) => r.activeElement.className), "css");
+  // the fields work from there as they did
+  await f.locator("b42-review .css").fill("padding: 20px;");
+  await settle(f);
+  assert.equal(await f.locator(SECOND).evaluate((el) => getComputedStyle(el).paddingLeft), "20px");
+  // the header has room for the selection's words: they are not cut at a note's 32 characters
+  await f.locator(SECOND).evaluate((el) => (el.querySelector("p").textContent = "For small teams that have grown out of the free plan and need more"));
+  await page.waitForTimeout(300);
+  await clickAt(page, f, "#title");
+  await clickAt(page, f, SECOND, 100, 80);
+  await page.waitForTimeout(250);
+  assert.match(await ui(f, (r) => r.querySelector(".ipath").textContent), /For small teams that have grown out of the free plan and need more$/);
+  // folded, the switch is not shown
+  await f.locator("b42-review .ifold").click();
+  assert.equal(await ui(f, (r) => r.querySelector(".tabs").getBoundingClientRect().width), 0);
+  await f.locator("b42-review .ifold").click();
+  // narrow: the tree and one column beside it, the fields above the values, the pane scrolling as a whole
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.waitForTimeout(250);
+  assert.deepEqual(await lay(), { wide: false, thirds: false, order: false, sameTop: false, stacked: true, scrolls: [true, false, false], fills: false, tabs: true });
+  await page.close();
+});
+
 test("icons are SVG: no glyph stands in for one, and what is clicked is at least 24px", async () => {
   const { page, f } = await open();
   await clickAt(page, f, SECOND, 100, 80);
