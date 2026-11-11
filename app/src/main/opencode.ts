@@ -252,7 +252,7 @@ function assistantItem(id: string, time: number, m: Raw, dir: string | undefined
 function endMarker(id: string, time: number, outcome: unknown, error: unknown): ChatMarker | undefined {
   if (outcome === "interrupted") return { kind: "marker", id, time, text: "Stopped", tone: "error" }
   if (outcome === "failed")
-    return { kind: "marker", id, time, text: `Failed: ${str(rec(error).message) ?? "unknown error"}`, tone: "error" }
+    return { kind: "marker", id, time, text: `Failed: ${str(rec(error).message) ?? "unknown error"}`, tone: "error", failed: true }
   return undefined
 }
 

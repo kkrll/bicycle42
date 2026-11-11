@@ -258,7 +258,7 @@ test("chatItems: a step still running is not done; a failed run leaves its reaso
   )
   assert.deepEqual(items, [
     { kind: "assistant", id: "msg_1", time: 1, parts: [], done: false },
-    { kind: "marker", id: "msg_2", time: 2, text: "Failed: overloaded", tone: "error" },
+    { kind: "marker", id: "msg_2", time: 2, text: "Failed: overloaded", tone: "error", failed: true },
   ])
 })
 
@@ -495,7 +495,7 @@ test("mapper: runs, permissions and questions", () => {
     { type: "question-done", session: S, id: "frm_1" },
     { type: "question-done", session: S, id: "frm_2" },
     { type: "run", session: S, status: "failed", error: "no credit" },
-    { type: "chat", event: { type: "item", session: S, item: { kind: "marker", id: "msg_x1", time: 9, text: "Failed: no credit", tone: "error" } } },
+    { type: "chat", event: { type: "item", session: S, item: { kind: "marker", id: "msg_x1", time: 9, text: "Failed: no credit", tone: "error", failed: true } } },
     { type: "run", session: S, status: "interrupted" },
     { type: "chat", event: { type: "item", session: S, item: { kind: "marker", id: "msg_x2", time: 10, text: "Stopped", tone: "error" } } },
   ])

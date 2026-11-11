@@ -75,7 +75,15 @@ export type ChatAssistant = {
 }
 
 /** A line between messages: "Stopped", "Failed: …", "Model changed to Sonnet". */
-export type ChatMarker = { kind: "marker"; id: string; time: number; text: string; tone: "info" | "error" }
+export type ChatMarker = {
+  kind: "marker"
+  id: string
+  time: number
+  text: string
+  tone: "info" | "error"
+  /** The agent's run failed by itself. (Stopped by the reviewer is also "error" in tone.) */
+  failed?: true
+}
 
 export type ChatItem = ChatUser | ChatAssistant | ChatMarker
 

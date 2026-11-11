@@ -4,6 +4,7 @@
 import { render } from "solid-js/web"
 import type { Bridge } from "../shared/types"
 import { App } from "./app"
+import { listen } from "./sound"
 import { start } from "./store"
 import "./styles.css"
 import "./chat.css"
@@ -35,4 +36,5 @@ const bridge =
   window.b42 && !params.has("mock") ? window.b42 : (await import("./mock")).install(params.get("mock") || "review", params)
 
 start(bridge)
+listen(bridge)
 render(() => <App />, document.getElementById("root")!)

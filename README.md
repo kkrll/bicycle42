@@ -41,6 +41,10 @@ its own name and icon. It is not signed with a developer certificate, and there 
 
 After that, the app reopens the last page with its notes and conversation.
 
+The app makes three sounds: a rising one when the agent asks something or wants permission, a
+falling one when a note fails or the server is lost, and a single note when the agent has
+finished everything you sent. The speaker button in the top bar turns them off.
+
 ## Keys
 
 `mod` is `⌘` on macOS and `Ctrl` elsewhere.

@@ -12,6 +12,7 @@ import type { Rect, Shortcut } from "../shared/types"
 import { ConnectScreen, ModelScreen, SettingsDialog, SetupSteps, connectionText, firstRunConnecting } from "./connect"
 import { Icon } from "./icons"
 import { Panel, countNotes, countWords, shortWords } from "./panel"
+import { soundOn, toggleSound } from "./sound"
 import {
   act,
   host,
@@ -190,6 +191,17 @@ function TopBar(props: {
             <Show when={serverWord()} fallback={<span class="dot" data-status={state.connection.status} />}>
               <span>{serverWord()}</span>
             </Show>
+          </button>
+          <button
+            class="icon-btn"
+            data-action="sound"
+            role="switch"
+            aria-label="Sounds"
+            aria-checked={soundOn()}
+            title={soundOn() ? "Sounds on: a question, a failure, finished. Click to turn off" : "Sounds off. Click to turn on"}
+            onClick={toggleSound}
+          >
+            <Icon name={soundOn() ? "sound" : "muted"} />
           </button>
           <NotesStatus panelOpen={props.panelOpen} showNotes={props.showNotes} />
           <button

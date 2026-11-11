@@ -65,6 +65,11 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   kinds, short one-line strings, a property name that looks like one. What fails is dropped.
   CSS typed in the inspector has a length limit and goes into the prompt inside a fence longer
   than any run of backticks in it, so it cannot end its own block.
+- **Three sounds, decided in one place.** `renderer/cues.ts` compares two state snapshots and
+  names at most one cue: a question or permission that was not there (`ascend`), the server
+  lost, a note or the run failed (`descend`), the agent finished with nothing still on its way
+  (`f-staccato`). What the reviewer did themselves (Stop, a note removed, another conversation) is
+  silent. `renderer/sound.ts` plays them; the speaker button in the top bar turns them off.
 - **Every note is answered.** The app replies `captured` once the pictures are taken, or
   `captured` with `ok: false` and a reason when it does not take the note (nothing in it it can
   send, not readable, or it came more than a second after Enter because the page stalled). The
