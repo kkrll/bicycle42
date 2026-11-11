@@ -73,6 +73,27 @@ const SHOTS = [
   { name: "offline", mock: "offline" },
   { name: "pageerror", mock: "pageerror" },
   { name: "settings", mock: "review", run: [click("[data-action=settings]")], wait: 500 },
+  // A tunnel's address is one long word; named, the name leads and the address goes under it.
+  {
+    name: "settings-tunnel",
+    mock: "review",
+    run: [
+      `window.__mock.state.connection.url = "https://eb501e0e4f991ca4.7fek5zuoivit.opentunnel.xyz"; 0`,
+      click("[data-action=draw]"), // anything that makes the mock send its state
+      click("[data-action=draw]"),
+      click("[data-action=settings]"),
+    ],
+    wait: 500,
+  },
+  { name: "settings-rename", mock: "review", run: [click("[data-action=settings]"), pause(300), click("[data-action=rename-server]")], wait: 500 },
+  {
+    name: "settings-named",
+    mock: "review",
+    run: [click("[data-action=settings]"), pause(300), click("[data-action=rename-server]"), pause(100), `(() => { const f = document.querySelector(".server-name-form input"); f.value = "Studio Mac"; f.form.requestSubmit() })()`],
+    wait: 500,
+  },
+  // The pointer rests on a mode: what it does and its key, in the bar.
+  { name: "hint", mock: "review", run: [`document.querySelector('.mode[data-mode="edit"]').dispatchEvent(new PointerEvent("pointerenter"))`], wait: 900 },
   { name: "slash-menu", mock: "review", run: [typeIn("/")], wait: 300 },
   { name: "slash-filter", mock: "review", run: [typeIn("/re")], wait: 300 },
   // The app's own commands: /compact leaves a folded summary in the conversation; /undo asks first.

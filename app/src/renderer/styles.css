@@ -581,7 +581,9 @@ details[open] > summary > .caret {
   transition: background var(--duration-micro) var(--ease-micro);
 }
 
-.mode:not(:disabled):hover {
+/* Hover belongs to the ones not chosen: on the chosen one, the accent stays as it is. */
+.mode:not(:disabled):not([aria-checked="true"]):hover {
+  background: var(--surface-strong);
   color: var(--foreground);
 }
 
@@ -591,8 +593,50 @@ details[open] > summary > .caret {
   font-weight: 600;
 }
 
+.mode[aria-checked="true"] {
+  cursor: default;
+}
+
 .mode:disabled {
   opacity: 0.55;
+}
+
+/* What the control under the pointer does, and its key: in the bar, just left of the controls
+   (below the bar the page view would cover it). */
+.tools {
+  position: relative;
+}
+
+.bar-hint {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: 50%;
+  translate: 0 -50%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 4px 0 10px;
+  border-radius: var(--radius);
+  background: var(--foreground);
+  color: var(--background);
+  font-size: var(--text-control);
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: hint-in var(--duration-micro) var(--ease-micro);
+}
+
+.bar-hint kbd {
+  border-color: color-mix(in srgb, var(--background) 30%, transparent);
+  background: color-mix(in srgb, var(--background) 12%, transparent);
+  color: var(--background);
+}
+
+@keyframes hint-in {
+  from {
+    opacity: 0;
+  }
 }
 
 /* A narrow window: the icons alone (each still says its name and key on hover). */
@@ -2459,6 +2503,35 @@ details[open] > summary > .caret {
 .dialog-sub {
   display: block;
   font-size: var(--text-control);
+}
+
+/* The server: its name (or address), the address under it when it has a name, and a way to
+   name it. A tunnel's address is one long word: it breaks anywhere rather than overflow. */
+.server-name {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.server-title {
+  font-weight: 600;
+}
+
+.server-name > .text-btn {
+  margin: 4px 0 0 -6px;
+}
+
+.server-name-form {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.server-name-form > .input {
+  flex: 1;
+  min-width: 0;
 }
 
 .disclosure {

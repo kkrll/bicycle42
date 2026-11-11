@@ -851,6 +851,12 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       if (state.session) state.session.model = model
       push()
     },
+    setServerName(name: string) {
+      const clean = name.replace(/\s+/g, " ").trim().slice(0, 60)
+      if (clean) state.serverName = clean
+      else delete state.serverName
+      push()
+    },
     setDefaultModel(model) {
       state.defaultModel = model
       delete state.modelChoice

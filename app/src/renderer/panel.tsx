@@ -4,7 +4,7 @@
 import { For, Match, Show, Switch, createEffect, createMemo, createResource, createSignal, on, onCleanup } from "solid-js"
 import type { NoteRow } from "../shared/types"
 import { Chat } from "./chat"
-import { SetupSteps } from "./connect"
+import { SetupSteps, serverLabel } from "./connect"
 import { Icon } from "./icons"
 import {
   act,
@@ -534,7 +534,7 @@ function ConnectionBanner(props: { openSettings: () => void }) {
             <Icon name="alert" />
             <div class="banner-body">
               <p>
-                Can't reach {host(c().url)}. {c().error} Notes wait until it is back.
+                Can't reach {serverLabel(c().url)}. {c().error} Notes wait until it is back.
               </p>
               <div class="banner-actions">
                 {/* The window never holds the password: main tries again with the one it saved. */}
@@ -554,7 +554,7 @@ function ConnectionBanner(props: { openSettings: () => void }) {
           <div class="banner" role="status">
             <Icon name="spinner" />
             <div class="banner-body">
-              <p>Connecting to {host(c().url)}</p>
+              <p>Connecting to {serverLabel(c().url)}</p>
             </div>
           </div>
         )}

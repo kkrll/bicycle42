@@ -217,6 +217,8 @@ export type ReviewMode = "preview" | "notes" | "edit"
 
 export type AppState = {
   connection: ConnectionState
+  /** The reviewer's name for the saved server; without one it goes by its address. */
+  serverName?: string
   page: {
     /** What the URL bar shows. Empty before the first page. */
     url: string
@@ -294,6 +296,8 @@ export type Commands = {
   /** Tries the saved server again. The outcome shows in `connection`. */
   reconnect(): void
   disconnect(): void
+  /** Names the saved server; an empty name goes back to its address. */
+  setServerName(name: string): void
   /** Folders the server already knows, most recently used first. */
   projects(): string[]
   /** Sub-folders of an absolute path on the server, for the folder picker. */

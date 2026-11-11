@@ -1081,3 +1081,37 @@ test("the top bar's switch: Preview, Notes and Edit, and the brush, go to the pa
     await h.close()
   }
 })
+
+test("a server's name: saved with it, kept when the same server connects again, dropped for another one", async () => {
+  const h = await boot()
+  try {
+    await h.ready()
+    assert.equal(h.snap().serverName, undefined)
+    await h.cmd("setServerName", "  Studio   Mac ")
+    assert.equal(h.snap().serverName, "Studio Mac")
+    const saved = async () => {
+      await sleep(400) // the store's debounce
+      return JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")).server as { name?: string; password?: string }
+    }
+    const first = await saved()
+    assert.deepEqual([first.name, typeof first.password], ["Studio Mac", "string"])
+    await h.cmd("setServerName", "x".repeat(200))
+    assert.equal(h.snap().serverName?.length, 60, "a label, not a description")
+    await h.cmd("setServerName", "Studio Mac")
+    // the same server again (the password re-entered): still named
+    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    assert.equal(h.snap().serverName, "Studio Mac")
+    // an empty name goes back to the address
+    await h.cmd("setServerName", "   ")
+    assert.equal(h.snap().serverName, undefined)
+    assert.equal((await saved()).name, undefined)
+    // a name does not follow to another server
+    await h.cmd("setServerName", "Studio Mac")
+    await h.cmd("connect", { url: h.server.url.replace("127.0.0.1", "localhost"), password: h.server.password })
+    assert.equal(h.snap().serverName, undefined)
+    await h.cmd("disconnect")
+    await assert.rejects(Promise.resolve(h.cmd("setServerName", "x")), /Connect to a server first/)
+  } finally {
+    await h.close()
+  }
+})

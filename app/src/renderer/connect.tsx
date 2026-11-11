@@ -15,14 +15,75 @@ export const [firstRunConnecting, setFirstRunConnecting] = createSignal(false)
 export function connectionText(c: ConnectionState): string {
   switch (c.status) {
     case "online":
-      return `Connected to ${host(c.url)} · version ${c.version}`
+      return `Connected to ${serverLabel(c.url)} · version ${c.version}`
     case "offline":
-      return `Cannot reach ${host(c.url)}. ${c.error}`
+      return `Cannot reach ${serverLabel(c.url)}. ${c.error}`
     case "connecting":
-      return `Connecting to ${host(c.url)}`
+      return `Connecting to ${serverLabel(c.url)}`
     case "unconfigured":
       return "Not connected"
   }
+}
+
+/** What the server is called: the reviewer's name for it, or else its address. */
+export const serverLabel = (url: string) => state.serverName || host(url)
+
+/** The server's name, and the field that changes it. Empty goes back to the address. */
+function ServerName(props: { url: string; version: string }) {
+  const [editing, setEditing] = createSignal(false)
+  let field!: HTMLInputElement
+  const save = () => {
+    act("setServerName", field.value)
+    setEditing(false)
+  }
+  return (
+    <span class="server-name">
+      <Show
+        when={editing()}
+        fallback={
+          <>
+            <span class="server-title">{serverLabel(props.url)}</span>
+            <span class="dialog-sub">
+              {state.serverName ? `${host(props.url)} · ` : ""}OpenCode {props.version}
+            </span>
+            <button class="text-btn" data-action="rename-server" onClick={() => setEditing(true)}>
+              {state.serverName ? "Rename" : "Name it"}
+            </button>
+          </>
+        }
+      >
+        <form
+          class="server-name-form"
+          onSubmit={(e) => {
+            e.preventDefault()
+            save()
+          }}
+        >
+          <input
+            ref={(el) => {
+              field = el
+              requestAnimationFrame(() => el.select())
+            }}
+            class="input"
+            aria-label="Server name"
+            placeholder={host(props.url)}
+            maxLength={60}
+            value={state.serverName ?? ""}
+            onKeyDown={(e) => {
+              // Esc leaves the name as it was; the dialog stays open.
+              if (e.key !== "Escape") return
+              e.preventDefault()
+              e.stopPropagation()
+              setEditing(false)
+            }}
+          />
+          <button class="btn primary" type="submit">
+            Save
+          </button>
+        </form>
+      </Show>
+    </span>
+  )
 }
 
 /** The way in, the same line on every first-run screen: connect, open the site, pick its code
@@ -449,10 +510,7 @@ export function SettingsDialog(props: { onClose: () => void }) {
         <div class="dialog-connected">
           <p class="dialog-status" data-status="online">
             <span class="dot" />
-            <span>
-              Connected to {"url" in c() ? host((c() as { url: string }).url) : ""}
-              <span class="dialog-sub">OpenCode {c().status === "online" ? (c() as { version: string }).version : ""}</span>
-            </span>
+            <ServerName url={"url" in c() ? (c() as { url: string }).url : ""} version={c().status === "online" ? (c() as { version: string }).version : ""} />
           </p>
           <button
             class="btn"

@@ -276,6 +276,31 @@ async function main() {
   check("Edit in the top bar opens the inspector on the page", (await until(inspector)) === true && (await until(async () => (await modeShown()) === "edit")) === true && state().review.mode === "edit")
   wc.sendInputEvent({ type: "keyDown", keyCode: "E", modifiers: [mod] })
   check("mod+E on the page goes back to Annotate, and the top bar follows", (await until(async () => !(await inspector()) && (await modeShown()) === "notes")) === true)
+  // Resting the pointer on a control shows what it does and its key, in the bar; the chosen
+  // mode keeps its colours under the pointer.
+  const centreOf = (sel: string) => ui(`(() => { const r = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } })()`) as Promise<{ x: number; y: number }>
+  const hover = async (sel: string) => {
+    const at = await centreOf(sel)
+    win.webContents.sendInputEvent({ type: "mouseMove", x: at.x, y: at.y })
+  }
+  const hintText = () => ui(`document.querySelector('.bar-hint')?.textContent ?? ""`) as Promise<string>
+  const colours = (sel: string) => ui(`(() => { const s = getComputedStyle(document.querySelector(${JSON.stringify(sel)})); return s.color + " on " + s.backgroundColor })()`) as Promise<string>
+  await sleep(300) // past the switch's own transition
+  const still = await colours('.mode[data-mode="notes"]')
+  await hover('.mode[data-mode="notes"]')
+  await sleep(150)
+  check("the chosen mode keeps its colours under the pointer", (await colours('.mode[data-mode="notes"]')) === still, `${still} → ${await colours('.mode[data-mode="notes"]')}`)
+  check("…and no hint yet: the pointer only passed", (await hintText()) === "")
+  const modKey = process.platform === "darwin" ? "⌘E" : "Ctrl+E"
+  check("resting on it, the hint says what it does and its key", (await until(async () => (await hintText()) === `Point at something, say what to change${modKey}`, 2000)) === true, await hintText())
+  check("…in the bar, left of the controls, where the page view cannot cover it", (await ui(`(() => { const h = document.querySelector('.bar-hint').getBoundingClientRect(), b = document.querySelector('.topbar').getBoundingClientRect(), t = document.querySelector('[data-action="draw"]').getBoundingClientRect(); return h.top >= b.top && h.bottom <= b.bottom && h.right <= t.left })()`)) === true)
+  await hover('.mode[data-mode="edit"]')
+  await sleep(100)
+  check("the next one's hint shows at once", (await hintText()) === `Change the page itself, then send${modKey}`, await hintText())
+  check("a mode not chosen lights up under the pointer", (await colours('.mode[data-mode="edit"]')) !== (await ui(`(() => { const s = getComputedStyle(document.querySelector('.mode[data-mode="preview"]')); return s.color + " on " + s.backgroundColor })()`)))
+  await hover(".url")
+  await sleep(100)
+  check("…and it goes when the pointer leaves", (await hintText()) === "")
   await ui(`document.querySelector('.mode[data-mode="preview"]').click()`)
   check("Preview turns review off", (await until(async () => !state().review.enabled && (await modeShown()) === "preview")) === true)
   await ui(`document.querySelector('[data-action="draw"]').click()`)

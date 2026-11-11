@@ -97,12 +97,60 @@ function UrlField(props: { ref: (el: HTMLInputElement) => void }) {
   )
 }
 
+// ── hints: what a control does and its key, after the pointer rests on it ──────────────────────
+// Not a tooltip under the control: the page view is drawn over the window below the top bar, so
+// anything there would be hidden under it. The hint sits in the bar itself, just left of the
+// controls, over the end of the address field.
+
+type HintText = { text: string; keys: string[] }
+const [hint, setHint] = createSignal<HintText | null>(null)
+/** The pointer rests this long before a hint shows; once one is up, the next shows at once. */
+const HINT_DELAY = 600
+const HINT_WARM = 400
+let hintTimer: ReturnType<typeof setTimeout> | undefined
+let hintGone = 0
+
+/** Event handlers for a control with a hint. `what` is read when the hint shows, so it follows
+ *  state (Show / Hide the panel). */
+function hinted(what: () => HintText) {
+  const hide = () => {
+    clearTimeout(hintTimer)
+    if (hint()) hintGone = Date.now()
+    setHint(null)
+  }
+  return {
+    onPointerEnter: () => {
+      clearTimeout(hintTimer)
+      const warm = !!hint() || Date.now() - hintGone < HINT_WARM
+      if (warm) setHint(what())
+      else hintTimer = setTimeout(() => setHint(what()), HINT_DELAY)
+    },
+    onPointerLeave: hide,
+    // A click is the answer to the question the hint was for.
+    onPointerDown: hide,
+  }
+}
+
+function Hint() {
+  return (
+    <Show when={hint()}>
+      {(h) => (
+        <div class="bar-hint" role="tooltip">
+          <span>{h().text}</span>
+          <For each={h().keys}>{(k) => <kbd>{k}</kbd>}</For>
+        </div>
+      )}
+    </Show>
+  )
+}
+
 /** Preview | Annotate | Edit: what a click on the page does (verbs, all three; "annotate" is
- *  the mode that makes notes, and `notes` in the state). Each says its key on hover. */
-const MODES: { mode: ReviewMode; label: string; icon: IconName; title: () => string }[] = [
-  { mode: "preview", label: "Preview", icon: "eye", title: () => `Preview: use the page as it is, notes off (${keys("mod", "shift", "M")})` },
-  { mode: "notes", label: "Annotate", icon: "note", title: () => `Annotate: point at something and say what to change (${keys("mod", "E")} from Edit)` },
-  { mode: "edit", label: "Edit", icon: "frame", title: () => `Edit: change the page itself, then send the edits (${keys("mod", "E")})` },
+ *  the mode that makes notes, and `notes` in the state). Each shows what it does and its key
+ *  when the pointer rests on it. */
+const MODES: { mode: ReviewMode; label: string; icon: IconName; what: string; keys: () => string }[] = [
+  { mode: "preview", label: "Preview", icon: "eye", what: "Use the page as it is", keys: () => keys("mod", "shift", "M") },
+  { mode: "notes", label: "Annotate", icon: "note", what: "Point at something, say what to change", keys: () => keys("mod", "E") },
+  { mode: "edit", label: "Edit", icon: "frame", what: "Change the page itself, then send", keys: () => keys("mod", "E") },
 ]
 
 function ModeSwitch(props: { disabled: boolean }) {
@@ -115,9 +163,11 @@ function ModeSwitch(props: { disabled: boolean }) {
             role="radio"
             data-mode={m.mode}
             aria-checked={state.review.mode === m.mode}
+            aria-description={m.what}
+            aria-keyshortcuts={m.keys()}
             disabled={props.disabled}
-            title={m.title()}
             onClick={() => act("setMode", m.mode)}
+            {...hinted(() => ({ text: m.what, keys: [m.keys()] }))}
           >
             <Icon name={m.icon} />
             <span class="mode-label">{m.label}</span>
@@ -167,14 +217,16 @@ function TopBar(props: {
         <UrlField ref={props.urlRef} />
         <PageError />
         <div class="tools">
+          <Hint />
           <button
             class="icon-btn boxed"
             data-action="draw"
             aria-label="Draw on the page"
             aria-pressed={state.review.brush}
-            title={`Draw on the page: a line selects what it crosses, a loop what it encloses (or hold ${keys("alt")} and drag)`}
+            aria-description="A line selects what it crosses, a loop what it encloses"
             disabled={noOverlay()}
             onClick={() => act("toggleBrush")}
+            {...hinted(() => ({ text: "Draw: a line selects what it crosses", keys: [`${keys("alt")} drag`] }))}
           >
             <Icon name="draw" size={20} />
           </button>
@@ -192,8 +244,9 @@ function TopBar(props: {
             data-action="panel"
             aria-label="Notes and conversation"
             aria-pressed={props.panelOpen}
-            title={`${props.panelOpen ? "Hide" : "Show"} notes and conversation (${keys("mod", "\\")})`}
+            aria-keyshortcuts={keys("mod", "\\")}
             onClick={props.togglePanel}
+            {...hinted(() => ({ text: `${props.panelOpen ? "Hide" : "Show"} notes and conversation`, keys: [keys("mod", "\\")] }))}
           >
             <Icon name="panel" />
           </button>

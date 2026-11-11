@@ -93,6 +93,8 @@ let agents: AgentInfo[] = []
 /** Every site visited since launch stays loaded, so notes still in flight on a site the reviewer
  *  navigated away from keep their status. */
 const sites = new Map<string, Site>()
+/** A server's name is a label, not a description. */
+const SERVER_NAME_MAX = 60
 let site: Site | undefined
 /** What the overlay on the page last said about itself: in canvas ("edit") mode, the brush on.
  *  Not saved: the page remembers its own mode across a reload and says it again. */
@@ -124,6 +126,7 @@ function snapshot(): AppState {
   const model = defaultModel()
   return {
     connection,
+    ...(store.settings().server?.name ? { serverName: store.settings().server!.name } : {}),
     page: p ?? { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false },
     review: {
       enabled: review?.enabled ?? true,
@@ -252,8 +255,11 @@ async function connect(url: string, password: string, opts: { save?: "remote" | 
   connection = { status: "online", url, version: info.version }
   // A local server is saved as "the one on this computer", not by address: its port and
   // password are OpenCode's to change, and are read again from its own file each time.
-  if (opts.save === "remote") store.update((s) => void (s.server = { url, password: seal(password) }))
-  if (opts.save === "local") store.update((s) => void (s.server = { local: true }))
+  // A name stays with its server: connecting to the same one again keeps it, another drops it.
+  const before = store.settings().server
+  const name = before?.name && (opts.save === "local" ? "local" in before : "url" in before && before.url === url) ? { name: before.name } : {}
+  if (opts.save === "remote") store.update((s) => void (s.server = { url, password: seal(password), ...name }))
+  if (opts.save === "local") store.update((s) => void (s.server = { local: true, ...name }))
   unlisten = next.listen(onBackend)
   push()
   const [m, a] = await Promise.all([next.models(), next.agents()]).catch((err) => {
@@ -1089,6 +1095,17 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     await need().setModel(current.id, model)
     store.update((s) => void (s.defaultModel = { providerID: model.providerID, id: model.id, ...(model.variant ? { variant: model.variant } : {}) }))
     if (session?.id === current.id) session = { ...session, model }
+    push()
+  },
+  setServerName(name) {
+    const server = store.settings().server
+    if (!server) throw new Error("Connect to a server first.")
+    const clean = name.replace(/\s+/g, " ").trim().slice(0, SERVER_NAME_MAX)
+    store.update((s) => {
+      if (!s.server) return
+      if (clean) s.server.name = clean
+      else delete s.server.name
+    })
     push()
   },
   async setDefaultModel(model) {

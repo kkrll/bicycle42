@@ -16,7 +16,8 @@ import { REVIEW_VERSION } from "./review"
 export type Settings = {
   version: 1
   /** `password` is already encrypted by the caller; here it is an opaque string. */
-  server?: { url: string; password: string } | { local: true }
+  /** `name` is the reviewer's own for it ("Studio Mac"); without one it is called by its address. */
+  server?: ({ url: string; password: string } | { local: true }) & { name?: string }
   lastUrl?: string
   defaultModel?: ModelRef
   /** Key: the site's origin. */
