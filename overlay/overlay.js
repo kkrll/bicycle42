@@ -127,7 +127,16 @@
   let corner, bar, insp, cv, cnote, treeEl, trows, tspace, clsEl, cssEl, freeEl, compEl, ipath, bandEl, ghostEl, insEl, labEl, dimEl, handles, edges, hitEl, gzEl, shieldEl;
   let hostEl, root, ink, strokesEl, pencil, boxes, pinsEl, card, what, refs, textarea, cursorStyle, tip, sentEl, chip, menuEl, variantsEl, variantStyle;
   const PLACEHOLDER = "Note…  ( / for templates, paste a picture to attach it )";
-  const HINT = `↵ send · ${isMac ? "⌥↵" : "alt+↵"} in parallel · / templates · esc`;
+  // The card's keys: behind its "?", shown while the pointer (or focus) is on it. The card itself
+  // carries no instructions, only what is being noted and the ↵ that sends it.
+  const CARD_KEYS = [
+    ["↵", "send"],
+    [isMac ? "⌥↵" : "alt+↵", "send, to work in parallel"],
+    ["/", "templates"],
+    ["↑ ↓", "parent, child (note empty)"],
+    [isMac ? "⌘Z" : "ctrl+Z", "undo a stroke"],
+    ["esc", "cancel the note"],
+  ];
   let cardAt = null; // where the note card last sat: the "Sent" chip appears there
   let sentTimer = 0;
   let raf = 0;
@@ -506,14 +515,23 @@
     kick();
   }
 
-  /** The line beside the card's title: the keys, or why the note did not go (until it is changed). */
+  /** Beside the card's title: why the note did not go, until it is changed. Nothing otherwise. */
   function setHint(why) {
     const hint = card.querySelector(".hint");
-    const text = why || HINT;
+    const text = why || "";
     if (hint.textContent === text) return;
-    hint.textContent = text;
-    hint.title = why || "";
+    hint.textContent = hint.title = text;
+    hint.hidden = !why;
     hint.classList.toggle("warn", !!why);
+  }
+
+  /** The ↵ in the card's corner: lit when Enter would send. */
+  function drawCardSend() {
+    if (!card) return;
+    const can = !!(textarea.value.trim() || S.template);
+    const b = card.querySelector(".csend");
+    if (b.disabled === !can) return;
+    b.disabled = !can;
   }
 
   function closeCard() {
@@ -538,7 +556,8 @@
     chip.hidden = !S.template;
     chip.textContent = S.template ? `/${S.template}` : "";
     const t = S.templates.find((x) => x.name === S.template);
-    textarea.placeholder = t ? `${t.hint}. Add a note, or just press ↵` : PLACEHOLDER;
+    textarea.placeholder = t ? `${t.hint}. Add a note, or send it as it is` : PLACEHOLDER;
+    drawCardSend();
     drawMenu();
   }
 
@@ -667,6 +686,10 @@
     const left = Math.min(Math.max(8, a.x), W - w - 8);
     cardAt = [Math.round(left), Math.round(top)];
     card.style.transform = `translate(${cardAt[0]}px, ${cardAt[1]}px)`;
+    // The keys open toward the room: down from a card in the top half, up from one in the bottom.
+    const low = top > H / 2;
+    if (card._low !== low) card.classList.toggle("low", (card._low = low));
+    drawCardSend();
   }
 
   // ── submit ──────────────────────────────────────────────────────────────────────────────────
@@ -846,7 +869,7 @@
 
   function offerUndo(draft) {
     if (!cardAt) return;
-    sentEl.textContent = `Note dropped · ${isMac ? "⌘" : "ctrl+"}Z brings it back`;
+    sentEl.replaceChildren(keyNodes(`Note dropped · ${isMac ? "⌘" : "ctrl+"}Z brings it back`));
     sentEl.style.transform = `translate(${cardAt[0]}px, ${cardAt[1]}px)`;
     sentEl.hidden = false;
     sentEl.style.animation = "none";
@@ -968,9 +991,36 @@
     undo: '<path d="M6 3.5 3 6.5l3 3"/><path d="M3 6.5h6.25a3.25 3.25 0 0 1 0 6.5H7"/>',
     redo: '<path d="m10 3.5 3 3-3 3"/><path d="M13 6.5H6.75a3.25 3.25 0 0 0 0 6.5H9"/>',
     help: '<circle cx="8" cy="8" r="6.2"/><path d="M6.2 6.2a1.9 1.9 0 0 1 3.7.6c0 1.2-1.8 1.5-1.8 2.7"/><path d="M8.1 11.7v.1"/>',
+    // The Mac's key symbols, drawn: the page's fonts may not have them, and fallbacks draw specks.
+    "⌘": '<path d="M6 6V4a2 2 0 1 0-2 2h8a2 2 0 1 0-2-2v8a2 2 0 1 0 2-2H4a2 2 0 1 0 2 2z"/>',
+    "⇧": '<path d="M8 2.7 13.3 8h-3v5.3H5.7V8H2.7z"/>',
+    "⌥": '<path d="M2 3.3h3.7l4.6 9.4H14M9.7 3.3H14"/>',
+    "↵": '<path d="M13.3 3.3v4a2.7 2.7 0 0 1-2.7 2.7H2.7M5.7 7l-3 3 3 3"/>',
   };
   const icon = (name, size = 16) =>
     `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
+  const KEY_NAMES = { "⌘": "command", "⇧": "shift", "⌥": "option", "↵": "return" };
+  /** Words with key symbols in them ("↵ send", "⌘Z"), as nodes: the symbols drawn at the size of
+   *  the letters, the rest as text (never markup, so any words are safe here). */
+  function keyNodes(text) {
+    const out = document.createDocumentFragment();
+    for (const part of String(text).split(/([⌘⇧⌥↵])/)) {
+      if (!part) continue;
+      if (!KEY_NAMES[part]) {
+        out.append(part);
+        continue;
+      }
+      const t = document.createElement("template");
+      t.innerHTML = icon(part, 12);
+      const svg = t.content.firstChild;
+      svg.classList.add("kg");
+      svg.setAttribute("role", "img");
+      svg.setAttribute("aria-label", KEY_NAMES[part]);
+      svg.removeAttribute("aria-hidden");
+      out.append(svg);
+    }
+    return out;
+  }
   const newBatch = () => ({ els: {}, sheet: "", ops: [] });
   const EMPTY = JSON.stringify(newBatch());
   const C = {
@@ -1912,7 +1962,8 @@
     cnote.hidden = !C.on || !!msg;
     const m = $(".bmsg");
     m.hidden = !C.on || !msg;
-    m.textContent = m.title = msg;
+    m.replaceChildren(keyNodes(msg));
+    m.title = msg;
     m.classList.toggle("warn", !!C.msg);
     // The button says which key does the same from where the keyboard is now.
     $(".bsend").title = n ? `Send ${n === 1 ? "this edit" : `these ${n} edits`} as one note (${inField ? (isMac ? "⌘" : "ctrl+") : ""}↵)` : "Nothing to send yet";
@@ -1940,14 +1991,15 @@
 
   // ── the bar's lists: what is in the batch, and the keys ─────────────────────────────────────
   const HELP = () => {
-    const m = isMac ? "⌘" : "ctrl+", alt = isMac ? "⌥" : "alt";
+    // A Mac writes a chord without "+" (⌘⇧Z), everyone else with it (ctrl+shift+Z).
+    const m = isMac ? "⌘" : "ctrl+", sh = isMac ? "⇧" : "shift+", alt = isMac ? "⌥" : "alt+";
     if (!C.on)
       return [
-        ["click", "select · shift+click adds"],
+        ["click", `select · ${isMac ? "⇧ click" : "shift+click"} adds`],
         ["drag", "select everything in an area"],
-        [`${alt}+drag, or the pencil`, "draw · a closed loop selects what it encloses"],
+        [`${isMac ? "⌥ drag" : "alt+drag"}, or the pencil`, "draw · a closed loop selects what it encloses"],
         ["↑ ↓", "parent, child (with the note empty)"],
-        ["↵", `send · ${alt}+↵ sends in parallel`],
+        ["↵", `send · ${alt}↵ sends in parallel`],
         ["/", "templates"],
         [`${m}Z`, "undo a stroke, or bring back a dropped note"],
         ["esc", "cancel the note, then leave review mode"],
@@ -1960,7 +2012,7 @@
       ["drag the space between items", "change the gap"],
       ["double-click text", "edit it · ↵ keep, esc revert"],
       ["Delete", "hide the selection"],
-      [`${m}Z · ${m}shift+Z`, "undo · redo"],
+      [`${m}Z · ${m}${sh}Z`, "undo · redo"],
       ["↵", `send · ${m}↵ from the inspector's fields`],
       ["esc", "leave the field, deselect, back to annotate"],
       [`${m}E`, "annotate ⇄ edit"],
@@ -2049,7 +2101,10 @@
     if (C.pop === "help")
       pop.replaceChildren(...HELP().map(([k, v]) => {
         const row = el("div", "hrow");
-        row.append(el("span", "hk", k), el("span", "hv", v));
+        const hk = el("span", "hk"), hv = el("span", "hv");
+        hk.append(keyNodes(k));
+        hv.append(keyNodes(v));
+        row.append(hk, hv);
         return row;
       }));
     else
@@ -3802,13 +3857,34 @@
       border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.12);
       font: 14px/1.45 system-ui, -apple-system, sans-serif; pointer-events: auto; }
     .card[hidden] { display: none; }
-    .meta { display: flex; justify-content: space-between; gap: 12px; margin: 0 2px 8px; color: #d4d4d4; font-size: 12px; }
-    .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fffaa0; font-weight: 500; }
-    .hint { flex: none; }
+    .meta { display: flex; align-items: center; gap: 12px; height: 20px; margin: 0 0 6px 2px; color: #d4d4d4; font-size: 12px; }
+    .what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fffaa0; font-weight: 500; }
     .hint.warn { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fbbf24; }
+    /* The card's keys: a "?" whose list shows while the pointer or the focus is on it. */
+    .khelp { position: relative; flex: none; display: flex; }
+    .kq { all: unset; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 5px; color: #8b8b8b; cursor: help; }
+    .kq:hover, .kq:focus-visible { color: #ededed; background: rgba(255, 255, 255, 0.08); }
+    .kq:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
+    .kpop { position: absolute; right: -4px; top: calc(100% + 6px); z-index: 1; display: none; width: max-content; padding: 6px 4px; box-sizing: border-box;
+      background: #1a1a1b; border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.12);
+      font-size: 12px; line-height: 1.4; pointer-events: none; }
+    .card.low .kpop { top: auto; bottom: calc(100% + 6px); }
+    .khelp:hover .kpop, .kq:focus-visible + .kpop { display: block; }
+    .krow { display: flex; align-items: center; gap: 12px; padding: 3px 8px; }
+    .kk { flex: none; display: inline-flex; align-items: center; gap: 1px; min-width: 40px; color: #ededed; }
+    .kv { color: #9ca3af; white-space: nowrap; }
+    .kg { flex: none; display: inline-block; vertical-align: -1px; }
+    /* The note and, in its corner, the ↵ that sends it: lit once there is something to send. */
+    .cbody { display: flex; align-items: flex-end; gap: 6px; }
+    .cbody textarea { flex: 1; min-width: 0; }
     textarea { all: unset; display: block; width: 100%; box-sizing: border-box; min-height: 44px; max-height: 240px;
       overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 4px 2px; color: #ededed; font: inherit;
       cursor: text; }
+    .csend { all: unset; flex: none; display: grid; place-items: center; width: 28px; height: 28px; margin: 0 -4px -4px 0; border-radius: 6px;
+      color: #ededed; cursor: pointer; }
+    .csend:hover { background: rgba(255, 255, 255, 0.1); }
+    .csend:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
+    .csend:disabled { color: #5c5c5c; background: none; cursor: default; }
     textarea::placeholder { color: #9ca3af; }
     .chip { all: unset; display: inline-block; margin: 0 2px 4px; padding: 1px 8px; border-radius: 6px; cursor: pointer;
       background: rgba(255, 250, 160, 0.16); color: #fffaa0; font: 500 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -4033,9 +4109,12 @@
     root.innerHTML = `<style>${STYLES}</style>
       <svg class="ink" xmlns="${SVG}"><defs>${PENCIL}</defs><g class="areas"></g><g class="strokes" filter="url(#b42-pencil)"></g></svg>
       <div class="boxes"></div><div class="pins"></div>
-      <div class="card" hidden><div class="meta"><span class="what"></span><span class="hint">${HINT}</span></div>
+      <div class="card" hidden><div class="meta"><span class="what"></span><span class="hint" hidden></span>
+        <span class="khelp"><button type="button" class="kq" aria-label="Keys" aria-describedby="b42-ckeys">${icon("help", 14)}</button><div class="kpop" id="b42-ckeys" role="tooltip"></div></span></div>
       <button type="button" class="chip" title="Remove the template" hidden></button>
-      <textarea rows="2" placeholder="${PLACEHOLDER}" spellcheck="false"></textarea><div class="menu" hidden></div><div class="refs" hidden></div></div>
+      <div class="cbody"><textarea rows="2" placeholder="${PLACEHOLDER}" spellcheck="false"></textarea>
+        <button type="button" class="csend" aria-label="Send" title="Send (↵) · ${isMac ? "⌥" : "alt+"}click to work in parallel" disabled>${icon("↵")}</button></div>
+      <div class="menu" hidden></div><div class="refs" hidden></div></div>
       <div class="variants"></div><div class="tip" hidden></div><div class="sent" hidden></div>
       <div class="cv" hidden><div class="band" hidden></div>
         <div class="hit" hidden><div class="gzs"></div><div class="eg" hidden></div><div class="eg" hidden></div><div class="eg" hidden></div><div class="eg" hidden></div>
@@ -4123,6 +4202,25 @@
     // Keys typed into the card must not reach the page's own shortcuts.
     for (const t of ["keydown", "keyup", "keypress", "input", "beforeinput", "paste", "copy", "cut"]) card.addEventListener(t, (e) => e.stopPropagation());
     textarea.addEventListener("paste", onPaste);
+    card.querySelector(".kpop").replaceChildren(...CARD_KEYS.map(([k, v]) => {
+      const row = document.createElement("div");
+      row.className = "krow";
+      const kk = document.createElement("span");
+      kk.className = "kk";
+      kk.append(keyNodes(k));
+      const kv = document.createElement("span");
+      kv.className = "kv";
+      kv.textContent = v;
+      row.append(kk, kv);
+      return row;
+    }));
+    // Neither button takes the caret from the note: the words stay where they were being typed.
+    for (const b of card.querySelectorAll(".kq, .csend")) b.addEventListener("mousedown", (e) => e.preventDefault());
+    // ↵ as a button: the same as the key. The host admits a note after a real click as after Enter.
+    card.querySelector(".csend").addEventListener("click", (e) => {
+      submit(e.altKey);
+      if (S.card) textarea.focus({ preventScroll: true });
+    });
     chip.addEventListener("click", () => {
       setTemplate(null);
       draftChanged();
@@ -4130,6 +4228,7 @@
     });
     textarea.addEventListener("input", () => {
       setHint("");
+      drawCardSend();
       updateMenu();
       autosize();
       draftChanged();

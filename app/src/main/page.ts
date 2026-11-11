@@ -129,11 +129,12 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     // can't fake that: before-input-event sees real input, not events the page dispatches.
     // (A page that waits for the reviewer's own Enter can still slip its note in ahead of the
     // real one; closing that needs the isolated world.)
-    // An edit-mode note (it carries edits) can also be sent with the bar's Send button: a real
-    // click in this view just before counts as the Enter does, once.
+    // A note can also be sent with a button (the note card's ↵, the edit bar's Send): a real click
+    // in this view just before counts as the Enter does, once. That is weaker than Enter alone (a
+    // page could slip its own note in right after any click of the reviewer's), a trade made
+    // knowingly for a button to click.
     if ((msg as PageMessage).type === "note") {
-      const edits = Array.isArray((msg as { note?: { edits?: unknown } }).note?.edits)
-      const real = Date.now() - enterAt <= ENTER_WINDOW || (edits && Date.now() - clickAt <= ENTER_WINDOW)
+      const real = Date.now() - Math.max(enterAt, clickAt) <= ENTER_WINDOW
       enterAt = clickAt = 0
       if (!real) {
         if (!forgeryLogged) log("warn", "page: dropped a note that no Enter key press or click came with (sent by the page's own script?)", { url })

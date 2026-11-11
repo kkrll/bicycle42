@@ -13,7 +13,8 @@ const PATHS = {
   right: "M9 6l6 6-6 6",
   plus: "M12 5v14M5 12h14",
   close: "M6 6l12 12M18 6L6 18",
-  send: "M12 19V5M6 11l6-6 6 6",
+  // Send is the key that sends: ↵, the same drawing as on the keys.
+  send: "M20 5v6a4 4 0 0 1-4 4H4M8.5 10.5L4 15l4.5 4.5",
   stop: "M7 7h10v10H7z",
   pencil: "M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19l-4 1zM14.5 6.5l3 3",
   terminal: "M4 5h16v14H4zM8 10l3 2.5L8 15M13 15h3",

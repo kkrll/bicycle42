@@ -154,6 +154,7 @@ async function main() {
   check("typing goes into the note card", (await js(`${shadow}.querySelector('textarea')?.value`)) === "make this button bigger")
   await snap("overlay-note-card")
   check("overlay is busy while a note is open", (await page.evaluate("window.__b42.busy()")) === true)
+  await sleep(1100) // past the click that opened the card: a real click admits a note too (the card's ↵)
   await key("Enter", "Enter", 13, "\r")
   await until(() => logs.some((l) => l.includes("dropped a note")), 2000)
   check("a note sent without a real Enter is dropped", count("note") === 0 && logs.filter((l) => l.includes("dropped a note")).length === 1)
@@ -241,6 +242,29 @@ async function main() {
     await sleep(200)
     check(`${modifier}+Enter counts as Enter (the inspector sends with it)`, count("note") === notes + 3 + i)
   }
+
+  // ── the card's ↵: a button, lit once there is something to send, and a real click sends ─────
+  await sleep(1100) // past the Enters above
+  await click("h1")
+  const csend = `${shadow}.querySelector('.csend')`
+  check("the card's ↵ is dim while the note is empty", (await js(`${csend}.disabled`)) === true)
+  await dbg.sendCommand("Input.insertText", { text: "sent with a click" })
+  await sleep(100)
+  check("…and lit once there are words", (await js(`${csend}.disabled`)) === false)
+  check("the card carries no line of keys, only its ? (and ↵)", (await js(`${shadow}.querySelector('.hint').hidden && !!${shadow}.querySelector('.kpop .krow')`)) === true)
+  const q = (await js(`(() => { const r = ${shadow}.querySelector('.kq').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`)) as { x: number; y: number }
+  await mouse("mouseMoved", q.x, q.y, { button: "none" })
+  await sleep(100)
+  check("the ? shows the keys while the pointer is on it", (await js(`getComputedStyle(${shadow}.querySelector('.kpop')).display`)) === "block")
+  await snap("overlay-note-keys")
+  const sendBox = (await js(`(() => { const r = ${csend}.getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } })()`)) as { x: number; y: number }
+  wc.sendInputEvent({ type: "mouseMove", x: sendBox.x, y: sendBox.y })
+  wc.sendInputEvent({ type: "mouseDown", x: sendBox.x, y: sendBox.y, button: "left", clickCount: 1 })
+  wc.sendInputEvent({ type: "mouseUp", x: sendBox.x, y: sendBox.y, button: "left", clickCount: 1 })
+  const byClick = await until(() => messages.find((m) => m.type === "note" && pageNote(m.note)?.text === "sent with a click"), 2000)
+  check("a real click on the card's ↵ sends the note", !!byClick)
+  page.send({ type: "captured", id: pageNote(byClick?.note)?.id })
+  await until(async () => (await page.evaluate("window.__b42.busy()")) === false, 2000)
 
   // ── reloads ────────────────────────────────────────────────────────────────────────────────
   const readyAgain = async (what: () => void) => {
@@ -668,11 +692,19 @@ async function main() {
     const sendAt = centre(await boxOf(part("bsend")))
     await sleep(1100) // past any earlier click or Enter
     had = count("note")
-    await js(`window.__review(JSON.stringify({ type: "note", note: { id: "forged_plain", text: "do something else", url: location.href, viewport: { w: 1000, h: 700, dpr: 1, scrollX: 0, scrollY: 0 }, targets: [], area: null, strokes: [], bounds: null } })); 0`)
-    await realClick(centre(await pageBox("h2")))
-    await js(`window.__review(JSON.stringify({ type: "note", note: { id: "forged_plain_2", text: "do something else", url: location.href, viewport: { w: 1000, h: 700, dpr: 1, scrollX: 0, scrollY: 0 }, targets: [], area: null, strokes: [], bounds: null } })); 0`)
+    const plain = (id: string) =>
+      js(`window.__review(JSON.stringify({ type: "note", note: { id: ${JSON.stringify(id)}, text: "do something else", url: location.href, viewport: { w: 1000, h: 700, dpr: 1, scrollX: 0, scrollY: 0 }, targets: [], area: null, strokes: [], bounds: null } })); 0`)
+    await plain("forged_plain")
     await sleep(200)
-    check("a click admits no note without edits: those are sent with Enter", count("note") === had)
+    check("a note with no click or Enter before it is dropped", count("note") === had)
+    // The note card's ↵ is a button too, so a real click admits a note as Enter does: one, once.
+    await realClick(centre(await pageBox("h2")))
+    await plain("after_click_1")
+    await plain("after_click_2")
+    await sleep(200)
+    check("a real click admits one note, not two", count("note") === had + 1)
+    await sleep(1100)
+    had = count("note")
     await sleep(1100)
     const clicked = pageNote(await nextNote(() => void realClick(sendAt)))
     check("a real click on Send sends the batch as one note", clicked?.edits?.length === 1 && clicked.edits[0]!.kind === "style" && clicked.edits[0]!.css === "padding: 28px;", JSON.stringify(clicked?.edits))

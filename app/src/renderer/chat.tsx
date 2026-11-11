@@ -544,13 +544,13 @@ function Permission(props: { ask: PermissionAsk; count: number }) {
         <p class="form-error">{error()}</p>
       </Show>
       <div class="ask-actions">
-        <button class="btn primary" disabled={busy()} title={keys("enter")} onClick={() => reply("once")}>
+        <button class="btn primary" disabled={busy()} title={`Allow once (${keys("enter")})`} onClick={() => reply("once")}>
           Allow once
         </button>
-        <button class="btn" disabled={busy()} title={keys("mod", "enter")} onClick={() => reply("always")}>
+        <button class="btn" disabled={busy()} title={`Always allow (${keys("mod", "enter")})`} onClick={() => reply("always")}>
           Always allow
         </button>
-        <button class="btn" disabled={busy()} title="Esc" onClick={() => reply("reject")}>
+        <button class="btn" disabled={busy()} title="Deny (Esc)" onClick={() => reply("reject")}>
           Deny
         </button>
       </div>
@@ -730,7 +730,7 @@ function Ask(props: { question: Question; count: number }) {
           type="submit"
           disabled={busy()}
           aria-disabled={!answer().complete}
-          title={answer().complete ? keys("enter") : "Choose an answer first"}
+          title={answer().complete ? `Answer (${keys("enter")})` : "Choose an answer first"}
         >
           Answer
         </button>
