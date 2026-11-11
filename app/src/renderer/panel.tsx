@@ -658,7 +658,7 @@ export function Panel(props: {
           <Show when={noConversation()}>
             <NoConversation chooseFolder={() => setPicking(true)} />
           </Show>
-          <Chat composerRef={props.composerRef} />
+          <Chat composerRef={props.composerRef} openSettings={props.openSettings} />
         </Match>
       </Switch>
     </>

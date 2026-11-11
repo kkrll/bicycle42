@@ -46,7 +46,7 @@ async function strokes({ page }) {
   await page.keyboard.up("Alt");
 }
 const canvasOn = async (page) => {
-  await page.locator("b42-review .m-canvas").click();
+  await page.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" })); // the switch is the host's
   await page.waitForFunction(() => !document.querySelector("b42-review").shadowRoot.querySelector(".insp").hidden);
 };
 /** Press on a card, move it 48 px and back, let go where it started: nothing is reordered, and

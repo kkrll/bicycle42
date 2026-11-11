@@ -9,7 +9,7 @@ import type { Rect } from "../shared/types"
 
 export type PageState = { url: string; loading: boolean; error?: string; canGoBack: boolean; canGoForward: boolean; hmr: boolean }
 
-export type PageMessage = { type: "ready" | "toggle" | "draft" | "note" | "pins-placement" | "pin" | "edits-shown"; [k: string]: unknown }
+export type PageMessage = { type: "ready" | "toggle" | "mode" | "draft" | "note" | "pins-placement" | "pin" | "edits-shown"; [k: string]: unknown }
 
 export type Page = {
   readonly view: WebContentsView
@@ -45,7 +45,7 @@ type Options = {
   log(level: "info" | "warn" | "error", msg: string, data?: unknown): void
 }
 
-const PAGE_EVENTS = new Set(["ready", "toggle", "draft", "note", "pins-placement", "pin", "edits-shown"])
+const PAGE_EVENTS = new Set(["ready", "toggle", "mode", "draft", "note", "pins-placement", "pin", "edits-shown"])
 /** After a note finishes, give the dev server a moment to write and rebuild before reloading. */
 const RELOAD_DELAY = 400
 const BUSY_RETRY = 700
@@ -102,6 +102,8 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   let disposed = false
   /** When the reviewer last pressed Enter in this view; 0 once that Enter has admitted its note. */
   let enterAt = 0
+  /** The last real left click released in the view (see the note check below). */
+  let clickAt = 0
   /** When a note was last refused here (see below): at most one answer a second. */
   let refusedAt = 0
   let forgeryLogged = false
@@ -127,11 +129,14 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     // can't fake that: before-input-event sees real input, not events the page dispatches.
     // (A page that waits for the reviewer's own Enter can still slip its note in ahead of the
     // real one; closing that needs the isolated world.)
+    // An edit-mode note (it carries edits) can also be sent with the bar's Send button: a real
+    // click in this view just before counts as the Enter does, once.
     if ((msg as PageMessage).type === "note") {
-      const real = Date.now() - enterAt <= ENTER_WINDOW
-      enterAt = 0
+      const edits = Array.isArray((msg as { note?: { edits?: unknown } }).note?.edits)
+      const real = Date.now() - enterAt <= ENTER_WINDOW || (edits && Date.now() - clickAt <= ENTER_WINDOW)
+      enterAt = clickAt = 0
       if (!real) {
-        if (!forgeryLogged) log("warn", "page: dropped a note that no Enter key press came with (sent by the page's own script?)", { url })
+        if (!forgeryLogged) log("warn", "page: dropped a note that no Enter key press or click came with (sent by the page's own script?)", { url })
         forgeryLogged = true // once per page load: a hostile page would call it in a loop
         // The reviewer's own note can be late too (a page that stalls for a second after Enter).
         // The overlay is told, so the note does not look sent; it ignores an id it is not
@@ -265,6 +270,10 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     if (/^https?:/i.test(to)) load(to)
     else log("info", "page: ignored window.open for a non-web URL", { url: to.slice(0, 200) })
     return { action: "deny" }
+  })
+
+  wc.on("before-mouse-event", (_event, mouse) => {
+    if (mouse.type === "mouseUp" && mouse.button === "left") clickAt = Date.now()
   })
 
   // ── keys while the page has focus ────────────────────────────────────────────────────────────

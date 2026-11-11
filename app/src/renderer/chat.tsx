@@ -16,6 +16,7 @@ import type {
 import { Composer } from "./composer"
 import { CopyButton } from "./copy"
 import { Icon, toolIcon } from "./icons"
+import { ServerButton } from "./connect"
 import { openLightbox } from "./lightbox"
 import { Markdown } from "./markdown"
 import { act, chat, focusedNote, keys, mac, message, b42, setNotice, state } from "./store"
@@ -755,7 +756,7 @@ function ago(time: number): string {
   return new Date(time).toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 
-function Conversations() {
+function Conversations(props: { openSettings: () => void }) {
   const [open, setOpen] = createSignal(false)
   let root!: HTMLDivElement
   let button!: HTMLButtonElement
@@ -790,6 +791,7 @@ function Conversations() {
         if (open() && !root.contains(e.relatedTarget as Node | null)) close(false)
       }}
     >
+      <ServerButton onClick={props.openSettings} />
       <button
         ref={button}
         class="convo-current"
@@ -853,7 +855,7 @@ function Conversations() {
 
 // ── the whole thing ─────────────────────────────────────────────────────────────────────────────
 
-export function Chat(props: { composerRef: (el: HTMLTextAreaElement) => void }) {
+export function Chat(props: { composerRef: (el: HTMLTextAreaElement) => void; openSettings: () => void }) {
   let scroller!: HTMLDivElement
   let section!: HTMLElement
   let content!: HTMLDivElement
@@ -950,7 +952,7 @@ export function Chat(props: { composerRef: (el: HTMLTextAreaElement) => void }) 
 
   return (
     <section class="chat" aria-label="Conversation" ref={section}>
-      <Conversations />
+      <Conversations openSettings={props.openSettings} />
       <div class="transcript-wrap" classList={{ away: away() }}>
         <div
           class="transcript"

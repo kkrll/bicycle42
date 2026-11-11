@@ -3,6 +3,7 @@
 import { For, Show, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js"
 import type { ConnectionState, ModelInfo, ModelRef } from "../shared/types"
 import { Icon } from "./icons"
+import { soundOn, toggleSound } from "./sound"
 import { act, host, message, b42, setNotice, state } from "./store"
 
 /** True from pressing Connect on the first-run screen until main answers: the window keeps
@@ -352,6 +353,61 @@ export function ModelScreen() {
   )
 }
 
+/** The server, as an icon with its state as a dot; in a word when it is not simply connected.
+ *  Opens the settings. In the panel's conversation row, or the top bar while that is not shown. */
+export function ServerButton(props: { onClick: () => void }) {
+  const word = () => (state.connection.status === "offline" ? "Offline" : state.connection.status === "connecting" ? "Connecting" : "")
+  return (
+    <button
+      class="icon-btn"
+      classList={{ labelled: word() !== "" }}
+      data-action="settings"
+      data-status={state.connection.status}
+      aria-label={word() ? `Settings. Server: ${word()}` : "Settings"}
+      title={`${connectionText(state.connection)}. Click for settings`}
+      onClick={props.onClick}
+    >
+      <Icon name="server" />
+      <Show when={word()} fallback={<span class="dot" data-status={state.connection.status} />}>
+        <span>{word()}</span>
+      </Show>
+    </button>
+  )
+}
+
+function Toggle(props: { on: boolean; label: string; title: string; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button class="toggle" role="switch" aria-checked={props.on} disabled={props.disabled} title={props.title} onClick={props.onClick}>
+      <span class="toggle-track" />
+      {props.label}
+    </button>
+  )
+}
+
+/** What used to sit in the top bar and is set once: reloading after a note, and the sounds. */
+function Preferences() {
+  return (
+    <div class="dialog-prefs">
+      <div class="dialog-pref">
+        <Toggle
+          on={state.review.autoReload && !state.page.hmr}
+          label="Reload the page when a note is done"
+          title="Reload the page when the agent finishes a note"
+          disabled={!state.page.url || state.page.hmr}
+          onClick={() => act("toggleAutoReload")}
+        />
+        <Show when={state.page.hmr}>
+          <span class="dialog-sub">This page updates by itself when files change, so the app doesn't reload it.</span>
+        </Show>
+      </div>
+      <div class="dialog-pref">
+        <Toggle on={soundOn()} label="Sounds" title="A question, a failure, finished" onClick={toggleSound} />
+        <span class="dialog-sub">When the agent asks something, when a note fails or the server is lost, and when it has finished.</span>
+      </div>
+    </div>
+  )
+}
+
 export function SettingsDialog(props: { onClose: () => void }) {
   const [choosing, setChoosing] = createSignal(false)
   const defaultName = () => {
@@ -372,7 +428,7 @@ export function SettingsDialog(props: { onClose: () => void }) {
       onClick={(e) => e.target === dialog && dialog.close()}
     >
       <header class="dialog-head">
-        <h2 id="settings-title">Server</h2>
+        <h2 id="settings-title">Settings</h2>
         <button class="icon-btn" aria-label="Close" title="Close" onClick={() => dialog.close()}>
           <Icon name="close" />
         </button>
@@ -433,6 +489,7 @@ export function SettingsDialog(props: { onClose: () => void }) {
           <ConnectForm onDone={() => dialog.close()} />
         </details>
       </Show>
+      <Preferences />
       <Show when={c().status === "offline" || c().status === "connecting"}>
         <footer class="dialog-foot">
           <p>Disconnecting forgets this server and its password on this computer.</p>

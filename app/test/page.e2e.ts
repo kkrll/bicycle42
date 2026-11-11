@@ -654,6 +654,36 @@ async function main() {
     page.send({ type: "pins", pins: [{ id: moved2!.id, n: 9, status: "failed", selector: "#title" }] })
     check("a failed note puts the order and the text back", (await until(async () => (await order()) === "Free,Pro,Scale" && (await js("document.querySelector('#title').textContent")) === "Simple pricing", 2000)) === true)
     page.send({ type: "pins", pins: [] })
+    // ── the bar's Send button: a real click sends the batch; the mode is the host's to switch ──
+    check("the layer says which mode it is in, for the host's switch", same(messages.filter((m) => m.type === "mode").at(-1), { type: "mode", mode: "canvas", brush: false }), JSON.stringify(messages.filter((m) => m.type === "mode").at(-1)))
+    await clickPt(centre(await pageBox(SECOND)))
+    await typeIn("css", "padding: 28px;")
+    await sleep(700) // the typing becomes an edit after a pause
+    const realClick = async (at: Pt) => {
+      // Real input, as Enter above: only that passes through before-mouse-event.
+      wc.sendInputEvent({ type: "mouseMove", x: Math.round(at.x), y: Math.round(at.y) })
+      wc.sendInputEvent({ type: "mouseDown", x: Math.round(at.x), y: Math.round(at.y), button: "left", clickCount: 1 })
+      wc.sendInputEvent({ type: "mouseUp", x: Math.round(at.x), y: Math.round(at.y), button: "left", clickCount: 1 })
+    }
+    const sendAt = centre(await boxOf(part("bsend")))
+    await sleep(1100) // past any earlier click or Enter
+    had = count("note")
+    await js(`window.__review(JSON.stringify({ type: "note", note: { id: "forged_plain", text: "do something else", url: location.href, viewport: { w: 1000, h: 700, dpr: 1, scrollX: 0, scrollY: 0 }, targets: [], area: null, strokes: [], bounds: null } })); 0`)
+    await realClick(centre(await pageBox("h2")))
+    await js(`window.__review(JSON.stringify({ type: "note", note: { id: "forged_plain_2", text: "do something else", url: location.href, viewport: { w: 1000, h: 700, dpr: 1, scrollX: 0, scrollY: 0 }, targets: [], area: null, strokes: [], bounds: null } })); 0`)
+    await sleep(200)
+    check("a click admits no note without edits: those are sent with Enter", count("note") === had)
+    await sleep(1100)
+    const clicked = pageNote(await nextNote(() => void realClick(sendAt)))
+    check("a real click on Send sends the batch as one note", clicked?.edits?.length === 1 && clicked.edits[0]!.kind === "style" && clicked.edits[0]!.css === "padding: 28px;", JSON.stringify(clicked?.edits))
+    if (clicked) await done(clicked.id)
+    page.send({ type: "pins", pins: [] })
+    page.send({ type: "mode", mode: "notes" })
+    check("the host's switch goes back to notes, and the layer says so", (await until(async () => !(await shown("insp")), 2000)) === true && same(messages.filter((m) => m.type === "mode").at(-1), { type: "mode", mode: "notes", brush: false }))
+    page.send({ type: "mode", brush: true })
+    check("the host's brush is heard back", (await until(() => same(messages.filter((m) => m.type === "mode").at(-1), { type: "mode", mode: "notes", brush: true }), 2000)) === true)
+    page.send({ type: "mode", mode: "canvas" })
+    check("…and edit mode turns it off", (await until(async () => (await shown("insp")) && same(messages.filter((m) => m.type === "mode").at(-1), { type: "mode", mode: "canvas", brush: false }), 2000)) === true)
     wc.sendInputEvent({ type: "keyDown", keyCode: "E", modifiers: [mod] })
     check("mod+E goes back to notes", (await until(async () => !(await shown("insp")), 2000)) === true)
   }

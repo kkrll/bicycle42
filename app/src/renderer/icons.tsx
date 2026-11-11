@@ -35,6 +35,12 @@ const PATHS = {
   slash: "M15 4L9 20",
   gauge: "M4.5 17a8.5 8.5 0 1 1 15 0M12 13.5l3.5-4.5M12 15a1.5 1.5 0 1 0 0-3",
   mode: "M4 7h10M18 7h2M4 17h2M10 17h10M16 4.5v5M8 14.5v5",
+  eye: "M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12zM12 14.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z",
+  note: "M4 5h16v11H10.5L6 20v-4H4z",
+  // Drawing on the page: a pencil at the end of the line it drew (the plain pencil above is the
+  // agent's file edit). Edit mode: a frame with its handles, and the code it turns into.
+  draw: "M13 7C11 3.5 5 3.5 4.5 6.5 4 9.5 10.5 9 10.5 12 10.5 14.5 6 13.5 5 16M9 21l1-3.5 8-8a1.77 1.77 0 0 1 2.5 2.5l-8 8zM16.5 11l2.5 2.5",
+  frame: "M3.5 3.5h3v3h-3zM15.5 3.5h3v3h-3zM3.5 15.5h3v3h-3zM6.5 5h9M5 6.5v9M17 6.5v4M6.5 17h2M14.5 13.5L11 17l3.5 3.5M17.5 13.5L21 17l-3.5 3.5",
   sound: "M4 9.5h3.5L12 6v12l-4.5-3.5H4zM15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10",
   muted: "M4 9.5h3.5L12 6v12l-4.5-3.5H4zM16 9.5l5 5M21 9.5l-5 5",
 } as const

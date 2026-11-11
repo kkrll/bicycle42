@@ -48,7 +48,7 @@ async function open({ delay = 150, canvas = true } = {}) {
   return { page, f, errors };
 }
 const canvasOn = async (f) => {
-  await f.locator("b42-review .m-canvas").click();
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
   await f.waitForFunction(() => !document.querySelector("b42-review").shadowRoot.querySelector(".insp").hidden);
 };
 
@@ -639,7 +639,7 @@ test("Esc: leaves the field, deselects, leaves canvas mode (edits stay), then re
   assert.deepEqual(await s(), { field: null, sel: 0, insp: true, count: "1 edit" });
   await page.keyboard.press("Escape");
   await frames(f);
-  assert.deepEqual(await s(), { field: null, sel: 0, insp: false, count: "1 unsent canvas edit" });
+  assert.deepEqual(await s(), { field: null, sel: 0, insp: false, count: "1 unsent edit" });
   assert.equal((await box(f, SECOND)).width, 300, "the edit is still applied, and still in the draft");
   await page.waitForFunction(() => window.__harness.draft?.edits && Object.keys(window.__harness.draft.edits.els).length === 1);
   assert.equal(await page.evaluate(() => window.__harness.enabled), true);
@@ -667,8 +667,8 @@ test("Esc cancels a drag; nothing is ever sent without Enter", async () => {
   await drag(page, f, b.x + b.width, b.y + 30, b.x + b.width + 40, b.y + 30);
   await f.locator("b42-review .undo").click();
   await field(f, "css").fill("color: red;");
-  await f.locator("b42-review .m-notes").click();
-  await f.locator("b42-review .m-canvas").click();
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "notes" }));
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
   await page.waitForTimeout(300);
   assert.equal(await page.evaluate(() => window.__harness.notes.length), 0);
   assert.ok(!(await page.evaluate(() => window.__harness.log)).includes("note"));
@@ -840,21 +840,22 @@ test("U3 a refusal never outlives the next thing done; in notes mode unsent canv
   await settle(f);
   assert.equal(await ui(f, (r) => r.querySelector(".bmsg").hidden), true);
   // back in notes mode the edit is not forgotten: a button says so and leads back
-  await f.locator("b42-review .m-notes").click();
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "notes" }));
   const count = f.locator("b42-review .count");
-  assert.equal(await count.textContent(), "1 unsent canvas edit");
+  assert.equal(await count.textContent(), "1 unsent edit");
   await count.click();
   await settle(f);
   assert.deepEqual(await ui(f, (r) => [r.querySelector(".insp").hidden, r.querySelector(".count").textContent]), [false, "1 edit"]);
   await page.close();
 });
 
-test("U6 the bar keeps its width and place through every state; U5 one send hint that names the right key", async () => {
+test("U6 the bar keeps its width and place through every state; U5 Send is off with nothing to send, and names the key that does the same", async () => {
   const { page, f } = await open({ delay: 60000 });
   const seen = [];
   const look = async (what) => seen.push([what, ...(await ui(f, (r) => {
     const b = r.querySelector(".bar").getBoundingClientRect();
-    return [Math.round(b.left), Math.round(b.width), r.querySelector(".undo").disabled, r.querySelector(".reset").disabled, r.querySelector(".bsend").textContent];
+    const send = r.querySelector(".bsend");
+    return [Math.round(b.left), Math.round(b.width), r.querySelector(".undo").disabled, r.querySelector(".reset").disabled, send.disabled ? "off" : (send.title.match(/\(([^)]*)\)$/) || [])[1]];
   }))]);
   await look("entered");
   await clickAt(page, f, SECOND, 100, 80);
@@ -883,19 +884,20 @@ test("U6 the bar keeps its width and place through every state; U5 one send hint
   await look("sent");
   const mod = MOD === "Meta" ? "⌘" : "ctrl+";
   assert.deepEqual(seen, [
-    ["entered", 250, 580, true, true, "↵ send"],
-    ["selected", 250, 580, true, true, "↵ send"],
-    ["refused", 250, 580, true, true, "↵ send"],
-    ["typing in the inspector", 250, 580, true, false, `${mod}↵ send`],
-    ["two edits", 250, 580, false, false, "↵ send"],
-    ["editing text", 250, 580, false, false, "↵ send"],
-    ["sent", 250, 580, true, true, "↵ send"],
+    ["entered", 348, 340, true, true, "off"],
+    ["selected", 348, 340, true, true, "off"],
+    ["refused", 348, 340, true, true, "off"],
+    ["typing in the inspector", 348, 340, true, false, `${mod}↵`],
+    ["two edits", 348, 340, false, false, "↵"],
+    ["editing text", 348, 340, false, false, "↵"],
+    ["sent", 348, 340, true, true, "off"],
   ]);
+
   assert.equal(await ui(f, (r) => r.querySelector(".ihead").textContent.includes("send")), false, "no second send hint in the inspector's header");
   // a long refusal is cut with an ellipsis and kept whole in the title
   await page.keyboard.press("Enter");
   await frames(f);
-  assert.deepEqual(await ui(f, (r) => { const m = r.querySelector(".bmsg"); return [m.title, m.scrollWidth >= m.clientWidth, Math.round(r.querySelector(".bar").getBoundingClientRect().width)]; }), ["Nothing to send yet: edit something first", true, 580]);
+  assert.deepEqual(await ui(f, (r) => { const m = r.querySelector(".bmsg"); return [m.title, m.scrollWidth >= m.clientWidth, Math.round(r.querySelector(".bar").getBoundingClientRect().width)]; }), ["Nothing to send yet: edit something first", true, 340]);
   await page.close();
 });
 
@@ -966,10 +968,44 @@ test("P5 while a brace is open, what was complete stays applied; the open rule i
   await page.close();
 });
 
+test("the bar's Send button sends the batch as one note, with the words typed under it; off while there is nothing to send", async () => {
+  const { page, f } = await open();
+  const sendBtn = f.locator("b42-review .bsend");
+  assert.deepEqual([await sendBtn.textContent(), await sendBtn.isDisabled()], ["Send", true]);
+  await clickAt(page, f, SECOND, 100, 80);
+  await field(f, "css").fill("padding: 30px;");
+  await settle(f);
+  assert.equal(await sendBtn.isDisabled(), false);
+  // the card: the count, undo, reset and Send on one row, the note under them
+  const rows = await ui(f, (r) => { const q = (s) => r.querySelector(s).getBoundingClientRect(); const c = q(".count"), s = q(".bsend"), n = q(".cnote"), b = q(".bar"); return [Math.abs((c.top + c.bottom) / 2 - (s.top + s.bottom) / 2) < 1, n.top >= s.bottom, Math.round(b.right - s.right), r.querySelector(".cnote").placeholder]; });
+  assert.deepEqual(rows, [true, true, 4, "Add a note…"]);
+  // undo and redo are icons there, named for a screen reader and with their keys on hover
+  const step = (cls) => ui(f, (r, c) => { const b = r.querySelector(`.${c}`), q = b.getBoundingClientRect(); return [b.getAttribute("aria-label"), /Z\)$/.test(b.title), b.textContent, b.disabled, q.width >= 24 && q.height >= 24]; }, cls);
+  await f.locator("b42-review .cnote").focus(); // leaving the styles box makes what was typed a step
+  await settle(f);
+  assert.deepEqual([await step("undo"), await step("redo")], [["Undo", true, "", false, true], ["Redo", true, "", true, true]]);
+  await f.locator("b42-review .undo").click();
+  await settle(f);
+  const pad = () => f.locator(SECOND).evaluate((el) => getComputedStyle(el).paddingLeft);
+  assert.deepEqual([await pad(), (await step("undo"))[3], (await step("redo"))[3], await sendBtn.isDisabled()], ["16px", true, false, true]);
+  await f.locator("b42-review .redo").click();
+  await settle(f);
+  assert.deepEqual([await pad(), (await step("redo"))[3], await sendBtn.isDisabled()], ["30px", true, false]);
+  await f.locator("b42-review .cnote").fill("roomier");
+  await sendBtn.click();
+  await waitNotes(page, 1);
+  const n = await page.evaluate(() => { const x = window.__harness.notes[0]; return [x.text, x.edits.length, x.edits[0].kind]; });
+  assert.deepEqual(n, ["roomier", 1, "style"]);
+  await f.waitForFunction(() => !window.__b42.busy());
+  assert.deepEqual([await sendBtn.isDisabled(), await f.locator("b42-review .cnote").inputValue()], [true, ""]);
+  await page.close();
+});
+
 test("brush: on, a plain drag draws a stroke; off, it selects an area; alt+drag draws either way", async () => {
   const { page, f } = await open({ canvas: false });
-  const brush = f.locator("b42-review .m-brush");
-  const pressed = () => brush.getAttribute("aria-pressed");
+  // the brush is the host's button: the layer is told, and says back what it is
+  const brush = page.locator("#brush");
+  const pressed = () => page.evaluate(() => String(window.__harness.brush));
   const line = async (alt) => {
     const hs = [await box(f, "#plans article:nth-of-type(1) h3"), await box(f, "#plans article:nth-of-type(3) h3")];
     const y = hs[0].y + hs[0].height / 2;
@@ -980,14 +1016,7 @@ test("brush: on, a plain drag draws a stroke; off, it selects an area; alt+drag 
     await page.mouse.up();
     if (alt) await page.keyboard.up("Alt");
   };
-  assert.deepEqual([await pressed(), await brush.getAttribute("aria-label"), await brush.getAttribute("title")], ["false", "Draw on the page", `Draw on the page · or hold ${MOD === "Meta" ? "⌥" : "alt"} and drag`]);
-  // its own bubble, left of the bar: square, the bar's height, 8px away, and the pair centred together
-  const geo = await ui(f, (r) => {
-    const a = r.querySelector(".m-brush").getBoundingClientRect(), b = r.querySelector(".bar").getBoundingClientRect();
-    return { square: [a.width, a.height], gap: Math.round(b.left - a.right), top: a.top === b.top, tall: a.height === b.height,
-      centred: Math.abs((a.left + b.right) / 2 - innerWidth / 2) < 1, inSeg: !!r.querySelector(".seg .m-brush") };
-  });
-  assert.deepEqual(geo, { square: [36, 36], gap: 8, top: true, tall: true, centred: true, inSeg: false });
+  assert.deepEqual([await pressed(), await ui(f, (r) => r.querySelector(".m-brush, .seg"))], ["false", null], "the layer has no brush or mode switch of its own");
   // off: a plain drag is an area, as it always was
   const b = await box(f, "#grid");
   await page.mouse.move(b.x - 4, b.y - 4);
@@ -1025,27 +1054,33 @@ test("brush: on, a plain drag draws a stroke; off, it selects an area; alt+drag 
   await page.keyboard.press("Escape");
   assert.equal(await pressed(), "false");
   // from canvas mode the brush leads to notes mode with the brush on; canvas mode turns it off
-  await f.locator("b42-review .m-canvas").click();
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
   await brush.click();
-  assert.deepEqual([await pressed(), await ui(f, (r) => r.querySelector(".insp").hidden)], ["true", true]);
-  await f.locator("b42-review .m-canvas").click();
-  assert.equal(await pressed(), "false");
+  await frames(f);
+  assert.deepEqual([await pressed(), await ui(f, (r) => r.querySelector(".insp").hidden), await page.evaluate(() => window.__harness.mode)], ["true", true, "notes"]);
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
+  assert.deepEqual([await pressed(), await page.evaluate(() => window.__harness.mode)], ["false", "canvas"]);
+  // the layer's own key changes the mode too, and the host hears it
+  await clickAt(page, f, "#title"); // the keyboard is with the page again
+  await page.keyboard.press(`${MOD}+e`);
+  assert.equal(await page.evaluate(() => window.__harness.mode), "notes");
   await page.close();
 });
 
-test("the “?” is a bubble of its own in the corner: on the bar's row, its key list above it and inside the window; the bar gives way", async () => {
+test("the “?” is a bubble of its own in the corner: level with the bar, its key list above it and inside the window; notes mode has no bar", async () => {
   const { page, f } = await open({ canvas: false });
   const geo = () => ui(f, (r) => {
-    const q = r.querySelector(".help").getBoundingClientRect(), b = r.querySelector(".bar").getBoundingClientRect(), br = r.querySelector(".m-brush").getBoundingClientRect();
+    const q = r.querySelector(".help").getBoundingClientRect(), b = r.querySelector(".bar").getBoundingClientRect();
     const p = r.querySelector(".corner .pop"), pr = p.getBoundingClientRect();
-    return { right: Math.round(innerWidth - q.right), size: [q.width, q.height], row: q.top === b.top && q.top === br.top, clear: q.left - b.right >= 8, inBar: !!r.querySelector(".bar .help"),
+    // (the bar is not drawn in notes mode: null)
+    return { right: Math.round(innerWidth - q.right), size: [q.width, q.height], row: b.width ? q.bottom === b.bottom : null, clear: b.width ? q.left - b.right >= 8 : null, inBar: !!r.querySelector(".bar .help"),
       pop: p.hidden ? null : { above: pr.bottom <= q.top, rightAligned: Math.round(pr.right) === Math.round(q.right), inside: pr.left >= 0 && pr.top >= 0 }, shown: !r.querySelector(".corner").hidden };
   });
   // notes mode: there too, with the keys of notes mode
-  assert.deepEqual(await geo(), { right: 12, size: [36, 36], row: true, clear: true, inBar: false, pop: null, shown: true });
+  assert.deepEqual(await geo(), { right: 12, size: [36, 36], row: null, clear: null, inBar: false, pop: null, shown: true });
   await f.locator("b42-review .help").click();
   assert.deepEqual((await geo()).pop, { above: true, rightAligned: true, inside: true });
-  assert.match(await ui(f, (r) => r.querySelector(".corner .pop").textContent), /the brush.*templates/s);
+  assert.match(await ui(f, (r) => r.querySelector(".corner .pop").textContent), /the pencil.*templates/s);
   await page.keyboard.press("Escape");
   assert.equal((await geo()).pop, null);
   assert.equal(await page.evaluate(() => window.__harness.enabled), true, "Esc closed the list, not review mode");
@@ -1067,10 +1102,10 @@ test("the “?” is a bubble of its own in the corner: on the bar's row, its ke
   await field(f, "css").fill("width: 180px;");
   await settle(f);
   const narrow = await ui(f, (r) => {
-    const q = r.querySelector(".help").getBoundingClientRect(), b = r.querySelector(".bar").getBoundingClientRect(), br = r.querySelector(".m-brush").getBoundingClientRect();
-    return { vw: innerWidth, brushIn: br.left >= 0, gap: q.left - b.right >= 8, right: Math.round(innerWidth - q.right), note: r.querySelector(".cnote").getBoundingClientRect().width > 20 };
+    const q = r.querySelector(".help").getBoundingClientRect(), b = r.querySelector(".bar").getBoundingClientRect();
+    return { vw: innerWidth, barIn: b.left >= 0, gap: q.left - b.right >= 8, right: Math.round(innerWidth - q.right), note: r.querySelector(".cnote").getBoundingClientRect().width > 20 };
   });
-  assert.deepEqual(narrow, { vw: 600, brushIn: true, gap: true, right: 12, note: true });
+  assert.deepEqual(narrow, { vw: 600, barIn: true, gap: true, right: 12, note: true });
   // hidden with the bar during a capture
   await page.evaluate(() => { const fw = document.getElementById("page").contentWindow; const real = fw.__b42.receive; fw.__b42.receive = (m) => (m.type === "captured" ? 0 : real(m)); });
   await clickAt(page, f, "#title");
@@ -1143,8 +1178,8 @@ test("tree: after a far-down element is selected from the page, the pane is full
   s = await treeFill(f);
   assert.deepEqual([s.blank, s.selVisible], [0, true], `after folding and opening the dock: ${JSON.stringify(s)}`);
   // leaving canvas mode and coming back
-  await f.locator("b42-review .m-notes").click();
-  await f.locator("b42-review .m-canvas").click();
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "notes" }));
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
   await clickAt(page, f, "#far-down");
   await frames(f, 3);
   s = await treeFill(f);
@@ -1320,7 +1355,7 @@ test("icons are SVG: no glyph stands in for one, and what is clicked is at least
     const svg = (s) => !!r.querySelector(`${s} svg`) && getComputedStyle(r.querySelector(`${s} svg`)).stroke !== "none" && r.querySelector(`${s} svg`).getAttribute("viewBox") === "0 0 16 16";
     const text = [".bar", ".insp", ".corner"].map((s) => r.querySelector(s).textContent).join(" ");
     return {
-      svg: [".ifold", ".help", ".m-brush", ".trow .tw", ".ex", ".count"].filter((s) => !svg(s)),
+      svg: [".ifold", ".help", ".undo", ".redo", ".trow .tw", ".ex", ".count"].filter((s) => !svg(s)),
       glyphs: (text.match(/[▾▸▴▲▼◂✕✖×●•‹›❮❯?]/g) || []).join(""),
       fold: size(".ifold"), ex: size(".ex"), help: size(".help"), twisty: size(".trow .tw"),
       foldTitle: r.querySelector(".ifold").title,

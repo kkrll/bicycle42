@@ -1028,3 +1028,56 @@ test("one model, no models, or a list that cannot be read: nothing is asked and 
     }
   }
 })
+
+test("the top bar's switch: Preview, Notes and Edit, and the brush, go to the page; what the page says back is what shows", async () => {
+  const h = await boot()
+  try {
+    await h.ready()
+    const review = () => {
+      const r = h.snap().review
+      return `${r.mode}${r.brush ? "+brush" : ""}${r.enabled ? "" : " off"}`
+    }
+    const sent = () => h.page.sent.filter((m) => m.type === "mode" || m.type === "enabled").map((m) => JSON.stringify(m))
+    h.page.message({ type: "ready" })
+    assert.equal(review(), "notes")
+
+    h.page.sent.length = 0
+    await h.cmd("setMode", "edit")
+    assert.deepEqual([review(), sent()], ["edit", ['{"type":"mode","mode":"canvas"}']])
+    // The overlay's own key (mod+E, Esc) changes it too.
+    h.page.message({ type: "mode", mode: "notes", brush: false })
+    assert.equal(review(), "notes")
+    h.page.message({ type: "mode", mode: "canvas", brush: false })
+    assert.equal(review(), "edit")
+
+    // Preview is review off; the page keeps its mode for when review comes back.
+    h.page.sent.length = 0
+    await h.cmd("setMode", "preview")
+    assert.deepEqual([review(), sent()], ["preview off", ['{"type":"enabled","enabled":false}']])
+    await h.cmd("toggleReview")
+    assert.equal(review(), "edit")
+
+    // The brush belongs to notes mode, and turns review on.
+    await h.cmd("setMode", "preview")
+    h.page.sent.length = 0
+    await h.cmd("toggleBrush")
+    assert.deepEqual([review(), sent()], ["notes+brush", ['{"type":"enabled","enabled":true}', '{"type":"mode","brush":true}']])
+    h.page.message({ type: "mode", mode: "notes", brush: true })
+    await h.cmd("toggleBrush")
+    assert.equal(review(), "notes")
+    await h.cmd("toggleBrush")
+    await h.cmd("setMode", "edit")
+    assert.equal(review(), "edit", "edit mode has no brush")
+
+    // A new document starts in notes mode until its overlay says otherwise (a reload while editing).
+    h.page.message({ type: "ready" })
+    assert.equal(review(), "notes")
+    h.page.message({ type: "mode", mode: "canvas", brush: false })
+    assert.equal(review(), "edit")
+    // Anything else in the message is not a mode.
+    h.page.message({ type: "mode", mode: "everything", brush: "yes" })
+    assert.equal(review(), "notes")
+  } finally {
+    await h.close()
+  }
+})

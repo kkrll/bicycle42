@@ -356,7 +356,7 @@ function base(): AppState {
   return {
     connection: { status: "online", url: "http://my-box.example:4096", version: "1.4.2" },
     page: { url: `${ORIGIN}/pricing`, loading: false, canGoBack: true, canGoForward: false, hmr: false },
-    review: { enabled: true, autoReload: true, notes: notes(), unplaced: 2 },
+    review: { enabled: true, mode: "notes", brush: false, autoReload: true, notes: notes(), unplaced: 2 },
     site: { origin: ORIGIN, directory: DIRECTORY },
     session: { id: SESSION, title: "Pricing page review", updated: now, busy: false, agent: "build", directory: DIRECTORY },
     sessions: [
@@ -525,19 +525,19 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     case "empty":
       Object.assign(state, { site: null, session: null, sessions: [] })
       state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }
-      state.review = { enabled: false, autoReload: false, notes: [], unplaced: 0 }
+      state.review = { enabled: false, mode: "preview", brush: false, autoReload: false, notes: [], unplaced: 0 }
       items = []
       break
     case "folder":
       Object.assign(state, { site: { origin: ORIGIN }, session: null, sessions: [] })
-      state.review = { enabled: false, autoReload: false, notes: [], unplaced: 0 }
+      state.review = { enabled: false, mode: "preview", brush: false, autoReload: false, notes: [], unplaced: 0 }
       items = []
       break
     case "model-choice":
       // Just connected to a server with a long list: which model should conversations start with?
       Object.assign(state, { site: null, session: null, sessions: [] })
       state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }
-      state.review = { enabled: false, autoReload: false, notes: [], unplaced: 0 }
+      state.review = { enabled: false, mode: "preview", brush: false, autoReload: false, notes: [], unplaced: 0 }
       state.models = [
         { providerID: "anthropic", id: "opus-4-5", name: "Opus 4.5", images: true, variants: ["low", "medium", "high"] },
         { providerID: "anthropic", id: "sonnet-4-5", name: "Sonnet 4.5", images: true, variants: ["low", "medium", "high"] },
@@ -566,7 +566,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       })
       break
     case "fresh":
-      state.review = { enabled: true, autoReload: false, notes: [], unplaced: 0 }
+      state.review = { enabled: true, mode: "notes", brush: false, autoReload: false, notes: [], unplaced: 0 }
       state.page.hmr = true
       items = []
       break
@@ -726,6 +726,19 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     },
     toggleReview() {
       state.review.enabled = !state.review.enabled
+      state.review.mode = state.review.enabled ? "notes" : "preview"
+      if (!state.review.enabled) state.review.brush = false
+      push()
+    },
+    setMode(mode: AppState["review"]["mode"]) {
+      state.review.enabled = mode !== "preview"
+      state.review.mode = mode
+      if (mode !== "notes") state.review.brush = false
+      push()
+    },
+    toggleBrush() {
+      state.review.brush = !state.review.brush
+      if (state.review.brush) Object.assign(state.review, { enabled: true, mode: "notes" })
       push()
     },
     toggleAutoReload() {

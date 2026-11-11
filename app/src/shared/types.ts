@@ -211,6 +211,10 @@ export type SessionSummary = {
   undone?: string
 }
 
+/** The top bar's switch. "preview": the page as it is, review off. "notes": point at something
+ *  and say what to change. "edit": change the page itself (the overlay's canvas mode). */
+export type ReviewMode = "preview" | "notes" | "edit"
+
 export type AppState = {
   connection: ConnectionState
   page: {
@@ -224,7 +228,11 @@ export type AppState = {
     hmr: boolean
   }
   review: {
+    /** Notes or edit mode is on. Off is "preview". */
     enabled: boolean
+    mode: ReviewMode
+    /** The brush is on: a plain drag on the page draws. It belongs to notes mode. */
+    brush: boolean
     autoReload: boolean
     notes: NoteRow[]
     /** Pins whose element can no longer be found on the page. */
@@ -265,6 +273,10 @@ export type Commands = {
   setPageBounds(bounds: Rect | null): void
   // review
   toggleReview(): void
+  /** The top bar's switch. Notes and edit turn review on; the page takes the keyboard. */
+  setMode(mode: ReviewMode): void
+  /** The brush on or off. On, it turns review on and goes to notes mode. */
+  toggleBrush(): void
   toggleAutoReload(): void
   clearNotes(): void
   retryNote(id: string): void

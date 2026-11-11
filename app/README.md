@@ -59,8 +59,9 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
 - **A note remembers the conversation it was sent to**, and carries a message id chosen here.
   Switching conversations, a restart or a dropped connection can't mark it done by mistake, and
   retrying after a lost reply can't queue it twice.
-- **The page is untrusted.** A note counts only right after a real Enter key press in the page, so
-  the site's own scripts can't send text to the agent. Page text is quoted in the prompt as data.
+- **The page is untrusted.** A note counts only right after a real Enter key press in the page
+  (or, for a note of edits, a real click: the bar's Send button), so the site's own scripts
+  can't send text to the agent. Page text is quoted in the prompt as data.
   A canvas note's edits are checked field by field (`pageEdits` in `review.ts`): at most 40, known
   kinds, short one-line strings, a property name that looks like one. What fails is dropped.
   CSS typed in the inspector has a length limit and goes into the prompt inside a fence longer
@@ -69,7 +70,12 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   names at most one cue: a question or permission that was not there (`ascend`), the server
   lost, a note or the run failed (`descend`), the agent finished with nothing still on its way
   (`f-staccato`). What the reviewer did themselves (Stop, a note removed, another conversation) is
-  silent. `renderer/sound.ts` plays them; the speaker button in the top bar turns them off.
+  silent. `renderer/sound.ts` plays them; the settings dialog turns them off.
+- **The mode switch is the window's, the mode is the page's.** Preview | Annotate | Edit and the
+  pencil (the brush, in the code) are in the top bar (`setMode`, `toggleBrush`); main tells the overlay, and shows what the
+  overlay says back (`{ type: "mode" }`), so the page's own keys (`mod+E`, `Esc`) move the switch
+  too. "Edit" is the overlay's canvas mode; "Preview" is review off. The mode is not saved: the
+  page remembers it across a reload and says it again.
 - **Every note is answered.** The app replies `captured` once the pictures are taken, or
   `captured` with `ok: false` and a reason when it does not take the note (nothing in it it can
   send, not readable, or it came more than a second after Enter because the page stalled). The

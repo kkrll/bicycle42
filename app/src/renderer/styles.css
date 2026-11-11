@@ -12,8 +12,9 @@
 @import "@kkrll/design/motion.css";
 
 :root {
-  /* The one accent: olive on light, pale yellow on dark. The in-page overlay uses the same pair. */
-  --accent: #526737;
+  /* The one accent: a dark olive on light (near ink, so it holds as a fill under paper-coloured
+     words), pale yellow on dark. The in-page overlay uses the same pair. */
+  --accent: #3b4d22;
 
   /* Note pins, the same four the overlay draws on the page. */
   --status-queued: #6b7280;
@@ -543,12 +544,90 @@ details[open] > summary > .caret {
   color: var(--ink-bad);
 }
 
-/* Said, not switched: the page reloads itself. */
-.tool-note {
-  padding: 0 8px;
+/* The brush: a button with a surface of its own, beside the mode switch. On, it is the accent. */
+.icon-btn.boxed {
+  background: var(--surface);
+}
+
+.icon-btn.boxed[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--background);
+}
+
+/* Preview | Notes | Edit. The one in use is the accent: it says what a click on the page does. */
+.modes {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  height: 28px;
+  padding: 2px;
+  margin: 0 4px 0 2px;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px 0 8px;
+  border-radius: calc(var(--radius) - 2px);
   font-size: var(--text-control);
-  color: var(--muted);
+  font-weight: 500;
   white-space: nowrap;
+  color: var(--muted);
+  transition: background var(--duration-micro) var(--ease-micro);
+}
+
+.mode:not(:disabled):hover {
+  color: var(--foreground);
+}
+
+.mode[aria-checked="true"] {
+  background: var(--accent);
+  color: var(--background);
+  font-weight: 600;
+}
+
+.mode:disabled {
+  opacity: 0.55;
+}
+
+/* A narrow window: the icons alone (each still says its name and key on hover). */
+@media (max-width: 900px) {
+  .mode {
+    padding: 0 8px;
+  }
+
+  .mode-label {
+    display: none;
+  }
+}
+
+/* Settings: what is set once. */
+.dialog-prefs {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+
+.dialog-pref .toggle {
+  padding: 0;
+  color: var(--foreground);
+}
+
+.dialog-pref .toggle:not(:disabled):hover {
+  background: none;
+}
+
+.dialog-pref .dialog-sub {
+  padding-left: 29px;
+  color: var(--muted);
 }
 
 .page-error {

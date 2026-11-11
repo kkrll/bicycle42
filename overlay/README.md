@@ -66,5 +66,6 @@ The `hover` state is the worst case, a different element under the pointer on ev
   component names and dev source location when present), blocking page input while active,
   holding clicks made during a capture, re-finding pins after a re-render or an agent's edit
   (selector → tag + text → last position, dimmed).
-- **Doesn't:** screenshots, storage, sending, status. Those belong to the host, so the overlay
-  survives hot reloads without losing anything.
+- **Doesn't:** screenshots, storage, sending, status, or the switch between notes and canvas
+  mode and the brush (it tells the host which it is in, and takes `{ type: "mode" }` from it).
+  Those belong to the host, so the overlay survives hot reloads without losing anything.

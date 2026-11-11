@@ -10,6 +10,9 @@
  * page → host   window.__review(JSON.stringify(msg))      (a CDP Runtime.addBinding, or a shim)
  *   { type: "ready", url, viewport }                      overlay mounted; host replies with "state"
  *   { type: "toggle", enabled? }                          mod+shift+M, or Esc with nothing selected
+ *   { type: "mode", mode: "notes"|"canvas", brush }       the mode or the brush changed (also sent
+ *                                                         after every "state"). The host has the
+ *                                                         switch for both; the layer has none
  *   { type: "draft", draft | null }                       current unsent note, debounced
  *   { type: "note", note }                                submitted; card is hidden, outlines and
  *                                                         strokes stay drawn until "captured".
@@ -34,6 +37,8 @@
  * host → page   window.__b42.receive(msg)
  *   { type: "state", enabled, draft?, pins?, templates? } templates: [{ name, hint }], offered after "/"
  *   { type: "enabled", enabled }
+ *   { type: "mode", mode?: "notes"|"canvas", brush? }     the host's switch. brush: true goes to notes
+ *                                                         mode first: the brush belongs to it
  *   { type: "pins", pins: [Pin] }
  *       Pin = { id, n, status: queued|working|done|failed|paused|stopped, lane?: "bg", note?,
  *               selector?, tag?, text?, component?,      from the note's first target, for re-finding
@@ -58,9 +63,9 @@
  * Gestures (review mode on): hover outlines · click selects · shift+click adds · drag selects an
  * area · alt+drag draws (a closed loop selects what it encloses) · ↑/↓ parent/child (when the note
  * is empty, or with alt) · Enter sends · alt+Enter sends to the background · Esc cancels, then exits · mod+Z undoes a stroke (empty note).
- * The bar's brush (next to Notes) makes a plain drag draw, as alt+drag does, until the note is sent or cancelled.
+ * The host's brush makes a plain drag draw, as alt+drag does, until the note is sent or cancelled.
  *
- * Canvas mode (mod+E, or the bar's switch; review mode on): the page's real elements are edited and
+ * Canvas mode ("Edit" to the reviewer; mod+E, or the host's switch; review mode on): the page's real elements are edited and
  * the batch goes out as one note. An inspector docks at the bottom: DOM tree, class line, "Element
  * styles" (declarations for the selected element), "Stylesheet" (new rules), computed values.
  * click selects · drag reorders inside a flex or grid parent · drag an edge or corner resizes ·
@@ -105,7 +110,7 @@
     strokes: [], // [[[x,y],…]] document coords
     drag: null, // {x0,y0,x,y,mode,pts,shift}
     card: false,
-    brush: false, // the bar's brush is on: a plain drag draws
+    brush: false, // the host's brush is on: a plain drag draws
     pending: null, // note id awaiting "captured"
     quiet: null, // that id when it is a canvas note: the bar says "Sent", not a chip over the page
     buffered: null, // a click made while pending: {x,y,shift}
@@ -718,14 +723,14 @@
   } catch {}
 
   // The accent drawn on the page (selection outlines) has to show on the page's own background:
-  // olive on a light page, pale yellow on a dark one. The card and its chips are always dark.
+  // a dark olive on a light page, pale yellow on a dark one. The card and its chips are always dark.
   function pageAccent() {
     for (const el of [document.body, document.documentElement]) {
       const m = el && /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/.exec(getComputedStyle(el).backgroundColor);
       if (m && (m[4] === undefined || Number(m[4]) > 0.5))
-        return 0.2126 * m[1] + 0.7152 * m[2] + 0.0722 * m[3] < 110 ? "#fffaa0" : "#526737";
+        return 0.2126 * m[1] + 0.7152 * m[2] + 0.0722 * m[3] < 110 ? "#fffaa0" : "#3b4d22";
     }
-    return "#526737";
+    return "#3b4d22";
   }
 
   function scanVariants() {
@@ -959,8 +964,9 @@
     "chevron-right": '<path d="m6 4 4 4-4 4"/>',
     "chevron-left": '<path d="m10 4-4 4 4 4"/>',
     x: '<path d="m4 4 8 8M12 4l-8 8"/>',
+    undo: '<path d="M6 3.5 3 6.5l3 3"/><path d="M3 6.5h6.25a3.25 3.25 0 0 1 0 6.5H7"/>',
+    redo: '<path d="m10 3.5 3 3-3 3"/><path d="M13 6.5H6.75a3.25 3.25 0 0 0 0 6.5H9"/>',
     help: '<circle cx="8" cy="8" r="6.2"/><path d="M6.2 6.2a1.9 1.9 0 0 1 3.7.6c0 1.2-1.8 1.5-1.8 2.7"/><path d="M8.1 11.7v.1"/>',
-    brush: '<path d="M8 9.3 13.6 3.3a1 1 0 0 0-1.5-1.4L6.6 8.2"/><path d="M6.2 8.2c1.4 0 2.6 1.1 2.6 2.5 0 1.8-1.7 3-3.6 3-1.4 0-2.6-.5-3.2-1.2 1-.3 1.5-1 1.6-2 .2-1.3 1.2-2.3 2.6-2.3z"/>',
   };
   const icon = (name, size = 16) =>
     `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -1880,35 +1886,55 @@
       : C.msg || (C.edit ? "Editing text · ↵ keep · esc revert"
       : busyNote && n ? ""
       : C.done || (n ? "" : sentStatus())); // state only: the bar carries no standing instructions (the "?" has the keys)
-    const key = [C.on, n, msg, C.past.length, dock(), inField, C.pop, S.brush].join("|");
+    tellMode();
+    const key = [C.on, n, msg, C.past.length, C.future.length, dock(), inField, C.pop].join("|");
     if (key === bar._key) return;
     bar._key = key;
     const $ = (s) => bar.querySelector(s);
     const s = n === 1 ? "" : "s";
     bar.classList.toggle("canvas", C.on);
+    // In notes mode the bar has one thing to say, and only sometimes: edits were left unsent.
+    bar.classList.toggle("idle", !C.on && !n);
     bar.style.bottom = `${C.on ? dock() + 10 : 14}px`;
-    $(".m-notes").classList.toggle("on", !C.on);
-    $(".m-brush").classList.toggle("on", !!S.brush);
-    $(".m-brush").setAttribute("aria-pressed", String(!!S.brush));
-    $(".m-canvas").classList.toggle("on", C.on);
     const count = $(".count");
     count.hidden = !C.on && !n;
     count.disabled = C.on && !n;
-    count.firstChild.textContent = C.on ? (n ? `${n} edit${s}` : "No edits") : `${n} unsent canvas edit${s}`;
-    count.title = C.on ? (n ? "Show what is in this batch" : "Nothing edited yet") : "Back to canvas mode, where these edits can be sent";
+    count.firstChild.textContent = C.on ? (n ? `${n} edit${s}` : "No edits") : `${n} unsent edit${s}`;
+    count.title = C.on ? (n ? "Show what is in this batch" : "Nothing edited yet") : "Back to edit mode, where these edits can be sent";
     count.classList.toggle("open", C.pop === "list");
-    for (const b of [$(".undo"), $(".reset"), $(".bsend")]) b.hidden = !C.on;
+    for (const b of [$(".undo"), $(".redo"), $(".reset"), $(".bsend")]) b.hidden = !C.on;
     corner.style.bottom = bar.style.bottom; // the "?" keeps to the bar's row, in the corner
     corner.querySelector(".help").classList.toggle("on", C.pop === "help");
     $(".undo").disabled = !C.past.length;
+    $(".redo").disabled = !C.future.length;
     $(".reset").disabled = !n;
     cnote.hidden = !C.on || !!msg;
     const m = $(".bmsg");
     m.hidden = !C.on || !msg;
     m.textContent = m.title = msg;
     m.classList.toggle("warn", !!C.msg);
-    $(".bsend").textContent = `${inField ? (isMac ? "⌘" : "ctrl+") : ""}↵ send`;
-    $(".bsend").classList.toggle("off", !n);
+    // The button says which key does the same from where the keyboard is now.
+    $(".bsend").title = n ? `Send ${n === 1 ? "this edit" : `these ${n} edits`} as one note (${inField ? (isMac ? "⌘" : "ctrl+") : ""}↵)` : "Nothing to send yet";
+    $(".bsend").disabled = !n;
+  }
+
+  /** The host has the mode switch and the brush: it is told whenever either changes here (a key,
+   *  Esc, a note sent, a reload that comes back in edit mode). */
+  function tellMode() {
+    const mode = C.on ? "canvas" : "notes", key = `${mode}|${S.brush}`;
+    if (C.told === undefined || key === C.told) return; // nothing before the host's first "state"
+    C.told = key;
+    send({ type: "mode", mode, brush: !!S.brush });
+  }
+
+  /** From the host's switch. The brush belongs to notes mode: switching it on leaves edit mode. */
+  function hostMode(msg) {
+    if (msg.brush === true) {
+      setCanvas(false);
+      return setBrush(true);
+    }
+    if (msg.mode === "canvas" || msg.mode === "notes") setCanvas(msg.mode === "canvas");
+    if (msg.brush === false) setBrush(false);
   }
 
   // ── the bar's lists: what is in the batch, and the keys ─────────────────────────────────────
@@ -1918,13 +1944,13 @@
       return [
         ["click", "select · shift+click adds"],
         ["drag", "select everything in an area"],
-        [`${alt}+drag, or the brush`, "draw · a closed loop selects what it encloses"],
+        [`${alt}+drag, or the pencil`, "draw · a closed loop selects what it encloses"],
         ["↑ ↓", "parent, child (with the note empty)"],
         ["↵", `send · ${alt}+↵ sends in parallel`],
         ["/", "templates"],
         [`${m}Z`, "undo a stroke, or bring back a dropped note"],
         ["esc", "cancel the note, then leave review mode"],
-        [`${m}E`, "notes ⇄ canvas"],
+        [`${m}E`, "annotate ⇄ edit"],
       ];
     return [
       ["click", "select · ↑ ↓ parent, child"],
@@ -1935,8 +1961,8 @@
       ["Delete", "hide the selection"],
       [`${m}Z · ${m}shift+Z`, "undo · redo"],
       ["↵", `send · ${m}↵ from the inspector's fields`],
-      ["esc", "leave the field, deselect, back to notes"],
-      [`${m}E`, "notes ⇄ canvas"],
+      ["esc", "leave the field, deselect, back to annotate"],
+      [`${m}E`, "annotate ⇄ edit"],
     ];
   };
 
@@ -3052,14 +3078,9 @@
     corner.querySelector(".help").addEventListener("click", () => setPop("help"));
     cnote.addEventListener("focus", drawBar);
     cnote.addEventListener("blur", drawBar);
-    bar.querySelector(".m-notes").addEventListener("click", () => setCanvas(false));
-    bar.querySelector(".m-canvas").addEventListener("click", () => setCanvas(true));
-    bar.querySelector(".m-brush").addEventListener("click", () => {
-      const on = C.on || !S.brush; // from canvas mode: to notes, with the brush on
-      setCanvas(false);
-      setBrush(on);
-    });
+    bar.querySelector(".bsend").addEventListener("click", () => submitCanvas(false));
     bar.querySelector(".undo").addEventListener("click", undo);
+    bar.querySelector(".redo").addEventListener("click", redo);
     bar.querySelector(".reset").addEventListener("click", reset);
     cnote.addEventListener("input", draftChanged);
 
@@ -3314,7 +3335,7 @@
       x: e.clientX,
       y: e.clientY,
       mode: null,
-      alt: e.altKey || S.brush, // the bar's brush: a plain drag draws, as alt+drag does
+      alt: e.altKey || S.brush, // the host's brush: a plain drag draws, as alt+drag does
       shift: e.shiftKey,
       pts: [[e.clientX + window.scrollX, e.clientY + window.scrollY]],
     };
@@ -3828,35 +3849,28 @@
     .lab.live { color: #fffaa0; }
     .lab.snap { background: #fffaa0; color: #171717; }
     .lab.mid { translate: -50% -50%; }
-    /* canvas mode: the bar. In canvas mode its width is fixed, so nothing in it moves as the state changes. */
-    .bar { position: fixed; left: 100px; right: 56px; bottom: 14px; width: max-content; margin: 0 auto; display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 5px;
-      box-sizing: border-box; max-width: calc(100vw - 156px); pointer-events: auto; background: #1a1a1b; color: #ededed; border-radius: 8px; white-space: nowrap;
+    /* The bar, in edit mode: a small card above the inspector. What is in the batch, undo, reset
+       and Send on its first row; the note that goes with the edits (or what the bar has to say)
+       on its second. Its width is fixed, so nothing in it moves as the state changes. In notes
+       mode it is one button, and only when edits were left unsent. The mode switch and the brush
+       are the host's. */
+    .bar { position: fixed; left: 56px; right: 56px; bottom: 14px; width: max-content; margin: 0 auto; display: flex; flex-direction: column; gap: 4px; padding: 4px;
+      box-sizing: border-box; max-width: calc(100vw - 112px); pointer-events: auto; background: #1a1a1b; color: #ededed; border-radius: 10px; white-space: nowrap;
       box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.12); font: 13px/1 system-ui, -apple-system, sans-serif; }
-    .bar.canvas { width: 580px; }
-    .seg { display: flex; flex: none; padding: 2px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); }
-    .seg button, .act, .ifold, .count { all: unset; box-sizing: border-box; height: 24px; padding: 0 10px; border-radius: 5px; cursor: pointer; font: inherit; line-height: 24px; color: #b4b4b4; }
-    .seg button:hover, .act:hover, .ifold:hover { color: #fff; }
-    .seg button.on { background: rgba(255, 255, 255, 0.14); color: #fff; }
-    /* The brush: a bubble of its own to the left of the bar, same surface and height. The bar is
-       shifted by half of it (and the gap), so the pair is centred together. */
-    .m-brush { all: unset; position: absolute; right: calc(100% + 8px); top: 0; width: 36px; height: 36px; box-sizing: border-box; display: grid; place-items: center;
-      border-radius: 8px; background: #1a1a1b; color: #b4b4b4; cursor: pointer;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.12); }
-    .m-brush:hover { color: #fff; }
-    .m-brush.on { background: #fffaa0; color: #171717; }
-    .m-brush:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
-    .bar.canvas .m-canvas.on { background: #fffaa0; color: #171717; font-weight: 600; }
+    .bar.canvas { width: 340px; }
+    .bar.idle { display: none; }
+    .brow { display: flex; align-items: center; gap: 2px; height: 28px; }
+    .bgap { flex: 1; }
+    .act, .ifold, .count { all: unset; box-sizing: border-box; height: 24px; padding: 0 10px; border-radius: 5px; cursor: pointer; font: inherit; line-height: 24px; color: #b4b4b4; }
+    .act:hover, .ifold:hover { color: #fff; }
     .act { flex: none; padding: 0 8px; color: #ededed; }
+    .act.ib { display: grid; place-items: center; width: 28px; padding: 0; }
     .act:hover, .count:hover, .count.open { background: rgba(255, 255, 255, 0.1); }
     .act:disabled, .count:disabled { color: #6b6b6b; background: none; cursor: default; }
-    .seg button:focus-visible, .act:focus-visible, .ifold:focus-visible, .count:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
-    .count { flex: none; padding: 0 8px; color: #fffaa0; font-weight: 600; font-variant-numeric: tabular-nums; }
-    .bar.canvas .count { min-width: 66px; text-align: center; }
-    .count .ic { display: none; margin-left: 3px; vertical-align: -1px; }
-    .bar.canvas .count:not(:disabled) .ic { display: inline-block; }
-    /* The bar sits between the brush (left) and the "?" (corner): 44px more room on its left makes
-       the brush and the bar centre as a pair. Where that does not fit, the bar gives way, not the "?". */
-    @media (max-width: 740px) { .bar { left: 52px; max-width: calc(100vw - 108px); } }
+    .act:focus-visible, .ifold:focus-visible, .count:focus-visible, .bsend:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
+    .count { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; color: #fffaa0; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .count .ic { display: none; order: -1; }
+    .bar.canvas .count:not(:disabled) .ic { display: block; }
     .corner { position: fixed; right: 12px; bottom: 14px; width: 36px; height: 36px; pointer-events: auto; font: 13px/1 system-ui, -apple-system, sans-serif; }
     .help { all: unset; display: grid; place-items: center; width: 36px; height: 36px; box-sizing: border-box; border-radius: 8px; background: #1a1a1b; color: #b4b4b4;
       cursor: pointer; font: 600 14px/1 system-ui, -apple-system, sans-serif;
@@ -3864,14 +3878,18 @@
     .help:hover, .help.on { color: #fff; }
     .help:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
     .corner .pop { left: auto; right: 0; width: min(400px, calc(100vw - 24px)); color: #ededed; }
-    .cnote { all: unset; box-sizing: border-box; flex: 1 1 0; min-width: 0; height: 24px; padding: 0 8px; border-radius: 5px;
-      background: rgba(255, 255, 255, 0.08); color: #ededed; font: inherit; cursor: text; }
-    .cnote::placeholder, .cls::placeholder, .ed textarea::placeholder { color: #8b8b8b; font: italic 12px/18px system-ui, -apple-system, sans-serif; }
+    .cnote { all: unset; box-sizing: border-box; flex: none; width: 100%; height: 30px; padding: 0 8px; border-radius: 6px;
+      background: rgba(255, 255, 255, 0.07); color: #ededed; font: inherit; cursor: text; }
+    .cnote::placeholder { color: #8b8b8b; }
+    .cls::placeholder, .ed textarea::placeholder { color: #8b8b8b; font: italic 12px/18px system-ui, -apple-system, sans-serif; }
     .cnote:focus, .cls:focus, .ed textarea:focus { box-shadow: 0 0 0 1.5px rgba(255, 250, 160, 0.7); }
-    .bmsg { flex: 1 1 0; min-width: 0; padding: 0 4px; color: #9ca3af; font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+    .bmsg { flex: none; box-sizing: border-box; width: 100%; height: 30px; padding: 0 8px; color: #9ca3af; font-size: 12px; line-height: 30px; overflow: hidden; text-overflow: ellipsis; }
     .bmsg.warn { color: #fbbf24; }
-    .bsend { flex: none; min-width: 74px; text-align: right; color: #d4d4d4; font-size: 12px; }
-    .bsend.off { color: #6b6b6b; }
+    .bsend { all: unset; flex: none; box-sizing: border-box; height: 28px; margin-left: 4px; padding: 0 16px; border-radius: 6px; background: #fffaa0; color: #171717;
+      font: inherit; font-weight: 600; line-height: 28px; cursor: pointer; }
+    .bsend:hover { background: #fffcc4; }
+    .bsend:disabled { background: rgba(255, 255, 255, 0.08); color: #6b6b6b; cursor: default; }
+    .bar .pop { bottom: calc(100% + 6px); }
     .pop { position: absolute; left: 0; right: 0; bottom: 42px; max-height: min(50vh, 320px); overflow: auto; padding: 4px; box-sizing: border-box; white-space: normal;
       background: #1a1a1b; border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.12); font-size: 12px; line-height: 1.4; }
     .erow, .hrow { display: flex; align-items: baseline; gap: 6px; padding: 4px 4px 4px 8px; border-radius: 5px; }
@@ -4045,12 +4063,11 @@
               <div class="ed"><pre class="hl" aria-hidden="true"></pre><textarea id="b42-free" class="free" spellcheck="false" placeholder="New rules, e.g. .name { … }"></textarea></div><div class="err" hidden></div>
             </div>
           </div></div></div>
-      <div class="bar" hidden><button type="button" class="m-brush" aria-label="Draw on the page" aria-pressed="false" title="Draw on the page · or hold ${isMac ? "⌥" : "alt"} and drag">${icon("brush")}</button><div class="pop" hidden></div>
-        <div class="seg"><button type="button" class="m-notes on" title="Notes: point at something and say what to change">Notes</button><button type="button" class="m-canvas" title="Canvas: edit the page itself (${isMac ? "⌘" : "ctrl+"}E)">Canvas</button></div>
-        <button type="button" class="count" hidden><span class="cn"></span>${icon("chevron-up", 12)}</button>
-        <button type="button" class="act undo" title="Undo (${isMac ? "⌘" : "ctrl+"}Z)" hidden>Undo</button><button type="button" class="act reset" title="Remove every unsent edit (undoable)" hidden>Reset</button>
-        <input class="cnote" type="text" spellcheck="false" autocomplete="off" placeholder="Add a note (optional)" hidden><span class="bmsg" hidden></span>
-        <span class="bsend" hidden></span></div>
+      <div class="bar" hidden><div class="pop" hidden></div>
+        <div class="brow"><button type="button" class="count" hidden><span class="cn"></span>${icon("chevron-up", 12)}</button><span class="bgap"></span>
+          <button type="button" class="act ib undo" aria-label="Undo" title="Undo (${isMac ? "⌘" : "ctrl+"}Z)" hidden>${icon("undo")}</button><button type="button" class="act ib redo" aria-label="Redo" title="Redo (${isMac ? "⌘⇧" : "ctrl+shift+"}Z)" hidden>${icon("redo")}</button><button type="button" class="act reset" title="Remove every unsent edit (undoable)" hidden>Reset</button>
+          <button type="button" class="bsend" hidden>Send</button></div>
+        <input class="cnote" type="text" spellcheck="false" autocomplete="off" placeholder="Add a note…" hidden><span class="bmsg" hidden></span></div>
       <div class="corner" hidden><div class="pop" hidden></div><button type="button" class="help" title="Keys and gestures" aria-label="Keys and gestures">${icon("help")}</button></div>`;
     ink = root.querySelector(".ink");
     strokesEl = ink.querySelector(".strokes");
@@ -4146,6 +4163,11 @@
           if (msg.pins) setPins(msg.pins);
           if (msg.draft && !hasDraft() && C.snap === EMPTY) restoreDraft(msg.draft);
           resumeCanvas();
+          C.told = ""; // a new page, or a host that asks again: it hears the mode whatever it was
+          tellMode();
+          break;
+        case "mode":
+          hostMode(msg);
           break;
         case "enabled":
           setEnabled(!!msg.enabled);

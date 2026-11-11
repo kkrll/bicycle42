@@ -13,7 +13,7 @@
     .stage { display: grid; grid-template-rows: auto 1fr; min-width: 0; }
     .bar { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
     .bar .mode { padding: 3px 8px; border-radius: 6px; background: #2a2f3f; color: var(--muted); font-weight: 600; }
-    .bar .mode.on { background: #3b2a6b; color: #ddd6fe; }
+    .bar .mode.on, .bar button.on { background: #3b2a6b; color: #ddd6fe; }
     .bar .spacer { flex: 1; }
     button, select { background: #1b1f2a; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; font: inherit; }
     .frame-wrap { display: flex; justify-content: center; overflow: auto; background: #1a1d26; padding: 12px; }
@@ -38,6 +38,9 @@
     <div class="bar">
       <span class="mode" id="mode">Review off</span>
       <button id="toggle" title="mod+shift+M">Toggle</button>
+      <button id="brush" title="Draw on the page (or alt+drag)">Draw</button>
+      <button id="m-notes" title="Annotate: notes mode">Annotate</button>
+      <button id="m-edit" title="Edit mode (mod+E)">Edit</button>
       <select id="width" aria-label="Device width">
         <option value="">Full width</option>
         <option value="390">390 · phone</option>

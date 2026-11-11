@@ -268,8 +268,20 @@ async function main() {
     await sleep(150)
   }
   const CARD = "#plans article:nth-of-type(2)"
+  // The mode switch is the top bar's: Preview | Notes | Edit, and it follows the page's own keys.
+  const modeShown = () => ui(`document.querySelector('.mode[aria-checked="true"]')?.dataset.mode`) as Promise<string>
+  const inspector = () => js(`${shadow}.querySelector('.insp')?.checkVisibility() ?? false`) as Promise<boolean>
+  check("the top bar shows Annotate, and the page has no mode switch of its own", (await modeShown()) === "notes" && (await ui(`document.querySelector('.mode[aria-checked="true"]').textContent`)) === "Annotate" && state().review.mode === "notes" && (await js(`!${shadow}.querySelector('.seg, .m-brush')`)) === true)
+  await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
+  check("Edit in the top bar opens the inspector on the page", (await until(inspector)) === true && (await until(async () => (await modeShown()) === "edit")) === true && state().review.mode === "edit")
   wc.sendInputEvent({ type: "keyDown", keyCode: "E", modifiers: [mod] })
-  await until(() => js(`${shadow}.querySelector('.insp')?.checkVisibility() ?? false`))
+  check("mod+E on the page goes back to Annotate, and the top bar follows", (await until(async () => !(await inspector()) && (await modeShown()) === "notes")) === true)
+  await ui(`document.querySelector('.mode[data-mode="preview"]').click()`)
+  check("Preview turns review off", (await until(async () => !state().review.enabled && (await modeShown()) === "preview")) === true)
+  await ui(`document.querySelector('[data-action="draw"]').click()`)
+  check("the pencil turns review on, in Annotate", (await until(async () => state().review.brush && (await modeShown()) === "notes" && (await ui(`document.querySelector('[data-action="draw"]').getAttribute("aria-pressed")`)) === "true")) === true)
+  await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
+  check("…and Edit turns the pencil off", (await until(async () => (await inspector()) && !state().review.brush && state().review.mode === "edit")) === true)
   await clickAt(`document.querySelector(${JSON.stringify(CARD)})`)
   await clickAt(`${shadow}.querySelector('.css')`)
   await dbg.sendCommand("Input.insertText", { text: "padding: 32px;" })

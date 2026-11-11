@@ -9,6 +9,8 @@ const isMac = /Mac/.test(navigator.platform);
 
 const H = {
   enabled: true,
+  mode: "notes", // what the overlay last said: "notes" | "canvas"
+  brush: false,
   draft: null,
   notes: [],
   unplaced: [],
@@ -37,6 +39,10 @@ function onMessage(msg) {
       break;
     case "toggle":
       setEnabled(msg.enabled ?? !H.enabled);
+      break;
+    case "mode":
+      H.mode = msg.mode;
+      H.brush = msg.brush;
       break;
     case "draft":
       H.draft = msg.draft;
@@ -101,6 +107,9 @@ function inject() {
 function render() {
   $("mode").textContent = H.enabled ? "Review on" : "Review off";
   $("mode").classList.toggle("on", H.enabled);
+  $("brush").classList.toggle("on", H.enabled && H.brush);
+  $("m-notes").classList.toggle("on", H.enabled && H.mode === "notes");
+  $("m-edit").classList.toggle("on", H.enabled && H.mode === "canvas");
   const c = { queued: 0, working: 0, done: 0 };
   for (const n of H.notes) c[n.status]++;
   $("counts").innerHTML = H.notes.length
@@ -127,6 +136,10 @@ $("notes").addEventListener("click", (e) => {
   render();
 });
 $("toggle").addEventListener("click", () => setEnabled(!H.enabled));
+// The host has the mode switch and the brush; the overlay answers with the mode it is in.
+$("brush").addEventListener("click", () => toPage({ type: "mode", brush: !H.brush }));
+$("m-notes").addEventListener("click", () => toPage({ type: "mode", mode: "notes" }));
+$("m-edit").addEventListener("click", () => toPage({ type: "mode", mode: "canvas" }));
 $("reload").addEventListener("click", () => frame.contentWindow.location.reload());
 $("rerender").addEventListener("click", () => frame.contentWindow.rerender?.());
 $("width").addEventListener("change", (e) => {

@@ -13,7 +13,7 @@ import type { AppState, Bridge, ChatEvent, ChatItem, CommandName, Commands } fro
 const EMPTY: AppState = {
   connection: { status: "unconfigured" },
   page: { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false },
-  review: { enabled: false, autoReload: false, notes: [], unplaced: 0 },
+  review: { enabled: false, mode: "preview", brush: false, autoReload: false, notes: [], unplaced: 0 },
   site: null,
   session: null,
   sessions: [],

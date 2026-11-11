@@ -8,11 +8,10 @@
 //   · the settings dialog is open
 //   · the panel is being resized (the native view would swallow the drag)
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
-import type { Rect, Shortcut } from "../shared/types"
-import { ConnectScreen, ModelScreen, SettingsDialog, SetupSteps, connectionText, firstRunConnecting } from "./connect"
-import { Icon } from "./icons"
+import type { Rect, ReviewMode, Shortcut } from "../shared/types"
+import { ConnectScreen, ModelScreen, ServerButton, SettingsDialog, SetupSteps, firstRunConnecting } from "./connect"
+import { Icon, type IconName } from "./icons"
 import { Panel, countNotes, countWords, shortWords } from "./panel"
-import { soundOn, toggleSound } from "./sound"
 import {
   act,
   host,
@@ -98,20 +97,34 @@ function UrlField(props: { ref: (el: HTMLInputElement) => void }) {
   )
 }
 
-function Toggle(props: { on: boolean; label: string; title: string; disabled?: boolean; accent?: boolean; onClick: () => void }) {
+/** Preview | Annotate | Edit: what a click on the page does (verbs, all three; "annotate" is
+ *  the mode that makes notes, and `notes` in the state). Each says its key on hover. */
+const MODES: { mode: ReviewMode; label: string; icon: IconName; title: () => string }[] = [
+  { mode: "preview", label: "Preview", icon: "eye", title: () => `Preview: use the page as it is, notes off (${keys("mod", "shift", "M")})` },
+  { mode: "notes", label: "Annotate", icon: "note", title: () => `Annotate: point at something and say what to change (${keys("mod", "E")} from Edit)` },
+  { mode: "edit", label: "Edit", icon: "frame", title: () => `Edit: change the page itself, then send the edits (${keys("mod", "E")})` },
+]
+
+function ModeSwitch(props: { disabled: boolean }) {
   return (
-    <button
-      class="toggle"
-      classList={{ accent: props.accent }}
-      role="switch"
-      aria-checked={props.on}
-      disabled={props.disabled}
-      title={props.title}
-      onClick={props.onClick}
-    >
-      <span class="toggle-track" />
-      {props.label}
-    </button>
+    <div class="modes" role="radiogroup" aria-label="Mode">
+      <For each={MODES}>
+        {(m) => (
+          <button
+            class="mode"
+            role="radio"
+            data-mode={m.mode}
+            aria-checked={state.review.mode === m.mode}
+            disabled={props.disabled}
+            title={m.title()}
+            onClick={() => act("setMode", m.mode)}
+          >
+            <Icon name={m.icon} />
+            <span class="mode-label">{m.label}</span>
+          </button>
+        )}
+      </For>
+    </div>
   )
 }
 
@@ -123,8 +136,8 @@ function TopBar(props: {
   showNotes: () => void
   openSettings: () => void
 }) {
-  const serverWord = () =>
-    state.connection.status === "offline" ? "Offline" : state.connection.status === "connecting" ? "Connecting" : ""
+  // No page, or a page the overlay could not get into: nothing for the modes to act on.
+  const noOverlay = () => !state.page.url || overlayError()
   return (
     <header class="topbar" classList={{ mac: mac() }}>
       <Show when={!props.bare} fallback={<span class="wordmark">bicycle 42</span>}>
@@ -154,56 +167,26 @@ function TopBar(props: {
         <UrlField ref={props.urlRef} />
         <PageError />
         <div class="tools">
-          <Toggle
-            accent
-            on={state.review.enabled}
-            label="Review"
-            title={`Click, drag or draw on the page to leave notes (${keys("mod", "shift", "M")})`}
-            disabled={!state.page.url}
-            onClick={() => act("toggleReview")}
-          />
-          <Show
-            when={!state.page.hmr}
-            fallback={
-              <span class="tool-note" title="This page updates by itself when files change, so the app doesn't reload it.">
-                Page reloads itself
-              </span>
-            }
+          <button
+            class="icon-btn boxed"
+            data-action="draw"
+            aria-label="Draw on the page"
+            aria-pressed={state.review.brush}
+            title={`Draw on the page: a line selects what it crosses, a loop what it encloses (or hold ${keys("alt")} and drag)`}
+            disabled={noOverlay()}
+            onClick={() => act("toggleBrush")}
           >
-            <Toggle
-              on={state.review.autoReload}
-              label="Auto-reload"
-              title="Reload the page when the agent finishes a note"
-              disabled={!state.page.url}
-              onClick={() => act("toggleAutoReload")}
-            />
+            <Icon name="draw" size={20} />
+          </button>
+          <ModeSwitch disabled={noOverlay()} />
+          {/* With the panel open the server button is in its conversation row, and the notes are
+              right there: both are here only while they cannot be seen in the panel. */}
+          <Show when={!props.panelOpen || !state.site?.directory}>
+            <ServerButton onClick={props.openSettings} />
           </Show>
-          <button
-            class="icon-btn"
-            classList={{ labelled: serverWord() !== "" }}
-            data-action="settings"
-            data-status={state.connection.status}
-            aria-label={serverWord() ? `Server: ${serverWord()}` : "Server"}
-            title={connectionText(state.connection)}
-            onClick={props.openSettings}
-          >
-            <Icon name="server" />
-            <Show when={serverWord()} fallback={<span class="dot" data-status={state.connection.status} />}>
-              <span>{serverWord()}</span>
-            </Show>
-          </button>
-          <button
-            class="icon-btn"
-            data-action="sound"
-            role="switch"
-            aria-label="Sounds"
-            aria-checked={soundOn()}
-            title={soundOn() ? "Sounds on: a question, a failure, finished. Click to turn off" : "Sounds off. Click to turn on"}
-            onClick={toggleSound}
-          >
-            <Icon name={soundOn() ? "sound" : "muted"} />
-          </button>
-          <NotesStatus panelOpen={props.panelOpen} showNotes={props.showNotes} />
+          <Show when={!props.panelOpen}>
+            <NotesStatus panelOpen={props.panelOpen} showNotes={props.showNotes} />
+          </Show>
           <button
             class="icon-btn"
             data-action="panel"
@@ -447,6 +430,9 @@ export function App() {
     if (e.shiftKey) {
       if (key !== "m") return
       act("toggleReview")
+    } else if (key === "e") {
+      // Annotate ⇄ Edit, as the same key does while the page has the keyboard.
+      if (state.review.enabled) act("setMode", state.review.mode === "edit" ? "notes" : "edit")
     } else if (key === "l") focusUrl()
     else if (key === "\\") togglePanel()
     else if (key === "k") focusChat()
