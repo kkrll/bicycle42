@@ -10,7 +10,7 @@
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import type { Rect, ReviewMode, Shortcut } from "../shared/types"
 import { ConnectScreen, ModelScreen, ServerButton, SettingsDialog, SetupSteps, firstRunConnecting } from "./connect"
-import { Icon, type IconName } from "./icons"
+import { Icon, Kbd, type IconName } from "./icons"
 import { Panel, countNotes, countWords, shortWords } from "./panel"
 import {
   act,
@@ -137,7 +137,7 @@ function Hint() {
       {(h) => (
         <div class="bar-hint" role="tooltip">
           <span>{h().text}</span>
-          <For each={h().keys}>{(k) => <kbd>{k}</kbd>}</For>
+          <For each={h().keys}>{(k) => <Kbd keys={k} />}</For>
         </div>
       )}
     </Show>

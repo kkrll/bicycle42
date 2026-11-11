@@ -1619,9 +1619,15 @@ details[open] > summary > .caret {
 }
 
 kbd {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  /* One height for every key, drawn symbols only (↵) or letters (Esc). */
+  box-sizing: border-box;
+  height: 20px;
   min-width: 24px;
-  padding: 1px 5px;
+  padding: 0 5px;
   border: 1px solid var(--background-05);
   border-radius: 4px;
   /* The size of the words around it: at micro, ⌘ and ↵ in the mono face are specks. */
@@ -1629,6 +1635,11 @@ kbd {
   line-height: var(--text-control--line-height);
   text-align: center;
   color: var(--foreground);
+}
+
+/* ⌘ ⇧ ⌥ ↵, drawn (see Kbd) in the 12px box of the key's type, so they stand as tall as its capitals. */
+.key-glyph {
+  flex: none;
 }
 
 .msg {

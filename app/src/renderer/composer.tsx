@@ -6,7 +6,7 @@
 // mention reads as a chip without the box becoming an editor of its own.
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, type JSX } from "solid-js"
 import type { Mention, MentionOption, ModelInfo, PromptFile, SendOptions, SlashCommand } from "../shared/types"
-import { Icon, type IconName } from "./icons"
+import { Icon, Kbd, type IconName } from "./icons"
 import { SuggestMenu, type MenuItem } from "./menu"
 import { act, chat, keys, mac, message, b42, recall, remember, setNotice, state } from "./store"
 
@@ -702,8 +702,8 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
           fallback={
             <Show when={busy() && !blocked() && keysUsed() < KEYS_TAUGHT}>
               <p class="composer-hint composer-keys">
-                <kbd>{keys("enter")}</kbd> waits its turn<span class="composer-keys-gap" />
-                <kbd>{keys("mod", "enter")}</kbd> interrupts now
+                <Kbd keys={keys("enter")} /> waits its turn<span class="composer-keys-gap" />
+                <Kbd keys={keys("mod", "enter")} /> interrupts now
               </p>
             </Show>
           }

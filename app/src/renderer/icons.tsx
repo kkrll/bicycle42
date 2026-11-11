@@ -1,6 +1,6 @@
 // Every icon in the app: stroked paths on a 24 grid, drawn at 16 or 20. One component, one table,
 // so there is no icon font, no glyph character and no per-icon file.
-import type { JSX } from "solid-js"
+import { For, type JSX } from "solid-js"
 
 const PATHS = {
   back: "M15 5l-7 7 7 7",
@@ -66,6 +66,47 @@ export function Icon(props: { name: IconName; size?: 16 | 20 | 24; class?: strin
     >
       <path d={PATHS[props.name]} />
     </svg>
+  )
+}
+
+// The Mac's key symbols, drawn: neither face we ship has them, and the fallback fonts draw them
+// as specks next to the letters. Same 24 grid and stroke as the icons, sized to the capitals.
+const KEY_PATHS: Record<string, { d: string; name: string }> = {
+  "⌘": { name: "Command", d: "M9 9V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3z" },
+  "⇧": { name: "Shift", d: "M12 4l8 8h-4.5v8h-7v-8H4z" },
+  "⌥": { name: "Option", d: "M3 5h5.5l7 14H21M14.5 5H21" },
+  "↵": { name: "Return", d: "M20 5v6a4 4 0 0 1-4 4H4M8.5 10.5L4 15l4.5 4.5" },
+}
+
+/** A key or a chord, "⌘⇧M" or "Ctrl+Enter": symbols drawn, everything else as type. */
+export function Kbd(props: { keys: string }): JSX.Element {
+  const parts = () => props.keys.split(/([⌘⇧⌥↵])/).filter(Boolean)
+  return (
+    <kbd>
+      <For each={parts()}>
+        {(p) =>
+          KEY_PATHS[p] ? (
+            <svg /* kkrll-ignore: a key symbol is a letter of 12px type, not an icon; it stands as tall as the capitals */
+              class="key-glyph"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-label={KEY_PATHS[p].name}
+              role="img"
+            >
+              <path d={KEY_PATHS[p].d} />
+            </svg>
+          ) : (
+            <span>{p}</span>
+          )
+        }
+      </For>
+    </kbd>
   )
 }
 

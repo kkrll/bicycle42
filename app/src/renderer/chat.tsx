@@ -15,7 +15,7 @@ import type {
 } from "../shared/types"
 import { Composer } from "./composer"
 import { CopyButton } from "./copy"
-import { Icon, toolIcon } from "./icons"
+import { Icon, Kbd, toolIcon } from "./icons"
 import { ServerButton } from "./connect"
 import { openLightbox } from "./lightbox"
 import { Markdown } from "./markdown"
@@ -370,23 +370,23 @@ function Empty() {
       <p>Each note goes to the agent on its own. Keep going; changes land while you review.</p>
       <dl class="shortcuts">
         <dt>
-          <kbd>{keys("enter")}</kbd>
+          <Kbd keys={keys("enter")} />
         </dt>
         <dd>Send the note</dd>
         <dt>
-          <kbd>{keys("alt", "enter")}</kbd>
+          <Kbd keys={keys("alt", "enter")} />
         </dt>
         <dd>Send it to work in the background</dd>
         <dt>
-          <kbd>{keys("mod", "shift", "M")}</kbd>
+          <Kbd keys={keys("mod", "shift", "M")} />
         </dt>
         <dd>Review on or off</dd>
         <dt>
-          <kbd>{keys("mod", "K")}</kbd>
+          <Kbd keys={keys("mod", "K")} />
         </dt>
         <dd>Write to the agent here</dd>
         <dt>
-          <kbd>{keys("mod", "\\")}</kbd>
+          <Kbd keys={keys("mod", "\\")} />
         </dt>
         <dd>Show or hide this panel</dd>
       </dl>
@@ -556,13 +556,13 @@ function Permission(props: { ask: PermissionAsk; count: number }) {
       </div>
       <p class="ask-keys">
         <span>
-          <kbd>{keys("enter")}</kbd> once
+          <Kbd keys={keys("enter")} /> once
         </span>
         <span>
-          <kbd>{keys("mod", "enter")}</kbd> always
+          <Kbd keys={keys("mod", "enter")} /> always
         </span>
         <span>
-          <kbd>Esc</kbd> deny
+          <Kbd keys="Esc" /> deny
         </span>
       </p>
     </section>
