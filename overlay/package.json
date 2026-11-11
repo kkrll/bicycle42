@@ -11,7 +11,8 @@
   },
   "scripts": {
     "harness": "node scripts/serve.mjs",
-    "test": "node --test test/"
+    "test": "node --test test/",
+    "bench": "node bench/bench.mjs"
   },
   "devDependencies": {
     "playwright-core": "1.65.0"
