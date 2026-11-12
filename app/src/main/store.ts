@@ -13,18 +13,35 @@ import path from "node:path"
 import type { ModelRef } from "../shared/types"
 import { REVIEW_VERSION } from "./review"
 
+type Sites = Record<string, { directory: string; session?: string; bg?: string; url?: string; seen?: number }>
+
+/** What belongs to one server: its repo, pages and conversations. Folders and conversations
+ *  of one server mean nothing on another. `prefix` goes before a site's origin in the name of
+ *  its notes file ("" for the first server, whose files were there before servers were kept). */
+export type Space = { folder?: string; lastUrl?: string; defaultModel?: ModelRef; sites: Sites; prefix: string }
+
+/** A server the app has connected to, kept so it can be gone back to. `space` holds what is
+ *  its own while another server is the one in use; the one in use has its space in the
+ *  settings' own fields. */
+export type SavedServer = ({ url: string; password: string } | { local: true }) & { id: string; name?: string; space?: Space }
+
 export type Settings = {
   version: 1
   /** `password` is already encrypted by the caller; here it is an opaque string. */
   /** `name` is the reviewer's own for it ("Studio Mac"); without one it is called by its address. */
   server?: ({ url: string; password: string } | { local: true }) & { name?: string }
+  /** Every server connected to so far, and which of them the fields below belong to. */
+  servers?: SavedServer[]
+  current?: string
+  /** See Space. */
+  prefix?: string
   lastUrl?: string
   /** The repo opened in the app: the server folder a site opened for the first time works in. */
   folder?: string
   defaultModel?: ModelRef
   /** Key: the site's origin. */
   /** `url` and `seen`: the page last open on the site and when, to come back to with its project. */
-  sites: Record<string, { directory: string; session?: string; bg?: string; url?: string; seen?: number }>
+  sites: Sites
 }
 
 export type Store = {

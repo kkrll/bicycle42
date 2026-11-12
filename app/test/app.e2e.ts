@@ -192,9 +192,14 @@ async function main() {
   frames.unref()
   const note = async (selector: string, words: string) => {
     const at = (await js(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`)) as { x: number; y: number }
-    await mouse("mouseMoved", at.x, at.y, { button: "none" })
-    await mouse("mousePressed", at.x, at.y)
-    await mouse("mouseReleased", at.x, at.y)
+    // A click that lands while the page is still settling after a reload opens no card: again, then.
+    const open = () => js(`!!${shadow}?.querySelector('.card') && !${shadow}.querySelector('.card').hidden`)
+    for (let i = 0; i < 5 && !(await open()); i++) {
+      await mouse("mouseMoved", at.x, at.y, { button: "none" })
+      await mouse("mousePressed", at.x, at.y)
+      await mouse("mouseReleased", at.x, at.y)
+      await until(open, 600)
+    }
     await sleep(150)
     await dbg.sendCommand("Input.insertText", { text: words })
     await sleep(100)
@@ -310,11 +315,12 @@ async function main() {
   check("…in the bar, left of the controls, where the page view cannot cover it", (await ui(`(() => { const h = document.querySelector('.bar-hint').getBoundingClientRect(), b = document.querySelector('.topbar').getBoundingClientRect(), t = document.querySelector('[data-action="draw"]').getBoundingClientRect(); return h.top >= b.top && h.bottom <= b.bottom && h.right <= t.left })()`)) === true)
   await hover('.mode[data-mode="edit"]')
   await sleep(100)
-  check("the next one's hint shows at once", (await hintText()) === `Change the page itself, then send${modKey("O")}`, await hintText())
+  // "At once" is without the rest the first hint needs; the hidden window still draws a few frames late.
+  check("the next one's hint shows at once", (await until(async () => (await hintText()) === `Change the page itself, then send${modKey("O")}`, 600)) === true, await hintText())
   check("a mode not chosen lights up under the pointer", (await colours('.mode[data-mode="edit"]')) !== (await ui(`(() => { const s = getComputedStyle(document.querySelector('.mode[data-mode="preview"]')); return s.color + " on " + s.backgroundColor })()`)))
   await hover(".url")
   await sleep(100)
-  check("…and it goes when the pointer leaves", (await hintText()) === "")
+  check("…and it goes when the pointer leaves", (await until(async () => (await hintText()) === "", 600)) === true, await hintText())
   await ui(`document.querySelector('.mode[data-mode="preview"]').click()`)
   check("Preview turns review off", (await until(async () => !state().review.enabled && (await modeShown()) === "preview")) === true)
   await ui(`document.querySelector('[data-action="draw"]').click()`)

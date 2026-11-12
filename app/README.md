@@ -58,6 +58,12 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   get the site running (`startSite`): the prompt says whether app and server share a computer
   and asks for a last line `SITE: <address>`, which is opened when the run ends and no page
   works yet. The first site opened takes that conversation over.
+- **Every server connected to is kept** (`servers` in `settings.json`, passwords encrypted as
+  before), and each has its own repo, pages, conversations and default model: a folder or a
+  conversation of one server means nothing on another. The one in use has these in the
+  settings' own fields; the others carry theirs in `space` (`enter` in `index.ts` swaps them).
+  Notes files of every server but the first have its id before the site's origin, so the same
+  address on two machines is two sites.
 - **A project is a folder.** `openProject` makes it the open repo and loads the site visited
   last among those that work in it (`url` and `seen` in a site's settings), or no page when it
   has none. The window's list for it is `renderer/switcher.tsx`, behind the panel's "+".

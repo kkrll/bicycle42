@@ -36,6 +36,9 @@ its own name and icon. It is not signed with a developer certificate, and there 
    `https://….opentunnel.xyz` one works from anywhere) and `~/.config/opencode/service.json`
    holds the password. If the server offers more than one model, you then choose the one new
    conversations start with; it can be changed any time under the chat box.
+   Every server you connect to is remembered: the settings and the connect screen list them
+   under **Connected before**, and going back to one needs no password and brings back its
+   repo, page and notes.
 2. **Open the repo**: the folder on the server that holds the site's code. The agent works
    there, and you can talk to it from then on.
 3. **Open the site.** Type your dev URL in the top bar, for example `localhost:3000`. If the

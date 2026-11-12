@@ -782,6 +782,13 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       Object.assign(state, base(), { connection: { status: "online", url: "http://127.0.0.1:49374", version: "1.4.2" } })
       push()
     },
+    servers: () => [
+      { id: "srv_1", url: "http://localhost:4096", local: true, current: state.connection.status === "online" },
+      { id: "srv_2", name: "Studio Mac", url: "https://studio.example.dev", local: false, current: false },
+      { id: "srv_3", url: "http://box.tail1234.ts.net:4096", local: false, current: false },
+    ],
+    useServer() {},
+    forgetServer() {},
     reconnect() {},
     disconnect() {
       state.connection = { status: "unconfigured" }

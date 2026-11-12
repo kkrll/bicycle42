@@ -2627,6 +2627,18 @@ details[open] > summary > .caret {
   flex: none;
 }
 
+.connect-saved-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.connect-saved .form-help {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .connect-form h3 {
   font-weight: 500;
 }

@@ -37,6 +37,7 @@ import type {
   PromptFile,
   Question,
   SendOptions,
+  ServerInfo,
   SessionSummary,
   Shortcut,
   SlashCommand,
@@ -46,7 +47,7 @@ import { readLocal } from "./local"
 import { createOpenCode, type OpenCode } from "./opencode"
 import { createPage, type Page, type PageMessage } from "./page"
 import { createReview, imageUri, pageNote, type PageNote, type Review } from "./review"
-import { createStore } from "./store"
+import { createStore, type SavedServer } from "./store"
 
 type Level = "info" | "warn" | "error"
 const log = (level: Level, msg: string, data?: unknown) =>
@@ -190,7 +191,7 @@ function changed(s: Site) {
     const status = noteSite(id)?.review.note(id)?.status
     if (status === undefined || status === "done") outbox.delete(id)
   }
-  store.saveReview(s.origin, s.review.toJSON())
+  store.saveReview(reviewKey(s.origin), s.review.toJSON())
   if (s === site) page?.send({ type: "pins", pins: pinsOf(s.review) })
   push()
 }
@@ -265,6 +266,61 @@ function drop() {
   chat = undefined
 }
 
+// ── the servers connected to ────────────────────────────────────────────────────────────────────
+
+/** A site's notes are kept per server: the same address (localhost:3000) on two machines is two sites. */
+const reviewKey = (origin: string) => (store.settings().prefix ?? "") + origin
+
+/** The saved entry for a server, made the first time it is connected to; a remote one's password is kept up to date. */
+function remember(kind: "remote" | "local", url: string, password: string): SavedServer {
+  const all = store.settings().servers ?? []
+  let found = all.find((x) => (kind === "local" ? "local" in x : "url" in x && x.url === url))
+  store.update((s) => {
+    s.servers ??= []
+    if (!found) {
+      const id = `srv_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+      // A server saved before servers were kept: the name it had then stays with it.
+      const name = !s.current && s.server?.name ? { name: s.server.name } : {}
+      found = kind === "local" ? { id, local: true, ...name } : { id, url, password: seal(password), ...name }
+      s.servers.push(found)
+    } else if ("url" in found) found.password = seal(password)
+  })
+  return found!
+}
+
+/** Makes `id` the server in use: what belongs to the one before (its repo, pages, conversations,
+ *  model) is put away with it, and this one's is brought out, with the page it was on. */
+function enter(id: string) {
+  const s = store.settings()
+  if (s.current === id) return
+  // The first server ever, or the one saved before servers were kept: what is here is its own.
+  if (!s.current) return store.update((x) => void ((x.current = id), (x.prefix ??= "")))
+  store.update((x) => {
+    const out = x.servers?.find((v) => v.id === x.current)
+    if (out) out.space = { ...(x.folder ? { folder: x.folder } : {}), ...(x.lastUrl ? { lastUrl: x.lastUrl } : {}), ...(x.defaultModel ? { defaultModel: x.defaultModel } : {}), sites: x.sites, prefix: x.prefix ?? "" }
+    const into = x.servers?.find((v) => v.id === id)
+    const space = into?.space ?? { sites: {}, prefix: `${id}~` }
+    delete into?.space
+    delete x.folder, delete x.lastUrl, delete x.defaultModel
+    if (space.folder) x.folder = space.folder
+    if (space.lastUrl) x.lastUrl = space.lastUrl
+    if (space.defaultModel) x.defaultModel = space.defaultModel
+    x.sites = space.sites
+    x.prefix = space.prefix
+    x.current = id
+  })
+  // Nothing loaded belongs here: notes still in flight on the other server are read again when it is gone back to.
+  sites.clear()
+  owners.clear()
+  outbox.clear()
+  site = undefined
+  siteAsked = undefined
+  starting = false
+  modelChoice = undefined
+  toChat({ type: "reset", session: "", items: [] })
+  page?.load(store.settings().lastUrl ?? "")
+}
+
 /** Checks the server, then keeps listening to it. Rejects, leaving things as they were, when the
  *  address or password is wrong. */
 async function connect(url: string, password: string, opts: { save?: "remote" | "local" }) {
@@ -276,10 +332,13 @@ async function connect(url: string, password: string, opts: { save?: "remote" | 
   // A local server is saved as "the one on this computer", not by address: its port and
   // password are OpenCode's to change, and are read again from its own file each time.
   // A name stays with its server: connecting to the same one again keeps it, another drops it.
-  const before = store.settings().server
-  const name = before?.name && (opts.save === "local" ? "local" in before : "url" in before && before.url === url) ? { name: before.name } : {}
+  // It is also kept among the servers connected to, with the name it was given there.
+  const kind = opts.save ?? (store.settings().server && "local" in store.settings().server! ? "local" : "remote")
+  const kept = remember(kind, url, password)
+  const name = kept.name ? { name: kept.name } : {}
   if (opts.save === "remote") store.update((s) => void (s.server = { url, password: seal(password), ...name }))
   if (opts.save === "local") store.update((s) => void (s.server = { local: true, ...name }))
+  enter(kept.id)
   unlisten = next.listen(onBackend)
   push()
   const [m, a] = await Promise.all([next.models(), next.agents()]).catch((err) => {
@@ -349,7 +408,7 @@ function switchSite(origin: string | undefined, again = false) {
     site = undefined
   } else {
     let s = sites.get(origin)
-    if (!s) sites.set(origin, (s = { origin, review: createReview(store.loadReview(origin)) }))
+    if (!s) sites.set(origin, (s = { origin, review: createReview(store.loadReview(reviewKey(origin))) }))
     site = s
     adopt(origin)
     const saved = siteSettings(origin)
@@ -1096,6 +1155,31 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     if (!found) throw new Error(NO_LOCAL)
     await connect(found.url, found.password, { save: "local" })
   },
+  servers() {
+    const s = store.settings()
+    const here = readLocal()?.url ?? ""
+    return (s.servers ?? [])
+      .map((x): ServerInfo => ({ id: x.id, ...(x.name ? { name: x.name } : {}), url: "local" in x ? here : x.url, local: "local" in x, current: !!s.server && x.id === s.current }))
+      .sort((a, b) => Number(b.current) - Number(a.current))
+  },
+  async useServer(id) {
+    const saved = store.settings().servers?.find((x) => x.id === id)
+    if (!saved) throw new Error("That server is no longer saved.")
+    if ("local" in saved) return void (await commands.connectLocal())
+    const password = unseal(saved.password)
+    if (password === undefined) throw new Error("Its saved password can't be read. Enter the address and password again.")
+    await connect(saved.url, password, { save: "remote" })
+  },
+  forgetServer(id) {
+    const s = store.settings()
+    if (s.server && s.current === id) throw new Error("Disconnect from it first.")
+    store.update((x) => {
+      x.servers = (x.servers ?? []).filter((v) => v.id !== id)
+      // Not connected, and it was the one last in use: what is here was its own.
+      if (x.current === id) delete x.current, delete x.folder, delete x.lastUrl, delete x.defaultModel, (x.sites = {})
+    })
+    push()
+  },
   async reconnect() {
     await reconnectSaved()
   },
@@ -1243,9 +1327,11 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     if (!server) throw new Error("Connect to a server first.")
     const clean = name.replace(/\s+/g, " ").trim().slice(0, SERVER_NAME_MAX)
     store.update((s) => {
-      if (!s.server) return
-      if (clean) s.server.name = clean
-      else delete s.server.name
+      for (const x of [s.server, s.servers?.find((v) => v.id === s.current)]) {
+        if (!x) continue
+        if (clean) x.name = clean
+        else delete x.name
+      }
     })
     push()
   },

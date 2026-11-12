@@ -132,6 +132,24 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
   const [local] = createResource(() => b42.invoke("localServer").catch(() => null))
   onMount(() => props.autofocus && !local() && first.focus())
   const here = () => state.connection.status === "online" && local()?.url === state.connection.url
+  // The servers connected to before, on other computers: one click, no password again.
+  const [saved, { refetch: reloadSaved }] = createResource(() => b42.invoke("servers").catch(() => []))
+  const others = () => (saved() ?? []).filter((s) => !s.local && !(s.current && state.connection.status === "online"))
+  const useSaved = (id: string, label: string) => {
+    if (connecting()) return
+    setConnecting(true)
+    setError("")
+    b42
+      .invoke("useServer", id)
+      .then(() => gone || props.onDone?.())
+      .catch((err) => (gone ? setNotice(`Could not connect to ${label}. ${message(err)}`) : setError(message(err))))
+      .finally(() => setConnecting(false))
+  }
+  const forget = (id: string) =>
+    b42
+      .invoke("forgetServer", id)
+      .then(() => reloadSaved())
+      .catch((err) => setError(message(err)))
 
   const useLocal = () => {
     if (connecting()) return
@@ -180,6 +198,30 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
           )}
         </Show>
       </section>
+      <Show when={others().length}>
+        <section class="connect-local connect-saved">
+          <h3 class="label">Connected before</h3>
+          <For each={others()}>
+            {(s) => (
+              <div class="connect-local-row">
+                <p class="form-help" title={s.url}>
+                  <Show when={s.name} fallback={<code>{host(s.url)}</code>}>
+                    {s.name} <code>{host(s.url)}</code>
+                  </Show>
+                </p>
+                <span class="connect-saved-actions">
+                  <button class="text-btn" type="button" disabled={connecting()} title="Forgets this server and its password on this computer" onClick={() => forget(s.id)}>
+                    Forget
+                  </button>
+                  <button class="btn primary" type="button" data-server={s.id} disabled={connecting()} onClick={() => useSaved(s.id, s.name ?? host(s.url))}>
+                    Connect
+                  </button>
+                </span>
+              </div>
+            )}
+          </For>
+        </section>
+      </Show>
       <h3 class="label connect-remote">Another computer</h3>
       <label class="form-row">
         <span class="label">Server address</span>
@@ -514,7 +556,7 @@ export function SettingsDialog(props: { onClose: () => void }) {
           </p>
           <button
             class="btn"
-            title="Forgets this server and its password on this computer"
+            title="Stops using this server. It stays under “Connected before”, to go back to"
             onClick={() => {
               act("disconnect")
               dialog.close()

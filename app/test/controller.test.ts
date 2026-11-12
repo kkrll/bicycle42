@@ -346,6 +346,52 @@ test("openProject: another repo opens with no page and a conversation of its own
   }
 })
 
+test("servers are remembered: a second one starts clean, and going back needs no password and brings the first one's repo, page and notes", async () => {
+  const h = await boot()
+  const second = await fakeOpenCode()
+  try {
+    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await h.cmd("setDirectory", "/repo")
+    h.page.page!.load(`${SITE}/pricing`)
+    await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
+    const first = h.snap().session!.id
+    h.note("a note")
+    await until(() => h.snap().review.notes.length === 1)
+    await h.cmd("setServerName", "Studio")
+
+    // Another server: nothing of the first one's is here, and the same address is another site.
+    await h.cmd("connect", { url: second.server.url, password: second.server.password })
+    await until(() => h.snap().connection.status === "online" && (h.snap().connection as { url: string }).url === second.server.url)
+    assert.deepEqual([h.snap().site, h.snap().page.url, h.snap().session, h.snap().serverName], [null, "", null, undefined])
+    await h.cmd("setDirectory", "/elsewhere")
+    h.page.page!.load(`${SITE}/pricing`)
+    await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
+    assert.deepEqual([h.snap().site!.directory, h.snap().review.notes.length], ["/elsewhere", 0])
+
+    type Info = { id: string; name?: string; url: string; local: boolean; current: boolean }
+    const list = (await h.cmd("servers")) as Info[]
+    assert.deepEqual(list.map((x) => [x.url, x.current, x.name]), [[second.server.url, true, undefined], [h.server.url, false, "Studio"]])
+    assert.ok(!JSON.stringify(list).includes(h.server.password), "the window gets no password")
+    await assert.rejects(Promise.resolve(h.cmd("forgetServer", list[0]!.id)), "not the one in use")
+
+    // Back, by its id alone.
+    await h.cmd("useServer", list[1]!.id)
+    await until(() => h.snap().session?.id === first)
+    assert.deepEqual(
+      [h.snap().site, h.snap().page.url, h.snap().review.notes.length, h.snap().serverName],
+      [{ origin: SITE, directory: "/repo" }, `${SITE}/pricing`, 1, "Studio"],
+    )
+
+    // Forgotten: gone from the list, and no longer to be connected to.
+    await h.cmd("forgetServer", list[0]!.id)
+    assert.deepEqual(((await h.cmd("servers")) as Info[]).map((x) => x.url), [h.server.url])
+    await assert.rejects(Promise.resolve(h.cmd("useServer", list[0]!.id)))
+  } finally {
+    await h.close()
+    await second.server.stop()
+  }
+})
+
 test("startSite asks the agent in the repo's conversation, and opens the address its answer ends with", async () => {
   const h = await boot()
   try {
@@ -1108,12 +1154,12 @@ test("a saved model the server no longer lists: the app asks again and says whic
     await h.cmd("setDefaultModel", { providerID: "acme", id: "vision" })
     assert.equal(h.snap().modelChoice, undefined)
     assert.equal(h.w.creates, 0)
-    // Another server, another list: the same question, for the same reason.
+    // Another server, another list: asked as for a first server. The model chosen for the one before is its own.
     const other = await fakeOpenCode()
     other.server.route("GET", "/api/model", { json: { data: [model("zeta", "a"), model("zeta", "b")] } })
     await h.cmd("connect", { url: other.server.url, password: other.server.password })
     await until(() => !!h.snap().modelChoice)
-    assert.deepEqual(h.snap().modelChoice, { suggested: { providerID: "zeta", id: "a" }, previous: { providerID: "acme", id: "vision" } })
+    assert.deepEqual(h.snap().modelChoice, { suggested: { providerID: "zeta", id: "a" } })
     await Promise.resolve(h.cmd("disconnect")).catch(() => undefined)
     assert.equal(h.snap().modelChoice, undefined)
     await other.server.stop()

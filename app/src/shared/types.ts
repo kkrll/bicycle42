@@ -197,6 +197,9 @@ export type ConnectionState =
   | { status: "online"; url: string; version: string }
   | { status: "offline"; url: string; error: string }
 
+/** A server the app remembers. `url` is empty for this computer's while none is running here. */
+export type ServerInfo = { id: string; name?: string; url: string; local: boolean; current: boolean }
+
 export type SessionSummary = {
   id: string
   /** The server folder it works in. */
@@ -300,6 +303,12 @@ export type Commands = {
   localServer(): { url: string } | null
   /** Connects to that server, and remembers to use whichever one runs here from now on. */
   connectLocal(): void
+  /** Every server connected to so far, the one in use first. Passwords stay in main. */
+  servers(): ServerInfo[]
+  /** Connects to one of them. Its own repo, page and conversations come back with it. */
+  useServer(id: string): void
+  /** Forgets one that is not in use, with its password. Its notes stay on disk. */
+  forgetServer(id: string): void
   /** Tries the saved server again. The outcome shows in `connection`. */
   reconnect(): void
   disconnect(): void
