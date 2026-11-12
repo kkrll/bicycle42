@@ -166,7 +166,7 @@ export function remember(key: string, value: string): void {
   }
 }
 
-/** "⌘⇧M" on a Mac, "Ctrl+Shift+M" elsewhere. */
+/** "⌘⇧Z" on a Mac, "Ctrl+Shift+Z" elsewhere. */
 export function keys(...parts: ("mod" | "shift" | "alt" | "enter" | (string & {}))[]): string {
   const m = mac()
   const names: Record<string, string> = m

@@ -30,7 +30,17 @@ function openCss(el, nm) {
   if (!M.kf.has(nm)) {
     const rule = M.scan.rules.get(nm);
     const live = el.getAnimations().find((a) => a.animationName === nm);
-    const fr = rule ? parseKf(rule.cssText).frames || [] : live ? fromApi(live.effect.getKeyframes()) : [];
+    if (!rule && !live) {
+      // No keyframes by that name: a row drawn before they were renamed, or a name the page's CSS
+      // plays and never declares. Opening it would make empty keyframes and attach them.
+      const plays = readList(el).some((e) => e.name === nm);
+      scan();
+      setSel(el);
+      show(null);
+      if (plays) flash(`The page has no @keyframes ${nm}`);
+      return;
+    }
+    const fr = rule ? parseKf(rule.cssText).frames || [] : fromApi(live.effect.getKeyframes());
     M.kf.set(nm, { name: nm, frames: fr, orig: serialize(nm, fr), isNew: false });
   }
   const k = `${rs}|${nm}`;
@@ -53,20 +63,32 @@ function attach(el, nm, timing = { duration: 400, delay: 0, easing: "ease-out", 
   seek(0);
   play();
 }
+/** New keyframes for the selected element: a fade up to start from, under a name that says it
+ *  is new (not "fade-up-2", which reads as a copy of the page's own), ready to be renamed. */
 function newAnimation() {
   if (!M.sel) return;
-  let nm = "fade-up";
-  for (let i = 2; M.kf.has(nm) || M.scan.rules.has(nm); i++) nm = `fade-up-${i}`;
+  let nm = "new-animation";
+  for (let i = 2; nameProblem(nm); i++) nm = `new-animation-${i}`;
   M.kf.set(nm, { name: nm, isNew: true, orig: "", frames: [{ at: 0, ease: "", vals: { opacity: "0", translate: "0 12px" } }, { at: 100, ease: "", vals: { opacity: "1", translate: "0 0" } }] });
   attach(M.sel, nm);
+  focusLater("[data-name]");
 }
-function tryUnused(nm) {
+/** Every keyframes the selected element could play: the page's, and those made here. */
+const knownNames = () => [...new Set([...M.scan.rules.keys(), ...M.scan.anims.map((a) => a.name), ...M.kf.keys()])]
+  .filter((n) => M.kf.has(n) || M.scan.rules.has(n)).sort();
+/** Keyframes the page has, played by the selected element too: timed as the first element that
+ *  plays them times them, or, when nothing plays them, once over 600ms. */
+function useKf(nm) {
   if (!M.sel) return;
   if (!M.kf.has(nm)) {
-    const fr = parseKf(M.scan.rules.get(nm).cssText).frames || [];
+    const rule = M.scan.rules.get(nm);
+    if (!rule) return;
+    const fr = parseKf(rule.cssText).frames || [];
     M.kf.set(nm, { name: nm, frames: fr, orig: serialize(nm, fr), isNew: false });
   }
-  attach(M.sel, nm, { duration: 600, delay: 0, easing: "ease-in-out", count: "1", direction: "normal", fill: "none" });
+  const a = M.scan.anims.find((x) => x.name === nm), e = a && readList(a.els[0]).find((x) => x.name === nm);
+  const { name: _, ...timing } = e || { duration: 600, delay: 0, easing: "ease-in-out", count: "1", direction: "normal", fill: "none" };
+  attach(M.sel, nm, timing);
 }
 function openScript(a) {
   const el = a.effect.target, t = a.effect.getTiming();

@@ -25,6 +25,7 @@ const S = {
   drag: null, // {x0,y0,x,y,mode,pts,shift}
   card: false,
   brush: false, // the host's brush is on: a plain drag draws
+  modeAfter: null, // a mode key pressed while review was off: the mode (or "brush") once it is on
   pending: null, // note id awaiting "captured"
   quiet: null, // that id when it is a canvas note: the bar says "Sent", not a chip over the page
   buffered: null, // a click made while pending: {x,y,shift}

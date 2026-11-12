@@ -9,7 +9,10 @@
  * ── Protocol ────────────────────────────────────────────────────────────────────────────────────
  * page → host   window.__review(JSON.stringify(msg))      (a CDP Runtime.addBinding, or a shim)
  *   { type: "ready", url, viewport }                      overlay mounted; host replies with "state"
- *   { type: "toggle", enabled? }                          mod+shift+M, or Esc with nothing selected
+ *   { type: "toggle", enabled? }                          mod+U (Preview: review off, or back on), or Esc
+ *                                                         with nothing selected; enabled: true from mod+P/O/I
+ *                                                         or mod+shift+P while review is off (the mode
+ *                                                         follows once it is on)
  *   { type: "mode", mode: "notes"|"canvas"|"motion", brush }  the mode or the brush changed (also sent
  *                                                         after every "state"). The host has the
  *                                                         switch for both; the layer has none
@@ -67,12 +70,16 @@
  *                                                         open, selection, drag, capture): a host
  *                                                         that reloads the page waits for false
  *
+ * Modes: mod+U Preview (pressed again, back to the mode it left) · mod+P Annotate (notes) · mod+shift+P
+ * the brush · mod+O Edit (canvas) · mod+I Motion. By the key's place (KeyU…), so any layout has them.
+ * Inside the page they are the overlay's.
+ *
  * Gestures (review mode on): hover outlines · click selects · shift+click adds · drag selects an
  * area · alt+drag draws (a closed loop selects what it encloses) · ↑/↓ parent/child (when the note
  * is empty, or with alt) · Enter sends · alt+Enter sends to the background · Esc cancels, then exits · mod+Z undoes a stroke (empty note).
  * The host's brush makes a plain drag draw, as alt+drag does, until the note is sent or cancelled.
  *
- * Canvas mode ("Edit" to the reviewer; mod+E, or the host's switch; review mode on): the page's real elements are edited and
+ * Canvas mode ("Edit" to the reviewer; mod+O, or the host's switch; review mode on): the page's real elements are edited and
  * the batch goes out as one note. An inspector docks at the bottom: DOM tree, class line, "Element
  * styles" (declarations for the selected element), "Stylesheet" (new rules), computed values.
  * click selects · drag reorders inside a flex or grid parent · drag an edge or corner resizes ·
@@ -87,7 +94,7 @@
  * it: the edit's rules select by it, so the edit stays on its element when the page moves it.
  * A sent batch stays applied until its pin is done, failed or stopped, or the page reloads.
  *
- * Motion mode (the host's switch; review mode on): what moves on the page, listed in a dock at the
+ * Motion mode (mod+I, or the host's switch; review mode on): what moves on the page, listed in a dock at the
  * bottom (CSS animations, transitions, the Web Animations API, frame-by-frame scripts), and one
  * animation open in a timeline: a lane per property, a bar between two keyframes, a grip on each.
  * click an element or a row · drag a grip in time · press twice on a lane to add a keyframe ·

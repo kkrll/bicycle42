@@ -286,12 +286,12 @@ textarea::placeholder { color: #9ca3af; }
 /* motion mode: the dock. The list of what moves; the open animation: what is done to it, its
    timeline (a band of lanes, a bar between two keyframes, a grip on each), the selected
    keyframe, and the note with Send. */
-.m-dock, .m-pop { --mt: #ededed; --mm: #a1a1a6; --md: #6b6b70; --ml: rgba(255, 255, 255, 0.07); --mf: rgba(255, 255, 255, 0.06); --mh: rgba(255, 255, 255, 0.1);
+.m-dock, .m-pop, .m-sug { --mt: #ededed; --mm: #a1a1a6; --md: #6b6b70; --ml: rgba(255, 255, 255, 0.07); --mf: rgba(255, 255, 255, 0.06); --mh: rgba(255, 255, 255, 0.1);
   --ma: #fffaa0; --mas: rgba(255, 250, 160, 0.14); --mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace; }
 .m-dock { position: fixed; left: 0; right: 0; bottom: 0; height: 360px; display: grid; grid-template-columns: 248px minmax(0, 1fr); box-sizing: border-box;
   pointer-events: auto; background: #1a1a1b; color: var(--mt); border-radius: 10px 10px 0 0; font: 12px/1.5 system-ui, -apple-system, sans-serif;
   box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.12); }
-.m-dock *, .m-pop * { box-sizing: border-box; }
+.m-dock *, .m-pop *, .m-sug * { box-sizing: border-box; }
 .m-btn { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; min-width: 28px; padding: 0 8px;
   border-radius: 6px; color: var(--mm); cursor: pointer; white-space: nowrap; font: inherit; }
 .m-btn:hover { background: var(--mh); color: var(--mt); }
@@ -379,6 +379,9 @@ textarea::placeholder { color: #9ca3af; }
 .m-trk { position: relative; flex: 1; min-width: 0; cursor: pointer; }
 .m-empty { display: grid; place-items: center; align-content: center; gap: 12px; height: 100%; min-height: 120px; padding: 24px; color: var(--md); text-align: center; }
 .m-new { background: var(--mf); color: var(--mt); }
+.m-empty .m-or { margin-top: 8px; }
+.m-empty .m-chips { justify-content: center; max-width: 560px; }
+.m-empty .m-chip { font: 12px/26px var(--mono); color: var(--mt); }
 .m-addp { display: flex; align-items: center; padding: 8px 16px 16px; }
 .m-addp .m-fld { width: 140px; }
 /* the ruler: seconds on top, ticks, the whole keyframes along the bottom */
@@ -404,6 +407,8 @@ textarea::placeholder { color: #9ca3af; }
 .m-band { position: absolute; inset: 0; border-radius: 12px; background: rgba(255, 255, 255, 0.025); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.045); }
 .m-ghead { height: 36px; }
 .m-ghead .m-lab { gap: 8px; }
+.m-ghead .m-name { flex: 1; height: 24px; padding: 0 6px; margin-left: -6px; background: transparent; font: 500 12px/24px var(--mono); }
+.m-ghead .m-name:hover, .m-ghead .m-name:focus { background: var(--mf); }
 .m-ghead .m-lab b { font: 500 12px var(--mono); color: var(--mt); overflow: hidden; text-overflow: ellipsis; }
 .m-ghead .m-trk { display: flex; align-items: center; gap: 8px; padding: 0 12px; cursor: default; }
 .m-shared { display: inline-flex; align-items: center; gap: 6px; color: var(--mm); white-space: nowrap; cursor: help; }
@@ -432,6 +437,14 @@ textarea::placeholder { color: #9ca3af; }
 .m-flag::after { content: ""; position: absolute; top: 30px; bottom: 0; left: 0; width: 1px; background: var(--ma); opacity: 0.8; }
 .m-flag::before { content: ""; position: absolute; top: 18px; left: -5.5px; width: 12px; height: 13px; background: var(--ma); clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%); border-radius: 2px; }
 .m-flag b { position: absolute; top: 1px; left: 0; translate: -50% 0; padding: 0 5px; border-radius: 4px; background: var(--ma); color: #161617; font: 600 10px/15px var(--mono); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* a field's list (a property, an easing): picked with the pointer, or ↑/↓ and Enter */
+.m-sug { position: fixed; z-index: 2; max-height: 240px; overflow: auto; padding: 4px; border-radius: 8px; pointer-events: auto; background: #232325; color: var(--mm);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08); font: 12px var(--mono); scrollbar-width: thin; }
+.m-sg { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.m-sg span { overflow: hidden; text-overflow: ellipsis; }
+.m-sg:hover { background: var(--mf); color: var(--mt); }
+.m-sg.on { background: var(--mh); color: var(--mt); }
+.m-sg .m-cv { width: 20px; height: 20px; margin-left: -4px; background: none; }
 /* a small sheet over the dock: how it plays (chips), the easings (curves) */
 .m-pop { position: fixed; z-index: 1; min-width: 220px; padding: 14px 16px 16px; border-radius: 10px; pointer-events: auto; background: #232325; color: var(--mt);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08); font: 12px/1.5 system-ui, -apple-system, sans-serif; }

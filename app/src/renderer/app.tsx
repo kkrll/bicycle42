@@ -148,11 +148,14 @@ function Hint() {
  *  "annotate" is the mode that makes notes, and `notes` in the state). Each shows what it does
  *  and its key, if it has one, when the pointer rests on it. */
 const MODES: { mode: ReviewMode; label: string; icon: IconName; what: string; keys?: () => string }[] = [
-  { mode: "preview", label: "Preview", icon: "eye", what: "Use the page as it is", keys: () => keys("mod", "shift", "M") },
-  { mode: "notes", label: "Annotate", icon: "note", what: "Point at something, say what to change", keys: () => keys("mod", "E") },
-  { mode: "edit", label: "Edit", icon: "frame", what: "Change the page itself, then send", keys: () => keys("mod", "E") },
-  { mode: "motion", label: "Motion", icon: "motion", what: "See what moves on the page, change an animation, then send" },
+  { mode: "preview", label: "Preview", icon: "eye", what: "Use the page as it is", keys: () => keys("mod", "U") },
+  { mode: "notes", label: "Annotate", icon: "note", what: "Point at something, say what to change", keys: () => keys("mod", "P") },
+  { mode: "edit", label: "Edit", icon: "frame", what: "Change the page itself, then send", keys: () => keys("mod", "O") },
+  { mode: "motion", label: "Motion", icon: "motion", what: "See what moves on the page, change an animation, then send", keys: () => keys("mod", "I") },
 ]
+/** mod+U, P, O, I (and mod+shift+P, the pencil), by the key's place: the same keys on any layout,
+ *  a Cyrillic one included. */
+const MODE_KEYS: Record<string, ReviewMode> = { KeyU: "preview", KeyP: "notes", KeyO: "edit", KeyI: "motion" }
 
 function ModeSwitch(props: { disabled: boolean }) {
   return (
@@ -227,7 +230,7 @@ function TopBar(props: {
             aria-description="A line selects what it crosses, a loop what it encloses"
             disabled={noOverlay()}
             onClick={() => act("toggleBrush")}
-            {...hinted(() => ({ text: "Draw: a line selects what it crosses", keys: [`${keys("alt")} drag`] }))}
+            {...hinted(() => ({ text: "Draw: a line selects what it crosses", keys: [keys("mod", "shift", "P"), `${keys("alt")} drag`] }))}
           >
             <Icon name="draw" size={20} />
           </button>
@@ -481,13 +484,14 @@ export function App() {
   const onKey = (e: KeyboardEvent) => {
     if (!(mac() ? e.metaKey : e.ctrlKey) || e.altKey || setup() || settings()) return
     const key = e.key.toLowerCase()
+    const mode = e.shiftKey ? undefined : MODE_KEYS[e.code]
+    // The same keys as while the page has the keyboard: mod+U again goes back to the mode it left.
     if (e.shiftKey) {
-      if (key !== "m") return
-      act("toggleReview")
-    } else if (key === "e") {
-      // Annotate ⇄ Edit, as the same key does while the page has the keyboard.
-      if (state.review.enabled) act("setMode", state.review.mode === "edit" ? "notes" : "edit")
-    } else if (key === "l") focusUrl()
+      if (e.code !== "KeyP") return
+      act("toggleBrush")
+    } else if (mode === "preview") act("toggleReview")
+    else if (mode) act("setMode", mode)
+    else if (key === "l") focusUrl()
     else if (key === "\\") togglePanel()
     else if (key === "k") focusChat()
     else return

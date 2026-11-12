@@ -585,7 +585,7 @@ function onPage(msg: PageMessage) {
       page?.send({ type: "state", enabled: review.enabled, draft: review.draft, pins: pinsOf(review), templates: NOTE_TEMPLATES })
       return push()
     case "mode":
-      // The overlay's own keys change it too (mod+E, Esc, a note sent): the top bar follows.
+      // The overlay's own keys change it too (mod+U/P/O/I, Esc, a note sent): the top bar follows.
       pageMode = { canvas: msg.mode === "canvas", motion: msg.mode === "motion", brush: msg.brush === true }
       return push()
     case "toggle":

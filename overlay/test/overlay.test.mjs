@@ -218,11 +218,25 @@ test("Esc cancels, then exits review mode; clicks reach the page again", async (
   await page.close();
 });
 
-test("mod+shift+M inside the page toggles review mode", async () => {
+test("mod+U inside the page is Preview, and again goes back; mod+I from Preview turns review on in motion mode; mod+shift+P is the brush", async () => {
   const { page, f } = await open();
   await clickAt(page, f, "#cta"); // focus lands in the card
-  await page.keyboard.press(`${MOD}+Shift+KeyM`);
+  await page.keyboard.press(`${MOD}+KeyU`);
   await page.waitForFunction(() => window.__harness.enabled === false);
+  await page.keyboard.press(`${MOD}+KeyU`);
+  await page.waitForFunction(() => window.__harness.enabled === true && window.__harness.mode === "notes");
+  await page.keyboard.press(`${MOD}+KeyU`);
+  await page.waitForFunction(() => window.__harness.enabled === false);
+  await page.keyboard.press(`${MOD}+KeyI`);
+  await page.waitForFunction(() => window.__harness.enabled === true && window.__harness.mode === "motion");
+  await page.keyboard.press(`${MOD}+Shift+KeyP`);
+  await page.waitForFunction(() => window.__harness.mode === "notes" && window.__harness.brush === true);
+  await page.keyboard.press(`${MOD}+Shift+KeyP`);
+  await page.waitForFunction(() => window.__harness.brush === false);
+  await page.keyboard.press(`${MOD}+KeyO`);
+  await page.waitForFunction(() => window.__harness.mode === "canvas");
+  await page.keyboard.press(`${MOD}+KeyP`);
+  await page.waitForFunction(() => window.__harness.mode === "notes");
   await page.close();
 });
 

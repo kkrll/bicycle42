@@ -278,7 +278,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   })
 
   // ── keys while the page has focus ────────────────────────────────────────────────────────────
-  // mod+shift+M (review on/off) is the overlay's own: it sends "toggle".
+  // mod+U/P/O/I and mod+shift+P (the modes, the brush) are the overlay's own: they reach the page, and it sends "toggle" or "mode".
   wc.on("before-input-event", (event, input) => {
     if (input.type !== "keyDown") return
     // Enter sends a note (alt+Enter to the background); remembered for the check in the message handler.

@@ -378,9 +378,9 @@ function Empty() {
         </dt>
         <dd>Send it to work in the background</dd>
         <dt>
-          <Kbd keys={keys("mod", "shift", "M")} />
+          <Kbd keys={keys("mod", "U")} />
         </dt>
-        <dd>Review on or off</dd>
+        <dd>Preview the page, or back to reviewing</dd>
         <dt>
           <Kbd keys={keys("mod", "K")} />
         </dt>

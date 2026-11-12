@@ -73,7 +73,7 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   silent. `renderer/sound.ts` plays them; the settings dialog turns them off.
 - **The mode switch is the window's, the mode is the page's.** Preview | Annotate | Edit | Motion and the
   pencil (the brush, in the code) are in the top bar (`setMode`, `toggleBrush`); main tells the overlay, and shows what the
-  overlay says back (`{ type: "mode" }`), so the page's own keys (`mod+E`, `Esc`) move the switch
+  overlay says back (`{ type: "mode" }`), so the page's own keys (`mod+U`/`P`/`O`/`I`, `Esc`) move the switch
   too. "Edit" is the overlay's canvas mode; "Preview" is review off. The mode is not saved: the
   page remembers it across a reload and says it again.
 - **A motion note is one animation.** The overlay sends it as `note.motion` (`Motion` in

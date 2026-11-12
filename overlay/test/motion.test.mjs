@@ -281,7 +281,7 @@ test("Esc steps back: the keyframe, the animation, then notes mode; nothing is l
   await page.close();
 });
 
-test("shared keyframes: Only this one gives the element its own copy; the note says so", async () => {
+test("shared keyframes: Duplicate gives the element its own copy; the note says so", async () => {
   const { page, f, errors } = await open();
   await clickEl(page, f, ".hero p");
   await ui(f, '.m-kspan[data-prop="opacity"] .m-key[data-at="0"]').click();
@@ -293,7 +293,7 @@ test("shared keyframes: Only this one gives the element its own copy; the note s
   assert.match(css, /@keyframes rise-2 \{[^]*?0% \{ opacity: 0\.3;/, css);
   assert.doesNotMatch(css, /@keyframes rise \{/); // the heading keeps the page's own
   assert.match(css, /animation: 700ms[^;]* rise-2;/);
-  assert.equal(await inLayer(f, (r) => r.querySelector(".m-shared").textContent.trim()), "Own copy of rise");
+  assert.equal(await inLayer(f, (r) => r.querySelector(".m-shared").textContent.trim()), "Copy of rise, for this element only");
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => window.__harness.notes.length === 1);
   const m = (await host(page)).notes[0].motion;
@@ -301,6 +301,80 @@ test("shared keyframes: Only this one gives the element its own copy; the note s
   assert.equal(m.from, "rise");
   assert.match(m.keyframes.to, /@keyframes rise-2/);
   assert.equal(m.keyframes.from, undefined);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("a new animation is named in its band; renamed in the CSS text, the list follows at once and no row is left under the old name", async () => {
+  const { page, f, errors } = await open();
+  await clickEl(page, f, ".card h3");
+  await ui(f, "[data-m=new]").click();
+  // the name has the caret, and says it is new (not a copy of anything)
+  assert.equal(await inLayer(f, (r) => r.activeElement?.dataset.name !== undefined && r.activeElement.value), "new-animation");
+  await page.keyboard.type("slide-in");
+  await page.keyboard.press("Enter");
+  const names = () => inLayer(f, (r) => [...r.querySelectorAll(".m-list .m-it:not(.sub) .m-nm")].map((e) => e.textContent));
+  assert.ok((await names()).includes("slide-in"));
+  // a name that is taken is refused, and the one it has comes back
+  await ui(f, ".m-ghead [data-name]").fill("rise");
+  await ui(f, ".m-ghead [data-name]").press("Enter");
+  assert.equal(await ui(f, ".m-ghead [data-name]").inputValue(), "slide-in");
+  // renamed in the text, then back to the keyframes: one animation, under the new name
+  await ui(f, "[data-m=view][data-v=css]").click();
+  const area = ui(f, "textarea[data-css]");
+  await area.click();
+  await area.evaluate((t) => t.setSelectionRange(t.value.indexOf("slide-in"), t.value.indexOf("slide-in") + 8));
+  await page.keyboard.type("test-one");
+  assert.ok((await names()).includes("test-one"), "the list follows while typing");
+  await ui(f, "[data-m=view][data-v=keys]").click();
+  await clickEl(page, f, ".hero h2");
+  await clickEl(page, f, ".card h3");
+  const list = await names();
+  assert.ok(list.includes("test-one") && !list.includes("slide-in"), list.join(" "));
+  assert.match(await adopted(f), /animation: [^;]*test-one;/);
+  assert.doesNotMatch(await adopted(f), /slide-in/);
+  // Remove takes it off the element
+  await ui(f, ".m-ghead [data-m=discard]").click();
+  assert.ok(!(await names()).includes("test-one"));
+  assert.equal(await inLayer(f, (r) => !!r.querySelector(".m-empty [data-m=new]")), true);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("something that does not move can play keyframes the page has, timed as the page times them", async () => {
+  const { page, f, errors } = await open();
+  await clickEl(page, f, ".card h3");
+  const chips = await inLayer(f, (r) => [...r.querySelectorAll(".m-empty [data-m=use]")].map((b) => b.dataset.v));
+  assert.ok(["rise", "spin", "wiggle"].every((n) => chips.includes(n)), chips.join(" "));
+  await ui(f, '.m-empty [data-m=use][data-v="spin"]').click();
+  const s = await inLayer(f, (r) => ({ band: r.querySelector(".m-ghead b")?.textContent, shared: r.querySelector(".m-shared")?.textContent.trim(), dur: r.querySelector("[data-t=duration]").value }));
+  assert.deepEqual(s, { band: "spin", shared: "2 elements", dur: "900" });
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("the property and easing fields list their values in the dock's own list: ↑/↓ and Enter, or a click", async () => {
+  const { page, f, errors } = await open();
+  await clickEl(page, f, ".hero h2");
+  const list = () => inLayer(f, (r) => (r.querySelector(".m-sug").hidden ? null : [...r.querySelectorAll(".m-sug .m-sg")].map((e) => e.textContent)));
+  await ui(f, "[data-addp]").click();
+  const all = await list();
+  assert.ok(all && all.includes("color") && !all.includes("opacity"), `the lanes it has are not offered: ${all}`);
+  await page.keyboard.type("bo");
+  assert.deepEqual(await list(), ["border-color", "box-shadow", "border-radius"]);
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await frames(f);
+  assert.deepEqual(await inLayer(f, (r) => [...r.querySelectorAll(".m-lane .m-lab span")].map((e) => e.textContent)), ["opacity", "transform", "box-shadow"]);
+  assert.equal(await list(), null);
+  // the easing: the one it has is marked; a click picks another
+  await ui(f, "[data-t=easing]").click();
+  assert.equal(await inLayer(f, (r) => r.querySelector(".m-sug .m-sg.on")?.textContent), "cubic-bezier(0.2, 0.8, 0.2, 1)");
+  const at = await inLayer(f, (r) => [...r.querySelectorAll(".m-sug .m-sg")].findIndex((e) => e.textContent === "ease-in"));
+  await ui(f, `.m-sug .m-sg[data-sg="${at}"]`).click();
+  assert.equal(await ui(f, "[data-t=easing]").inputValue(), "ease-in");
+  assert.match(await adopted(f), /ease-in /);
+  assert.equal(await list(), null);
   assert.deepEqual(errors, []);
   await page.close();
 });

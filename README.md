@@ -55,9 +55,14 @@ them.
 
 `mod` is `⌘` on macOS and `Ctrl` elsewhere.
 
+| Modes, anywhere | |
+|---|---|
+| `mod+U` | Preview; again, back to the mode you were in |
+| `mod+P` / `mod+O` / `mod+I` | Annotate / Edit / Motion |
+| `mod+shift+P` | The pencil: draw on the page |
+
 | Annotate mode | |
 |---|---|
-| `mod+shift+M` | Preview, or back to Annotate or Edit |
 | click / `shift`+click / drag | Select an element / add one / select an area |
 | `alt`+drag, or the pencil button | Draw. A line selects what it crosses, a closed loop what it encloses |
 | `↑` / `↓` | Parent / child element, while the note is empty |
@@ -69,7 +74,6 @@ them.
 
 | Edit mode | |
 |---|---|
-| `mod+E` | Annotate ⇄ Edit |
 | click, or a row of the tree | Select an element |
 | drag an element / an edge / a gap | Move it among its siblings / resize it / change the gap |
 | hold `mod` while dragging | No snapping |
@@ -87,11 +91,12 @@ them.
 | `Space` / `←` `→` | Play or pause / step (`shift`: bigger steps) |
 | `Delete` | Remove the selected keyframe |
 | `mod+Z` / `mod+shift+Z` | Undo / redo |
+| `↑` `↓` then `Enter` in a property or easing field | Pick from its list |
 | `Enter`, or **Send** | Send the open animation as one note, with the words typed for it |
 | `Esc` | The keyframe, then the animation, then back to Annotate |
 
 Keyframes belong to their name, so a change to them changes every element that plays them (the
-timeline says how many); **Only this one** gives the element a copy of its own. Duration, delay,
+timeline says how many); **Duplicate** gives the element a copy of its own. Duration, delay,
 easing and the rest belong to the element.
 
 In the chat box, `/` lists commands: the app's own (`/compact`, `/new`, `/undo`, `/redo`,

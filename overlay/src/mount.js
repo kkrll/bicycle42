@@ -48,7 +48,7 @@ function mount() {
         <div class="m-kb" hidden></div>
         <div class="m-ft"><input class="m-note" type="text" spellcheck="false" autocomplete="off" placeholder="Note…"><span class="m-msg" hidden></span>
           <button type="button" class="m-go" data-m="send" disabled>Send</button></div></div></div>
-    <div class="m-pop" hidden></div><div class="m-lists"></div>`;
+    <div class="m-pop" hidden></div><div class="m-sug" role="listbox" hidden></div>`;
   boxes = root.querySelector(".boxes");
   pinsEl = root.querySelector(".pins");
   Notes.mount();

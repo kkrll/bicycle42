@@ -53,23 +53,36 @@ function blockIfActive(e) {
   else block(e);
 }
 
+/** mod+U Preview (review off; pressed again, back to the mode it left), mod+P Annotate, mod+O Edit,
+ *  mod+I Motion, mod+shift+P the brush. By the key's place, not its letter: the same keys on any
+ *  layout, a Cyrillic one included. (Not mod+1…4: those are a browser's tabs.) */
+const MODE_KEYS = { KeyU: "preview", KeyP: "notes", KeyO: "canvas", KeyI: "motion" };
+
+/** The brush, as the host's pencil does it: on, it is notes mode with the brush; off, notes mode. */
+function brushKey() {
+  if (S.brush) return setBrush(false);
+  setMode("notes");
+  setBrush(true);
+}
+
 function onKeyDown(e) {
-  if (mod(e) && e.shiftKey && e.code === "KeyM") {
+  const want = !mod(e) || e.altKey ? undefined : e.shiftKey ? (e.code === "KeyP" ? "brush" : undefined) : MODE_KEYS[e.code];
+  if (want) {
     block(e);
-    send({ type: "toggle" });
-    return;
+    if (want === "preview") return send({ type: "toggle" });
+    if (S.enabled) return want === "brush" ? brushKey() : setMode(want);
+    // Review is off: the host turns it on, and the mode follows once it has (setEnabled).
+    S.modeAfter = want;
+    return send({ type: "toggle", enabled: true });
   }
   if (!S.enabled) return;
-  if (mod(e) && !e.shiftKey && !e.altKey && e.code === "KeyE") {
-    block(e);
-    setMode(modeOn() === "canvas" ? "notes" : "canvas");
-    return;
-  }
   current().key(e);
 }
 
 function setEnabled(on) {
   S.enabled = on;
+  if (on && S.modeAfter) S.modeAfter === "brush" ? brushKey() : setMode(S.modeAfter);
+  S.modeAfter = null;
   document.documentElement.toggleAttribute("data-b42-review", on);
   pinsEl.classList.toggle("live", on);
   Notes.syncUi();

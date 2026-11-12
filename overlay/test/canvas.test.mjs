@@ -127,15 +127,15 @@ test("canvas is off by default: the bar shows only the switch, notes work as bef
   await page.close();
 });
 
-test("mod+E switches modes; a note in progress hands over its element and its words", async () => {
+test("mod+O / mod+P switch modes; a note in progress hands over its element and its words", async () => {
   const { page, f } = await open({ canvas: false });
   await clickAt(page, f, "#cta");
   await page.keyboard.type("rounder");
-  await page.keyboard.press(`${MOD}+KeyE`);
+  await page.keyboard.press(`${MOD}+KeyO`);
   await settle(f);
   const s = await ui(f, (r) => ({ card: !r.querySelector(".card").hidden, insp: !r.querySelector(".insp").hidden, path: r.querySelector(".ipath").textContent, note: r.querySelector(".cnote").value, cursor: getComputedStyle(document.body).cursor }));
   assert.deepEqual(s, { card: false, insp: true, path: "Button · Start free trial", note: "rounder", cursor: "default" });
-  await page.keyboard.press(`${MOD}+KeyE`);
+  await page.keyboard.press(`${MOD}+KeyP`);
   await settle(f);
   assert.deepEqual(await ui(f, (r) => [r.querySelector(".insp").hidden, getComputedStyle(document.body).cursor, document.adoptedStyleSheets.length]), [true, "crosshair", 0]);
   await page.close();
@@ -1062,7 +1062,7 @@ test("brush: on, a plain drag draws a stroke; off, it selects an area; alt+drag 
   assert.deepEqual([await pressed(), await page.evaluate(() => window.__harness.mode)], ["false", "canvas"]);
   // the layer's own key changes the mode too, and the host hears it
   await clickAt(page, f, "#title"); // the keyboard is with the page again
-  await page.keyboard.press(`${MOD}+e`);
+  await page.keyboard.press(`${MOD}+KeyP`);
   assert.equal(await page.evaluate(() => window.__harness.mode), "notes");
   await page.close();
 });

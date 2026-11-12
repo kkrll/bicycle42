@@ -50,8 +50,10 @@ function discard() {
     u.timing = { ...u.orig };
     u.plays = { how: "asnow", words: "" };
   }
-  if (k && k.isNew) M.kf.delete(k.name);
-  else if (k) k.frames = parseKf(k.orig).frames;
+  if (k && k.isNew) {
+    // made here: they go, unless another element was given them too
+    if (![...M.use.values()].some((x) => x.name === k.name)) M.kf.delete(k.name);
+  } else if (k) k.frames = parseKf(k.orig).frames;
   if (u.isNew) M.open = null;
   M.key = null;
   commit();
@@ -275,14 +277,27 @@ function setCss(text) {
     if (bad.length) why = `Not a value for ${bad[0]}`;
   }
   if (why) return why;
-  if (p.name !== k.name && k.isNew) rename(k, p.name);
+  const renamed = p.name !== k.name;
+  if (renamed && (why = nameProblem(p.name))) return why;
+  if (renamed) rename(k, p.name);
   k.frames = p.frames;
   if (M.key && !k.frames.some((f) => f.at === M.key.at && (M.key.prop === null || M.key.prop in f.vals))) M.key = null;
   apply();
+  if (renamed) {
+    // The list is drawn from what the page plays: under the old name, a row would open nothing.
+    scan();
+    drawList();
+  }
+  return "";
+}
+/** Why `nm` cannot be the open keyframes' new name, or "". */
+function nameProblem(nm) {
+  if (!/^-?[a-zA-Z_][\w-]{0,60}$/.test(nm)) return "A name is letters, digits, - and _, and starts with a letter";
+  if (M.kf.has(nm) || M.scan.rules.has(nm) || M.scan.anims.some((a) => a.name === nm)) return `“${nm}” is taken`;
   return "";
 }
 function rename(k, nm) {
-  if (!/^-?[a-zA-Z_][\w-]{0,60}$/.test(nm) || M.kf.has(nm) || M.scan.rules.has(nm)) return;
+  if (nameProblem(nm)) return false;
   M.kf.delete(k.name);
   for (const [id, u] of [...M.use])
     if (u.name === k.name) {
@@ -294,6 +309,22 @@ function rename(k, nm) {
   k.name = nm;
   M.kf.set(nm, k);
   M.held = null;
+  return true;
+}
+/** The name typed in the band, for keyframes made here. */
+function setName(v, done) {
+  const k = openKf(), nm = String(v).trim();
+  if (!k || !k.isNew) return false;
+  if (nm === k.name) return true;
+  const why = nameProblem(nm);
+  if (why) {
+    if (done) flash(why);
+    return false;
+  }
+  if (!done) return true;
+  rename(k, nm);
+  commit();
+  return true;
 }
 
 // ── the list ─────────────────────────────────────────────────────────────────────────────
@@ -336,6 +367,6 @@ function rows() {
   for (const el of M.suspects)
     if (el.isConnected) out.push({ kind: "frames", els: [el], text: name(el, true), aside: "per frame", running: true, off: true, duration: null, open: () => {} });
   if (found.unused.length) out.push({ group: "Unused" });
-  for (const n of found.unused) out.push({ kind: "unused", els: [], text: n, aside: "", off: !M.sel, duration: null, open: () => tryUnused(n) });
+  for (const n of found.unused) out.push({ kind: "unused", els: [], text: n, aside: "", off: !M.sel, duration: null, open: () => useKf(n) });
   return out;
 }

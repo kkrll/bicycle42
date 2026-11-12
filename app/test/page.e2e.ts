@@ -508,8 +508,8 @@ async function main() {
       await until(async () => (await page.evaluate("window.__b42.busy()")) === false, 3000)
     }
 
-    wc.sendInputEvent({ type: "keyDown", keyCode: "E", modifiers: [mod] })
-    check("mod+E reaches the page and turns canvas mode on: the inspector opens", (await until(() => shown("insp"), 2000)) === true)
+    wc.sendInputEvent({ type: "keyDown", keyCode: "O", modifiers: [mod] })
+    check("mod+O reaches the page and turns canvas mode on: the inspector opens", (await until(() => shown("insp"), 2000)) === true)
 
     // ── a gap drag and a hide, sent with Enter from the page ──────────────────────────────────
     await clickPt(centre(await pageBox(SECOND)))
@@ -716,8 +716,8 @@ async function main() {
     check("the host's brush is heard back", (await until(() => same(messages.filter((m) => m.type === "mode").at(-1), { type: "mode", mode: "notes", brush: true }), 2000)) === true)
     page.send({ type: "mode", mode: "canvas" })
     check("…and edit mode turns it off", (await until(async () => (await shown("insp")) && same(messages.filter((m) => m.type === "mode").at(-1), { type: "mode", mode: "canvas", brush: false }), 2000)) === true)
-    wc.sendInputEvent({ type: "keyDown", keyCode: "E", modifiers: [mod] })
-    check("mod+E goes back to notes", (await until(async () => !(await shown("insp")), 2000)) === true)
+    wc.sendInputEvent({ type: "keyDown", keyCode: "P", modifiers: [mod] })
+    check("mod+P goes back to notes", (await until(async () => !(await shown("insp")), 2000)) === true)
   }
 
   // Devtools (or a crash) takes the debugger; the overlay must be back with the next load.

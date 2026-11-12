@@ -16,7 +16,8 @@
 // The files of motion/ share one scope. This one holds the constants, the state M, and the model:
 // elements of the page, keyframes as text, how an element plays them, applying, what moves here.
 const EASINGS = ["linear", "ease", "ease-in", "ease-out", "ease-in-out", "cubic-bezier(0.2, 0.8, 0.2, 1)", "cubic-bezier(0.34, 1.56, 0.64, 1)", "steps(4, end)"];
-const PROPS = ["opacity", "transform", "translate", "scale", "rotate", "background-color", "color", "box-shadow", "filter", "clip-path", "width", "height", "border-radius", "letter-spacing"];
+const PROPS = ["opacity", "transform", "translate", "scale", "rotate", "background-color", "color", "border-color", "box-shadow", "filter", "backdrop-filter", "clip-path",
+  "width", "height", "max-height", "top", "left", "border-radius", "letter-spacing", "background-position", "stroke-dashoffset"];
 // What starts it: the agent wires this up in code; here it plays when Play is pressed.
 const HOW = { asnow: "As now", load: "On load", view: "In view", hover: "On hover", click: "On click", appear: "On appear", scroll: "On scroll" };
 // The choices for how it plays, as [label, what it means]; the key is the CSS value.
@@ -91,7 +92,7 @@ const M = {
   drag: null, last: null, findUntil: 0, obs: null, ui: null,
   msg: "", msgTimer: 0, done: "", doneTimer: 0,
 };
-let dock, listEl, hdEl, tlEl, cssEl, kbEl, ftEl, noteEl, msgEl, popEl, tagEl, popAnchor = null;
+let dock, listEl, hdEl, tlEl, cssEl, kbEl, ftEl, noteEl, msgEl, popEl, sugEl, tagEl, popAnchor = null;
 
 // ── elements of the page ─────────────────────────────────────────────────────────────────
 const mq = (rs) => {

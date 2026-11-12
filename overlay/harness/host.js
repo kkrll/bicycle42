@@ -149,10 +149,14 @@ $("width").addEventListener("change", (e) => {
   frame.style.flex = "none";
 });
 window.addEventListener("keydown", (e) => {
-  if ((isMac ? e.metaKey : e.ctrlKey) && e.shiftKey && e.code === "KeyM") {
-    e.preventDefault();
-    setEnabled(!H.enabled);
-  }
+  // mod+U, P, O, I and mod+shift+P while the harness itself has the keyboard; inside the page the overlay has them.
+  if (!(isMac ? e.metaKey : e.ctrlKey) || e.altKey) return;
+  const want = e.shiftKey ? (e.code === "KeyP" ? "brush" : undefined) : { KeyU: "preview", KeyP: "notes", KeyO: "canvas", KeyI: "motion" }[e.code];
+  if (!want) return;
+  e.preventDefault();
+  if (want === "preview") return setEnabled(!H.enabled);
+  if (!H.enabled) setEnabled(true);
+  toPage(want === "brush" ? { type: "mode", brush: !H.brush } : { type: "mode", mode: want });
 });
 
 frame.addEventListener("load", inject);

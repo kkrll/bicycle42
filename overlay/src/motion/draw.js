@@ -7,6 +7,7 @@
 function setOn(on) {
   if (on === M.on || !dock) return;
   closePop();
+  sugHide();
   if (on) {
     M.on = true;
     // A note in progress becomes the start: its element is looked at.
@@ -92,6 +93,7 @@ const focusLater = (sel) =>
   }, 0);
 function draw() {
   if (!dock || !M.on) return;
+  if (sug && !sug.f.isConnected) sugHide();
   drawList();
   drawHead();
   const css = M.view === "css" && !!M.open;
@@ -119,7 +121,7 @@ function timingFields() {
   const t = timing(), ro = readOnly() ? "disabled" : "";
   return `<label class="m-tf"><span>Duration</span><input class="m-fld num" data-t="duration" value="${Math.round(t.duration)}" inputmode="numeric" ${ro}><span class="m-unit">ms</span></label>
     <label class="m-tf"><span>Delay</span><input class="m-fld num" data-t="delay" value="${Math.round(t.delay)}" inputmode="numeric" ${ro}><span class="m-unit">ms</span></label>
-    <label class="m-tf"><span>Easing</span><input class="m-fld ease" data-t="easing" list="b42-m-easings" value="${esc(t.easing)}" spellcheck="false" ${ro}>${curve(t.easing)}</label>`;
+    <label class="m-tf"><span>Easing</span><input class="m-fld ease" data-t="easing" data-sug="ease" value="${esc(t.easing)}" spellcheck="false" autocomplete="off" ${ro}>${curve(t.easing)}</label>`;
 }
 function drawHead() {
   if (typingIn(hdEl)) return;
@@ -133,7 +135,7 @@ function drawHead() {
       <button type="button" class="m-btn ic${M.loop ? " on" : ""}" data-m="loop" title="Repeat while looking">${mi("loop")}</button>
       <button type="button" class="m-btn ic${M.isolate ? " on" : ""}" data-m="iso" ${M.sel ? "" : "disabled"} title="Show only this element">${mi("iso")}</button></div>
     <div class="m-tools"><button type="button" class="m-btn ic" data-m="undo" ${M.past.length ? "" : "disabled"} title="Undo (${isMac ? "⌘" : "ctrl+"}Z)">${mi("undo")}</button>
-      <button type="button" class="m-btn ic" data-m="discard" ${openDirty() ? "" : "disabled"} title="Put back as the page has it">${mi("reset")}</button></div>`;
+      <button type="button" class="m-btn ic" data-m="discard" ${openDirty() ? "" : "disabled"} title="${openUse() && openUse().isNew ? "Remove this new animation" : "Put back as the page has it"}">${mi("reset")}</button></div>`;
 }
 function laneBars(p) {
   const fr = frames().filter((f) => p in f.vals), selKey = M.key, out = [];
@@ -156,7 +158,12 @@ function drawLanes() {
   const o = M.open;
   tlEl.classList.toggle("ro", readOnly());
   if (!o) {
-    tlEl.innerHTML = `<div class="m-empty">${M.sel ? `<div>Nothing moves this</div><button type="button" class="m-btn m-new" data-m="new">${mi("plus")}New animation</button>` : "<div>Click something on the page, or a row of the list</div>"}</div>`;
+    // Something that does not move: new keyframes, or keyframes the page already has.
+    const names = M.sel ? knownNames() : [];
+    const have = names.length ? `<div class="m-or">or play keyframes the page has</div><div class="m-chips">${names.map((n) =>
+      `<button type="button" class="m-chip" data-m="use" data-v="${esc(n)}" title="Play ${esc(n)} on this element">${esc(n)}</button>`).join("")}</div>` : "";
+    tlEl.innerHTML = `<div class="m-empty">${M.sel ? `<div>Nothing moves this</div><button type="button" class="m-btn m-new" data-m="new">${mi("plus")}New animation</button>${have}`
+      : "<div>Click something on the page, or a row of the list</div>"}</div>`;
     return;
   }
   const ro = readOnly(), selKey = M.key, fr = frames(), T = Math.max(1, +timing().duration || 0);
@@ -173,17 +180,20 @@ function drawLanes() {
   const html = [`<div class="m-lrow m-ruler"><div class="m-lab"><button type="button" class="m-btn ic play" data-m="play" title="${tr ? "Switch the state" : "Play (space)"}">${mi(running() ? "pause" : "play")}</button><span class="m-time"></span></div>
     <div class="m-trk" data-ruler>${ticks.join("")}${whole}</div></div>`];
   // the band: the keyframes' name, and who else plays them
-  const n = sharedBy(), u = openUse(), nm = tr ? "transition" : o.name;
+  const n = sharedBy(), u = openUse(), k = openKf(), nm = tr ? "transition" : o.name;
+  // Keyframes made here are named here; the page's own keep their name (the code uses it).
+  const title = k && k.isNew ? `<input class="m-fld m-name" data-name value="${esc(nm)}" spellcheck="false" autocomplete="off" aria-label="Name" title="Rename these keyframes">` : `<b>${esc(nm)}</b>`;
+  const remove = u && u.isNew ? `<span class="m-sp"></span><button type="button" class="m-btn m-own" data-m="discard" title="Take this animation off the element">${mi("trash", 14)}Remove</button>` : "";
   const note = n > 1 ? `<span class="m-shared" title="These keyframes are played by ${n} elements: a change to them changes all of them. Duration, delay and easing are this element's own.">${mi("link", 14)}${n} elements</span>
-      <button type="button" class="m-btn m-own" data-m="detach" title="Copy the keyframes for this element only; the others keep them as they are">Only this one</button>`
-    : u && u.from ? `<span class="m-shared">Own copy of <b>${esc(u.from)}</b></span>` : "";
+      <button type="button" class="m-btn m-own" data-m="detach" title="Give this element its own copy of the keyframes to change; the other ${n - 1 === 1 ? "element keeps" : `${n - 1} elements keep`} them as they are">Duplicate</button>`
+    : u && u.from ? `<span class="m-shared">Copy of <b>${esc(u.from)}</b>, for this element only</span>` : "";
   const lanes = laneOrder();
   const rowsHtml = lanes.map((p) => `<div class="m-lrow m-lane${selKey && selKey.prop === p ? " kon" : ""}"><div class="m-lab"><span title="${esc(p)}">${esc(p)}</span>${ro ? "" : `<button type="button" class="m-btn ic m-x" data-m="rmlane" data-prop="${esc(p)}" title="Remove">${icon("x", 14)}</button>`}</div>
       <div class="m-trk"><div class="m-trk m-kspan" data-prop="${esc(p)}">${laneBars(p)}</div></div></div>`);
   html.push(`<div class="m-lanes"><div class="m-bands"><i class="m-band"></i></div>
-    <div class="m-lrow m-ghead"><div class="m-lab">${kindIcon(tr ? "transition" : o.kind === "script" ? "script" : "css")}<b>${esc(nm)}</b></div><div class="m-trk">${note}</div></div>
+    <div class="m-lrow m-ghead"><div class="m-lab">${kindIcon(tr ? "transition" : o.kind === "script" ? "script" : "css")}${title}</div><div class="m-trk">${note}${remove}</div></div>
     ${rowsHtml.join("")}</div>`);
-  if (!ro) html.push(`<div class="m-addp"><input class="m-fld" data-addp list="b42-m-props" placeholder="+ Property" spellcheck="false" autocomplete="off"></div>`);
+  if (!ro) html.push(`<div class="m-addp"><input class="m-fld" data-addp data-sug="props" placeholder="+ Property" spellcheck="false" autocomplete="off"></div>`);
   html.push(`<div class="m-phl"><div class="m-flag" hidden><b></b></div></div>`);
   tlEl.innerHTML = html.join("");
 }
@@ -194,7 +204,7 @@ function keyEditor() {
   return `<div class="m-keyed"><input class="m-fld num" data-k="at" value="${r1(k.at)}" ${ro}><span class="m-unit">%</span>
     ${k.prop === null ? `<span class="m-p">${Object.keys(k.f.vals).length} properties</span><span class="m-sp"></span>`
       : `<span class="m-p">${esc(k.prop)}</span><input class="m-fld val" data-k="val" value="${esc(k.value)}" spellcheck="false" autocomplete="off" ${ro}>`}
-    ${k.last ? "" : `<input class="m-fld ease" data-k="ease" list="b42-m-easings" value="${esc(k.ease)}" placeholder="${esc(k.dflt)}" spellcheck="false" ${ro}><button type="button" class="m-btn ic m-cvb" data-m="kease" ${ro} title="Easing">${curve(k.ease || k.dflt)}</button>`}
+    ${k.last ? "" : `<input class="m-fld ease" data-k="ease" data-sug="ease" value="${esc(k.ease)}" placeholder="${esc(k.dflt)}" spellcheck="false" ${ro}><button type="button" class="m-btn ic m-cvb" data-m="kease" ${ro} title="Easing">${curve(k.ease || k.dflt)}</button>`}
     ${ro ? "" : `<button type="button" class="m-btn ic" data-m="rmkey" title="Delete (⌫)">${mi("trash")}</button>`}</div>`;
 }
 function drawCss() {
@@ -240,7 +250,10 @@ function frame(capturing) {
   const on = M.on && S.enabled && !capturing;
   if (dock._shown !== on) {
     dock.hidden = !(dock._shown = on);
-    if (!on) closePop();
+    if (!on) {
+      closePop();
+      sugHide();
+    }
   }
   // (Nothing is written that is already so: an idle layer changes nothing, frame after frame.)
   const hide = (el, h) => el.hidden !== h && (el.hidden = h);

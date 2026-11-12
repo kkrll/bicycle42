@@ -1044,7 +1044,7 @@ test("the top bar's switch: Preview, Notes and Edit, and the brush, go to the pa
     h.page.sent.length = 0
     await h.cmd("setMode", "edit")
     assert.deepEqual([review(), sent()], ["edit", ['{"type":"mode","mode":"canvas"}']])
-    // The overlay's own key (mod+E, Esc) changes it too.
+    // The overlay's own keys (mod+U/P/O/I, Esc) change it too.
     h.page.message({ type: "mode", mode: "notes", brush: false })
     assert.equal(review(), "notes")
     h.page.message({ type: "mode", mode: "canvas", brush: false })
