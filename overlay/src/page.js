@@ -276,28 +276,6 @@ function strokeTargets(pts) {
   return hits.filter((el) => !hits.some((o) => o !== el && el.contains(o))).slice(0, 12);
 }
 
-function walk(dir) {
-  const el = S.sel[0];
-  if (!el) return;
-  let next = null;
-  if (dir === "up") {
-    next = el.parentElement;
-    if (next === document.body || next === document.documentElement) next = null;
-  } else {
-    const kids = [...el.children];
-    next = kids.find((k) => {
-      const r = k.getBoundingClientRect();
-      return r.width > 0 && r.height > 0;
-    }) || kids[0] || null;
-  }
-  if (!next) return;
-  S.sel = [next];
-  S.area = null;
-  updateCardMeta();
-  draftChanged();
-  kick();
-}
-
 // ── rules the page adopts ───────────────────────────────────────────────────────────────────
 // Typed declarations must win over the site's rules the way an inline style would, without
 // "!important" in what the agent reads: three ids' worth of specificity that matches anything.

@@ -39,21 +39,7 @@ const S = {
 };
 
 let hostEl, root, ink, strokesEl, pencil, boxes, pinsEl, card, what, refs, textarea, cursorStyle, tip, sentEl, chip, menuEl, variantsEl, variantStyle;
-const PLACEHOLDER = "Note…"; // what else the card does (/, a pasted picture) is behind its "?"
-// The card's keys: behind its "?", shown while the pointer (or focus) is on it. The card itself
-// carries no instructions, only what is being noted and the ↵ that sends it.
-const CARD_KEYS = [
-  ["↵", "send"],
-  [isMac ? "⌥↵" : "alt+↵", "send, to work in parallel"],
-  ["/", "templates"],
-  [isMac ? "⌘V" : "ctrl+V", "attach a copied picture"],
-  ["↑ ↓", "parent, child (note empty)"],
-  [isMac ? "⌘Z" : "ctrl+Z", "undo a stroke"],
-  ["esc", "cancel the note"],
-];
-let cardAt = null; // where the note card last sat: the "Sent" chip appears there
-let sentTimer = 0;
+const SVG = "http://www.w3.org/2000/svg";
 let raf = 0;
-let draftTimer = 0;
 let domVersion = 0; // bumped on every DOM mutation; pins re-search only when it changes
 

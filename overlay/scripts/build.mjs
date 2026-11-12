@@ -20,7 +20,13 @@ export const PARTS = [
   "state.js", // the host bridge, the transient state, the elements of the layer
   "ui.js", // the layer's icons, and words with key symbols drawn in them
   "page.js", // geometry, element identity, picking, the rules previews adopt
-  "notes.js", // notes mode: the draft, the card, templates, pictures, submit
+  "draft.js", // the draft the host keeps
+  "notes/draft.js", // notes mode: the draft
+  "notes/card.js", // the card
+  "notes/templates.js", // templates
+  "notes/pictures.js", // pictures
+  "notes/submit.js", // submit
+  "notes/sent.js", // the "Sent" chip, undo
   {
     module: "Notes", // notes mode's handlers for the page's pointer and keys
     files: ["notes/input.js"],

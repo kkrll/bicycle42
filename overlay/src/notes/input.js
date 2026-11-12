@@ -73,6 +73,28 @@ function pointerUp(e) {
 }
 
 // ── keys ─────────────────────────────────────────────────────────────────────────────────
+function walk(dir) {
+  const el = S.sel[0];
+  if (!el) return;
+  let next = null;
+  if (dir === "up") {
+    next = el.parentElement;
+    if (next === document.body || next === document.documentElement) next = null;
+  } else {
+    const kids = [...el.children];
+    next = kids.find((k) => {
+      const r = k.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    }) || kids[0] || null;
+  }
+  if (!next) return;
+  S.sel = [next];
+  S.area = null;
+  updateCardMeta();
+  draftChanged();
+  kick();
+}
+
 function key(e) {
   if (e.key === "Escape" && Canvas.closePop()) {
     block(e);
