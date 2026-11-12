@@ -77,21 +77,19 @@ function watchSuspects(on) {
   });
   M.obs.observe(document.body, { attributes: true, attributeFilter: ["style"], subtree: true });
 }
-function flash(text) {
-  M.msg = text;
-  drawFoot();
-  clearTimeout(M.msgTimer);
-  M.msgTimer = setTimeout(() => {
-    M.msg = "";
-    drawFoot();
-  }, 2600);
-}
 
 // ── drawing ──────────────────────────────────────────────────────────────────────────────
 const typingIn = (el) => {
   const a = root.activeElement;
   return !!a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && el.contains(a);
 };
+/** A field of the dock, focused once the dock has been drawn again (a keyframe's value, after
+ *  the keyframe or its lane is added). */
+const focusLater = (sel) =>
+  setTimeout(() => {
+    const f = dock.querySelector(sel);
+    if (f && !f.disabled) f.select ? f.select() : f.focus();
+  }, 0);
 function draw() {
   if (!dock || !M.on) return;
   drawList();
@@ -112,8 +110,8 @@ function drawList() {
   listEl._rows = list;
   listEl.innerHTML = list.map((r, i) => r.group ? `<div class="m-grp">${esc(r.group)}</div>`
     : `<div class="m-it k-${r.kind}${r.on ? " on" : ""}${r.sub ? " sub" : ""}${r.last ? " last" : ""}${r.off ? " off" : ""}${r.running ? " run" : ""}" data-row="${i}"
-      title="${r.sub ? "" : `${KIND_TITLE[r.kind]}${r.running ? ", playing" : ""}`}">${r.sub ? "" : kindIcon(r.kind)}<span class="m-nm">${esc(r.sub ? r.label : r.name)}</span>
-      <span class="m-ex">${r.sub ? "" : esc(r.label)}</span>${r.dirty ? '<i class="m-ed"></i>' : ""}
+      title="${r.sub ? "" : `${KIND_TITLE[r.kind]}${r.running ? ", playing" : ""}`}">${r.sub ? "" : kindIcon(r.kind)}<span class="m-nm">${esc(r.text)}</span>
+      <span class="m-ex">${esc(r.aside)}</span>${r.dirty ? '<i class="m-ed"></i>' : ""}
       ${r.duration !== null && r.duration !== undefined ? `<span class="m-du">${Math.round(r.duration)}</span>` : ""}</div>`).join("") ||
     `<div class="m-none">Nothing moves on this page</div>`;
 }
@@ -138,9 +136,9 @@ function drawHead() {
       <button type="button" class="m-btn ic" data-m="discard" ${openDirty() ? "" : "disabled"} title="Put back as the page has it">${mi("reset")}</button></div>`;
 }
 function laneBars(p) {
-  const fr = frames().filter((f) => p in f.vals), key = M.key, out = [];
+  const fr = frames().filter((f) => p in f.vals), selKey = M.key, out = [];
   if (!fr.length) return "";
-  const on = (f) => key && key.at === f.at && (key.prop === p || key.prop === null);
+  const on = (f) => selKey && selKey.at === f.at && (selKey.prop === p || selKey.prop === null);
   if (fr.length === 1) out.push(`<i class="m-sb solo${on(fr[0]) ? " on" : ""}" style="--fa: ${fr[0].at / 100}; --fb: ${fr[0].at / 100}; --l: -10px; --r: 10px"></i>`);
   // The outer ends of a lane's bars reach past its first and last keyframes, so those grips sit
   // inside them; where two bars meet, a gap holds the grip they share.
@@ -161,7 +159,7 @@ function drawLanes() {
     tlEl.innerHTML = `<div class="m-empty">${M.sel ? `<div>Nothing moves this</div><button type="button" class="m-btn m-new" data-m="new">${mi("plus")}New animation</button>` : "<div>Click something on the page, or a row of the list</div>"}</div>`;
     return;
   }
-  const ro = readOnly(), key = M.key, fr = frames(), T = Math.max(1, +timing().duration || 0);
+  const ro = readOnly(), selKey = M.key, fr = frames(), T = Math.max(1, +timing().duration || 0);
   M.T = T;
   const major = MAJOR.find((m) => T / m <= 7) || 5000, minor = major / 5;
   const ticks = [];
@@ -170,7 +168,7 @@ function drawLanes() {
     ticks.push(`<i class="m-tick${big ? " big" : ""}" style="--at: ${n / T}">${big ? `<b>${secs(n)}</b>` : ""}</i>`);
   }
   // the whole keyframes, under the ruler: one grabs every property at that moment
-  const whole = fr.map((f) => `<i class="m-key wk${key && key.at === f.at && key.prop === null ? " on" : ""}" style="--at: ${f.at / 100}" data-at="${f.at}" data-prop=""></i>`).join("");
+  const whole = fr.map((f) => `<i class="m-key wk${selKey && selKey.at === f.at && selKey.prop === null ? " on" : ""}" style="--at: ${f.at / 100}" data-at="${f.at}" data-prop=""></i>`).join("");
   const tr = o.kind === "transition";
   const html = [`<div class="m-lrow m-ruler"><div class="m-lab"><button type="button" class="m-btn ic play" data-m="play" title="${tr ? "Switch the state" : "Play (space)"}">${mi(running() ? "pause" : "play")}</button><span class="m-time"></span></div>
     <div class="m-trk" data-ruler>${ticks.join("")}${whole}</div></div>`];
@@ -180,7 +178,7 @@ function drawLanes() {
       <button type="button" class="m-btn m-own" data-m="detach" title="Copy the keyframes for this element only; the others keep them as they are">Only this one</button>`
     : u && u.from ? `<span class="m-shared">Own copy of <b>${esc(u.from)}</b></span>` : "";
   const lanes = laneOrder();
-  const rowsHtml = lanes.map((p) => `<div class="m-lrow m-lane${key && key.prop === p ? " kon" : ""}"><div class="m-lab"><span title="${esc(p)}">${esc(p)}</span>${ro ? "" : `<button type="button" class="m-btn ic m-x" data-m="rmlane" data-prop="${esc(p)}" title="Remove">${icon("x", 14)}</button>`}</div>
+  const rowsHtml = lanes.map((p) => `<div class="m-lrow m-lane${selKey && selKey.prop === p ? " kon" : ""}"><div class="m-lab"><span title="${esc(p)}">${esc(p)}</span>${ro ? "" : `<button type="button" class="m-btn ic m-x" data-m="rmlane" data-prop="${esc(p)}" title="Remove">${icon("x", 14)}</button>`}</div>
       <div class="m-trk"><div class="m-trk m-kspan" data-prop="${esc(p)}">${laneBars(p)}</div></div></div>`);
   html.push(`<div class="m-lanes"><div class="m-bands"><i class="m-band"></i></div>
     <div class="m-lrow m-ghead"><div class="m-lab">${kindIcon(tr ? "transition" : o.kind === "script" ? "script" : "css")}<b>${esc(nm)}</b></div><div class="m-trk">${note}</div></div>
@@ -188,7 +186,6 @@ function drawLanes() {
   if (!ro) html.push(`<div class="m-addp"><input class="m-fld" data-addp list="b42-m-props" placeholder="+ Property" spellcheck="false" autocomplete="off"></div>`);
   html.push(`<div class="m-phl"><div class="m-flag" hidden><b></b></div></div>`);
   tlEl.innerHTML = html.join("");
-  tlEl._play = null;
 }
 function keyEditor() {
   const k = keyInfo();
@@ -205,11 +202,12 @@ function drawCss() {
   if (area && root.activeElement === area) return;
   cssEl.innerHTML = `<textarea data-css spellcheck="false" autocomplete="off" ${openKf() ? "" : "readonly"}>${esc(cssText())}</textarea><div class="m-err" hidden></div>`;
 }
-/** The note that goes with the open animation, and Send; or what the line has to say. */
+/** What the line under the timeline says while the last animation sent is a preview. */
 function sentStatus() {
   const b = M.sent[M.sent.length - 1];
-  return b ? `Sent · preview stays until ${typeof b.n === "number" ? `note ${b.n}` : "the note"} is done` : "";
+  return b ? `Sent · preview stays until ${b.n !== null ? `note ${b.n}` : "the note"} is done` : "";
 }
+/** The note that goes with the open animation, and Send; or what the line has to say. */
 function drawFoot() {
   if (!ftEl) return;
   const o = M.open, can = !!o && (openDirty() || !!noteEl.value.trim());
@@ -223,6 +221,16 @@ function drawFoot() {
   const go = ftEl.querySelector(".m-go");
   go.disabled = !can;
   go.title = can ? "Send this animation to the agent (↵)" : o ? "Change it, or say what it should do, first" : "Open an animation first";
+}
+/** A message on the line under the timeline, for a moment. */
+function flash(text) {
+  M.msg = text;
+  drawFoot();
+  clearTimeout(M.msgTimer);
+  M.msgTimer = setTimeout(() => {
+    M.msg = "";
+    drawFoot();
+  }, 2600);
 }
 
 // ── one frame ────────────────────────────────────────────────────────────────────────────

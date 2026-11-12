@@ -86,7 +86,7 @@ function moveToSent(id) {
     sheet.replaceSync(out.join("\n"));
   } catch {}
   adopt(sheet, true);
-  M.sent.push({ id, sheet, seen: false, undo });
+  M.sent.push({ id, sheet, seen: false, n: null, undo });
   M.use.delete(`${u.rs}|${u.name}`);
   if (![...M.use.values()].some((x) => x.name === k.name)) M.kf.delete(k.name);
   M.past = [];
@@ -127,9 +127,10 @@ function refuse(id, say) {
   flash(say);
   return true;
 }
+/** Its sheet goes, and the element's other uses have the entry back that it wrote over. */
 function dropSent(b) {
   adopt(b.sheet, false);
-  for (const { x, index, entry } of b.undo) if (x.base[index] && x.base[index].name === (b.undo[0] && x.base[index].name)) x.base[index] = entry;
+  for (const { x, index, entry } of b.undo) if (x.base[index]) x.base[index] = entry;
 }
 function finish(id) {
   if (M.unsent && M.unsent.id === id) M.unsent = null;
@@ -140,12 +141,15 @@ function dropFinished() {
   let changed = false;
   M.sent = M.sent.filter((b) => {
     const p = S.pins.find((x) => x.id === b.id);
-    if (p) b.seen = b.n = p.n || true;
+    if (p) {
+      b.seen = true;
+      b.n = typeof p.n === "number" ? p.n : null;
+    }
     const over = p ? p.status === "done" || p.status === "failed" || p.status === "stopped" : b.seen;
     if (!over) return true;
     changed = true;
     dropSent(b);
-    const nm = typeof b.n === "number" ? `Note ${b.n}` : "Note";
+    const nm = b.n !== null ? `Note ${b.n}` : "Note";
     M.done = !p ? `${nm} removed · preview removed` : p.status === "done" ? `${nm} done · preview removed` : `${nm} ${p.status} · preview removed`;
     clearTimeout(M.doneTimer);
     M.doneTimer = setTimeout(() => {

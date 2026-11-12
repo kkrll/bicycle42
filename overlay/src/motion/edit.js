@@ -132,13 +132,13 @@ function addKey(prop, at) {
   commit();
 }
 function removeKey() {
-  const k = openKf(), key = M.key;
-  if (!k || !key) return;
-  const f = k.frames.find((x) => x.at === key.at);
+  const k = openKf(), selKey = M.key;
+  if (!k || !selKey) return;
+  const f = k.frames.find((x) => x.at === selKey.at);
   if (!f) return;
-  if (key.prop === null) k.frames.splice(k.frames.indexOf(f), 1);
+  if (selKey.prop === null) k.frames.splice(k.frames.indexOf(f), 1);
   else {
-    delete f.vals[key.prop];
+    delete f.vals[selKey.prop];
     if (!Object.keys(f.vals).length) k.frames.splice(k.frames.indexOf(f), 1);
   }
   M.key = null;
@@ -177,33 +177,33 @@ function laneOrder() {
   return M.lanes;
 }
 function keyInfo() {
-  const key = M.key, o = M.open;
-  if (!key || !o) return null;
-  const f = frames().find((x) => x.at === key.at);
+  const selKey = M.key, o = M.open;
+  if (!selKey || !o) return null;
+  const f = frames().find((x) => x.at === selKey.at);
   if (!f) return null;
   const ro = o.kind !== "css";
   const t = timing();
-  const ease = (M.ro && M.ro.laneEase && key.prop ? M.ro.laneEase[key.prop] : f.ease) || "";
-  return { f, at: f.at, prop: key.prop, value: key.prop ? f.vals[key.prop] : null, ease, dflt: t ? t.easing : "", last: f.at >= 100 || o.kind === "transition", ro };
+  const ease = (M.ro && M.ro.laneEase && selKey.prop ? M.ro.laneEase[selKey.prop] : f.ease) || "";
+  return { f, at: f.at, prop: selKey.prop, value: selKey.prop ? f.vals[selKey.prop] : null, ease, dflt: t ? t.easing : "", last: f.at >= 100 || o.kind === "transition", ro };
 }
 /** One field of the selected keyframe: "val", "ease" or "at". False when the browser says no. */
 function setKey(what, v, done) {
-  const k = openKf(), key = M.key;
-  if (!k || !key) return false;
-  const fr = k.frames.find((x) => x.at === key.at);
+  const k = openKf(), selKey = M.key;
+  if (!k || !selKey) return false;
+  const fr = k.frames.find((x) => x.at === selKey.at);
   if (!fr) return false;
   v = String(v).trim();
   let ok = true;
   if (what === "val") {
-    ok = v !== "" && v.length <= 400 && CSS.supports(key.prop, v);
-    if (ok) fr.vals[key.prop] = v;
+    ok = v !== "" && v.length <= 400 && CSS.supports(selKey.prop, v);
+    if (ok) fr.vals[selKey.prop] = v;
   } else if (what === "ease") {
     ok = v === "" || CSS.supports("animation-timing-function", v);
     if (ok) fr.ease = v;
   } else if (what === "at") {
     const to = r1(Number(v));
     ok = v !== "" && to >= 0 && to <= 100;
-    if (ok && done && moveKey(key.prop, key.at, to)) key.at = to;
+    if (ok && done && moveKey(selKey.prop, selKey.at, to)) selKey.at = to;
   }
   if (!ok) return false;
   apply();
@@ -229,25 +229,25 @@ function timing() {
   return { duration: M.ro.total, delay: 0, easing: M.ro.items.length ? M.ro.items[0].easing : "ease", count: "1", direction: "normal", fill: "none" };
 }
 /** One field of the timing, or of what starts it ("how"). False when the value is not one. */
-function setTiming(key, v, done) {
+function setTiming(what, v, done) {
   const u = openUse();
   if (!u) return false;
-  if (key === "how") {
+  if (what === "how") {
     if (!HOW[v]) return false;
     u.plays.how = v;
   } else {
     let val = String(v).trim(), ok = true;
-    if (key === "duration" || key === "delay") {
-      ok = val !== "" && Number.isFinite(Number(val)) && Math.abs(Number(val)) <= 600000 && (key === "delay" || Number(val) >= 0);
+    if (what === "duration" || what === "delay") {
+      ok = val !== "" && Number.isFinite(Number(val)) && Math.abs(Number(val)) <= 600000 && (what === "delay" || Number(val) >= 0);
       val = Number(val);
-    } else if (key === "easing") ok = CSS.supports("animation-timing-function", val);
-    else if (key === "count") ok = val === "infinite" || (Number(val) >= 0 && Number.isFinite(Number(val)));
-    else if (key === "direction") ok = !!DIRECTION[val];
-    else if (key === "fill") ok = !!FILL[val];
+    } else if (what === "easing") ok = CSS.supports("animation-timing-function", val);
+    else if (what === "count") ok = val === "infinite" || (Number(val) >= 0 && Number.isFinite(Number(val)));
+    else if (what === "direction") ok = !!DIRECTION[val];
+    else if (what === "fill") ok = !!FILL[val];
     else ok = false;
     if (!ok) return false;
     const paused = (animOf() || {}).playState === "paused";
-    u.timing[key] = val;
+    u.timing[what] = val;
     apply();
     if (paused) seek(M.pos);
   }
@@ -284,9 +284,9 @@ function setCss(text) {
 function rename(k, nm) {
   if (!/^-?[a-zA-Z_][\w-]{0,60}$/.test(nm) || M.kf.has(nm) || M.scan.rules.has(nm)) return;
   M.kf.delete(k.name);
-  for (const [key, u] of [...M.use])
+  for (const [id, u] of [...M.use])
     if (u.name === k.name) {
-      M.use.delete(key);
+      M.use.delete(id);
       u.name = nm;
       M.use.set(`${u.rs}|${nm}`, u);
     }
@@ -297,8 +297,11 @@ function rename(k, nm) {
 }
 
 // ── the list ─────────────────────────────────────────────────────────────────────────────
+// A row says `text`, and smaller beside it `aside`: an animation's name and what plays it, or,
+// for what has no name (a transition, a script's frames), the element and what moves. A row
+// under a group of elements says only its element.
 function rows() {
-  const S2 = M.scan, o = M.open, out = [];
+  const found = M.scan, o = M.open, out = [];
   const timingOf = (el, nm) => {
     const u = M.use.get(`${pathOf(el)}|${nm}`);
     return u ? u.timing : readList(el).find((x) => x.name === nm) || null;
@@ -307,32 +310,32 @@ function rows() {
     const u = M.use.get(`${pathOf(el)}|${nm}`);
     return useDirty(u) || playsDirty(u);
   };
-  if (S2.anims.length) out.push({ group: "Animations" });
-  for (const a of S2.anims) {
+  if (found.anims.length) out.push({ group: "Animations" });
+  for (const a of found.anims) {
     const k = M.kf.get(a.name), one = a.els.length === 1, mine = o && o.kind === "css" && o.name === a.name;
     const t = one ? timingOf(a.els[0], a.name) : null;
-    out.push({ kind: "css", els: a.els, name: a.name, label: one ? name(a.els[0], true) : `${a.els.length} elements`, running: a.running,
+    out.push({ kind: "css", els: a.els, text: a.name, aside: one ? name(a.els[0], true) : `${a.els.length} elements`, running: a.running,
       dirty: kfDirty(k) || (one && dirtyUse(a.els[0], a.name)), on: mine && one, duration: t ? t.duration : null, open: () => openCss(a.els[0], a.name) });
     if (!one)
       a.els.forEach((el, j) => {
         const t2 = timingOf(el, a.name);
-        out.push({ kind: "css", els: [el], sub: true, last: j === a.els.length - 1, name: a.name, label: name(el, true), dirty: dirtyUse(el, a.name),
+        out.push({ kind: "css", els: [el], sub: true, last: j === a.els.length - 1, text: name(el, true), aside: "", dirty: dirtyUse(el, a.name),
           on: mine && o.rs === pathOf(el), duration: t2 ? t2.duration : null, open: () => openCss(el, a.name) });
       });
   }
-  if (S2.transitions.length) out.push({ group: "Transitions" });
-  for (const el of S2.transitions) {
+  if (found.transitions.length) out.push({ group: "Transitions" });
+  for (const el of found.transitions) {
     const cs = getComputedStyle(el);
-    out.push({ kind: "transition", els: [el], name: name(el, true), label: cs.transitionProperty, on: o && o.kind === "transition" && o.rs === pathOf(el),
+    out.push({ kind: "transition", els: [el], text: name(el, true), aside: cs.transitionProperty, on: o && o.kind === "transition" && o.rs === pathOf(el),
       duration: Math.max(...splitTop(cs.transitionDuration).map((d) => parseFloat(d) * 1000)), open: () => openTransition(el) });
   }
-  if (S2.scripts.length || M.suspects.size) out.push({ group: "Scripts" });
-  for (const a of S2.scripts)
-    out.push({ kind: "script", els: [a.effect.target], name: a.id || "animate()", label: name(a.effect.target, true), running: a.playState === "running",
+  if (found.scripts.length || M.suspects.size) out.push({ group: "Scripts" });
+  for (const a of found.scripts)
+    out.push({ kind: "script", els: [a.effect.target], text: a.id || "animate()", aside: name(a.effect.target, true), running: a.playState === "running",
       on: o && o.kind === "script" && M.held === a, duration: +a.effect.getTiming().duration || 0, open: () => openScript(a) });
   for (const el of M.suspects)
-    if (el.isConnected) out.push({ kind: "frames", els: [el], name: name(el, true), label: "per frame", running: true, off: true, duration: null, open: () => {} });
-  if (S2.unused.length) out.push({ group: "Unused" });
-  for (const n of S2.unused) out.push({ kind: "unused", els: [], name: n, label: "", off: !M.sel, duration: null, open: () => tryUnused(n) });
+    if (el.isConnected) out.push({ kind: "frames", els: [el], text: name(el, true), aside: "per frame", running: true, off: true, duration: null, open: () => {} });
+  if (found.unused.length) out.push({ group: "Unused" });
+  for (const n of found.unused) out.push({ kind: "unused", els: [], text: n, aside: "", off: !M.sel, duration: null, open: () => tryUnused(n) });
   return out;
 }

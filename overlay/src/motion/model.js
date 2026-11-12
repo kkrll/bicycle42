@@ -10,7 +10,8 @@
 //  - a sent animation's rules move to a stylesheet of their own, which stays applied until its
 //    pin is done, failed or stopped (or the page reloads), as a sent canvas batch does;
 //  - the dock is drawn from that data; nothing in it is state of its own but what is open.
-// Everything here is in one closure: its names stay out of the canvas code's way.
+// Motion mode is a module: the rest of the overlay sees only its api (in input.js), and its
+// names stay out of the canvas code's way.
 //
 // The files of motion/ share one scope. This one holds the constants, the state M, and the model:
 // elements of the page, keyframes as text, how an element plays them, applying, what moves here.
@@ -73,13 +74,17 @@ const M = {
   ro: null, // for the two kinds that are only read: { frames, timing?, laneEase?, state?, total?, on?, items? }
   key: null, // the selected keyframe: { at, prop } (prop null: the whole keyframe)
   lanes: [], // the properties, in the order their lanes were first drawn
+  T: 0, // the open animation's duration in ms (at least 1), as the timeline was last drawn: the playhead's time
   isolate: false, rate: 1, loop: false, loopAt: 0, pos: 0,
   past: [], future: [], snap: "",
   held: null, // the page's Animation object for what is open
   scan: { anims: [], unused: [], transitions: [], scripts: [], rules: new Map() },
   suspects: new Set(), // elements whose inline style changes many times a second
   sheet: null, // the unsent edits, as rules
-  sent: [], // [{ id, sheet, seen, n, undo: [{ rs, index, entry }] }]: applied until the pin is done
+  // [{ id, sheet, seen, n, undo: [{ x, index, entry }] }]: applied until the pin is done. seen:
+  // its pin has been listed; n: the pin's number, null until it has one; undo: the element's
+  // other uses x whose base had this one's entry written in at index, and the entry they had.
+  sent: [],
   unsent: null, // what the animation being sent was, until the host takes it
   view: "keys", // the timeline, or the keyframes as text
   rowEls: null, // the elements of the list row under the pointer

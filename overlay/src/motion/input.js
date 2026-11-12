@@ -41,21 +41,21 @@ function atOf(e, free, span) {
 }
 function tlDown(e) {
   if (e.button || !M.open || e.target.closest("input, button, textarea")) return;
-  const key = e.target.closest(".m-key"), seg = e.target.closest("[data-seg]"), trk = e.target.closest(".m-kspan[data-prop], [data-ruler]");
+  const grip = e.target.closest(".m-key"), seg = e.target.closest("[data-seg]"), trk = e.target.closest(".m-kspan[data-prop], [data-ruler]");
   const now = performance.now(), l = M.last;
   const twice = !!l && now - l.t < 350 && Math.abs(e.clientX - l.x) < 5 && Math.abs(e.clientY - l.y) < 5;
   M.last = twice ? null : { t: now, x: e.clientX, y: e.clientY };
   const span = spanOf();
   if (!span) return;
-  if (twice && !key && trk && trk.dataset.prop !== undefined && openKf()) {
+  if (twice && !grip && trk && trk.dataset.prop !== undefined && openKf()) {
     e.preventDefault();
     addKey(trk.dataset.prop || null, atOf(e, mod(e), span));
     return focusLater("[data-k=val]");
   }
-  if (key || seg) {
-    const at = Number(key ? key.dataset.at : seg.dataset.seg), prop = (key || seg).dataset.prop || null;
+  if (grip || seg) {
+    const at = Number(grip ? grip.dataset.at : seg.dataset.seg), prop = (grip || seg).dataset.prop || null;
     M.key = { at, prop };
-    M.drag = key && !readOnly() ? { type: "key", at, prop, moved: false } : null;
+    M.drag = grip && !readOnly() ? { type: "key", at, prop, moved: false } : null;
     seek(at / 100);
     draw();
   } else if (trk) {
@@ -91,11 +91,6 @@ function tlUp() {
   M.drag = null;
   if (d && d.moved) commit();
 }
-const focusLater = (sel) =>
-  setTimeout(() => {
-    const f = dock.querySelector(sel);
-    if (f && !f.disabled) f.select ? f.select() : f.focus();
-  }, 0);
 
 // ── a small sheet over the dock ──────────────────────────────────────────────────────────
 function openPop(anchor, html) {
@@ -114,7 +109,7 @@ function morePop(b) {
   const t = timing(), u = openUse(), ro = readOnly() ? "disabled" : "";
   const count = { ...COUNT, ...(COUNT[t.count] ? {} : { [t.count]: [`${t.count}×`] }) };
   const how = u ? Object.fromEntries(Object.entries(HOW).filter(([k]) => !(u.isNew && k === "asnow")).map(([k, v]) => [k, [v]])) : {};
-  const chips = (key, lab, map, cur) => `<div class="m-tchips"><span>${lab}</span><div class="m-chips" data-tkey="${key}">${Object.entries(map).map(([v, [text, what]]) =>
+  const chips = (tkey, lab, map, cur) => `<div class="m-tchips"><span>${lab}</span><div class="m-chips" data-tkey="${tkey}">${Object.entries(map).map(([v, [text, what]]) =>
     `<button type="button" class="m-chip${String(cur) === v ? " on" : ""}" data-m="tset" data-v="${esc(v)}" ${ro} title="${esc(what ? `${what} (${v})` : v)}">${esc(text)}</button>`).join("")}</div></div>`;
   openPop(b, chips("count", "Repeat", count, t.count) + chips("direction", "Direction", DIRECTION, t.direction) + chips("fill", "Fill", FILL, t.fill) +
     (u ? chips("how", "Starts", how, u.plays.how) : ""));
