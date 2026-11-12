@@ -37,6 +37,7 @@ import type {
   PromptFile,
   Question,
   SendOptions,
+  ProjectInfo,
   ServerInfo,
   SessionSummary,
   Shortcut,
@@ -136,6 +137,8 @@ function placeOf(url: string): string | undefined {
 }
 /** The conversation asked to get the site running. It stays asked while no page works, so an
  *  address given after a question and its answer is opened too; `starting` until it first answers. */
+/** A repo that turned out not to be on this server, until another is chosen. */
+let missingFolder: string | undefined
 let siteAsked: string | undefined
 let starting = false
 
@@ -165,6 +168,7 @@ function snapshot(): AppState {
     },
     site: site ? { origin: site.origin === HOME ? "" : site.origin, ...(saved ? { directory: saved.directory } : {}) } : null,
     ...(starting && siteAsked === session?.id ? { startingSite: true as const } : {}),
+    ...(missingFolder && !saved ? { missingFolder } : {}),
     session,
     sessions,
     models,
@@ -324,6 +328,7 @@ function enter(id: string) {
   site = undefined
   siteAsked = undefined
   starting = false
+  missingFolder = undefined
   modelChoice = undefined
   toChat({ type: "reset", session: "", items: [] })
   page?.load(store.settings().lastUrl ?? "")
@@ -468,6 +473,18 @@ async function openSiteNow() {
   const s = site
   const saved = s && siteSettings(s.origin)
   if (!b || !s || !saved) return
+  // A folder of another computer (kept from before servers had their own, or typed by hand)
+  // would open conversations that cannot work: the repo is asked for again instead.
+  if (!(await folderExists(b, saved.directory))) {
+    if (backend !== b || site !== s) return
+    missingFolder = saved.directory
+    store.update((x) => {
+      delete x.sites[s.origin]
+      if (x.folder === saved.directory) delete x.folder
+    })
+    session = null
+    return push()
+  }
   try {
     let current = saved.session ? await b.session(saved.session) : null
     // A new conversation starts on the model the person chose: while that is being asked,
@@ -507,6 +524,25 @@ async function openSiteNow() {
     })
   }
 }
+
+/** Whether `directory` is a folder on the server. Only a clear no counts: when the server
+ *  can't be asked, the folder is taken to be there, as before. */
+const folders = new WeakMap<OpenCode, Set<string>>()
+async function folderExists(b: OpenCode, directory: string): Promise<boolean> {
+  const seen = folders.get(b) ?? folders.set(b, new Set()).get(b)!
+  if (seen.has(directory) || directory === "/") return true
+  try {
+    await b.listFolders(directory)
+    seen.add(directory)
+    return true
+  } catch (err) {
+    // The server's own word for it: 404, FileNotFoundError "Directory not found".
+    return !((err as { status?: number }).status === 404 && /FileNotFound|Directory not found/i.test(say(err)))
+  }
+}
+
+/** What a saved server is called: the reviewer's name, its computer's own, or its address. */
+const serverCalled = (x: SavedServer) => x.name ?? x.computer ?? ("url" in x ? x.url.replace(/^https?:\/\//, "") : "this computer")
 
 async function refreshSessions() {
   const b = backend
@@ -1198,10 +1234,34 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     toChat({ type: "reset", session: "", items: [] })
     push()
   },
-  projects: () => need().projects(),
+  async projects() {
+    const list = await need().projects()
+    // Kept with the server, so its projects can be offered while another one is in use.
+    store.update((s) => {
+      const mine = s.servers?.find((x) => x.id === s.current)
+      if (mine) mine.projects = list.slice(0, 40)
+    })
+    return list
+  },
+  async allProjects() {
+    const s = store.settings()
+    const mine = s.servers?.find((x) => x.id === s.current)
+    const here = site && siteSettings(site.origin)?.directory
+    const live = backend ? await Promise.resolve(commands.projects()).catch(() => [] as string[]) : []
+    const on = mine ? serverCalled(mine) : ""
+    const out: ProjectInfo[] = [...new Set([...(here ? [here] : []), ...live])].map((directory) => ({ directory, on, ...(directory === here ? { open: true as const } : {}) }))
+    for (const x of s.servers ?? []) {
+      if (x.id === s.current && backend) continue
+      const theirs = x.id === s.current ? { folder: s.folder, sites: s.sites } : x.space
+      const known = [...new Set([...(theirs?.folder ? [theirs.folder] : []), ...Object.values(theirs?.sites ?? {}).map((e) => e.directory), ...(x.projects ?? [])])]
+      for (const directory of known) out.push({ directory, server: x.id, on: serverCalled(x) })
+    }
+    return out
+  },
   listFolders: (dir) => need().listFolders(dir),
   async setDirectory(directory) {
     if (typeof directory !== "string" || !directory.startsWith("/")) throw new Error("Choose a folder.")
+    missingFolder = undefined
     const origin = site?.origin
     store.update((s) => {
       s.folder = directory
@@ -1213,9 +1273,14 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     push()
     await openSite()
   },
-  async openProject(directory) {
+  async openProject(directory, server) {
     if (typeof directory !== "string" || !directory.startsWith("/")) throw new Error("Choose a folder.")
-    need()
+    // A project of another server: that server first. Its own repo and page come up with it,
+    // and then this project is opened there.
+    if (typeof server === "string" && (server !== store.settings().current || !backend)) await commands.useServer(server)
+    const b = need()
+    if (!(await folderExists(b, directory))) throw new Error(`${directory} is not a folder on this server.`)
+    missingFolder = undefined
     // Its site, as it was last open: the one visited most recently among those that work in it.
     const known = Object.entries(store.settings().sites)
       .filter(([origin, entry]) => origin !== HOME && entry.directory === directory)

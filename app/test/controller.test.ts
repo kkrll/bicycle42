@@ -392,6 +392,47 @@ test("servers are remembered: a second one starts clean, and going back needs no
   }
 })
 
+test("a repo that is not a folder on this server is asked for again; projects of other servers are listed with their server and open there", async () => {
+  const h = await boot()
+  const second = await fakeOpenCode()
+  const missing: FakeReply = { status: 404, json: { _tag: "FileNotFoundError", message: "Directory not found: /home/k/site" } }
+  const project = (directory: string) => ({ json: { data: [{ id: "p", canonical: directory, time: { active: 1 } }] } })
+  try {
+    // The first server has /home/k/site; the second does not.
+    h.server.route("GET", "/api/project", project("/home/k/site"))
+    second.server.route("GET", "/api/project", project("/Users/me/app"))
+    second.server.route("GET", "/api/fs/list", (req) => (req.query.get("path") === "/home/k/site" ? missing : { json: { location: { directory: "/" }, data: [] } }))
+    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await h.cmd("setDirectory", "/home/k/site")
+    await until(() => !!h.snap().session)
+    const first = h.snap().session!.id
+    await h.cmd("projects")
+
+    await h.cmd("connect", { url: second.server.url, password: second.server.password })
+    // A folder of the other computer, typed or kept from an older version: refused, and nothing is made for it.
+    await assert.rejects(Promise.resolve(h.cmd("openProject", "/home/k/site")), /not a folder on this server/)
+    const creates = second.w.creates
+    await h.cmd("setDirectory", "/home/k/site")
+    await until(() => h.snap().missingFolder === "/home/k/site")
+    assert.deepEqual([h.snap().site?.directory, h.snap().session, second.w.creates], [undefined, null, creates])
+    await h.cmd("setDirectory", "/Users/me/app")
+    await until(() => !!h.snap().session)
+    assert.equal(h.snap().missingFolder, undefined)
+
+    type P = { directory: string; server?: string; on: string; open?: true }
+    const all = (await h.cmd("allProjects")) as P[]
+    assert.deepEqual(all.map((p) => [p.directory, p.on, !!p.server, !!p.open]), [["/Users/me/app", "fake-box", false, true], ["/home/k/site", "fake-box", true, false]])
+
+    // One choice: the other server, and its project.
+    await h.cmd("openProject", "/home/k/site", all[1]!.server)
+    await until(() => h.snap().session?.id === first)
+    assert.deepEqual([(h.snap().connection as { url: string }).url, h.snap().site], [h.server.url, { origin: "", directory: "/home/k/site" }])
+  } finally {
+    await h.close()
+    await second.server.stop()
+  }
+})
+
 test("startSite asks the agent in the repo's conversation, and opens the address its answer ends with", async () => {
   const h = await boot()
   try {

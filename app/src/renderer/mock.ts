@@ -801,6 +801,13 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       if (!names) return []
       return names.map((name) => ({ name, path: `${path === "/" ? "" : path}/${name}` }))
     },
+    allProjects: () => [
+      { directory: "/home/dev/code/acme/storefront", on: "dev-box", open: true as const },
+      { directory: "/home/dev/code/acme/marketing-site", on: "dev-box" },
+      { directory: "/home/dev/code/blog", on: "dev-box" },
+      { directory: "/Users/kiryl/Documents/cde/zing-social", server: "srv_2", on: "Studio Mac" },
+      { directory: "/srv/www/a-rather-long-organisation-name/internal-tools/design-review-playground", server: "srv_3", on: "omarchy" },
+    ],
     openProject(directory) {
       state.site = { origin: "", directory }
       state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }

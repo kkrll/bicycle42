@@ -198,6 +198,10 @@ export type ConnectionState =
   | { status: "offline"; url: string; error: string }
 
 /** A server the app remembers. `url` is empty for this computer's while none is running here. */
+/** A folder on a server. `server` is absent for the server in use; `on` is what to call the
+ *  server ("k", "Studio Mac", or its address), `open` marks the project that is open. */
+export type ProjectInfo = { directory: string; server?: string; on: string; open?: true }
+
 /** `name` is the reviewer's for it, else its computer's own. */
 export type ServerInfo = { id: string; name?: string; url: string; local: boolean; current: boolean }
 
@@ -253,6 +257,9 @@ export type AppState = {
    *  "" and the conversation is the repo's own, which the first site opened takes over.
    *  `directory` is absent only for a page opened while no repo is known. */
   site: { origin: string; directory?: string } | null
+  /** The repo that was open is not a folder on the server in use (it belonged to another
+   *  computer): another one has to be chosen. */
+  missingFolder?: string
   /** The agent was asked to get the site running (`startSite`) and has not finished answering. */
   startingSite?: true
   /** The open conversation. `null` until there is a folder. */
@@ -323,10 +330,14 @@ export type Commands = {
   /** Opens a repo: the folder the site on screen works in, and the one a site opened for the
    *  first time starts with. Works before any page is open. */
   setDirectory(directory: string): void
-  /** Switches to another project: the repo in that folder. Its site comes back as it was last
+  /** Every project that can be opened: the folders the server in use knows (the open one
+   *  first), then those of the other servers connected to before, as they were last seen. */
+  allProjects(): ProjectInfo[]
+  /** Switches to another project: the repo in that folder. With `server`, on that server:
+   *  it is connected to first. Its site comes back as it was last
    *  open (page, notes, conversation); a project with no site yet opens with no page, at the
    *  step where a site is opened or the agent is asked to start one. */
-  openProject(directory: string): void
+  openProject(directory: string, server?: string): void
   /** Asks the agent, in the open conversation, to get the repo's site running and say where.
    *  Its answer shows in the chat; the address it ends with is opened when no page is. */
   startSite(): void

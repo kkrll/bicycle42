@@ -417,6 +417,11 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
         </Show>
         <h2>{props.open ? "Open a project" : "Open the repo"}</h2>
         <p class="folder-lead">
+          <Show when={!props.open && state.missingFolder}>
+            <span class="folder-missing">
+              <code>{state.missingFolder}</code> is not a folder on this server; it belongs to another computer.{" "}
+            </span>
+          </Show>
           <Show
             when={!props.open && state.site?.origin}
             fallback={<>Pick the folder on your server that holds the site's code. The agent works there.</>}

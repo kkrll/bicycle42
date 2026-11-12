@@ -1516,6 +1516,34 @@ details[open] > summary > .caret {
   font-family: inherit;
 }
 
+.row-where {
+  grid-column: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+.row-on {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-on::after {
+  content: "·";
+  margin-left: 6px;
+}
+
+.row-where .row-sub {
+  flex: 1;
+  min-width: 0;
+}
+
 .row-tag {
   margin-left: 8px;
   font-size: var(--text-control);

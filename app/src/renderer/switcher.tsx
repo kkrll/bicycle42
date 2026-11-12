@@ -6,14 +6,15 @@ import { For, Match, Show, Switch, createMemo, createResource, createSignal, onC
 import { Icon, Kbd } from "./icons"
 import { FolderPicker } from "./panel"
 import { b42, keys, mac, message, state } from "./store"
+import type { ProjectInfo } from "../shared/types"
 
 /** "acme/storefront" from "/home/dev/code/acme/storefront": the part a person recognises. */
 const tail = (path: string) => path.replace(/\/+$/, "").split("/").slice(-2).join("/") || "/"
 
-type Row = { kind: "new" } | { kind: "project"; directory: string; n?: number } | { kind: "path"; directory: string } | { kind: "browse" }
+type Row = { kind: "new" } | { kind: "project"; project: ProjectInfo; n?: number } | { kind: "path"; directory: string } | { kind: "browse" }
 
 export function Switcher(props: { onClose: () => void }) {
-  const [projects] = createResource(() => b42.invoke("projects"))
+  const [projects] = createResource(() => b42.invoke("allProjects"))
   const [query, setQuery] = createSignal("")
   const [at, setAt] = createSignal(0)
   const [browsing, setBrowsing] = createSignal(false)
@@ -28,16 +29,16 @@ export function Switcher(props: { onClose: () => void }) {
   const current = () => state.site?.directory
   const rows = createMemo((): Row[] => {
     const q = query().trim().toLowerCase()
-    // The open project first, then the server's own order (most recently used first).
-    const all = projects.error ? [] : (projects() ?? [])
-    const known = [...new Set([...(current() ? [current()!] : []), ...all])]
-    const found = known.filter((d) => !q || d.toLowerCase().includes(q))
+    // The open project first, the server's others in its own order (most recently used first),
+    // then those of the servers connected to before. A server's name narrows the list too.
+    const known = projects.error ? [] : (projects() ?? [])
+    const found = known.filter((p) => !q || p.directory.toLowerCase().includes(q) || p.on.toLowerCase().includes(q))
     const typed = query().trim().replace(/(.)\/+$/, "$1")
     return [
       ...(state.session && (!q || "new conversation".includes(q)) ? [{ kind: "new" as const }] : []),
-      ...found.map((directory, i) => ({ kind: "project" as const, directory, ...(i < 9 ? { n: i + 1 } : {}) })),
+      ...found.map((project, i) => ({ kind: "project" as const, project, ...(i < 9 ? { n: i + 1 } : {}) })),
       // A folder the server has not worked in yet can be opened by its path.
-      ...(typed.startsWith("/") && typed.length > 1 && !known.includes(typed) ? [{ kind: "path" as const, directory: typed }] : []),
+      ...(typed.startsWith("/") && typed.length > 1 && !known.some((p) => !p.server && p.directory === typed) ? [{ kind: "path" as const, directory: typed }] : []),
       ...(!q || "browse folders".includes(q) ? [{ kind: "browse" as const }] : []),
     ]
   })
@@ -47,7 +48,7 @@ export function Switcher(props: { onClose: () => void }) {
     if (row.kind === "browse") return void setBrowsing(true)
     setBusy(true)
     setError("")
-    ;(row.kind === "new" ? b42.invoke("newSession") : open(row.directory))
+    ;(row.kind === "new" ? b42.invoke("newSession") : row.kind === "project" ? b42.invoke("openProject", row.project.directory, row.project.server) : open(row.directory))
       .then(() => dialog.close())
       .catch((err) => {
         setError(message(err))
@@ -126,13 +127,19 @@ export function Switcher(props: { onClose: () => void }) {
                             <>
                               <Icon name="folder" />
                               <span class="row-main">
-                                {tail(p().directory)}
-                                <Show when={p().directory === current()}>
+                                {tail(p().project.directory)}
+                                <Show when={p().project.open}>
                                   <span class="row-tag">open</span>
                                 </Show>
                               </span>
-                              <span class="row-sub" title={p().directory}>
-                                <bdi>{p().directory}</bdi>
+                              {/* Which computer, then where on it. A long path loses its start, not the folder's own name. */}
+                              <span class="row-where" title={`${p().project.on} · ${p().project.directory}`}>
+                                <Show when={p().project.on}>
+                                  <span class="row-on">{p().project.on}</span>
+                                </Show>
+                                <span class="row-sub">
+                                  <bdi>{p().project.directory}</bdi>
+                                </span>
                               </span>
                               <Show when={p().n}>
                                 <span class="row-key">

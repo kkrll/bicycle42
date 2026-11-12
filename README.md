@@ -52,7 +52,9 @@ the first time works in the repo that is open; the folder can be changed from th
 **Another project:** the **+** beside the conversation's name lists the server's projects
 (type to narrow, `↑` `↓`, `Enter`; `mod+1`…`9` for the first nine; a path starting with `/`
 opens any folder), with a new conversation in the open project as its first row. A project
-opens on the page it was last on, with its notes and conversation, or with no page yet.
+opens on the page it was last on, with its notes and conversation, or with no page yet. Each row
+says which computer the project is on; the projects of servers you connected to before are in
+the list too, and choosing one connects to its server first.
 
 The app makes three sounds: a rising one when the agent asks something or wants permission, a
 falling one when a note fails or the server is lost, and a single note when the agent has
