@@ -50,6 +50,7 @@ import { createOpenCode, type OpenCode } from "./opencode"
 import { createPage, type Page, type PageMessage } from "./page"
 import { createReview, imageUri, pageNote, type PageNote, type Review } from "./review"
 import { createStore, type SavedServer } from "./store"
+import { bundleOf, createUpdater } from "./update"
 
 type Level = "info" | "warn" | "error"
 const log = (level: Level, msg: string, data?: unknown) =>
@@ -63,6 +64,19 @@ const say = (err: unknown) => (err instanceof Error ? err.message : String(err))
 app.setPath("userData", process.env.BICYCLE42_DATA || path.join(app.getPath("appData"), "bicycle42"))
 
 const store = createStore(app.getPath("userData"), { log })
+
+const RELEASES = "https://github.com/kkrll/bicycle42/releases"
+const updater =
+  app.isPackaged && process.platform === "darwin"
+    ? createUpdater({
+        current: app.getVersion(),
+        manifestUrl: process.env.BICYCLE42_UPDATE_URL || `${RELEASES}/latest/download/latest.json`,
+        bundle: bundleOf(process.execPath),
+        dir: path.join(app.getPath("userData"), "updates"),
+        log,
+        onChange: () => push(),
+      })
+    : undefined
 
 // ── secrets ─────────────────────────────────────────────────────────────────────────────────────
 // The server password is stored through the OS keychain when there is one. Without (a Linux box
@@ -179,6 +193,7 @@ function snapshot(): AppState {
     ...(modelChoice && model ? { modelChoice: { suggested: model, ...(modelChoice.previous ? { previous: modelChoice.previous } : {}) } } : {}),
     permissions: [...permissions.values()],
     questions: [...questions.values()],
+    ...(updater?.state() ? { update: updater.state() } : {}),
   }
 }
 
@@ -1494,6 +1509,11 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     // The server confirms with an event; don't leave the card up if that event is missed.
     if (permissions.delete(id)) push()
   },
+  async installUpdate() {
+    if (updater?.state()?.status !== "ready") return void shell.openExternal(`${RELEASES}/latest`)
+    await updater.install()
+    app.quit()
+  },
   async answerQuestion(id, answer) {
     await need().answerQuestion(pendingSession(questions, id), id, answer)
     if (questions.delete(id)) push()
@@ -1511,7 +1531,25 @@ function menu() {
   // No "Reload" item: ⌘R belongs to the page under review, not to the app window.
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
-      ...(mac ? [{ role: "appMenu" as const }] : []),
+      ...(mac
+        ? [
+            {
+              label: app.name,
+              submenu: [
+                { role: "about" as const },
+                ...(updater ? [{ label: "Check for Updates…", click: () => void checkForUpdates(true) }] : []),
+                { type: "separator" as const },
+                { role: "services" as const },
+                { type: "separator" as const },
+                { role: "hide" as const },
+                { role: "hideOthers" as const },
+                { role: "unhide" as const },
+                { type: "separator" as const },
+                { role: "quit" as const },
+              ],
+            },
+          ]
+        : []),
       { role: "editMenu" },
       {
         label: "View",
@@ -1525,6 +1563,18 @@ function menu() {
       { role: "windowMenu" },
     ]),
   )
+}
+
+async function checkForUpdates(asked: boolean) {
+  if (!updater) return
+  try {
+    const found = await updater.check()
+    if (asked && !found && window)
+      void dialog.showMessageBox(window, { message: "bicycle 42 is up to date", detail: `Version ${app.getVersion()} is the latest.` })
+  } catch (err) {
+    log("warn", "update check", say(err))
+    if (asked && window) void dialog.showMessageBox(window, { type: "warning", message: "Couldn't check for updates", detail: say(err) })
+  }
 }
 
 /** The app icon, copied beside the bundle by scripts/build.mjs. Absent in a build without assets. */
@@ -1615,6 +1665,7 @@ else {
   })
   app.on("window-all-closed", () => app.quit())
   app.on("before-quit", () => {
+    updater?.dispose()
     unlisten?.()
     store.flush()
   })
@@ -1624,6 +1675,7 @@ else {
     if (appIcon && process.platform === "darwin") app.dock?.setIcon(appIcon)
     await createWindow()
     void reconnectSaved()
+    void checkForUpdates(false)
     if (store.readOnly && window)
       void dialog.showMessageBox(window, {
         type: "warning",

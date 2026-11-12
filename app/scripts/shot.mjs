@@ -75,6 +75,8 @@ const SHOTS = [
   { name: "question", mock: "question" },
   { name: "noconversation", mock: "noconversation" },
   { name: "offline", mock: "offline" },
+  { name: "update", mock: "update" },
+  { name: "update-manual", mock: "update", query: "&status=manual" },
   { name: "pageerror", mock: "pageerror" },
   { name: "settings", mock: "review", run: [click("[data-action=settings]")], wait: 500 },
   { name: "settings-servers", mock: "review", run: [click("[data-action=settings]"), pause(300), click(".dialog .disclosure summary")], wait: 500 },

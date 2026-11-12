@@ -520,6 +520,9 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   }
 
   switch (scenario) {
+    case "update":
+      state.update = { version: "0.2.0", status: params.get("status") === "manual" ? "manual" : "ready" }
+      break
     case "connect":
       Object.assign(state, { ...base(), connection: { status: "unconfigured" }, site: null, session: null, sessions: [] })
       state.page.url = ""
@@ -923,6 +926,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       state.questions = state.questions.filter((q) => q.id !== id)
       push()
     },
+    installUpdate() {},
   }
 
   // What the window asked for, for the screenshot script to assert on.

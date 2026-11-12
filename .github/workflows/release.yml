@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Tag matches package.json
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME doesn't match package.json $version" >&2; exit 1; }
+
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test:unit
+
+      - name: Package
+        run: bun run dist
+
+      - name: Check the bundle
+        run: |
+          app="release/mac-arm64/bicycle 42.app"
+          codesign --verify --deep --strict "$app"
+          npx --yes @electron/asar list "$app/Contents/Resources/app.asar" | grep -qx /dist/main.cjs
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=()
+          [[ "$GITHUB_REF_NAME" == *-* ]] && pre=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" \
+            release/bicycle42-mac-arm64.zip release/SHA256SUMS release/latest.json \
+            --title "bicycle 42 ${GITHUB_REF_NAME#v}" \
+            --generate-notes \
+            --verify-tag \
+            "${pre[@]}"

@@ -37,6 +37,47 @@ The Electron parts load the pages in `../overlay/harness/`. No test needs an Ope
 node scripts/build.mjs && node_modules/.bin/electron --ozone-platform=headless --disable-gpu scripts/shot.mjs
 ```
 
+## Release
+
+Releases are built by `.github/workflows/release.yml` on a version tag:
+
+```bash
+npm version patch    # in app/: bumps package.json and tags v0.1.1
+git push --follow-tags
+```
+
+The workflow checks that the tag matches `package.json`, runs the typecheck and unit tests, runs
+`bun run dist` and publishes a GitHub Release with three files:
+
+- `bicycle42-mac-arm64.zip`, the app
+- `SHA256SUMS`, which `install.sh` checks the zip against
+- `latest.json` (`version`, `url`, `sha256`), which the app reads to find updates
+
+A tag with a suffix (`v0.2.0-beta.1`) becomes a prerelease. The installer and the app skip those.
+
+The app has an ad-hoc signature (`identity: "-"` in `electron-builder.yml`), not a Developer ID.
+That is why it has its own updater instead of electron-updater: Squirrel.Mac only accepts an
+update signed by the same identity, and ad-hoc signatures differ on every build. `update.ts`
+downloads the zip, checks its hash, unpacks it with `ditto` into `updates/` in the user-data
+folder, and on restart a small script swaps the bundle once the app has quit. When the app's
+folder isn't writable, the top bar links to the release page instead.
+
+### Trying a release locally
+
+```bash
+bun run dist                                               # release/ as CI makes it
+node scripts/release-files.mjs --base http://127.0.0.1:8642
+(cd release && python3 -m http.server 8642)
+
+# in another terminal: install from it
+BICYCLE42_BASE_URL=http://127.0.0.1:8642 BICYCLE42_DIR=/tmp/b42 sh ../install.sh
+
+# or point an installed older version at it
+BICYCLE42_UPDATE_URL=http://127.0.0.1:8642/latest.json "/tmp/b42/bicycle 42.app/Contents/MacOS/bicycle 42"
+```
+
+Set `BICYCLE42_DATA` as well to keep the test away from your real settings.
+
 ## How it's built
 
 ```
@@ -49,6 +90,7 @@ src/main/images.ts      screenshot → area crop + viewport thumbnail
 src/main/opencode.ts    the backend: fetch + one SSE stream → BackendEvents (no Electron)
 src/main/local.ts       finds the OpenCode server running on this computer
 src/main/store.ts       settings and notes on disk, versioned, atomic writes
+src/main/update.ts      updates of the packaged macOS app from GitHub Releases
 src/preload.ts          window.b42: the only door between the window and main
 src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/design tokens)
 ```
@@ -205,4 +247,4 @@ on its pin and in the chat. A note may be new CSS rules and nothing else.
   can't run the overlay's code or send a note, but it can still read or change what the layer
   shows (the words being typed, the panels). Closing the root, or moving the panels into the
   app window, would end that.
-- Signed builds and installers. `npm run pack` makes an unsigned app for this computer.
+- A Developer ID signature and notarisation, Intel and universal builds, Windows and Linux packages.
