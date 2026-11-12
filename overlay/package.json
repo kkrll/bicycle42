@@ -13,7 +13,7 @@
     "build": "node scripts/build.mjs",
     "check": "node scripts/check.mjs",
     "harness": "node scripts/serve.mjs",
-    "test": "node --test test/",
+    "test": "node --test test/*.test.mjs",
     "bench": "node bench/bench.mjs"
   },
   "devDependencies": {
