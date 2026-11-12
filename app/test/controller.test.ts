@@ -396,11 +396,12 @@ test("a repo that is not a folder on this server is asked for again; projects of
   const h = await boot()
   const second = await fakeOpenCode()
   const missing: FakeReply = { status: 404, json: { _tag: "FileNotFoundError", message: "Directory not found: /home/k/site" } }
-  const project = (directory: string) => ({ json: { data: [{ id: "p", canonical: directory, time: { active: 1 } }] } })
+  const project = (directory: string) => ({ json: [{ id: "p", canonical: directory, time: { active: 1 } }] })
   try {
     // The first server has /home/k/site; the second does not.
     h.server.route("GET", "/api/project", project("/home/k/site"))
-    second.server.route("GET", "/api/project", project("/Users/me/app"))
+    // The second server lists the other computer's folder too (a conversation was once started for it by mistake).
+    second.server.route("GET", "/api/project", { json: [{ id: "x", canonical: "/home/k/site", time: { active: 9 } }, { id: "p", canonical: "/Users/me/app", time: { active: 1 } }] })
     second.server.route("GET", "/api/fs/list", (req) => (req.query.get("path") === "/home/k/site" ? missing : { json: { location: { directory: "/" }, data: [] } }))
     await h.cmd("connect", { url: h.server.url, password: h.server.password })
     await h.cmd("setDirectory", "/home/k/site")
@@ -418,6 +419,7 @@ test("a repo that is not a folder on this server is asked for again; projects of
     await h.cmd("setDirectory", "/Users/me/app")
     await until(() => !!h.snap().session)
     assert.equal(h.snap().missingFolder, undefined)
+    assert.deepEqual(await h.cmd("projects"), ["/Users/me/app"], "a folder that is not there is not offered")
 
     type P = { directory: string; server?: string; on: string; open?: true }
     const all = (await h.cmd("allProjects")) as P[]

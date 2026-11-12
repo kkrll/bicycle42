@@ -1235,11 +1235,16 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     push()
   },
   async projects() {
-    const list = await need().projects()
+    const b = need()
+    // The server lists every folder a conversation was ever started for, also one that is not
+    // there (deleted since, or another computer's, named by mistake): those are left out.
+    const known = (await b.projects()).slice(0, 40)
+    const there = await Promise.all(known.map((d) => folderExists(b, d)))
+    const list = known.filter((_, i) => there[i])
     // Kept with the server, so its projects can be offered while another one is in use.
     store.update((s) => {
       const mine = s.servers?.find((x) => x.id === s.current)
-      if (mine) mine.projects = list.slice(0, 40)
+      if (mine) mine.projects = list
     })
     return list
   },
