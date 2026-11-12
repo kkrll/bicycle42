@@ -11,11 +11,13 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "check": "node scripts/check.mjs",
     "harness": "node scripts/serve.mjs",
     "test": "node --test test/",
     "bench": "node bench/bench.mjs"
   },
   "devDependencies": {
-    "playwright-core": "1.65.0"
+    "playwright-core": "1.65.0",
+    "typescript": "^5.9.0"
   }
 }
