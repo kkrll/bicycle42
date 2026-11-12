@@ -112,7 +112,7 @@ The full list is in [app/README.md](app/README.md).
 ## Test
 
 ```bash
-cd overlay && npm install && npm test    # the in-page layer, in headless Chromium
+cd overlay && bun install && bun run test  # the in-page layer, in headless Chromium
 cd app && bun install && bun run test    # unit tests, then the app in headless Electron
 ```
 

@@ -1,5 +1,5 @@
 // End-to-end tests for canvas mode (the inspector and the mouse gestures) on harness/canvas.html.
-// Same set-up as overlay.test.mjs: a system Chromium, headless. Run: npm test
+// Same set-up as overlay.test.mjs: a system Chromium, headless. Run: bun run test
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";

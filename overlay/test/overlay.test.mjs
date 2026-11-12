@@ -1,5 +1,5 @@
 // End-to-end tests for the overlay in the harness, using a system Chromium (no browser download).
-// CHROMIUM=/path/to/chrome overrides the browser. Run: npm test
+// CHROMIUM=/path/to/chrome overrides the browser. Run: bun run test
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";

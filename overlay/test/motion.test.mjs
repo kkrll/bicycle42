@@ -1,5 +1,5 @@
 // End-to-end tests for motion mode (the dock, the timeline, sending one animation) on
-// harness/motion-page.html. Same set-up as overlay.test.mjs: a system Chromium, headless. Run: npm test
+// harness/motion-page.html. Same set-up as overlay.test.mjs: a system Chromium, headless. Run: bun run test
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";

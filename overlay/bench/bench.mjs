@@ -1,5 +1,5 @@
 // Benchmark of the overlay: what it costs the page under review, state by state.
-// Run: npm run bench -- [path/to/overlay.js] [--compare other.js] [--json out.json]
+// Run: bun run bench -- [path/to/overlay.js] [--compare other.js] [--json out.json]
 // Prints one table (cell × metric, per second) and the invariants; exits 1 when one fails.
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

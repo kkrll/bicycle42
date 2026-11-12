@@ -1,5 +1,5 @@
 // Packages the built app as "bicycle 42" for this computer: a real app bundle with its own name
-// and icon, so the menu bar and dock say bicycle 42 instead of Electron. Run: npm run pack
+// and icon, so the menu bar and dock say bicycle 42 instead of Electron. Run: bun run pack
 // The result is in release/. It is not signed with a developer certificate or notarised.
 import { execFileSync } from "node:child_process"
 import fs from "node:fs"

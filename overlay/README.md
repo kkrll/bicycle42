@@ -5,7 +5,7 @@ injects into the page) and `prompt.js` (note → prompt text). The protocol betw
 its host is in [`src/protocol.js`](src/protocol.js). What it is for and its keys are in the
 [root README](../README.md).
 
-`overlay.js` is built, not written: `npm run build` joins the pieces in [`src/`](src) into one
+`overlay.js` is built, not written: `bun run build` joins the pieces in [`src/`](src) into one
 closure, in the order listed in [`scripts/build.mjs`](scripts/build.mjs), which also says how a
 piece and a module see each other. The harness server builds it on every request, the app's build
 and the benchmark build it themselves; it is not committed.
@@ -15,8 +15,8 @@ and the benchmark build it themselves; it is not committed.
 ## Harness
 
 ```bash
-npm install          # only playwright-core, for the tests; it uses your installed Chromium
-npm run harness      # http://127.0.0.1:4173/   (HOST=0.0.0.0 to reach it from another machine)
+bun install          # only playwright-core, for the tests; it uses your installed Chromium
+bun run harness      # http://127.0.0.1:4173/   (HOST=0.0.0.0 to reach it from another machine)
 ```
 
 The harness plays the host: a sample page in an iframe, a fake agent queue (queued → working →
@@ -29,20 +29,20 @@ bar) for motion mode and its tests.
 ## Test
 
 ```bash
-npm test                           # end-to-end tests in headless Chromium, about a minute
-CHROMIUM=/path/to/chrome npm test  # when the tests do not find your Chromium
+bun run test                           # end-to-end tests in headless Chromium, about a minute
+CHROMIUM=/path/to/chrome bun run test  # when the tests do not find your Chromium
 node scripts/screenshot.mjs        # regenerates docs/harness.png
 ```
 
 ## Benchmark
 
 ```bash
-npm run bench                                  # the overlay as src/ has it, two to three minutes
-npm run bench -- path/to/overlay.js            # a built copy
-npm run bench -- --json out.json               # also writes every window's numbers
-npm run bench -- --cells strokes,selected      # only some states
-BENCH_GPU=1 npm run bench                      # drawn by the graphics card, as in the app
-git stash && npm run build -- /tmp/old.js && git stash pop && npm run bench -- --compare /tmp/old.js
+bun run bench                                  # the overlay as src/ has it, two to three minutes
+bun run bench -- path/to/overlay.js            # a built copy
+bun run bench -- --json out.json               # also writes every window's numbers
+bun run bench -- --cells strokes,selected      # only some states
+BENCH_GPU=1 bun run bench                      # drawn by the graphics card, as in the app
+git stash && bun run build -- /tmp/old.js && git stash pop && bun run bench -- --compare /tmp/old.js
 ```
 
 What the overlay costs the page under review, in twelve states (`bench/cells.mjs`): review off,
