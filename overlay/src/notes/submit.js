@@ -25,3 +25,19 @@ function submit(background) {
   setBrush(false);
   dispatch(note);
 }
+
+/** The host did not take the note: its card opens again with the words in it, and says why. */
+function refuse(say) {
+  openCard();
+  setHint(say);
+}
+
+/** A note was taken (this mode's or another's): the words, pictures, template and marks of the
+ *  note go. (S.sel, the sent note's outlines whatever made it, goes in finishCapture.) */
+function finish() {
+  S.area = null;
+  S.strokes = [];
+  textarea.value = "";
+  setImages([]);
+  setTemplate(null);
+}

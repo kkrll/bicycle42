@@ -1,6 +1,7 @@
 // ── "Sent" ──────────────────────────────────────────────────────────────────────────────────
 // The card vanishes on Enter. For a moment a chip says the note went, and which number it got,
 // where the card was; it never blocks the next click and is gone before the next screenshot.
+let sentEl; // found by mount()
 let sentTimer = 0;
 function showSent(id) {
   if (!cardAt || !S.enabled) return;

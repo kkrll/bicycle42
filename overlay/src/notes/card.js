@@ -1,4 +1,8 @@
+// Notes mode: the note card, where it sits, and what it says it is about. (Its listeners are in
+// mount.js; the template list and the pictures in templates.js and pictures.js.)
+
 // ── note card ───────────────────────────────────────────────────────────────────────────────
+let card, what, refs, textarea, chip, menuEl; // found by mount()
 const PLACEHOLDER = "Note…"; // what else the card does (/, a pasted picture) is behind its "?"
 // The card's keys: behind its "?", shown while the pointer (or focus) is on it. The card itself
 // carries no instructions, only what is being noted and the ↵ that sends it.
@@ -12,6 +16,14 @@ const CARD_KEYS = [
   ["esc", "cancel the note"],
 ];
 let cardAt = null; // where the note card last sat: the "Sent" chip appears there
+
+/** The card's part of the layer. mount.js puts it in its place among the rest; mount() finds it. */
+const CARD_HTML = `<div class="card" hidden><div class="meta"><span class="what"></span><span class="hint" hidden></span>
+      <span class="khelp"><button type="button" class="kq" aria-label="Keys" aria-describedby="b42-ckeys">${icon("help", 14)}</button><div class="kpop" id="b42-ckeys" role="tooltip"></div></span></div>
+    <button type="button" class="chip" title="Remove the template" hidden></button>
+    <div class="cbody"><textarea rows="2" placeholder="${PLACEHOLDER}" spellcheck="false"></textarea>
+      <button type="button" class="csend" aria-label="Send" title="Send (↵) · ${isMac ? "⌥" : "alt+"}click to work in parallel" disabled>${icon("↵")}</button></div>
+    <div class="menu" hidden></div><div class="refs" hidden></div></div>`;
 
 function updateCardMeta() {
   what.title = S.sel.length === 1 ? label(S.sel[0]) : "";

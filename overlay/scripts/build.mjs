@@ -20,19 +20,25 @@ export const PARTS = [
   "state.js", // the host bridge, the transient state, the elements of the layer
   "ui.js", // the layer's icons, and words with key symbols drawn in them
   "page.js", // geometry, element identity, picking, the rules previews adopt
-  "draft.js", // the draft the host keeps
-  "notes/draft.js", // notes mode: the draft
-  "notes/card.js", // the card
-  "notes/templates.js", // templates
-  "notes/pictures.js", // pictures
-  "notes/submit.js", // submit
-  "notes/sent.js", // the "Sent" chip, undo
+  "draft.js", // the draft the host keeps: the note in progress, canvas's batch, motion's animations
   {
-    module: "Notes", // notes mode's handlers for the page's pointer and keys
-    files: ["notes/input.js"],
+    module: "Notes", // notes mode: a note about the page, its outlines, area and strokes, on a card
+    files: [
+      "notes/card.js", // the card: its markup, what it says it is about, where it sits
+      "notes/templates.js", // "/" and the list of templates
+      "notes/pictures.js", // pictures pasted into the note
+      "notes/draft.js", // the note in progress: whether there is one, emptied, restored
+      "notes/submit.js", // the note sent, refused, taken
+      "notes/sent.js", // the "Sent" chip where the card was, and Esc's undo
+      "notes/frame.js", // one frame: the hover outline, the ink, the card's place
+      "notes/input.js", // the page's pointer and the card's keys
+      "notes/mount.js", // its elements in the layer, and their listeners; shown with review
+      "notes/api.js", // what the rest of the overlay sees
+    ],
   },
+  "stand-ins.js", // names motion mode still calls without Notes., until it asks Notes directly
   "variants.js", // the page's own variants, switched from a small bar
-  "sent.js", // after a note is sent: the chip, undo, the pins' tooltip, the host's answer
+  "sent.js", // the pins' tooltip; a note from any mode sent, and the host's answer
   {
     module: "Canvas", // canvas mode: the page's real elements edited, the batch sent as one note
     files: [
@@ -68,7 +74,7 @@ export const PARTS = [
   },
   "mode.js", // which mode is on, the one switch between them, the host's switch, the brush
   "input.js", // the page's pointer and keys: what every mode shares, then the mode that is on
-  "render.js", // outlines, strokes and pins, one frame at a time
+  "render.js", // one frame at a time: each mode's part, the outlines, the pins
   "mount.js", // the shadow root, the host's API
 ];
 

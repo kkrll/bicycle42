@@ -38,10 +38,11 @@ function makePin() {
 }
 
 // ── a note sent ─────────────────────────────────────────────────────────────────────────────
+/** A note from any mode goes to the host; finishCapture or refuseCapture follows. */
 function dispatch(note) {
   // Hide the card (and, via S.pending, hover and pins) before the host takes its screenshot.
-  closeCard();
-  hideSent();
+  Notes.closeCard();
+  Notes.hideSent();
   hideTip();
   S.pending = note.id;
   clearTimeout(draftTimer);
@@ -61,10 +62,7 @@ function refuseCapture(id, why) {
   if (S.quiet === id) {
     S.quiet = null;
     if (!Motion.refuse(id, say)) Canvas.refuse(id, say);
-  } else {
-    openCard();
-    setHint(say);
-  }
+  } else Notes.refuse(say);
   kick();
 }
 
@@ -74,13 +72,9 @@ function finishCapture(id) {
   Canvas.finish();
   Motion.finish(id);
   if (S.quiet === id) S.quiet = null;
-  else showSent(id);
+  else Notes.showSent(id);
   S.sel = [];
-  S.area = null;
-  S.strokes = [];
-  textarea.value = "";
-  setImages([]);
-  setTemplate(null);
+  Notes.finish();
   send({ type: "draft", draft: serializeDraft() });
   const b = S.buffered;
   S.buffered = null;
@@ -88,7 +82,7 @@ function finishCapture(id) {
   if (el && modeOn() === "canvas") Canvas.select(el);
   else if (el) {
     S.sel = [el];
-    openCard();
+    Notes.openCard();
   }
   kick();
 }

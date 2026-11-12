@@ -42,81 +42,20 @@ function render() {
   readView();
   // A batch hidden for the host's "before" picture counts as a capture: no chrome in that picture.
   const capturing = !!S.pending || Canvas.hiding;
-  const d = S.drag;
   drawVariants(capturing);
   const canvasBoxes = Canvas.frame(capturing);
   const motionBoxes = Motion.frame(capturing);
 
-  // boxes: hover + selection
-  const items = [];
-  if (S.enabled && !capturing && !d && modeOn() === "notes" && S.hover && S.hover.isConnected && !S.sel.includes(S.hover))
-    items.push([rectOf(S.hover), "hover"]);
+  // boxes: hover, the note's outlines (in its screenshot, whichever mode made it), canvas, motion
+  const items = Notes.outlines(capturing);
   if (S.enabled || capturing) for (const el of S.sel) if (el.isConnected) items.push([rectOf(el), "sel"]);
   if (canvasBoxes) items.push(...canvasBoxes);
   if (motionBoxes) items.push(...motionBoxes);
   const divs = pool(boxes, items.length, () => document.createElement("div"));
   items.forEach(([r, cls], i) => placeBox(divs[i], r, cls));
 
-  // ink: committed strokes, area, and the live drag
-  // All of it is drawn in document coordinates, and the whole picture is moved against the
-  // scroll by a CSS transform on a compositor layer of its own. So scrolling paints nothing:
-  // the layer is drawn once and then only moved, and the pencil grain (noise in the picture's
-  // own coordinates) stays put on the page.
-  const show = S.enabled || capturing;
-  const paths = show ? S.strokes.slice() : [];
-  if (d && d.mode === "draw") paths.push(d.pts);
-  const sx = VP.sx, sy = VP.sy;
-  const areas = [];
-  if (show && S.area) areas.push(S.area);
-  if (d && d.mode === "area") areas.push({ x: Math.min(d.x0, d.x) + sx, y: Math.min(d.y0, d.y) + sy, w: Math.abs(d.x - d.x0), h: Math.abs(d.y - d.y0) });
-  const drawn = paths.length + areas.length > 0;
-  if (ink._on !== drawn) ink.classList.toggle("on", (ink._on = drawn)); // a layer only while there is ink
-  // With nothing drawn, scrolling writes nothing here.
-  const inkAt = `${sx}|${sy}`;
-  if (drawn && ink._at !== inkAt) {
-    ink._at = inkAt;
-    ink.style.transform = `translate(${-sx}px, ${-sy}px)`;
-  }
-  const pathEls = pool(strokesEl, paths.length, () => document.createElementNS(SVG, "path"));
-  let redrawn = pathEls.length !== strokesEl._n;
-  strokesEl._n = pathEls.length;
-  paths.forEach((pts, i) => {
-    // A drawn stroke stays as it is, and the one being drawn only grows: the same points and
-    // the same count mean the same path. Writing it again would repaint the ink every frame.
-    const el = pathEls[i];
-    if (el._pts === pts && el._n === pts.length) return;
-    el._pts = pts;
-    el._n = pts.length;
-    el.setAttribute("d", `M${pts.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L")}`);
-    redrawn = true;
-  });
-  // The pencil filter is worked out for the strokes' own box, wherever the page is scrolled to
-  // (the line is nudged by 2px at most; the margin is for its width and round ends).
-  if (redrawn && paths.length) {
-    const b = union(paths.map((pts) => (pts === (d && d.pts) ? bboxOf(pts) : strokeBox.get(pts) || strokeBox.set(pts, bboxOf(pts)).get(pts))));
-    const key = `${Math.floor(b.x) - 12}|${Math.floor(b.y) - 12}|${Math.ceil(b.w) + 24}|${Math.ceil(b.h) + 24}`;
-    if (pencil._key !== key) {
-      pencil._key = key;
-      const [x, y, w, h] = key.split("|");
-      pencil.setAttribute("x", x);
-      pencil.setAttribute("y", y);
-      pencil.setAttribute("width", w);
-      pencil.setAttribute("height", h);
-    }
-  }
-  const rectEls = pool(ink.querySelector(".areas"), areas.length, () => document.createElementNS(SVG, "rect"));
-  areas.forEach((r, i) => {
-    const el = rectEls[i], key = `${r.x}|${r.y}|${r.w}|${r.h}`;
-    if (el._k === key) return; // (an area that stays is not written again either)
-    el._k = key;
-    el.setAttribute("x", r.x);
-    el.setAttribute("y", r.y);
-    el.setAttribute("width", r.w);
-    el.setAttribute("height", r.h);
-  });
-
-  // card
-  if (S.card && S.enabled && !capturing) placeCard();
+  // notes mode's ink and card: after the boxes are written (notes/frame.js says why)
+  Notes.frame(capturing);
 
   // pins
   const visible = [];

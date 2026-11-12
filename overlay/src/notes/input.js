@@ -1,5 +1,5 @@
 // Notes mode, input: the page's pointer (hover, click, shift+click, an area, a drawing) and the
-// keys of the note card. (The draft, the card and the rest of notes mode are in notes.js.)
+// keys of the note card. (The draft, the card and the rest of notes mode are beside it in notes/.)
 
 // ── the page's pointer ───────────────────────────────────────────────────────────────────
 function pointerDown(e) {
@@ -168,7 +168,3 @@ function key(e) {
     kick();
   }
 }
-
-// ── what the rest of the overlay sees ───────────────────────────────────────────────────────
-// Notes mode has no setOn: it is on when canvas and motion mode are off (mode.js).
-const api = { pointerDown, pointerMove, pointerUp, key };
