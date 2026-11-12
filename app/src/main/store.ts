@@ -23,7 +23,8 @@ export type Settings = {
   folder?: string
   defaultModel?: ModelRef
   /** Key: the site's origin. */
-  sites: Record<string, { directory: string; session?: string; bg?: string }>
+  /** `url` and `seen`: the page last open on the site and when, to come back to with its project. */
+  sites: Record<string, { directory: string; session?: string; bg?: string; url?: string; seen?: number }>
 }
 
 export type Store = {

@@ -46,6 +46,11 @@ its own name and icon. It is not signed with a developer certificate, and there 
 After that, the app reopens the last page with its notes and conversation. A site opened for
 the first time works in the repo that is open; the folder can be changed from the panel.
 
+**Another project:** the **+** beside the conversation's name lists the server's projects
+(type to narrow, `↑` `↓`, `Enter`; `mod+1`…`9` for the first nine; a path starting with `/`
+opens any folder), with a new conversation in the open project as its first row. A project
+opens on the page it was last on, with its notes and conversation, or with no page yet.
+
 The app makes three sounds: a rising one when the agent asks something or wants permission, a
 falling one when a note fails or the server is lost, and a single note when the agent has
 finished everything you sent. They can be turned off in the settings (the server button, in the

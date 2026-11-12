@@ -343,8 +343,8 @@ function originOf(url: string) {
 }
 
 /** The page moved to another site (or the first one): bring up that site's notes. */
-function switchSite(origin: string | undefined) {
-  if (origin === site?.origin) return
+function switchSite(origin: string | undefined, again = false) {
+  if (origin === site?.origin && !again) return
   if (!origin) {
     site = undefined
   } else {
@@ -370,7 +370,10 @@ function switchSite(origin: string | undefined) {
  *  asked to start it), so that it goes on beside the page. */
 function adopt(origin: string) {
   const folder = repoFolder()
-  if (siteSettings(origin) || !folder) return
+  if (!folder) return
+  // The place without a page is always the open repo's: after another repo was opened, it starts anew.
+  if (origin === HOME && siteSettings(HOME) && siteSettings(HOME)!.directory !== folder) store.update((x) => void (x.sites[HOME] = { directory: folder }))
+  if (siteSettings(origin)) return
   const home = origin === HOME ? undefined : siteSettings(HOME)
   const moved = home?.session && home.directory === folder ? home.session : undefined
   store.update((x) => {
@@ -1118,6 +1121,27 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     push()
     await openSite()
   },
+  async openProject(directory) {
+    if (typeof directory !== "string" || !directory.startsWith("/")) throw new Error("Choose a folder.")
+    need()
+    // Its site, as it was last open: the one visited most recently among those that work in it.
+    const known = Object.entries(store.settings().sites)
+      .filter(([origin, entry]) => origin !== HOME && entry.directory === directory)
+      .sort((a, b) => (b[1].seen ?? 0) - (a[1].seen ?? 0))[0]
+    const here = site && site.origin !== HOME && siteSettings(site.origin)?.directory === directory
+    store.update((s) => {
+      s.folder = directory
+      // No site of its own yet: the next launch starts in the repo too, not on the last project's page.
+      if (!known && !here) delete s.lastUrl
+    })
+    siteAsked = undefined
+    starting = false
+    if (here) return push() // already on one of its sites
+    const to = known ? (known[1].url ?? known[0]) : ""
+    if (page?.state().url === to) switchSite(placeOf(to), true)
+    else page?.load(to)
+    await openSite()
+  },
   async startSite() {
     const b = need()
     const current = needSession()
@@ -1324,6 +1348,9 @@ async function createWindow() {
       const url = page?.state().url ?? ""
       if (url && url !== store.settings().lastUrl) store.update((s) => void (s.lastUrl = url))
       switchSite(placeOf(url))
+      // Where a project's site was last open, for coming back to it (openProject).
+      const at = originOf(url)
+      if (at && siteSettings(at) && siteSettings(at)!.url !== url) store.update((s) => void (s.sites[at] && Object.assign(s.sites[at], { url, seen: Date.now() })))
       push()
     },
     onShortcut(key) {

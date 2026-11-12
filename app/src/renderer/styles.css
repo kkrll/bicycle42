@@ -1456,6 +1456,101 @@ details[open] > summary > .caret {
   color: var(--muted);
 }
 
+/* The list behind "+": a search field, rows chosen with the keyboard, the keys at the bottom. */
+.dialog.switcher {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(560px, calc(100vh - 64px));
+  padding: 0;
+  overflow: hidden;
+}
+
+.switcher[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.switcher-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 var(--gutter);
+  border-bottom: 1px solid var(--rule);
+  color: var(--muted);
+}
+
+.switcher-search input,
+.switcher-search input:focus-visible {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+}
+
+.switcher-search input {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  background: none;
+  outline: none;
+  font-size: var(--text-ui);
+  color: var(--foreground);
+}
+
+.switcher-rows {
+  flex: 1;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.switcher .row.on {
+  background: var(--surface);
+}
+
+.switcher > .quiet,
+.switcher > .form-error {
+  padding: 10px var(--gutter);
+}
+
+.row-sub.plain {
+  direction: ltr;
+  font-family: inherit;
+}
+
+.row-tag {
+  margin-left: 8px;
+  font-size: var(--text-control);
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.row-key {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  color: var(--muted);
+}
+
+.switcher-keys {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding: 8px var(--gutter);
+  border-top: 1px solid var(--rule);
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+.switcher-keys span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.switcher .folder {
+  padding: var(--gutter);
+  overflow: hidden;
+}
+
 .crumbs {
   display: flex;
   flex-wrap: wrap;

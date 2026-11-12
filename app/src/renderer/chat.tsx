@@ -19,7 +19,7 @@ import { Icon, Kbd, toolIcon } from "./icons"
 import { ServerButton } from "./connect"
 import { openLightbox } from "./lightbox"
 import { Markdown } from "./markdown"
-import { act, chat, focusedNote, keys, mac, message, b42, setNotice, state } from "./store"
+import { act, chat, focusedNote, keys, mac, message, b42, setNotice, setSwitcherOpen, state } from "./store"
 
 // ── diffs ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -853,10 +853,12 @@ function Conversations(props: { openSettings: () => void }) {
       </button>
       <button
         class="icon-btn"
-        title="New conversation"
-        aria-label="New conversation"
-        disabled={!state.session}
-        onClick={() => act("newSession")}
+        title="New conversation, or another project"
+        aria-label="New conversation, or another project"
+        aria-haspopup="dialog"
+        data-action="switcher"
+        disabled={state.connection.status !== "online"}
+        onClick={() => setSwitcherOpen(true)}
       >
         <Icon name="plus" />
       </button>

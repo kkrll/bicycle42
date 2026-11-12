@@ -312,6 +312,10 @@ export type Commands = {
   /** Opens a repo: the folder the site on screen works in, and the one a site opened for the
    *  first time starts with. Works before any page is open. */
   setDirectory(directory: string): void
+  /** Switches to another project: the repo in that folder. Its site comes back as it was last
+   *  open (page, notes, conversation); a project with no site yet opens with no page, at the
+   *  step where a site is opened or the agent is asked to start one. */
+  openProject(directory: string): void
   /** Asks the agent, in the open conversation, to get the repo's site running and say where.
    *  Its answer shows in the chat; the address it ends with is opened when no page is. */
   startSite(): void

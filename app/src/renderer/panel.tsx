@@ -381,12 +381,14 @@ export function RepoScreen() {
   )
 }
 
-function FolderPicker(props: { onCancel?: () => void; onDone?: () => void }) {
+/** `open` is what choosing a folder does; without it, the folder becomes the one the site on
+ *  screen works in (`setDirectory`). With `onCancel` it is not a first-run step: no step line. */
+export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void; open?: (directory: string) => Promise<unknown>; browse?: boolean }) {
   const [recent, { refetch: reloadRecent }] = createResource(() => b42.invoke("projects"))
   // Reading a failed resource throws; the error has its own branch below.
   const recentList = () => (recent.error ? undefined : recent())
   // Browsing starts beside the most recent project: that is where the next one usually is.
-  const [path, setPath] = createSignal<string | null>(null)
+  const [path, setPath] = createSignal<string | null>(props.browse ? parent(state.site?.directory ?? "/") : null)
   const [folders, { refetch: reloadFolders }] = createResource(path, (p) => b42.invoke("listFolders", p))
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal("")
@@ -395,8 +397,7 @@ function FolderPicker(props: { onCancel?: () => void; onDone?: () => void }) {
     setBusy(true)
     setError("")
     // On success main sets site.directory and the panel moves on to notes and chat.
-    b42
-      .invoke("setDirectory", directory)
+    ;(props.open ? props.open(directory) : b42.invoke("setDirectory", directory))
       .then(() => props.onDone?.())
       .catch((err) => {
         setError(message(err))
@@ -414,10 +415,10 @@ function FolderPicker(props: { onCancel?: () => void; onDone?: () => void }) {
         <Show when={!props.onCancel}>
           <SetupSteps at={2} />
         </Show>
-        <h2>Open the repo</h2>
+        <h2>{props.open ? "Open a project" : "Open the repo"}</h2>
         <p class="folder-lead">
           <Show
-            when={state.site?.origin}
+            when={!props.open && state.site?.origin}
             fallback={<>Pick the folder on your server that holds the site's code. The agent works there.</>}
           >
             Pick the folder on your server that holds the code of <strong>{host(state.site?.origin ?? "")}</strong>.
@@ -524,8 +525,8 @@ function FolderPicker(props: { onCancel?: () => void; onDone?: () => void }) {
           <button class="btn primary" disabled={busy()} onClick={() => use(path()!)}>
             Use this folder
           </button>
-          <button class="btn" onClick={() => setPath(null)}>
-            Back to recent
+          <button class="btn" onClick={() => (props.browse ? props.onCancel?.() : setPath(null))}>
+            {props.browse ? "Back" : "Back to recent"}
           </button>
         </div>
       </Show>

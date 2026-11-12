@@ -305,6 +305,47 @@ test("the repo comes before the site: its conversation opens with no page, and t
   }
 })
 
+test("openProject: another repo opens with no page and a conversation of its own; going back brings the site and its conversation", async () => {
+  const h = await boot()
+  try {
+    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await h.cmd("setDirectory", "/repo")
+    h.page.page!.load(`${SITE}/pricing`)
+    await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
+    const first = h.snap().session!.id
+    h.note("a note")
+    await until(() => h.snap().review.notes.length === 1)
+
+    await h.cmd("openProject", "/other")
+    await until(() => h.snap().site?.directory === "/other" && !!h.snap().session)
+    assert.deepEqual([h.snap().site, h.snap().page.url, h.snap().review.notes.length], [{ origin: "", directory: "/other" }, "", 0])
+    assert.notEqual(h.snap().session!.id, first)
+    // Saved a moment after the change: until then there may be no file, or the one before.
+    const settings = (): { folder?: string; lastUrl?: string } => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8"))
+      } catch {
+        return {}
+      }
+    }
+    await until(() => settings().folder === "/other")
+    assert.equal(settings().lastUrl, undefined, "the next launch starts in this repo, not on the other one's page")
+
+    // Back: the page it was on, its notes and its conversation.
+    await h.cmd("openProject", "/repo")
+    await until(() => h.snap().site?.origin === SITE && h.snap().session?.id === first)
+    assert.deepEqual([h.snap().page.url, h.snap().site!.directory, h.snap().review.notes.length], [`${SITE}/pricing`, "/repo", 1])
+
+    // Opening the project that is open changes nothing.
+    const creates = h.w.creates
+    await h.cmd("openProject", "/repo")
+    assert.deepEqual([h.snap().page.url, h.snap().session!.id, h.w.creates], [`${SITE}/pricing`, first, creates])
+    await assert.rejects(Promise.resolve(h.cmd("openProject", "relative/path")))
+  } finally {
+    await h.close()
+  }
+})
+
 test("startSite asks the agent in the repo's conversation, and opens the address its answer ends with", async () => {
   const h = await boot()
   try {

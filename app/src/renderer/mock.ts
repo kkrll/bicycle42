@@ -794,6 +794,15 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       if (!names) return []
       return names.map((name) => ({ name, path: `${path === "/" ? "" : path}/${name}` }))
     },
+    openProject(directory) {
+      state.site = { origin: "", directory }
+      state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }
+      state.review.notes = []
+      state.session = { id: SESSION, title: `Review · ${directory.split("/").pop()}`, updated: Date.now(), busy: false, directory }
+      state.sessions = [state.session]
+      push()
+      emit({ type: "reset", session: SESSION, items: [] })
+    },
     startSite() {
       state.startingSite = true
       push()

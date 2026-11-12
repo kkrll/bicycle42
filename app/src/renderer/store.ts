@@ -211,6 +211,8 @@ export function expandNotes(): void {
 /** Something of the window's needs the whole window (a picture opened large): the page view,
  *  which paints over the window, is taken away meanwhile. */
 export const [pageCovered, setPageCovered] = createSignal(false)
+/** The list opened with "+": a new conversation, or another project. */
+export const [switcherOpen, setSwitcherOpen] = createSignal(false)
 
 /** A note's state as the reviewer reads it: a "working" note is only working while the server
  *  is reachable. */

@@ -58,6 +58,9 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   get the site running (`startSite`): the prompt says whether app and server share a computer
   and asks for a last line `SITE: <address>`, which is opened when the run ends and no page
   works yet. The first site opened takes that conversation over.
+- **A project is a folder.** `openProject` makes it the open repo and loads the site visited
+  last among those that work in it (`url` and `seen` in a site's settings), or no page when it
+  has none. The window's list for it is `renderer/switcher.tsx`, behind the panel's "+".
 - **One site = one folder = one conversation** (plus a background one for `alt+Enter` notes).
   Stored in `settings.json` under the app's user-data folder; notes are in `reviews/`.
 - **The chat is rebuilt from the server's step, text and tool events**, and the same code path
