@@ -56,46 +56,51 @@ function UrlField(props: { ref: (el: HTMLInputElement) => void }) {
   // null while the field shows the page's own address; a string while the user is typing.
   const [draft, setDraft] = createSignal<string | null>(null)
   // How many characters the field shows (12px mono is about 7.2px a character).
-  const [chars, setChars] = createSignal(80)
+  // What the server still runs sits inside the field, at its right end, and takes that room.
+  const [width, setWidth] = createSignal(600)
+  const chars = () => Math.max(12, Math.floor((width() - 20 - (state.running.length ? 44 : 0)) / 7.2))
   let el!: HTMLInputElement
   onMount(() => {
-    const observer = new ResizeObserver(() => setChars(Math.max(12, Math.floor((el.clientWidth - 20) / 7.2))))
+    const observer = new ResizeObserver(() => setWidth(el.clientWidth))
     observer.observe(el)
     onCleanup(() => observer.disconnect())
   })
   return (
-    <input
-      ref={(e) => {
-        el = e
-        props.ref(e)
-      }}
-      class="url"
-      type="text"
-      aria-label="Page address"
-      title={state.page.url || undefined}
-      spellcheck={false}
-      autocomplete="off"
-      placeholder="Your dev URL, e.g. localhost:3000"
-      value={draft() ?? (state.page.url ? shortUrl(state.page.url, chars()) : "")}
-      onFocus={(e) => {
-        // Editing starts from the whole address.
-        const input = e.currentTarget
-        setDraft(state.page.url)
-        requestAnimationFrame(() => input.select())
-      }}
-      onInput={(e) => setDraft(e.currentTarget.value)}
-      onBlur={() => setDraft(null)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          const url = e.currentTarget.value.trim()
-          if (url) act("navigate", url)
-          e.currentTarget.blur()
-        } else if (e.key === "Escape") {
-          setDraft(null)
-          e.currentTarget.blur()
-        }
-      }}
-    />
+    <div class="url-field" classList={{ "has-running": state.running.length > 0 }}>
+      <input
+        ref={(e) => {
+          el = e
+          props.ref(e)
+        }}
+        class="url"
+        type="text"
+        aria-label="Page address"
+        title={state.page.url || undefined}
+        spellcheck={false}
+        autocomplete="off"
+        placeholder="Your dev URL, e.g. localhost:3000"
+        value={draft() ?? (state.page.url ? shortUrl(state.page.url, chars()) : "")}
+        onFocus={(e) => {
+          // Editing starts from the whole address.
+          const input = e.currentTarget
+          setDraft(state.page.url)
+          requestAnimationFrame(() => input.select())
+        }}
+        onInput={(e) => setDraft(e.currentTarget.value)}
+        onBlur={() => setDraft(null)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            const url = e.currentTarget.value.trim()
+            if (url) act("navigate", url)
+            e.currentTarget.blur()
+          } else if (e.key === "Escape") {
+            setDraft(null)
+            e.currentTarget.blur()
+          }
+        }}
+      />
+      <RunningButton />
+    </div>
   )
 }
 
@@ -221,7 +226,6 @@ function TopBar(props: {
           </button>
         </div>
         <UrlField ref={props.urlRef} />
-        <RunningButton />
         <PageError />
         <div class="tools">
           <Hint />

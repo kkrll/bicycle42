@@ -450,9 +450,21 @@ details[open] > summary > .caret {
   gap: 4px;
 }
 
-.url {
+/* The address, and inside it at the right what the server still runs. */
+.url-field {
+  position: relative;
   flex: 1;
   min-width: 80px;
+  display: flex;
+}
+
+.url-field.has-running .url {
+  padding-right: 52px;
+}
+
+.url {
+  flex: 1;
+  min-width: 0;
   height: 28px;
   padding: 0 10px;
   border: 0;
@@ -1458,13 +1470,17 @@ details[open] > summary > .caret {
 
 /* What the server is still running: a count at the end of the address line, its list under it. */
 .icon-btn.running-btn {
-  flex: none;
+  position: absolute;
+  top: 2px;
+  right: 2px;
   display: inline-flex;
   align-items: center;
   width: auto;
+  height: 24px;
   gap: 4px;
   padding: 0 8px 0 6px;
-  margin-left: 4px;
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--background);
   color: var(--foreground);
 }
 

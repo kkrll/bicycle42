@@ -1,5 +1,5 @@
 // What the server is still running: dev servers the agent started and nobody stopped. A button
-// at the end of the address line says how many, and opens the list: those of the open repo
+// inside the address field, at its right end, says how many, and opens the list: those of the open repo
 // first, then the ones left in the server's other projects, each with its own Stop.
 import { For, Show, createSignal, onCleanup, onMount } from "solid-js"
 import { Icon } from "./icons"
@@ -32,7 +32,7 @@ export function RunningButton() {
   }
   return (
     <Show when={state.running.length && state.connection.status === "online"}>
-      <button class="icon-btn boxed running-btn" data-action="running" aria-haspopup="dialog" aria-label={label()} title={label()} onClick={() => setRunningOpen(true)}>
+      <button class="icon-btn running-btn" data-action="running" aria-haspopup="dialog" aria-label={label()} title={label()} onClick={() => setRunningOpen(true)}>
         <Icon name="stop" />
         <span class="running-count">{state.running.length}</span>
       </button>
