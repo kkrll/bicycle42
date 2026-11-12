@@ -1641,6 +1641,29 @@ details[open] > summary > .caret {
   user-select: none;
 }
 
+/* Ways to start a new conversation: one click sends one. */
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.suggestion {
+  max-width: 100%;
+  height: auto;
+  min-height: 28px;
+  padding: 4px 12px;
+  color: var(--foreground);
+  text-align: left;
+  white-space: normal;
+}
+
+.shortcuts[hidden] {
+  display: none;
+}
+
 .shortcuts {
   display: grid;
   grid-template-columns: auto 1fr;

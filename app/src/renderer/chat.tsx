@@ -363,12 +363,64 @@ function Assistant(props: { item: ChatAssistant }) {
   )
 }
 
+/** What a new conversation offers to start with: one click sends it. Which ones depends on
+ *  whether a page is open and working. Starting the site is the app's own request (`startSite`):
+ *  the agent is told where the app runs, and the address it answers with is opened. */
+type Suggestion = { label: string; text?: string; start?: true }
+function suggestions(): Suggestion[] {
+  const url = state.page.url
+  const works = !!url && !state.page.error
+  return [
+    ...(works ? [] : [{ label: "Start the dev server here", start: true as const }]),
+    ...(works ? [{ label: "Find the code for this page", text: `Which files make up the page at ${url}? List the route, its components and its styles, in a few lines.` }] : []),
+    { label: "Show me around this repo", text: "Give me a short tour of this repo: what the site is built with, where pages, components and styles live, and how to run it." },
+    { label: "Where are the colours, type and spacing defined?", text: "Where does this project define its design tokens (colours, type, spacing, radii)? Name the files and how components use them." },
+  ]
+}
+
+function Suggestions() {
+  const [error, setError] = createSignal("")
+  const [busy, setBusy] = createSignal(false)
+  const run = (s: Suggestion) => {
+    setError("")
+    setBusy(true)
+    const sent = s.start ? b42.invoke("startSite") : b42.invoke("send", s.text ?? s.label)
+    void sent.catch((err) => setError(message(err))).finally(() => setBusy(false))
+  }
+  return (
+    <div class="suggestions" role="group" aria-label="Ways to start">
+      <For each={suggestions()}>
+        {(s) => (
+          <button class="btn suggestion" disabled={busy() || state.connection.status !== "online" || (s.start && state.startingSite)} title={s.start ? "The agent starts it and the app opens it" : s.text} onClick={() => run(s)}>
+            {s.label}
+          </button>
+        )}
+      </For>
+      <Show when={error()}>
+        <p class="form-error">{error()}</p>
+      </Show>
+    </div>
+  )
+}
+
 function Empty() {
+  const page = () => !!state.page.url && !state.page.error
   return (
     <div class="chat-empty">
-      <p class="chat-empty-lead">Click anything on the page, write a note, press Enter.</p>
-      <p>Each note goes to the agent on its own. Keep going; changes land while you review.</p>
-      <dl class="shortcuts">
+      <Show
+        when={page()}
+        fallback={
+          <>
+            <p class="chat-empty-lead">The agent is in the repo. Ask it anything.</p>
+            <p>Once your site is open, you review it by clicking on it; each note goes to the agent on its own.</p>
+          </>
+        }
+      >
+        <p class="chat-empty-lead">Click anything on the page, write a note, press Enter.</p>
+        <p>Each note goes to the agent on its own. Keep going; changes land while you review.</p>
+      </Show>
+      <Suggestions />
+      <dl class="shortcuts" hidden={!page()}>
         <dt>
           <Kbd keys={keys("enter")} />
         </dt>
