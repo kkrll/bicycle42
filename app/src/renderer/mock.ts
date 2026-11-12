@@ -378,6 +378,10 @@ function base(): AppState {
     defaultModel: { providerID: "anthropic", id: "sonnet-4-5", variant: "medium" },
     permissions: [],
     questions: [],
+    running: [
+      { id: "sh_1", directory: DIRECTORY, command: "npm run dev -- --port 3000", started: now - 42 * 60_000 },
+      { id: "sh_2", directory: "/home/dev/code/blog", command: "pnpm astro dev --host 0.0.0.0 --port 4321", started: now - 26 * 3_600_000 },
+    ],
   }
 }
 
@@ -808,6 +812,11 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       { directory: "/Users/kiryl/Documents/cde/zing-social", server: "srv_2", on: "Studio Mac" },
       { directory: "/srv/www/a-rather-long-organisation-name/internal-tools/design-review-playground", server: "srv_3", on: "omarchy" },
     ],
+    refreshRunning() {},
+    stopRunning(directory, id) {
+      state.running = state.running.filter((r) => !((directory === undefined || r.directory === directory) && (id === undefined || r.id === id)))
+      push()
+    },
     openProject(directory) {
       state.site = { origin: "", directory }
       state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }

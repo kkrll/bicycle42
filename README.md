@@ -46,6 +46,11 @@ its own name and icon. It is not signed with a developer certificate, and there 
    plain HTML), is told whether the app is on its computer or another one so it gives an address
    that opens here, asks when it needs something, and the app opens the address it reports.
 
+A dev server the agent started keeps running after its reply. While the server has
+something running, a count with a stop mark shows at the end of the address line: it opens the
+list of what is still running, in the open repo and in the server's other projects, each with
+its own **Stop**.
+
 After that, the app reopens the last page with its notes and conversation. A site opened for
 the first time works in the repo that is open; the folder can be changed from the panel.
 

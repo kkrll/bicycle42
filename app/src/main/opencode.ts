@@ -35,6 +35,7 @@ import type {
   PromptFile,
   Question,
   QuestionField,
+  RunningCommand,
   SessionSummary,
   SlashCommand,
   ToolStatus,
@@ -1175,6 +1176,21 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
     // /prompt wakes the queue, even a repeat of an id the server already has.
     async stop(id) {
       await api("POST", `${sessionPath(id)}/interrupt`)
+    },
+
+    async running(directory) {
+      const res = rec(await api("GET", `/api/shell?${atLocation(directory)}`))
+      const out: RunningCommand[] = []
+      for (const raw of list(res.data)) {
+        const s = rec(raw)
+        const id = str(s.id)
+        if (!id || str(s.status) !== "running") continue
+        out.push({ id, directory, command: (str(s.command) ?? "").replace(/\s+/g, " ").trim().slice(0, 300), started: num(rec(s.time).started) ?? 0 })
+      }
+      return out
+    },
+    async kill(directory, id) {
+      await api("DELETE", `/api/shell/${encodeURIComponent(id)}?${atLocation(directory)}`)
     },
 
     async transcript(id) {

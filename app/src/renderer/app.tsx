@@ -12,6 +12,7 @@ import type { Rect, ReviewMode, Shortcut } from "../shared/types"
 import { ConnectScreen, ModelScreen, ServerButton, SettingsDialog, SetupSteps, firstRunConnecting } from "./connect"
 import { Icon, Kbd, type IconName } from "./icons"
 import { Switcher } from "./switcher"
+import { RunningButton, RunningList } from "./running"
 import { Panel, RepoScreen, countNotes, countWords, shortWords } from "./panel"
 import {
   act,
@@ -26,7 +27,7 @@ import {
   expandNotes,
   setFocusedNote,
   setNotice,
-  state, pageCovered, message, switcherOpen, setSwitcherOpen } from "./store"
+  state, pageCovered, message, switcherOpen, setSwitcherOpen, runningOpen, setRunningOpen } from "./store"
 
 const PANEL_MIN = 320
 const PANEL_DEFAULT = 400
@@ -220,6 +221,7 @@ function TopBar(props: {
           </button>
         </div>
         <UrlField ref={props.urlRef} />
+        <RunningButton />
         <PageError />
         <div class="tools">
           <Hint />
@@ -390,7 +392,7 @@ export function App() {
   }
   const canStart = () => state.connection.status === "online" && !!state.session && !state.startingSite
   // A page that failed to load is replaced by a card saying so, in the same place.
-  const pageHidden = () => setup() || settings() || switcherOpen() || resizing() || state.page.url === "" || loadFailed() || pageCovered()
+  const pageHidden = () => setup() || settings() || switcherOpen() || runningOpen() || resizing() || state.page.url === "" || loadFailed() || pageCovered()
 
   // ── page bounds: one call per frame at most, none when nothing moved ──
   let sent: Rect | null | undefined
@@ -544,7 +546,7 @@ export function App() {
       <main class="work" inert={!ready() || setup()}>
         {/* While a dialog is open or the panel is resized the page view is away: a quiet surface
             stands in for it, so the window does not go black. */}
-        <div class="page" ref={pageEl} classList={{ veiled: settings() || switcherOpen() || resizing() }}>
+        <div class="page" ref={pageEl} classList={{ veiled: settings() || switcherOpen() || runningOpen() || resizing() }}>
           <Show when={state.page.url !== "" && loadFailed()}>
             <div class="page-failed" role="alert">
               <Icon name="alert" size={20} />
@@ -632,6 +634,9 @@ export function App() {
       </Show>
       <Show when={settings()}>
         <SettingsDialog onClose={() => setSettings(false)} />
+      </Show>
+      <Show when={runningOpen() && !setup()}>
+        <RunningList onClose={() => setRunningOpen(false)} />
       </Show>
       <Show when={switcherOpen() && !setup()}>
         <Switcher onClose={() => setSwitcherOpen(false)} />

@@ -21,6 +21,7 @@ const EMPTY: AppState = {
   agents: [],
   permissions: [],
   questions: [],
+  running: [],
 }
 
 export let b42: Bridge
@@ -213,6 +214,8 @@ export function expandNotes(): void {
 export const [pageCovered, setPageCovered] = createSignal(false)
 /** The list opened with "+": a new conversation, or another project. */
 export const [switcherOpen, setSwitcherOpen] = createSignal(false)
+/** The list of what the server is still running, opened from the address line. */
+export const [runningOpen, setRunningOpen] = createSignal(false)
 
 /** A note's state as the reviewer reads it: a "working" note is only working while the server
  *  is reachable. */

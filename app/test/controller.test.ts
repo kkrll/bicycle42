@@ -435,6 +435,40 @@ test("a repo that is not a folder on this server is asked for again; projects of
   }
 })
 
+test("what the server is still running shows once it has run for a while, the open repo's first, and can be stopped", async () => {
+  const h = await boot()
+  try {
+    const now = Date.now()
+    const shell = (id: string, ago: number, status = "running") => ({ id, status, command: `cmd  ${id}`, cwd: "/", shell: "sh", file: "", metadata: {}, time: { started: now - ago } })
+    const world: Record<string, ReturnType<typeof shell>[]> = {
+      "/repo": [shell("sh_dev", 60_000), shell("sh_step", 1_000), shell("sh_done", 90_000, "exited")],
+      "/other": [shell("sh_old", 3_600_000)],
+    }
+    const killed: string[] = []
+    h.server.route("GET", "/api/project", { json: [{ id: "a", canonical: "/other", time: { active: 2 } }, { id: "b", canonical: "/repo", time: { active: 1 } }] })
+    h.server.route("GET", "/api/shell", (req) => ({ json: { location: { directory: "/" }, data: world[req.query.get("location[directory]") ?? ""] ?? [] } }))
+    h.server.route("DELETE", /^\/api\/shell\/[^/]+$/, (req) => {
+      const id = req.path.split("/").pop()!
+      killed.push(`${req.query.get("location[directory]")} ${id}`)
+      for (const d of Object.keys(world)) world[d] = world[d]!.filter((x) => x.id !== id)
+      return { status: 204 }
+    })
+    await h.ready()
+    await h.cmd("refreshRunning")
+    // Not the command a second old (a step under way), not the one that has ended; the open repo's first.
+    assert.deepEqual(h.snap().running.map((r) => [r.directory, r.id, r.command]), [["/repo", "sh_dev", "cmd sh_dev"], ["/other", "sh_old", "cmd sh_old"]])
+
+    await h.cmd("stopRunning", "/repo", "sh_dev")
+    assert.deepEqual([killed, h.snap().running.map((r) => r.id)], [["/repo sh_dev"], ["sh_old"]])
+    // Without an id: all that is listed, and never the young one.
+    await h.cmd("stopRunning")
+    assert.deepEqual([killed, h.snap().running], [["/repo sh_dev", "/other sh_old"], []])
+    assert.equal(world["/repo"]!.some((x) => x.id === "sh_step"), true)
+  } finally {
+    await h.close()
+  }
+})
+
 test("startSite asks the agent in the repo's conversation, and opens the address its answer ends with", async () => {
   const h = await boot()
   try {

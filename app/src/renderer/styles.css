@@ -1456,6 +1456,95 @@ details[open] > summary > .caret {
   color: var(--muted);
 }
 
+/* What the server is still running: a count at the end of the address line, its list under it. */
+.icon-btn.running-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  gap: 4px;
+  padding: 0 8px 0 6px;
+  margin-left: 4px;
+  color: var(--foreground);
+}
+
+.running-count {
+  font-size: var(--text-control);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.dialog.running {
+  position: fixed;
+  left: auto;
+  margin: 0;
+  width: min(440px, calc(100vw - 16px));
+  max-height: min(480px, calc(100vh - 80px));
+  padding: 12px;
+}
+
+.dialog.running[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.running-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 28px;
+}
+
+.running-head h2 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-ui);
+  font-weight: 600;
+}
+
+.running-rows {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.running-rows li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.running-what {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.running-what > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.running-where,
+.running-foot {
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+.running-rows .btn {
+  flex: none;
+}
+
 /* The list behind "+": a search field, rows chosen with the keyboard, the keys at the bottom. */
 .dialog.switcher {
   width: min(560px, calc(100vw - 32px));

@@ -38,6 +38,7 @@ import type {
   Question,
   SendOptions,
   ProjectInfo,
+  RunningCommand,
   ServerInfo,
   SessionSummary,
   Shortcut,
@@ -169,6 +170,7 @@ function snapshot(): AppState {
     site: site ? { origin: site.origin === HOME ? "" : site.origin, ...(saved ? { directory: saved.directory } : {}) } : null,
     ...(starting && siteAsked === session?.id ? { startingSite: true as const } : {}),
     ...(missingFolder && !saved ? { missingFolder } : {}),
+    running: runningShown(),
     session,
     sessions,
     models,
@@ -263,6 +265,8 @@ function serverUrl(input: string) {
 }
 
 function drop() {
+  running = []
+  clearTimeout(runningTimer)
   clearTimeout(retryTimer)
   unlisten?.()
   unlisten = undefined
@@ -364,6 +368,7 @@ async function connect(url: string, password: string, opts: { save?: "remote" | 
   settleDefaultModel()
   push()
   await openSite()
+  void refreshRunning(true)
 }
 
 async function reconnectSaved() {
@@ -511,6 +516,7 @@ async function openSiteNow() {
     owners.set(current.id, s.origin)
     session = current
     push()
+    void refreshRunning()
     void refreshSessions()
     void openChat(current.id)
     void settle(s)
@@ -651,6 +657,8 @@ function onBackend(e: BackendEvent) {
     case "inbox":
     case "run": {
       if (e.type === "run" && session?.id === e.session) (session = { ...session, busy: e.status === "started" }), push()
+      // A run that ends may have left something running, or stopped it.
+      if (e.type === "run" && e.status !== "started") void refreshRunning()
       if (e.type === "run" && siteAsked === e.session) {
         if (e.status === "started") (starting = true), push()
         else void started(e.session, e.status === "succeeded")
@@ -700,6 +708,46 @@ function onBackend(e: BackendEvent) {
   }
 }
 
+// ── what is left running ────────────────────────────────────────────────────────────────────────
+// A dev server the agent started goes on after its reply, and after the app has moved to
+// another project. The server knows what it is still running in each folder; the app shows
+// it in the address line, where it can be stopped.
+
+let running: RunningCommand[] = []
+/** A command this young is most likely one of the step the agent is on, not something left behind. */
+const RUNNING_SETTLED_MS = 15_000
+const RUNNING_EVERY_MS = 20_000
+let runningTimer: ReturnType<typeof setTimeout> | undefined
+
+function runningShown(): RunningCommand[] {
+  const here = site && siteSettings(site.origin)?.directory
+  const now = Date.now()
+  return running
+    .filter((r) => now - r.started >= RUNNING_SETTLED_MS)
+    .sort((a, b) => Number(b.directory === here) - Number(a.directory === here) || a.directory.localeCompare(b.directory) || a.started - b.started)
+}
+
+/** Reads what is running: in the open repo, or with `everywhere` in every project the server
+ *  knows (asked on connecting, on changing project, and when the list is opened). */
+async function refreshRunning(everywhere = false) {
+  const b = backend
+  clearTimeout(runningTimer)
+  if (!b) return
+  const here = site && siteSettings(site.origin)?.directory
+  try {
+    const where = everywhere ? [...new Set([...(here ? [here] : []), ...(await Promise.resolve(commands.projects()).catch(() => [] as string[]))])] : here ? [here] : []
+    const found = await Promise.all(where.map((d) => b.running(d).catch(() => undefined)))
+    if (backend !== b) return
+    // A folder that could not be asked keeps what was known of it; one not asked this time too.
+    const asked = new Set(where.filter((_, i) => found[i]))
+    const before = JSON.stringify(runningShown())
+    running = [...running.filter((r) => !asked.has(r.directory)), ...found.flatMap((f) => f ?? [])]
+    if (JSON.stringify(runningShown()) !== before) push()
+  } finally {
+    if (backend === b) (runningTimer = setTimeout(() => void refreshRunning(), RUNNING_EVERY_MS)).unref()
+  }
+}
+
 // ── starting the site ───────────────────────────────────────────────────────────────────────────
 
 /** The app and the server are on one computer, so an address on localhost opens here too. */
@@ -720,7 +768,7 @@ function startPrompt(failed: string) {
     "Get this project's site running so I can review it in bicycle 42.",
     ...(failed ? [`I expected it at ${failed}, which did not answer.`] : []),
     "",
-    "- If its dev server is already running, use that. Otherwise start it in the background, so it keeps running after you reply.",
+    "- If its dev server is already running, use that. Otherwise start it as a background command of your shell tool, so it keeps running after you reply and I can stop it from bicycle 42. Do not detach it with nohup, & or a terminal multiplexer.",
     "- If it is plain HTML with nothing to run, serve the folder with a small static server.",
     sameComputer()
       ? "- bicycle 42 runs on the same computer as you, so a localhost address works."
@@ -1303,6 +1351,18 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     if (page?.state().url === to) switchSite(placeOf(to), true)
     else page?.load(to)
     await openSite()
+  },
+  async refreshRunning() {
+    need()
+    await refreshRunning(true)
+  },
+  async stopRunning(directory, id) {
+    const b = need()
+    const which = runningShown().filter((r) => (directory === undefined || r.directory === directory) && (id === undefined || r.id === id))
+    const failed: string[] = []
+    await Promise.all(which.map((r) => b.kill(r.directory, r.id).catch((err) => void failed.push(say(err)))))
+    await refreshRunning(true)
+    if (failed.length) throw new Error(`Could not stop ${failed.length === 1 ? "it" : `${failed.length} of them`}: ${failed[0]}`)
   },
   async startSite() {
     const b = need()

@@ -58,6 +58,12 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   get the site running (`startSite`): the prompt says whether app and server share a computer
   and asks for a last line `SITE: <address>`, which is opened when the run ends and no page
   works yet. The first site opened takes that conversation over.
+- **What is left running is the server's to say.** `Backend.running` lists the shell commands
+  still running in a folder (`GET /api/shell`), `kill` ends one. Main reads the open repo's
+  every 20 s and after each run, and every project's on connecting and when the list is opened
+  (`refreshRunning`); a command younger than 15 s is taken for a step under way and not shown.
+  `startSite` asks for a background command of the shell tool, not a detached process, which
+  the server would not know about.
 - **Every server connected to is kept** (`servers` in `settings.json`, passwords encrypted as
   before), and each has its own repo, pages, conversations and default model: a folder or a
   conversation of one server means nothing on another. The one in use has these in the

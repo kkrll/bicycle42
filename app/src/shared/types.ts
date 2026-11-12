@@ -198,6 +198,9 @@ export type ConnectionState =
   | { status: "offline"; url: string; error: string }
 
 /** A server the app remembers. `url` is empty for this computer's while none is running here. */
+/** A shell command the server is still running in a project's folder. `started` is a time in ms. */
+export type RunningCommand = { id: string; directory: string; command: string; started: number }
+
 /** A folder on a server. `server` is absent for the server in use; `on` is what to call the
  *  server ("k", "Studio Mac", or its address), `open` marks the project that is open. */
 export type ProjectInfo = { directory: string; server?: string; on: string; open?: true }
@@ -260,6 +263,10 @@ export type AppState = {
   /** The repo that was open is not a folder on the server in use (it belonged to another
    *  computer): another one has to be chosen. */
   missingFolder?: string
+  /** What the server in use has been running for a while, in the open repo first and then in
+   *  its other projects: dev servers the agent started and nobody stopped. Something that
+   *  has only just started (a command of the step the agent is on) is not here yet. */
+  running: RunningCommand[]
   /** The agent was asked to get the site running (`startSite`) and has not finished answering. */
   startingSite?: true
   /** The open conversation. `null` until there is a folder. */
@@ -338,6 +345,10 @@ export type Commands = {
    *  open (page, notes, conversation); a project with no site yet opens with no page, at the
    *  step where a site is opened or the agent is asked to start one. */
   openProject(directory: string, server?: string): void
+  /** Looks again at what is running (`AppState.running`), in every project of the server. */
+  refreshRunning(): void
+  /** Ends one running command; without an id, every one listed. */
+  stopRunning(directory?: string, id?: string): void
   /** Asks the agent, in the open conversation, to get the repo's site running and say where.
    *  Its answer shows in the chat; the address it ends with is opened when no page is. */
   startSite(): void
@@ -477,6 +488,11 @@ export type Backend = {
   /** Ids of sent messages the agent has not picked up yet, oldest first. */
   waiting(session: string): Promise<string[]>
   stop(session: string): Promise<void>
+  /** The shell commands still running in a folder: a dev server the agent started, a watcher,
+   *  a long test run. Those that have ended are not among them. */
+  running(directory: string): Promise<RunningCommand[]>
+  /** Ends one of them. */
+  kill(directory: string, id: string): Promise<void>
   /** The whole conversation as it stands, including messages still waiting in the queue. */
   transcript(session: string): Promise<Transcript>
 

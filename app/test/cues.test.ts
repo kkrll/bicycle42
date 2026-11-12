@@ -19,6 +19,7 @@ function state(over: { busy?: boolean; notes?: NoteRow[]; asks?: string[]; quest
     site: { origin: "http://localhost:3000", directory: "/code" },
     session: { id: over.session ?? S, directory: "/code", title: "", updated: 0, busy: !!over.busy },
     sessions: [],
+    running: [],
     models: [],
     agents: [],
     permissions: (over.asks ?? []).map((id) => ({ id, session: S, action: "edit", resources: [] })),

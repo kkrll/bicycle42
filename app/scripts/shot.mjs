@@ -58,6 +58,7 @@ const SHOTS = [
   { name: "model-choice-settings", mock: "review", run: [click("[data-action=settings]"), pause(300), click("[data-action=default-model]")], wait: 500 },
   { name: "repo", mock: "repo" },
   { name: "empty", mock: "empty" },
+  { name: "running", mock: "review", run: [click('[data-action="running"]')], wait: 500 },
   { name: "switcher", mock: "review", run: [click('[data-action="switcher"]')], wait: 500 },
   { name: "switcher-browse", mock: "review", run: [click('[data-action="switcher"]'), pause(300), click(".switcher-rows li:last-child .row")], wait: 600 },
   { name: "folder", mock: "folder" },
