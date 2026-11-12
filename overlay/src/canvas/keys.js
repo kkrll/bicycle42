@@ -1,7 +1,7 @@
 // ── keys ────────────────────────────────────────────────────────────────────────────────────
 function cvKey(e) {
   const f = root.activeElement;
-  const area = f && f.tagName === "TEXTAREA" && f !== textarea ? f : null; // an inspector text area
+  const area = f && f.tagName === "TEXTAREA" && f !== Notes.textarea ? f : null; // an inspector text area
   const field = area || (f && f.tagName === "INPUT" ? f : null);
   if (C.edit) {
     if (e.key === "Enter" && !e.isComposing) {

@@ -64,9 +64,9 @@ function keepVariant(g) {
   S.sel = [g.el];
   S.area = null;
   S.strokes = [];
-  setTemplate(S.templates.some((t) => t.name === "keep") ? "keep" : null);
-  textarea.value = `${S.template ? "" : "Keep "}variant ${o.k}${o.label ? ` (${o.label})` : ""} of ${g.id}${S.template ? "" : ", delete the others"}`;
-  openCard();
+  Notes.setTemplate(S.templates.some((t) => t.name === "keep") ? "keep" : null);
+  Notes.textarea.value = `${S.template ? "" : "Keep "}variant ${o.k}${o.label ? ` (${o.label})` : ""} of ${g.id}${S.template ? "" : ", delete the others"}`;
+  Notes.openCard();
 }
 
 function makeVariantBar() {

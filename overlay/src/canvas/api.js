@@ -9,9 +9,9 @@ function setOn(on) {
     // A note in progress becomes the start of the canvas session: its element is selected and
     // its words move to the bar's note field. (A drawing or an area has no place here.)
     const el = S.sel.length === 1 ? S.sel[0] : null;
-    const words = textarea.value.trim();
-    if (S.card || hasDraft()) clearDraft();
-    hideSent();
+    const words = Notes.textarea.value.trim();
+    if (S.card || Notes.hasDraft()) Notes.clearDraft();
+    Notes.hideSent();
     if (words && !cnote.value) cnote.value = words;
     C.on = true;
     select(el && el.isConnected ? el : null);
@@ -40,7 +40,7 @@ function resumeCanvas() {
   try {
     was = sessionStorage.getItem("b42-canvas") === "1";
   } catch {}
-  if (was && !C.on && !S.card && !hasDraft()) setMode("canvas");
+  if (was && !C.on && !S.card && !Notes.hasDraft()) setMode("canvas");
 }
 
 /** Review is switched off: text being edited in place is kept, a drag is dropped. */

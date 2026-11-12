@@ -8,7 +8,8 @@ let modeTold; // "mode|brush" as the host last heard it; undefined until its fir
  *  pointerDown(e, zone), pointerMove(e), pointerUp(e), key(e); canvas mode also has zoneOf(e).
  *  Canvas and motion mode are switched with setOn; notes mode is what is on when neither is.
  *  A frame and busy() are not routed: canvas mode's bar and unsent batch outlive canvas mode
- *  (notes mode shows them too), so each module draws itself, and says it is busy, whatever is on. */
+ *  (notes mode shows them too), so each module draws itself, and says it is busy, whatever is on.
+ *  (Notes mode's frame is its ink, its card and the hover; whether it is busy is read in mount.js.) */
 const MODES = { notes: Notes, canvas: Canvas, motion: Motion };
 
 /** Which mode is on. Canvas and motion mode each say so of themselves while they switch (the

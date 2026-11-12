@@ -1,14 +1,4 @@
 // ── mount ───────────────────────────────────────────────────────────────────────────────────
-// Pencil strokes: noise nudges the edge, and a fine paper grain cuts small breaks into the line
-// (alpha = 4.4·grain − 1.3), like graphite on paper. Picked in harness/strokes.html.
-const PENCIL = `<filter id="b42-pencil" filterUnits="userSpaceOnUse">
-  <feTurbulence type="fractalNoise" baseFrequency="0.07" numOctaves="2" seed="11" result="edge"/>
-  <feDisplacementMap in="SourceGraphic" in2="edge" scale="2" xChannelSelector="R" yChannelSelector="G" result="line"/>
-  <feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="1" seed="2" result="grain"/>
-  <feColorMatrix in="grain" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  4.4 0 0 0 -1.3" result="tooth"/>
-  <feComposite in="line" in2="tooth" operator="in"/>
-</filter>`;
-
 const STYLES = include("styles.css");
 
 // The layer has to be the topmost thing on the page and has to take typing, whatever the page
@@ -20,24 +10,24 @@ const STYLES = include("styles.css");
 function seat() {
   const modals = document.querySelectorAll("dialog:modal");
   const home = modals.length ? modals[modals.length - 1] : document.documentElement;
-  const typing = root.activeElement === textarea;
+  const typing = root.activeElement === Notes.textarea;
   if (hostEl.parentNode !== home) home.appendChild(hostEl); // moving it also takes it out of the top layer
   try {
     if (hostEl.showPopover && !hostEl.matches(":popover-open")) hostEl.showPopover();
   } catch {
     // Not connected yet, or no popover support: it stays a fixed layer with the top z-index.
   }
-  if ((typing || (S.card && S.enabled)) && root.activeElement !== textarea) textarea.focus({ preventScroll: true });
+  if ((typing || (S.card && S.enabled)) && root.activeElement !== Notes.textarea) Notes.textarea.focus({ preventScroll: true });
 }
 
 function raise() {
   if (!hostEl.isConnected || !hostEl.showPopover) return;
-  const typing = root.activeElement === textarea;
+  const typing = root.activeElement === Notes.textarea;
   try {
     if (hostEl.matches(":popover-open")) hostEl.hidePopover();
     hostEl.showPopover();
   } catch {}
-  if (typing) textarea.focus({ preventScroll: true });
+  if (typing) Notes.textarea.focus({ preventScroll: true });
 }
 
 function mount() {
@@ -47,14 +37,9 @@ function mount() {
   hostEl.setAttribute("style", "all:initial;position:fixed;inset:0;z-index:2147483647;pointer-events:none;display:block");
   root = hostEl.attachShadow({ mode: "open" });
   root.innerHTML = `<style>${STYLES}</style>
-    <svg class="ink" xmlns="${SVG}"><defs>${PENCIL}</defs><g class="areas"></g><g class="strokes" filter="url(#b42-pencil)"></g></svg>
+    ${Notes.inkHtml}
     <div class="boxes"></div><div class="pins"></div>
-    <div class="card" hidden><div class="meta"><span class="what"></span><span class="hint" hidden></span>
-      <span class="khelp"><button type="button" class="kq" aria-label="Keys" aria-describedby="b42-ckeys">${icon("help", 14)}</button><div class="kpop" id="b42-ckeys" role="tooltip"></div></span></div>
-    <button type="button" class="chip" title="Remove the template" hidden></button>
-    <div class="cbody"><textarea rows="2" placeholder="${PLACEHOLDER}" spellcheck="false"></textarea>
-      <button type="button" class="csend" aria-label="Send" title="Send (↵) · ${isMac ? "⌥" : "alt+"}click to work in parallel" disabled>${icon("↵")}</button></div>
-    <div class="menu" hidden></div><div class="refs" hidden></div></div>
+    ${Notes.cardHtml}
     <div class="variants"></div><div class="tip" hidden></div><div class="sent" hidden></div>
     ${Canvas.html}
     <div class="m-tag" hidden></div>
@@ -64,22 +49,13 @@ function mount() {
         <div class="m-ft"><input class="m-note" type="text" spellcheck="false" autocomplete="off" placeholder="Note…"><span class="m-msg" hidden></span>
           <button type="button" class="m-go" data-m="send" disabled>Send</button></div></div></div>
     <div class="m-pop" hidden></div><div class="m-lists"></div>`;
-  ink = root.querySelector(".ink");
-  strokesEl = ink.querySelector(".strokes");
-  pencil = ink.querySelector("#b42-pencil");
   boxes = root.querySelector(".boxes");
   pinsEl = root.querySelector(".pins");
-  card = root.querySelector(".card");
-  what = root.querySelector(".what");
-  textarea = root.querySelector(".card textarea");
-  refs = root.querySelector(".refs");
+  Notes.mount();
   variantsEl = root.querySelector(".variants");
   variantStyle = document.createElement("style");
   (document.head || document.documentElement).appendChild(variantStyle);
-  chip = root.querySelector(".chip");
-  menuEl = root.querySelector(".menu");
   tip = root.querySelector(".tip");
-  sentEl = root.querySelector(".sent");
   Canvas.mount();
   Motion.mount();
   seat();
@@ -111,41 +87,6 @@ function mount() {
   cursorStyle.textContent = "html[data-b42-review], html[data-b42-review] * { cursor: crosshair !important; }";
   (document.head || document.documentElement).appendChild(cursorStyle);
 
-  // Keys typed into the card must not reach the page's own shortcuts.
-  for (const t of ["keydown", "keyup", "keypress", "input", "beforeinput", "paste", "copy", "cut"]) card.addEventListener(t, (e) => e.stopPropagation());
-  textarea.addEventListener("paste", onPaste);
-  card.querySelector(".kpop").replaceChildren(...CARD_KEYS.map(([k, v]) => {
-    const row = document.createElement("div");
-    row.className = "krow";
-    const kk = document.createElement("span");
-    kk.className = "kk";
-    kk.append(keyNodes(k));
-    const kv = document.createElement("span");
-    kv.className = "kv";
-    kv.textContent = v;
-    row.append(kk, kv);
-    return row;
-  }));
-  // Neither button takes the caret from the note: the words stay where they were being typed.
-  for (const b of card.querySelectorAll(".kq, .csend")) b.addEventListener("mousedown", (e) => e.preventDefault());
-  // ↵ as a button: the same as the key. The host admits a note after a real click as after Enter.
-  card.querySelector(".csend").addEventListener("click", (e) => {
-    submit(e.altKey);
-    if (S.card) textarea.focus({ preventScroll: true });
-  });
-  chip.addEventListener("click", () => {
-    setTemplate(null);
-    draftChanged();
-    textarea.focus({ preventScroll: true });
-  });
-  textarea.addEventListener("input", () => {
-    setHint("");
-    drawCardSend();
-    updateMenu();
-    autosize();
-    draftChanged();
-  });
-
   const opts = { capture: true, passive: false };
   window.addEventListener("pointerdown", onPointerDown, opts);
   window.addEventListener("pointermove", onPointerMove, opts);
@@ -163,7 +104,7 @@ function mount() {
 
 window.__b42 = {
   version: VERSION,
-  busy: () => !!(S.card || S.pending || S.drag || hasDraft() || Canvas.busy() || Motion.busy()),
+  busy: () => !!(S.card || S.pending || S.drag || Notes.hasDraft() || Canvas.busy() || Motion.busy()),
   receive(msg) {
     if (typeof msg === "string") msg = JSON.parse(msg);
     if (!root) return;
@@ -172,7 +113,7 @@ window.__b42 = {
         if (Array.isArray(msg.templates)) S.templates = msg.templates.filter((t) => t && typeof t.name === "string");
         setEnabled(!!msg.enabled);
         if (msg.pins) setPins(msg.pins);
-        if (msg.draft && !hasDraft() && !Canvas.hasEdits()) restoreDraft(msg.draft);
+        if (msg.draft && !Notes.hasDraft() && !Canvas.hasEdits()) restoreDraft(msg.draft);
         Canvas.resume();
         Motion.resume();
         modeTold = ""; // a new page, or a host that asks again: it hears the mode whatever it was

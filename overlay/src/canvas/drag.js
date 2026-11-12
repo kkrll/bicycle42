@@ -5,7 +5,7 @@ function cvDown(e, z) {
   hush();
   if (C.pop) setPop(C.pop);
   const f = root.activeElement;
-  if (f && f !== textarea) f.blur(); // a click on the page ends typing in the bar or the inspector
+  if (f && f !== Notes.textarea) f.blur(); // a click on the page ends typing in the bar or the inspector
   if (C.edit) endEdit(true);
   // The click is kept from the page, so it does not bring the keyboard here by itself: Delete,
   // Enter and the arrows must work after a click in a frame that did not have the focus.

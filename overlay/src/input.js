@@ -72,18 +72,14 @@ function setEnabled(on) {
   S.enabled = on;
   document.documentElement.toggleAttribute("data-b42-review", on);
   pinsEl.classList.toggle("live", on);
+  Notes.syncUi();
   if (!on) {
     S.hover = null;
     S.drag = null;
-    card.hidden = true;
     hideTip();
-    hideSent();
     Canvas.letGo();
     setBrush(false);
     Motion.letGo(); // the page is used as it is: nothing stays stopped at a frame
-  } else if (S.card) {
-    card.hidden = false;
-    textarea.focus({ preventScroll: true });
   }
   Canvas.syncUi();
   Motion.syncUi();

@@ -1,38 +1,3 @@
-// ── "Sent" ──────────────────────────────────────────────────────────────────────────────────
-// The card vanishes on Enter. For a moment a chip says the note went, and which number it got,
-// where the card was; it never blocks the next click and is gone before the next screenshot.
-function showSent(id) {
-  if (!cardAt || !S.enabled) return;
-  const n = S.pins.find((p) => p.id === id)?.n;
-  sentEl.textContent = n ? `Sent · ${n}` : "Sent";
-  sentEl.style.transform = `translate(${cardAt[0]}px, ${cardAt[1]}px)`;
-  sentEl.hidden = false;
-  // Restart the fade when notes come quickly one after another.
-  sentEl.style.animation = "none";
-  void sentEl.offsetWidth;
-  sentEl.style.animation = "";
-  clearTimeout(sentTimer);
-  S.undo = null;
-  sentTimer = setTimeout(hideSent, 1800);
-}
-
-function hideSent() {
-  clearTimeout(sentTimer);
-  S.undo = null;
-  if (sentEl) sentEl.hidden = true;
-}
-
-function offerUndo(draft) {
-  if (!cardAt) return;
-  sentEl.replaceChildren(keyNodes(`Note dropped · ${isMac ? "⌘" : "ctrl+"}Z brings it back`));
-  sentEl.style.transform = `translate(${cardAt[0]}px, ${cardAt[1]}px)`;
-  sentEl.hidden = false;
-  sentEl.style.animation = "none";
-  clearTimeout(sentTimer);
-  S.undo = draft;
-  sentTimer = setTimeout(hideSent, 5000);
-}
-
 // ── pin tooltip ─────────────────────────────────────────────────────────────────────────────
 const STATUS_WORDS = { queued: "Waiting", working: "Working", done: "Done", failed: "Failed", paused: "Paused (offline)", stopped: "Stopped" };
 
@@ -72,6 +37,20 @@ function makePin() {
   return el;
 }
 
+// ── a note sent ─────────────────────────────────────────────────────────────────────────────
+/** A note from any mode goes to the host; finishCapture or refuseCapture follows. */
+function dispatch(note) {
+  // Hide the card (and, via S.pending, hover and pins) before the host takes its screenshot.
+  Notes.closeCard();
+  Notes.hideSent();
+  hideTip();
+  S.pending = note.id;
+  clearTimeout(draftTimer);
+  render();
+  requestAnimationFrame(() => requestAnimationFrame(() => send({ type: "note", note })));
+  setTimeout(() => finishCapture(note.id), CAPTURE_TIMEOUT_MS);
+}
+
 /** The host did not take the note ("captured" with ok: false): it must not look sent. Nothing
  *  of a plain note was cleared yet (finishCapture does that), so its card opens again with
  *  the words in it; a canvas batch goes back to being the unsent one. */
@@ -83,10 +62,7 @@ function refuseCapture(id, why) {
   if (S.quiet === id) {
     S.quiet = null;
     if (!Motion.refuse(id, say)) Canvas.refuse(id, say);
-  } else {
-    openCard();
-    setHint(say);
-  }
+  } else Notes.refuse(say);
   kick();
 }
 
@@ -96,13 +72,9 @@ function finishCapture(id) {
   Canvas.finish();
   Motion.finish(id);
   if (S.quiet === id) S.quiet = null;
-  else showSent(id);
+  else Notes.showSent(id);
   S.sel = [];
-  S.area = null;
-  S.strokes = [];
-  textarea.value = "";
-  setImages([]);
-  setTemplate(null);
+  Notes.finish();
   send({ type: "draft", draft: serializeDraft() });
   const b = S.buffered;
   S.buffered = null;
@@ -110,7 +82,7 @@ function finishCapture(id) {
   if (el && modeOn() === "canvas") Canvas.select(el);
   else if (el) {
     S.sel = [el];
-    openCard();
+    Notes.openCard();
   }
   kick();
 }

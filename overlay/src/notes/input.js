@@ -1,5 +1,5 @@
 // Notes mode, input: the page's pointer (hover, click, shift+click, an area, a drawing) and the
-// keys of the note card. (The draft, the card and the rest of notes mode are in notes.js.)
+// keys of the note card. (The draft, the card and the rest of notes mode are beside it in notes/.)
 
 // ── the page's pointer ───────────────────────────────────────────────────────────────────
 function pointerDown(e) {
@@ -73,6 +73,28 @@ function pointerUp(e) {
 }
 
 // ── keys ─────────────────────────────────────────────────────────────────────────────────
+function walk(dir) {
+  const el = S.sel[0];
+  if (!el) return;
+  let next = null;
+  if (dir === "up") {
+    next = el.parentElement;
+    if (next === document.body || next === document.documentElement) next = null;
+  } else {
+    const kids = [...el.children];
+    next = kids.find((k) => {
+      const r = k.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    }) || kids[0] || null;
+  }
+  if (!next) return;
+  S.sel = [next];
+  S.area = null;
+  updateCardMeta();
+  draftChanged();
+  kick();
+}
+
 function key(e) {
   if (e.key === "Escape" && Canvas.closePop()) {
     block(e);
@@ -146,7 +168,3 @@ function key(e) {
     kick();
   }
 }
-
-// ── what the rest of the overlay sees ───────────────────────────────────────────────────────
-// Notes mode has no setOn: it is on when canvas and motion mode are off (mode.js).
-const api = { pointerDown, pointerMove, pointerUp, key };
