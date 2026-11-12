@@ -897,6 +897,37 @@ details[open] > summary > .caret {
   text-align: center;
 }
 
+/* What can be done about a page that is not there: one row, centred. */
+.page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.page-starting {
+  margin-top: 12px;
+}
+
+.page-empty .form-error,
+.page-failed .form-error {
+  margin-top: 12px;
+}
+
+/* The repo step: the folder picker as a first-run card, not a panel section. */
+.repo-card {
+  display: flex;
+  flex-direction: column;
+  width: min(480px, 100%);
+  max-height: 100%;
+  min-height: 0;
+}
+
+.repo-card .folder {
+  padding: 0;
+}
+
 .panel-empty {
   padding: 20px var(--gutter);
   color: var(--muted);

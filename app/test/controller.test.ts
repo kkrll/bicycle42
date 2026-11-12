@@ -278,6 +278,86 @@ test("the page sending one note twice makes one note", async () => {
   }
 })
 
+test("the repo comes before the site: its conversation opens with no page, and the first site takes it over", async () => {
+  const h = await boot()
+  try {
+    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    assert.equal(h.snap().site, null, "no repo, no page: nowhere yet")
+    await h.cmd("setDirectory", "/repo")
+    await until(() => !!h.snap().session)
+    const first = h.snap().session!.id
+    assert.deepEqual([h.snap().site, h.w.creates], [{ origin: "", directory: "/repo" }, 1])
+
+    // The site opens: it works in the repo without being asked, in the same conversation.
+    h.page.page!.load(`${SITE}/`)
+    await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
+    assert.deepEqual([h.snap().site, h.snap().session!.id, h.w.creates], [{ origin: SITE, directory: "/repo" }, first, 1])
+    h.note("a note")
+    await until(() => h.w.prompts.length === 1)
+    assert.equal(h.w.prompts[0]!.session, first)
+
+    // Another site, later: the same repo, a conversation of its own.
+    h.page.page!.load("http://other.test/")
+    await until(() => h.snap().site?.origin === "http://other.test" && !!h.snap().session)
+    assert.deepEqual([h.snap().site!.directory, h.snap().session!.id !== first, h.w.creates], ["/repo", true, 2])
+  } finally {
+    await h.close()
+  }
+})
+
+test("startSite asks the agent in the repo's conversation, and opens the address its answer ends with", async () => {
+  const h = await boot()
+  try {
+    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await assert.rejects(Promise.resolve(h.cmd("startSite")), "no repo: nobody to ask")
+    await h.cmd("setDirectory", "/repo")
+    await until(() => !!h.snap().session && h.server.streams() === 1)
+    const id = h.snap().session!.id
+    let said = "Which of the two apps, web or docs?"
+    h.server.route("GET", /^\/api\/session\/[^/]+\/message$/, () => ({
+      json: { data: [{ id: "msg_a", type: "assistant", time: { created: 1, completed: 2 }, content: [{ type: "text", text: said }] }], cursor: { previous: null, next: null } },
+    }))
+    const sent: string[] = []
+    h.server.route("POST", /^\/api\/session\/[^/]+\/prompt$/, (req) => {
+      sent.push((req.body as { text: string }).text)
+      return { json: { data: { id: `msg_${sent.length}`, sessionID: id, type: "user", delivery: "queue" } } }
+    })
+    await h.cmd("startSite")
+    assert.equal(sent.length, 1)
+    assert.match(sent[0]!, /^Get this project's site running/)
+    assert.match(sent[0]!, /same computer as you/, "the fake server is on this computer")
+    assert.match(sent[0]!, /SITE: <address>$/)
+    assert.equal(h.snap().startingSite, true)
+
+    // It asks instead of answering: nothing opens, and the app goes on waiting for an address.
+    h.agent.starts(id)
+    h.agent.finishes(id)
+    await until(() => !h.snap().startingSite)
+    await sleep(50)
+    assert.equal(h.snap().page.url, "")
+
+    // The answer to the question brings the address, on a line of its own; other addresses in the reply are not it.
+    said = "Started `npm run dev` (docs are at http://docs.test/).\n\nSITE: http://127.0.0.1:5173/\n"
+    h.agent.starts(id)
+    await until(() => h.snap().startingSite === true)
+    assert.equal(h.snap().startingSite, true)
+    h.agent.finishes(id)
+    await until(() => h.snap().page.url !== "")
+    assert.equal(h.snap().page.url, "http://127.0.0.1:5173/")
+    await until(() => h.snap().site?.origin === "http://127.0.0.1:5173" && h.snap().session?.id === id)
+    assert.deepEqual(h.snap().site, { origin: "http://127.0.0.1:5173", directory: "/repo" })
+
+    // Once a page is open, a later reply with such a line moves nothing.
+    said = "SITE: http://elsewhere.test/"
+    h.agent.starts(id)
+    h.agent.finishes(id)
+    await sleep(80)
+    assert.equal(h.snap().page.url, "http://127.0.0.1:5173/")
+  } finally {
+    await h.close()
+  }
+})
+
 test("a note fired while the site's conversation is still opening does not create a second one", async () => {
   const h = await boot()
   try {

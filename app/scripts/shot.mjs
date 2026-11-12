@@ -56,6 +56,7 @@ const SHOTS = [
   { name: "model-choice", mock: "model-choice" },
   { name: "model-choice-filter", mock: "model-choice", query: "&previous", run: [type(".model-form input[type=search]", "gpt")], wait: 300, report: `[document.querySelector(".model-form button[type=submit]").textContent, document.querySelector(".connect-lead").textContent]` },
   { name: "model-choice-settings", mock: "review", run: [click("[data-action=settings]"), pause(300), click("[data-action=default-model]")], wait: 500 },
+  { name: "repo", mock: "repo" },
   { name: "empty", mock: "empty" },
   { name: "folder", mock: "folder" },
   { name: "folder-browse", mock: "folder", run: [click(".folder .folder-actions .btn")], wait: 500 },

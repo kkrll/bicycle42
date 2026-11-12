@@ -36,10 +36,15 @@ its own name and icon. It is not signed with a developer certificate, and there 
    `https://….opentunnel.xyz` one works from anywhere) and `~/.config/opencode/service.json`
    holds the password. If the server offers more than one model, you then choose the one new
    conversations start with; it can be changed any time under the chat box.
-2. **Type your dev URL** in the top bar, for example `localhost:3000`.
-3. **Pick the site's folder** on the server, once per site.
+2. **Open the repo**: the folder on the server that holds the site's code. The agent works
+   there, and you can talk to it from then on.
+3. **Open the site.** Type your dev URL in the top bar, for example `localhost:3000`. If the
+   site is not running, press **Ask the agent to start it**: it starts the dev server (or serves
+   plain HTML), is told whether the app is on its computer or another one so it gives an address
+   that opens here, asks when it needs something, and the app opens the address it reports.
 
-After that, the app reopens the last page with its notes and conversation.
+After that, the app reopens the last page with its notes and conversation. A site opened for
+the first time works in the repo that is open; the folder can be changed from the panel.
 
 The app makes three sounds: a rising one when the agent asks something or wants permission, a
 falling one when a note fails or the server is lost, and a single note when the agent has

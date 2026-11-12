@@ -52,6 +52,12 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
 
 - **Main owns everything durable.** The page hot-reloads under you and the window is a view of
   `AppState`; neither can lose a note. The window never sees the password or a raw server payload.
+- **The repo comes before the site.** `settings.folder` is the repo that is open; a site seen for
+  the first time works in it (`adopt` in `index.ts`). With a repo and no page, the app is at a
+  place of its own (`HOME`) that has a conversation like any site, so the agent can be asked to
+  get the site running (`startSite`): the prompt says whether app and server share a computer
+  and asks for a last line `SITE: <address>`, which is opened when the run ends and no page
+  works yet. The first site opened takes that conversation over.
 - **One site = one folder = one conversation** (plus a background one for `alt+Enter` notes).
   Stored in `settings.json` under the app's user-data folder; notes are in `reviews/`.
 - **The chat is rebuilt from the server's step, text and tool events**, and the same code path

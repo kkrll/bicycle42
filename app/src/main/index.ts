@@ -119,6 +119,25 @@ const outbox = new Map<string, { text: string; files: PromptFile[]; id?: string 
 
 const siteSettings = (origin: string) => store.settings().sites[origin]
 
+/** Where the app is before any page is open, once a repo is: a site of its own in every way
+ *  but the address, so the agent can be talked to (and asked to start the site) from there. */
+const HOME = "b42:repo"
+/** The repo open in the app. Saved since it is chosen first; before that, the last site's folder. */
+function repoFolder(): string | undefined {
+  const s = store.settings()
+  if (s.folder) return s.folder
+  const last = s.lastUrl ? originOf(s.lastUrl) : undefined
+  return last ? s.sites[last]?.directory : undefined
+}
+/** The site a page address belongs to: its origin, or the repo's own place while there is no page. */
+function placeOf(url: string): string | undefined {
+  return originOf(url) ?? (repoFolder() ? HOME : undefined)
+}
+/** The conversation asked to get the site running. It stays asked while no page works, so an
+ *  address given after a question and its answer is opened too; `starting` until it first answers. */
+let siteAsked: string | undefined
+let starting = false
+
 function snapshot(): AppState {
   const p = page?.state()
   const review = site?.review
@@ -136,7 +155,8 @@ function snapshot(): AppState {
       notes: review?.rows() ?? [],
       unplaced: review?.unplaced ?? 0,
     },
-    site: site ? { origin: site.origin, ...(saved ? { directory: saved.directory } : {}) } : null,
+    site: site ? { origin: site.origin === HOME ? "" : site.origin, ...(saved ? { directory: saved.directory } : {}) } : null,
+    ...(starting && siteAsked === session?.id ? { startingSite: true as const } : {}),
     session,
     sessions,
     models,
@@ -331,6 +351,7 @@ function switchSite(origin: string | undefined) {
     let s = sites.get(origin)
     if (!s) sites.set(origin, (s = { origin, review: createReview(store.loadReview(origin)) }))
     site = s
+    adopt(origin)
     const saved = siteSettings(origin)
     if (saved?.session) owners.set(saved.session, origin)
     if (saved?.bg) owners.set(saved.bg, origin)
@@ -343,6 +364,23 @@ function switchSite(origin: string | undefined) {
   push()
   void openSite()
 }
+
+/** A place seen for the first time works in the repo that is open. The first site opened also
+ *  takes over the conversation held before any page was (where the agent may just have been
+ *  asked to start it), so that it goes on beside the page. */
+function adopt(origin: string) {
+  const folder = repoFolder()
+  if (siteSettings(origin) || !folder) return
+  const home = origin === HOME ? undefined : siteSettings(HOME)
+  const moved = home?.session && home.directory === folder ? home.session : undefined
+  store.update((x) => {
+    x.sites[origin] = { directory: folder, ...(moved ? { session: moved } : {}) }
+    if (moved) delete x.sites[HOME]?.session, delete x.sites[HOME]?.bg
+  })
+}
+
+/** "storefront" from "/home/dev/code/storefront". */
+const folderName = (directory: string) => directory.replace(/\/+$/, "").split("/").pop() || directory
 
 /** Opens the current site's conversation, creating one the first time. Needs a connection and a
  *  folder; without either it waits for whichever command supplies it. Opens run one after
@@ -368,7 +406,7 @@ async function openSiteNow() {
     if (!current) {
       current = await b.createSession({
         directory: saved.directory,
-        title: `Review · ${new URL(s.origin).host}`,
+        title: `Review · ${s.origin === HOME ? folderName(saved.directory) : new URL(s.origin).host}`,
         ...(defaultModel() ? { model: defaultModel() } : {}),
       })
       store.update((x) => {
@@ -507,6 +545,10 @@ function onBackend(e: BackendEvent) {
     case "inbox":
     case "run": {
       if (e.type === "run" && session?.id === e.session) (session = { ...session, busy: e.status === "started" }), push()
+      if (e.type === "run" && siteAsked === e.session) {
+        if (e.status === "started") (starting = true), push()
+        else void started(e.session, e.status === "succeeded")
+      }
       const origin = owners.get(e.session)
       const s = origin ? sites.get(origin) : undefined
       if (!s) return
@@ -549,6 +591,60 @@ function onBackend(e: BackendEvent) {
     case "question-done":
       if (questions.delete(e.id)) push()
       return
+  }
+}
+
+// ── starting the site ───────────────────────────────────────────────────────────────────────────
+
+/** The app and the server are on one computer, so an address on localhost opens here too. */
+function sameComputer() {
+  const saved = store.settings().server
+  if (saved && "local" in saved) return true
+  try {
+    return /^(localhost|127(\.\d+){3}|\[::1\]|::1)$/.test(new URL("url" in connection ? connection.url : "").hostname)
+  } catch {
+    return false
+  }
+}
+
+/** What the agent is asked when the reviewer has a repo and no running site. It ends with a
+ *  line the app can read (SITE_LINE). `failed` is an address that did not answer. */
+function startPrompt(failed: string) {
+  return [
+    "Get this project's site running so I can review it in bicycle 42.",
+    ...(failed ? [`I expected it at ${failed}, which did not answer.`] : []),
+    "",
+    "- If its dev server is already running, use that. Otherwise start it in the background, so it keeps running after you reply.",
+    "- If it is plain HTML with nothing to run, serve the folder with a small static server.",
+    sameComputer()
+      ? "- bicycle 42 runs on the same computer as you, so a localhost address works."
+      : "- bicycle 42 runs on a different computer from you, so localhost on your side will not open here. Give an address this computer can reach: bind the server to the network, or use a tunnel if one is set up, and tell me if that makes the site public.",
+    "- If you need something from me (which app of several, a missing setting, a port), ask before guessing.",
+    "",
+    "When it is up, check that it answers, then end your reply with one line: SITE: <address>",
+  ].join("\n")
+}
+const SITE_LINE = /^\s*`?SITE:\s*<?(https?:\/\/[^\s<>`"']{1,2000})>?`?\s*$/gim
+
+/** The agent has answered the request to start the site: the address it ended with is opened,
+ *  unless the reviewer has opened a page that works meanwhile. */
+async function started(id: string, ok: boolean) {
+  starting = false
+  push()
+  const works = () => !!page?.state().url && !page.state().error
+  if (works()) siteAsked = undefined
+  const b = backend
+  if (!ok || !b || siteAsked !== id) return
+  try {
+    const items = (await b.transcript(id)).items
+    const last = items.findLast((i) => i.kind === "assistant" && !i.summary && i.parts.some((p) => p.kind === "text" && p.text.trim()))
+    const said = last?.kind === "assistant" ? last.parts.map((p) => (p.kind === "text" ? p.text : "")).join("\n") : ""
+    const url = [...said.matchAll(SITE_LINE)].pop()?.[1]
+    if (!url || !originOf(url) || backend !== b || siteAsked !== id || works()) return
+    siteAsked = undefined
+    page?.load(url)
+  } catch (err) {
+    log("warn", "can't read where the agent started the site", say(err))
   }
 }
 
@@ -1010,12 +1106,33 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
   projects: () => need().projects(),
   listFolders: (dir) => need().listFolders(dir),
   async setDirectory(directory) {
-    if (!site) throw new Error("Open a page first.")
-    const origin = site.origin
-    store.update((s) => void (s.sites[origin] = { directory }))
+    if (typeof directory !== "string" || !directory.startsWith("/")) throw new Error("Choose a folder.")
+    const origin = site?.origin
+    store.update((s) => {
+      s.folder = directory
+      if (origin) s.sites[origin] = { directory }
+    })
     session = null
+    // No page and no repo until now: the repo's own place opens, and its conversation with it.
+    if (!site) return void (switchSite(placeOf(page?.state().url ?? "")), await openSite())
     push()
     await openSite()
+  },
+  async startSite() {
+    const b = need()
+    const current = needSession()
+    const p = page?.state()
+    siteAsked = current.id
+    starting = true
+    push()
+    try {
+      await b.prompt(current.id, { text: startPrompt(p?.error ? p.url : "") })
+    } catch (err) {
+      siteAsked = undefined
+      starting = false
+      push()
+      throw err
+    }
   },
 
   async send(text, images, options) {
@@ -1206,7 +1323,7 @@ async function createWindow() {
     onChange() {
       const url = page?.state().url ?? ""
       if (url && url !== store.settings().lastUrl) store.update((s) => void (s.lastUrl = url))
-      switchSite(originOf(url))
+      switchSite(placeOf(url))
       push()
     },
     onShortcut(key) {

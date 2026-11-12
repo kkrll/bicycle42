@@ -19,6 +19,8 @@ export type Settings = {
   /** `name` is the reviewer's own for it ("Studio Mac"); without one it is called by its address. */
   server?: ({ url: string; password: string } | { local: true }) & { name?: string }
   lastUrl?: string
+  /** The repo opened in the app: the server folder a site opened for the first time works in. */
+  folder?: string
   defaultModel?: ModelRef
   /** Key: the site's origin. */
   sites: Record<string, { directory: string; session?: string; bg?: string }>

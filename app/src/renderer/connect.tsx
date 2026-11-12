@@ -86,11 +86,11 @@ function ServerName(props: { url: string; version: string }) {
   )
 }
 
-/** The way in, the same line on every first-run screen: connect, open the site, pick its code
- *  folder. `at` is the step the reviewer is on. Choosing a model belongs to connecting: its
- *  screen shows step 1 as still current. */
+/** The way in, the same line on every first-run screen: connect, open the repo, open its site.
+ *  `at` is the step the reviewer is on. Choosing a model belongs to connecting: its screen
+ *  shows step 1 as still current. */
 export function SetupSteps(props: { at: 1 | 2 | 3 }) {
-  const names = ["Connect", "Site", "Folder"]
+  const names = ["Connect", "Repo", "Site"]
   return (
     <ol class="setup-steps" aria-label={`Setup, step ${props.at} of 3`}>
       <For each={names}>

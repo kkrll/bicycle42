@@ -11,7 +11,7 @@ import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCle
 import type { Rect, ReviewMode, Shortcut } from "../shared/types"
 import { ConnectScreen, ModelScreen, ServerButton, SettingsDialog, SetupSteps, firstRunConnecting } from "./connect"
 import { Icon, Kbd, type IconName } from "./icons"
-import { Panel, countNotes, countWords, shortWords } from "./panel"
+import { Panel, RepoScreen, countNotes, countWords, shortWords } from "./panel"
 import {
   act,
   host,
@@ -25,7 +25,7 @@ import {
   expandNotes,
   setFocusedNote,
   setNotice,
-  state, pageCovered } from "./store"
+  state, pageCovered, message } from "./store"
 
 const PANEL_MIN = 320
 const PANEL_DEFAULT = 400
@@ -377,7 +377,17 @@ export function App() {
   const connectStep = () => state.connection.status === "unconfigured" || firstRunConnecting()
   // …or connected, and main asks which model conversations should start with.
   const modelStep = () => !connectStep() && !!state.modelChoice && state.connection.status === "online"
-  const setup = () => connectStep() || modelStep()
+  // …or ready to work, and no repo is open: the folder comes before the site.
+  const repoStep = () => !connectStep() && !modelStep() && state.connection.status === "online" && !state.site?.directory
+  const setup = () => connectStep() || modelStep() || repoStep()
+  // The shortcut on the empty (or failed) page: the agent gets the site running and says where.
+  const [startError, setStartError] = createSignal("")
+  const startSite = () => {
+    setStartError("")
+    openPanel()
+    b42.invoke("startSite").catch((err) => setStartError(message(err)))
+  }
+  const canStart = () => state.connection.status === "online" && !!state.session && !state.startingSite
   // A page that failed to load is replaced by a card saying so, in the same place.
   const pageHidden = () => setup() || settings() || resizing() || state.page.url === "" || loadFailed() || pageCovered()
 
@@ -546,18 +556,40 @@ export function App() {
                   : "The page did not open."}
               </p>
               <p class="page-failed-detail">{state.page.error}</p>
-              <button class="btn primary" onClick={() => act("reload")}>
-                Try again
-              </button>
+              <div class="page-actions">
+                <button class="btn primary" onClick={() => act("reload")}>
+                  Try again
+                </button>
+                <Show when={state.site?.directory}>
+                  <button class="btn" disabled={!canStart()} onClick={startSite}>
+                    {state.startingSite ? "The agent is starting it…" : "Ask the agent to start it"}
+                  </button>
+                </Show>
+              </div>
+              <Show when={startError()}>
+                <p class="form-error">{startError()}</p>
+              </Show>
             </div>
           </Show>
           <Show when={state.page.url === ""}>
             <div class="page-empty">
-              <SetupSteps at={2} />
-              <p class="chat-empty-lead">Open your running site.</p>
+              <SetupSteps at={3} />
+              <p class="chat-empty-lead">Open your site.</p>
               <p>
-                Type its address above and press Enter. The page opens here, and you review it by clicking on it.
+                If it is running, type its address above and press Enter. If it is not, the agent can start it from
+                the repo and open it here; it asks you when it needs something.
               </p>
+              <div class="page-actions">
+                <button class="btn primary" disabled={!canStart()} onClick={startSite}>
+                  {state.startingSite ? "The agent is starting it…" : "Ask the agent to start it"}
+                </button>
+              </div>
+              <Show when={state.startingSite}>
+                <p class="page-starting">Its answer is in the panel. The site opens here once it is up.</p>
+              </Show>
+              <Show when={startError()}>
+                <p class="form-error">{startError()}</p>
+              </Show>
             </div>
           </Show>
         </div>
@@ -593,6 +625,9 @@ export function App() {
       </Show>
       <Show when={ready() && modelStep()}>
         <ModelScreen />
+      </Show>
+      <Show when={ready() && repoStep()}>
+        <RepoScreen />
       </Show>
       <Show when={settings()}>
         <SettingsDialog onClose={() => setSettings(false)} />

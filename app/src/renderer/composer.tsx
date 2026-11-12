@@ -149,8 +149,7 @@ function blocked(): string {
   const c = state.connection.status
   if (c === "offline") return "Not connected to the server."
   if (c !== "online") return "Connecting…"
-  if (!state.site) return "Open your site to start."
-  if (!state.site.directory) return "Choose where this site's code lives first."
+  if (!state.site?.directory) return "Open the repo first."
   // Main explains a conversation that would not open with a marker in the (session-less) transcript.
   return chat.items.length ? "No conversation is open." : "Starting a conversation…"
 }

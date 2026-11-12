@@ -243,10 +243,14 @@ export type AppState = {
     /** Pins whose element can no longer be found on the page. */
     unplaced: number
   }
-  /** The site under review and the server folder that holds its code. `null` before a page is
-   *  open; `directory` is absent until the user has picked it (once per site). */
+  /** The site under review and the server folder (the repo) that holds its code. `null` until
+   *  there is a repo or a page. The repo comes first: with one open and no page yet, `origin` is
+   *  "" and the conversation is the repo's own, which the first site opened takes over.
+   *  `directory` is absent only for a page opened while no repo is known. */
   site: { origin: string; directory?: string } | null
-  /** The open conversation. `null` until a site has a folder. */
+  /** The agent was asked to get the site running (`startSite`) and has not finished answering. */
+  startingSite?: true
+  /** The open conversation. `null` until there is a folder. */
   session: SessionSummary | null
   /** Other conversations in the same folder, newest first, for the switcher. */
   sessions: SessionSummary[]
@@ -305,7 +309,12 @@ export type Commands = {
   projects(): string[]
   /** Sub-folders of an absolute path on the server, for the folder picker. */
   listFolders(path: string): DirEntry[]
+  /** Opens a repo: the folder the site on screen works in, and the one a site opened for the
+   *  first time starts with. Works before any page is open. */
   setDirectory(directory: string): void
+  /** Asks the agent, in the open conversation, to get the repo's site running and say where.
+   *  Its answer shows in the chat; the address it ends with is opened when no page is. */
+  startSite(): void
   // chat
   /** `images` are pictures pasted or dropped into the message box, as data URIs. */
   send(text: string, images?: PromptFile[], options?: SendOptions): void

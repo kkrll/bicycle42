@@ -522,8 +522,16 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       state.review.notes = []
       items = []
       break
-    case "empty":
+    case "repo":
+      // Connected, a model chosen, nothing else yet: which repo?
       Object.assign(state, { site: null, session: null, sessions: [] })
+      state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }
+      state.review = { enabled: false, mode: "preview", brush: false, autoReload: false, notes: [], unplaced: 0 }
+      items = []
+      break
+    case "empty":
+      // The repo is open, with its conversation; no page yet.
+      Object.assign(state, { site: { origin: "", directory: DIRECTORY } })
       state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }
       state.review = { enabled: false, mode: "preview", brush: false, autoReload: false, notes: [], unplaced: 0 }
       items = []
@@ -786,8 +794,13 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       if (!names) return []
       return names.map((name) => ({ name, path: `${path === "/" ? "" : path}/${name}` }))
     },
+    startSite() {
+      state.startingSite = true
+      push()
+      deliver("Get this project's site running so I can review it in bicycle 42.", undefined, undefined, REPLY)
+    },
     setDirectory(directory) {
-      state.site = { origin: ORIGIN, directory }
+      state.site = { origin: state.page.url ? ORIGIN : "", directory }
       state.session = { id: SESSION, title: "New conversation", updated: Date.now(), busy: false, directory }
       state.sessions = [state.session]
       push()

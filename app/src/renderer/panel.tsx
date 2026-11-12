@@ -369,6 +369,18 @@ const parent = (path: string) => path.replace(/\/+$/, "").replace(/\/[^/]*$/, ""
 /** "acme/storefront" from "/home/dev/code/acme/storefront": the part a person recognises. */
 const tail = (path: string) => path.replace(/\/+$/, "").split("/").slice(-2).join("/") || "/"
 
+/** The second first-run step: the repo, before any site. Also when a page is open and the app
+ *  knows no folder for it. */
+export function RepoScreen() {
+  return (
+    <div class="connect-screen">
+      <div class="connect-card repo-card">
+        <FolderPicker />
+      </div>
+    </div>
+  )
+}
+
 function FolderPicker(props: { onCancel?: () => void; onDone?: () => void }) {
   const [recent, { refetch: reloadRecent }] = createResource(() => b42.invoke("projects"))
   // Reading a failed resource throws; the error has its own branch below.
@@ -397,15 +409,20 @@ function FolderPicker(props: { onCancel?: () => void; onDone?: () => void }) {
   }
 
   return (
-    <section class="folder" aria-label="Choose the site's code folder">
+    <section class="folder" aria-label="Open the repo">
       <div class="folder-head">
         <Show when={!props.onCancel}>
-          <SetupSteps at={3} />
+          <SetupSteps at={2} />
         </Show>
-        <h2>Where is this site's code?</h2>
+        <h2>Open the repo</h2>
         <p class="folder-lead">
-          Pick the folder on your server that holds <strong>{host(state.site?.origin ?? "")}</strong>. You only do this
-          once per site.
+          <Show
+            when={state.site?.origin}
+            fallback={<>Pick the folder on your server that holds the site's code. The agent works there.</>}
+          >
+            Pick the folder on your server that holds the code of <strong>{host(state.site?.origin ?? "")}</strong>.
+            The agent works there.
+          </Show>
         </p>
       </div>
       <Show when={error()}>
@@ -638,8 +655,8 @@ export function Panel(props: {
             when={state.connection.status === "online"}
             fallback={
               <div class="panel-empty">
-                <SetupSteps at={3} />
-                <p class="chat-empty-lead">Choose where this site's code lives.</p>
+                <SetupSteps at={2} />
+                <p class="chat-empty-lead">Open the repo.</p>
                 <p>You can pick the folder as soon as the server is reachable again.</p>
               </div>
             }
