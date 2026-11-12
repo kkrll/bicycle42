@@ -125,9 +125,9 @@ function submitCanvas(background) {
  *  usable while the answer is awaited) is added to it, not lost. */
 function unsendCanvas(id, say) {
   const u = C.unsent;
-  C.unsent = null;
   const i = C.sent.findIndex((b) => b.id === id);
-  if (i < 0 || !u || u.id !== id) return flash(say);
+  if (i < 0 || !u || u.id !== id) return flash(say); // another note's refusal: what is unsent stays
+  C.unsent = null;
   if (C.typeTimer) commit();
   const b = C.sent.splice(i, 1)[0];
   const later = C.draft;

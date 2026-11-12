@@ -36,7 +36,6 @@ export const PARTS = [
       "notes/api.js", // what the rest of the overlay sees
     ],
   },
-  "stand-ins.js", // names motion mode still calls without Notes., until it asks Notes directly
   "variants.js", // the page's own variants, switched from a small bar
   "sent.js", // the pins' tooltip; a note from any mode sent, and the host's answer
   {

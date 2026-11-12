@@ -11,8 +11,8 @@ function setOn(on) {
     M.on = true;
     // A note in progress becomes the start: its element is looked at.
     const el = S.sel.length === 1 ? S.sel[0] : null;
-    if (S.card || hasDraft()) clearDraft();
-    hideSent();
+    if (S.card || Notes.hasDraft()) Notes.clearDraft();
+    Notes.hideSent();
     S.hover = null;
     watchSuspects(true);
     scan();
@@ -43,7 +43,7 @@ function resume() {
   try {
     was = sessionStorage.getItem("b42-motion") === "1";
   } catch {}
-  if (was && modeOn() === "notes" && !S.card && !hasDraft()) setMode("motion");
+  if (was && modeOn() === "notes" && !S.card && !Notes.hasDraft()) setMode("motion");
 }
 /** Room for the dock: the page can scroll its last part out from under it. */
 function syncUi() {
