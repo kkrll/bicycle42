@@ -910,10 +910,13 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
     live.refresh(id)
   }
 
-  async function info(signal?: AbortSignal): Promise<{ version: string }> {
-    const version = str(rec(await api("GET", "/api/info", undefined, signal)).version)
+  async function info(signal?: AbortSignal): Promise<{ version: string; computer?: string }> {
+    const said = rec(await api("GET", "/api/info", undefined, signal))
+    const version = str(said.version)
     if (!version) throw new Error(`${host} doesn't answer like an OpenCode server`)
-    return { version }
+    // "kkrll.local" → "kkrll": the computer's own name, as a person would say it.
+    const computer = (str(said.hostname) ?? "").replace(/[\x00-\x1f]+/g, " ").trim().replace(/\.(local|lan|home|localdomain)$/i, "").slice(0, 60)
+    return { version, ...(computer ? { computer } : {}) }
   }
 
   async function session(id: string, signal?: AbortSignal): Promise<SessionSummary | null> {

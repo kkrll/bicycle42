@@ -362,7 +362,7 @@ test("servers are remembered: a second one starts clean, and going back needs no
     // Another server: nothing of the first one's is here, and the same address is another site.
     await h.cmd("connect", { url: second.server.url, password: second.server.password })
     await until(() => h.snap().connection.status === "online" && (h.snap().connection as { url: string }).url === second.server.url)
-    assert.deepEqual([h.snap().site, h.snap().page.url, h.snap().session, h.snap().serverName], [null, "", null, undefined])
+    assert.deepEqual([h.snap().site, h.snap().page.url, h.snap().session, h.snap().serverName], [null, "", null, "fake-box"])
     await h.cmd("setDirectory", "/elsewhere")
     h.page.page!.load(`${SITE}/pricing`)
     await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
@@ -370,7 +370,7 @@ test("servers are remembered: a second one starts clean, and going back needs no
 
     type Info = { id: string; name?: string; url: string; local: boolean; current: boolean }
     const list = (await h.cmd("servers")) as Info[]
-    assert.deepEqual(list.map((x) => [x.url, x.current, x.name]), [[second.server.url, true, undefined], [h.server.url, false, "Studio"]])
+    assert.deepEqual(list.map((x) => [x.url, x.current, x.name]), [[second.server.url, true, "fake-box"], [h.server.url, false, "Studio"]])
     assert.ok(!JSON.stringify(list).includes(h.server.password), "the window gets no password")
     await assert.rejects(Promise.resolve(h.cmd("forgetServer", list[0]!.id)), "not the one in use")
 
@@ -1253,7 +1253,7 @@ test("a server's name: saved with it, kept when the same server connects again, 
   const h = await boot()
   try {
     await h.ready()
-    assert.equal(h.snap().serverName, undefined)
+    assert.equal(h.snap().serverName, "fake-box", "until it is named, it goes by its computer's own name, without .local")
     await h.cmd("setServerName", "  Studio   Mac ")
     assert.equal(h.snap().serverName, "Studio Mac")
     const saved = async () => {
@@ -1268,14 +1268,14 @@ test("a server's name: saved with it, kept when the same server connects again, 
     // the same server again (the password re-entered): still named
     await h.cmd("connect", { url: h.server.url, password: h.server.password })
     assert.equal(h.snap().serverName, "Studio Mac")
-    // an empty name goes back to the address
+    // an empty name goes back to the computer's own
     await h.cmd("setServerName", "   ")
-    assert.equal(h.snap().serverName, undefined)
+    assert.equal(h.snap().serverName, "fake-box")
     assert.equal((await saved()).name, undefined)
     // a name does not follow to another server
     await h.cmd("setServerName", "Studio Mac")
     await h.cmd("connect", { url: h.server.url.replace("127.0.0.1", "localhost"), password: h.server.password })
-    assert.equal(h.snap().serverName, undefined)
+    assert.equal(h.snap().serverName, "fake-box")
     await h.cmd("disconnect")
     await assert.rejects(Promise.resolve(h.cmd("setServerName", "x")), /Connect to a server first/)
   } finally {

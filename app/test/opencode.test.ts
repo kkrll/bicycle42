@@ -528,7 +528,7 @@ test("mapper: garbage is skipped, not fatal", () => {
 
 test("info: gives the version, with Basic auth as user opencode", () =>
   withServer(async (server, backend) => {
-    assert.deepEqual(await backend.info(), { version: VERSION })
+    assert.deepEqual(await backend.info(), { version: VERSION, computer: "fake-box" })
     assert.equal(server.requests[0]!.authorized, true)
     assert.equal(server.requests[0]!.path, "/api/info")
   }))
@@ -536,7 +536,7 @@ test("info: gives the version, with Basic auth as user opencode", () =>
 test("info: a trailing slash or credentials in the URL do no harm", () =>
   withServer(async (server) => {
     const url = server.url.replace("http://", "http://someone:secret@") + "/"
-    assert.deepEqual(await createOpenCode({ url, password: server.password }).info(), { version: VERSION })
+    assert.deepEqual(await createOpenCode({ url, password: server.password }).info(), { version: VERSION, computer: "fake-box" })
   }))
 
 test("errors: a wrong password says so", () =>

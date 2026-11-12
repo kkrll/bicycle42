@@ -593,7 +593,7 @@ export function SettingsDialog(props: { onClose: () => void }) {
       <Preferences />
       <Show when={c().status === "offline" || c().status === "connecting"}>
         <footer class="dialog-foot">
-          <p>Disconnecting forgets this server and its password on this computer.</p>
+          <p>Disconnecting stops using this server. It stays under “Connected before”.</p>
           <button
             class="btn"
             onClick={() => {

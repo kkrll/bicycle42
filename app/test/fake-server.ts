@@ -83,7 +83,7 @@ export async function start(port = 0): Promise<FakeServer> {
     const route = routes.find((r) => r.method === request.method && (typeof r.path === "string" ? r.path === request.path : r.path.test(request.path)))
     if (route) return answer(typeof route.reply === "function" ? route.reply(request) : route.reply)
 
-    if (request.method === "GET" && request.path === "/api/info") return answer({ json: { version: VERSION } })
+    if (request.method === "GET" && request.path === "/api/info") return answer({ json: { version: VERSION, hostname: "fake-box.local" } })
     // The catalogs of a folder: empty unless a test scripts them.
     if (request.method === "GET" && ["/api/command", "/api/skill", "/api/fs/find"].includes(request.path))
       return answer({ json: { location: { directory: request.query.get("location[directory]") ?? "/" }, data: [] } })

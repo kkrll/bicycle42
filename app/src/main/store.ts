@@ -23,7 +23,8 @@ export type Space = { folder?: string; lastUrl?: string; defaultModel?: ModelRef
 /** A server the app has connected to, kept so it can be gone back to. `space` holds what is
  *  its own while another server is the one in use; the one in use has its space in the
  *  settings' own fields. */
-export type SavedServer = ({ url: string; password: string } | { local: true }) & { id: string; name?: string; space?: Space }
+/** `computer`: what the machine calls itself, as it last said; the server goes by it until it is given a `name`. */
+export type SavedServer = ({ url: string; password: string } | { local: true }) & { id: string; name?: string; computer?: string; space?: Space }
 
 export type Settings = {
   version: 1

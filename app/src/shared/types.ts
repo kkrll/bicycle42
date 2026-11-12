@@ -198,6 +198,7 @@ export type ConnectionState =
   | { status: "offline"; url: string; error: string }
 
 /** A server the app remembers. `url` is empty for this computer's while none is running here. */
+/** `name` is the reviewer's for it, else its computer's own. */
 export type ServerInfo = { id: string; name?: string; url: string; local: boolean; current: boolean }
 
 export type SessionSummary = {
@@ -223,7 +224,8 @@ export type ReviewMode = "preview" | "notes" | "edit" | "motion"
 
 export type AppState = {
   connection: ConnectionState
-  /** The reviewer's name for the saved server; without one it goes by its address. */
+  /** The reviewer's name for the server in use, else its computer's own name; with neither it
+   *  goes by its address. */
   serverName?: string
   page: {
     /** What the URL bar shows. Empty before the first page. */
@@ -406,7 +408,8 @@ export type Transcript = {
 
 export type Backend = {
   /** Checks the URL and password. Rejects with a message fit to show the user. */
-  info(): Promise<{ version: string }>
+  /** `computer` is the name of the machine the server runs on, when it says. */
+  info(): Promise<{ version: string; computer?: string }>
   projects(): Promise<string[]>
   listFolders(path: string): Promise<DirEntry[]>
   models(): Promise<ModelInfo[]>

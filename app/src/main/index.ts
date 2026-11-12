@@ -139,6 +139,13 @@ function placeOf(url: string): string | undefined {
 let siteAsked: string | undefined
 let starting = false
 
+/** The name the server in use goes by: the reviewer's, else its computer's own. */
+function serverName(): string | undefined {
+  const s = store.settings()
+  if (!s.server) return undefined
+  return s.server.name ?? s.servers?.find((x) => x.id === s.current)?.computer
+}
+
 function snapshot(): AppState {
   const p = page?.state()
   const review = site?.review
@@ -146,7 +153,7 @@ function snapshot(): AppState {
   const model = defaultModel()
   return {
     connection,
-    ...(store.settings().server?.name ? { serverName: store.settings().server!.name } : {}),
+    ...(serverName() ? { serverName: serverName() } : {}),
     page: p ?? { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false },
     review: {
       enabled: review?.enabled ?? true,
@@ -272,7 +279,7 @@ function drop() {
 const reviewKey = (origin: string) => (store.settings().prefix ?? "") + origin
 
 /** The saved entry for a server, made the first time it is connected to; a remote one's password is kept up to date. */
-function remember(kind: "remote" | "local", url: string, password: string): SavedServer {
+function remember(kind: "remote" | "local", url: string, password: string, computer?: string): SavedServer {
   const all = store.settings().servers ?? []
   let found = all.find((x) => (kind === "local" ? "local" in x : "url" in x && x.url === url))
   store.update((s) => {
@@ -284,6 +291,7 @@ function remember(kind: "remote" | "local", url: string, password: string): Save
       found = kind === "local" ? { id, local: true, ...name } : { id, url, password: seal(password), ...name }
       s.servers.push(found)
     } else if ("url" in found) found.password = seal(password)
+    if (computer) found.computer = computer
   })
   return found!
 }
@@ -334,7 +342,7 @@ async function connect(url: string, password: string, opts: { save?: "remote" | 
   // A name stays with its server: connecting to the same one again keeps it, another drops it.
   // It is also kept among the servers connected to, with the name it was given there.
   const kind = opts.save ?? (store.settings().server && "local" in store.settings().server! ? "local" : "remote")
-  const kept = remember(kind, url, password)
+  const kept = remember(kind, url, password, info.computer)
   const name = kept.name ? { name: kept.name } : {}
   if (opts.save === "remote") store.update((s) => void (s.server = { url, password: seal(password), ...name }))
   if (opts.save === "local") store.update((s) => void (s.server = { local: true, ...name }))
@@ -1159,7 +1167,7 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     const s = store.settings()
     const here = readLocal()?.url ?? ""
     return (s.servers ?? [])
-      .map((x): ServerInfo => ({ id: x.id, ...(x.name ? { name: x.name } : {}), url: "local" in x ? here : x.url, local: "local" in x, current: !!s.server && x.id === s.current }))
+      .map((x): ServerInfo => ({ id: x.id, ...((x.name ?? x.computer) ? { name: x.name ?? x.computer } : {}), url: "local" in x ? here : x.url, local: "local" in x, current: !!s.server && x.id === s.current }))
       .sort((a, b) => Number(b.current) - Number(a.current))
   },
   async useServer(id) {
