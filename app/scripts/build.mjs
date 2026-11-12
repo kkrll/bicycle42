@@ -86,6 +86,20 @@ const renderer = {
 if (watch) {
   for (const e of entries) await (await context({ ...node, ...e })).watch()
   await viteBuild(renderer)
+  // An edit in ../overlay/src builds dist/overlay.js again, once the edits pause. A failed build
+  // keeps the last one and the watching. (A file added to the overlay's PARTS needs a restart.)
+  let timer
+  fs.watch(path.join(root, "../overlay/src"), { recursive: true }, () => {
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      try {
+        fs.writeFileSync(path.join(dist, "overlay.js"), buildOverlay())
+        console.log("overlay.js rebuilt")
+      } catch (e) {
+        console.error(`overlay.js not rebuilt: ${e.message}`)
+      }
+    }, 100)
+  })
   console.log("watching…")
 } else {
   await Promise.all([...entries.map((e) => build({ ...node, ...e })), ...(controller ? [build(controller)] : []), viteBuild(renderer)])

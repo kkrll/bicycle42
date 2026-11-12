@@ -29,6 +29,7 @@ bar) for motion mode and its tests.
 ## Test
 
 ```bash
+bun run check                          # names and module members that resolve nowhere, a few seconds
 bun run test                           # end-to-end tests in headless Chromium, about a minute
 CHROMIUM=/path/to/chrome bun run test  # when the tests do not find your Chromium
 node scripts/screenshot.mjs        # regenerates docs/harness.png

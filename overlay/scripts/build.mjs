@@ -77,11 +77,16 @@ function piece(name) {
   });
 }
 
+// Each piece starts with a line that names it, so a line of the built script can be traced back
+// (scripts/check.mjs does).
+export const MARK = "// ── src/";
+const marked = (name) => `${MARK}${name}\n${piece(name)}`;
+
 export function build() {
   const body = PARTS.map((p) =>
     typeof p === "string"
-      ? piece(p)
-      : `const ${p.module} = (() => {\n${p.files.map((f) => indent(piece(f), 2)).join("\n")}\n  return api;\n})();\n`,
+      ? marked(p)
+      : `const ${p.module} = (() => {\n${p.files.map((f) => indent(marked(f), 2)).join("\n")}\n  return api;\n})();\n`,
   ).join("\n");
   return `${read("protocol.js")}\n// Built from src/ by scripts/build.mjs: edit those, not this.\n(() => {\n  "use strict";\n  if (window.__b42) return;\n\n${indent(body, 2)}\n})();\n`;
 }
