@@ -101,11 +101,12 @@ function moveToSent(id) {
   else show(null);
   draftChanged();
 }
-/** The host did not take the note: the animation is unsent again, with its undo steps and words. */
+/** The host did not take the note: the animation is unsent again, with its undo steps and words.
+ *  Another note's id (an older one, or a canvas note) changes nothing here. */
 function refuse(id, say) {
   const u = M.unsent;
-  M.unsent = null;
   if (!u || u.id !== id) return false;
+  M.unsent = null;
   const i = M.sent.findIndex((b) => b.id === id);
   if (i >= 0) dropSent(M.sent.splice(i, 1)[0]);
   const s = JSON.parse(u.snap);

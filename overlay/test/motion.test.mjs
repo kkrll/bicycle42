@@ -198,6 +198,54 @@ test("a refused note comes back unsent, with its edits and its words", async () 
   await page.close();
 });
 
+test("a refusal of another note leaves the one being sent alone: refused itself, it still comes back", async () => {
+  const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  // No host message reaches Motion.refuse with an id that is not the pending one (refuseCapture
+  // checks first), so the module is put on the page for this test, as the overlay is served.
+  await page.route("**/overlay.js", async (route) => {
+    const res = await route.fetch();
+    const body = (await res.text()).replace("window.__b42 = {", "window.__motion = Motion;\n  window.__b42 = {");
+    await route.fulfill({ response: res, body });
+  });
+  await page.goto(`${base}/?delay=150&page=motion`);
+  const f = await pageFrame(page);
+  await motionOn(f);
+  // The host holds the note: it is sent, and neither taken nor refused yet.
+  await f.evaluate(() => {
+    const real = window.__review;
+    window.__review = (s) => (JSON.parse(s).type === "note" ? void (window.__held = JSON.parse(s).note) : real(s));
+  });
+  await clickEl(page, f, ".hero p");
+  await ui(f, "[data-t=duration]").fill("950");
+  await ui(f, "[data-t=duration]").press("Enter");
+  await ui(f, ".m-note").fill("slower");
+  await ui(f, ".m-note").press("Enter");
+  // All in one go: the overlay gives up waiting for the host after two seconds.
+  const stale = await f.evaluate(async () => {
+    while (!window.__held) await new Promise(requestAnimationFrame);
+    const Mo = window.__motion;
+    // another animation, edited meanwhile
+    Mo.debug.select(document.querySelector(".hero h2"));
+    Mo.debug.setTiming("duration", "1300", true);
+    // an older note refused: it is not this one, so nothing changes
+    const out = Mo.refuse("n_older", "Not sent: an older note");
+    window.__b42.receive({ type: "captured", id: window.__held.id, ok: false, why: "the server is offline" });
+    return out;
+  });
+  assert.equal(stale, false);
+  await frames(f, 6);
+  // the note that was pending is refused now: it comes back unsent, with its edits and words
+  const s = await inLayer(f, (r) => ({ msg: r.querySelector(".m-msg").textContent, note: r.querySelector(".m-note").value, dur: r.querySelector("[data-t=duration]")?.value }));
+  assert.match(s.msg, /Not sent: the server is offline/);
+  assert.equal(s.note, "slower");
+  assert.equal(s.dur, "950");
+  assert.match(await adopted(f), /950ms[^;]* rise;/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("unsent edits survive a reload: the host keeps them, the page comes back in motion mode", async () => {
   const { page, f: f1, errors } = await open();
   await clickEl(page, f1, ".hero h2");
