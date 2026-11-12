@@ -204,10 +204,11 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
           <For each={others()}>
             {(s) => (
               <div class="connect-local-row">
-                <p class="form-help" title={s.url}>
-                  <Show when={s.name} fallback={<code>{host(s.url)}</code>}>
-                    {s.name} <code>{host(s.url)}</code>
+                <p class="form-help connect-saved-what" title={s.url}>
+                  <Show when={s.name}>
+                    <span class="connect-saved-name">{s.name}</span>
                   </Show>
+                  <code>{host(s.url)}</code>
                 </p>
                 <span class="connect-saved-actions">
                   <button class="text-btn" type="button" disabled={connecting()} title="Forgets this server and its password on this computer" onClick={() => forget(s.id)}>

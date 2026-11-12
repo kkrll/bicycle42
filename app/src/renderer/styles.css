@@ -2542,7 +2542,7 @@ details[open] > summary > .caret {
 }
 
 .connect-card {
-  width: min(400px, 100%);
+  width: min(480px, 100%);
 }
 
 .connect-card h1 {
@@ -2634,9 +2634,22 @@ details[open] > summary > .caret {
   gap: 8px;
 }
 
-.connect-saved .form-help {
+/* The name, then the address on a line of its own, cut short where the buttons begin. */
+.connect-saved-what {
+  flex: 1;
   min-width: 0;
-  overflow-wrap: anywhere;
+  display: flex;
+  flex-direction: column;
+}
+
+.connect-saved-what > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connect-saved-name {
+  color: var(--foreground);
 }
 
 .connect-form h3 {
@@ -2740,7 +2753,7 @@ details[open] > summary > .caret {
 }
 
 .dialog {
-  width: min(400px, calc(100vw - 32px));
+  width: min(480px, calc(100vw - 32px));
   padding: 16px;
   border: 1px solid var(--background-05);
   border-radius: 10px;

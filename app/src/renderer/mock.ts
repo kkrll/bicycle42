@@ -785,7 +785,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     servers: () => [
       { id: "srv_1", url: "http://localhost:4096", local: true, current: state.connection.status === "online" },
       { id: "srv_2", name: "Studio Mac", url: "https://studio.example.dev", local: false, current: false },
-      { id: "srv_3", url: "http://box.tail1234.ts.net:4096", local: false, current: false },
+      { id: "srv_3", name: "omarchy", url: "https://eb501e0e4f991ca4.7fek5zuoivit.opentunnel.xyz", local: false, current: false },
     ],
     useServer() {},
     forgetServer() {},

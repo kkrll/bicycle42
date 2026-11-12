@@ -76,6 +76,7 @@ const SHOTS = [
   { name: "offline", mock: "offline" },
   { name: "pageerror", mock: "pageerror" },
   { name: "settings", mock: "review", run: [click("[data-action=settings]")], wait: 500 },
+  { name: "settings-servers", mock: "review", run: [click("[data-action=settings]"), pause(300), click(".dialog .disclosure summary")], wait: 500 },
   // A tunnel's address is one long word; named, the name leads and the address goes under it.
   {
     name: "settings-tunnel",
