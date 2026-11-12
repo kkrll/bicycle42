@@ -110,7 +110,6 @@ a skill or a helper agent.
 - Before and after pictures of what the agent changed, and taking back one note
   (`/undo` takes back the last message and everything after it).
 - Edit mode: adding elements, moving one into another container, reordering in block flow.
-- Running the overlay in an isolated script world.
 
 The full list is in [app/README.md](app/README.md).
 

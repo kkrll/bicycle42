@@ -111,40 +111,39 @@ function editSel(el) {
   return base;
 }
 
+// What the page's framework calls an element. That is in the page's own objects, which the
+// overlay can't see when it has a world of its own (the app): there the host puts component.js
+// among the page's scripts as well, and it answers this event before dispatchEvent returns.
+// The answer comes from the page, so it is checked like anything else the page says.
+let componentAnswer = null;
+window.addEventListener(
+  "b42:component-is",
+  (e) => {
+    e.stopImmediatePropagation();
+    componentAnswer = e.detail;
+  },
+  true,
+);
+
 function component(el) {
-  const key = Object.keys(el).find((k) => k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$"));
-  if (key) {
-    const stack = [];
-    let source;
-    for (let f = el[key]; f && stack.length < 4; f = f.return) {
-      if (!source && f._debugSource) source = f._debugSource;
-      const t = f.type;
-      if (!t || typeof t === "string") continue;
-      const n =
-        t.displayName ||
-        t.name ||
-        (t.render && (t.render.displayName || t.render.name)) ||
-        (t.type && (t.type.displayName || t.type.name));
-      if (n && /^[A-Z]/.test(n) && stack[stack.length - 1] !== n) stack.push(n);
-    }
-    if (stack.length) {
-      const c = { framework: "react", name: stack[0], stack };
-      if (source) c.source = `${source.fileName}:${source.lineNumber}`;
-      return c;
-    }
+  const own = componentOf(el);
+  if (own) return own;
+  componentAnswer = null;
+  el.dispatchEvent(new Event("b42:component", { bubbles: true, composed: true }));
+  const text = componentAnswer;
+  componentAnswer = null;
+  if (typeof text !== "string" || text.length > 2000) return null;
+  let c;
+  try {
+    c = JSON.parse(text);
+  } catch {
+    return null;
   }
-  let v = el.__vueParentComponent;
-  if (v) {
-    const stack = [];
-    let source;
-    for (; v && stack.length < 4; v = v.parent) {
-      const n = v.type && (v.type.name || v.type.__name);
-      if (!source && v.type && v.type.__file) source = v.type.__file;
-      if (n) stack.push(n);
-    }
-    if (stack.length) return { framework: "vue", name: stack[0], stack, ...(source ? { source } : {}) };
-  }
-  return null;
+  const word = (v, max) => typeof v === "string" && v.length > 0 && v.length <= max && !/[\n\r]/.test(v);
+  if (!c || (c.framework !== "react" && c.framework !== "vue") || !Array.isArray(c.stack)) return null;
+  const stack = c.stack.filter((n) => word(n, 100)).slice(0, 4);
+  if (!stack.length) return null;
+  return { framework: c.framework, name: stack[0], stack, ...(word(c.source, 300) ? { source: c.source } : {}) };
 }
 
 function describe(el) {

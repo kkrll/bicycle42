@@ -40,7 +40,7 @@ node scripts/build.mjs && node_modules/.bin/electron --ozone-platform=headless -
 ```
 src/shared/types.ts     the contract: AppState, ChatEvent, Commands, Backend. Read this first.
 src/main/index.ts       controller: owns AppState, wires the four parts below
-src/main/page.ts        the page: a WebContentsView with the overlay injected over CDP
+src/main/page.ts        the page: a WebContentsView with the overlay injected over CDP, in its own script world
 src/main/review.ts      a site's notes and their status rules (pure, no Electron)
 src/main/images.ts      screenshot → area crop + viewport thumbnail
 src/main/opencode.ts    the backend: fetch + one SSE stream → BackendEvents (no Electron)
@@ -59,9 +59,14 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
 - **A note remembers the conversation it was sent to**, and carries a message id chosen here.
   Switching conversations, a restart or a dropped connection can't mark it done by mistake, and
   retrying after a lost reply can't queue it twice.
-- **The page is untrusted.** A note counts only right after a real Enter key press in the page
-  (or, for a note of edits, a real click: the bar's Send button), so the site's own scripts
-  can't send text to the agent. Page text is quoted in the prompt as data.
+- **The page is untrusted.** The overlay and its way to the app (`window.__review`) are in a
+  script world of their own (`WORLD` in `page.ts`): they share the page's document, but the
+  site's scripts can't call the one or reach into the other. As a second lock, a note counts
+  only right after a real Enter key press in the page (or a real click, for a Send button).
+  One small script does run among the page's own (`overlay/src/component.js`): what React or
+  Vue calls an element is in the page's objects, so it reads that there and answers the overlay
+  through an event; the answer is checked like anything else the page says.
+  Page text is quoted in the prompt as data.
   A canvas note's edits are checked field by field (`pageEdits` in `review.ts`): at most 40, known
   kinds, short one-line strings, a property name that looks like one. What fails is dropped.
   CSS typed in the inspector has a length limit and goes into the prompt inside a fence longer
@@ -165,9 +170,6 @@ on its pin and in the chat. A note may be new CSS rules and nothing else.
   adding new elements and editing HTML.
 - Canvas mode: the edited area's crop is cut where the elements are after the edits and before
   them, but a note of new CSS rules alone is cut around at most 20 of the elements they match.
-- An Enter that does something else in the page (a new line in the note, picking a template,
-  keeping a text edit) still opens the one-second window in which the page's own script could
-  slip a note in; closing it needs the isolated world below.
 - The overlay on a heavy page: a hover outline that changes size repaints what is under it
   (a layer of its own did not help: it is drawn anew at every size), and the note card is
   painted again as it follows the scroll. Outlines of a fixed look, moved and scaled by
@@ -175,6 +177,8 @@ on its pin and in the chat. A note may be new CSS rules and nothing else.
 - Session rotation every N notes.
 - A failed note can be retried until the app restarts; after that its screenshot is gone.
 - Pending permission requests of the background conversation are only seen live, not after a reconnect.
-- The overlay shares the page's script world. The Enter check stops forged notes, but a hostile
-  page could still read or alter the overlay; the full fix is running it in an isolated world.
+- The overlay's elements are in the page's document, in an open shadow root: a hostile page
+  can't run the overlay's code or send a note, but it can still read or change what the layer
+  shows (the words being typed, the panels). Closing the root, or moving the panels into the
+  app window, would end that.
 - Signed builds and installers. `npm run pack` makes an unsigned app for this computer.

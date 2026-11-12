@@ -19,6 +19,7 @@ const SRC = path.join(ROOT, "src");
 export const PARTS = [
   "state.js", // the host bridge, the transient state, the elements of the layer
   "ui.js", // the layer's icons, and words with key symbols drawn in them
+  "component.js", // what the page's framework calls an element, read from the page's own objects
   "page.js", // geometry, element identity, picking, the rules previews adopt
   "draft.js", // the draft the host keeps: the note in progress, canvas's batch, motion's animations
   {
@@ -100,6 +101,32 @@ export function build() {
       : `const ${p.module} = (() => {\n${p.files.map((f) => indent(marked(f), 2)).join("\n")}\n  return api;\n})();\n`,
   ).join("\n");
   return `${read("protocol.js")}\n// Built from src/ by scripts/build.mjs: edit those, not this.\n(() => {\n  "use strict";\n  if (window.__b42) return;\n\n${indent(body, 2)}\n})();\n`;
+}
+
+/** The script a host adds among the page's own scripts when the overlay runs in a world apart
+ *  from them: it answers the overlay's "b42:component" (see page.js) with what the framework
+ *  calls the element. It is in before the page's scripts, so they never see either event. */
+export function buildLookup() {
+  return `// Built from src/component.js by scripts/build.mjs: edit that, not this.
+(() => {
+  "use strict";
+${indent(read("component.js"), 2)}
+  window.addEventListener(
+    "b42:component",
+    (e) => {
+      e.stopImmediatePropagation();
+      const el = e.composedPath()[0];
+      if (!el || el.nodeType !== 1) return;
+      let c = null;
+      try {
+        c = componentOf(el);
+      } catch {}
+      if (c) el.dispatchEvent(new CustomEvent("b42:component-is", { detail: JSON.stringify(c), bubbles: true, composed: true }));
+    },
+    true,
+  );
+})();
+`;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -1201,6 +1201,7 @@ async function createWindow() {
 
   page = await createPage(win, {
     overlay: fs.readFileSync(path.join(__dirname, "overlay.js"), "utf8"),
+    lookup: fs.readFileSync(path.join(__dirname, "overlay-lookup.js"), "utf8"),
     onMessage: onPage,
     onChange() {
       const url = page?.state().url ?? ""

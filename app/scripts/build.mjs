@@ -13,7 +13,7 @@ import solid from "vite-plugin-solid"
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { build as buildOverlay } from "../../overlay/scripts/build.mjs"
+import { build as buildOverlay, buildLookup } from "../../overlay/scripts/build.mjs"
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..")
 const dist = path.join(root, "dist")
@@ -66,6 +66,9 @@ const controller = flags.has("--tests")
 fs.mkdirSync(dist, { recursive: true })
 const overlay = buildOverlay()
 fs.writeFileSync(path.join(dist, "overlay.js"), overlay)
+// The overlay has a script world of its own; this small one goes among the page's scripts.
+const lookup = buildLookup()
+fs.writeFileSync(path.join(dist, "overlay-lookup.js"), lookup)
 // The app icon, for the window and the macOS dock. The app runs without it.
 const icon = path.join(root, "../assets/icon.png")
 if (fs.existsSync(icon)) fs.copyFileSync(icon, path.join(dist, "icon.png"))
@@ -73,6 +76,7 @@ if (controller) {
   // The stubbed controller reads the overlay from beside itself, like the real one.
   fs.mkdirSync(path.join(dist, "test"), { recursive: true })
   fs.writeFileSync(path.join(dist, "test/overlay.js"), overlay)
+  fs.writeFileSync(path.join(dist, "test/overlay-lookup.js"), lookup)
 }
 
 const renderer = {
@@ -94,6 +98,7 @@ if (watch) {
     timer = setTimeout(() => {
       try {
         fs.writeFileSync(path.join(dist, "overlay.js"), buildOverlay())
+        fs.writeFileSync(path.join(dist, "overlay-lookup.js"), buildLookup())
         console.log("overlay.js rebuilt")
       } catch (e) {
         console.error(`overlay.js not rebuilt: ${e.message}`)
