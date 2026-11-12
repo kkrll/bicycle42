@@ -123,8 +123,9 @@ async function main() {
 
   // A hidden headless view draws about one frame a second, and the overlay sends a note two
   // frames after Enter: too late for the Enter check in page.ts, which a real window passes in
-  // ~30 ms. Asking for captures keeps frames coming at a normal rate.
-  const frames = setInterval(() => void wc.capturePage().catch(() => undefined), 30)
+  // ~30 ms. Asking for a repaint keeps frames coming at a normal rate (asking for pictures
+  // slowed them, to about two a second).
+  const frames = setInterval(() => (wc.isDestroyed() ? clearInterval(frames) : wc.invalidate()), 16)
 
   // ── act like a reviewer: click the hero button, type, press Enter ──────────────────────────
   const dbg = wc.debugger

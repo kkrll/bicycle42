@@ -175,10 +175,20 @@ async function main() {
     wc.sendInputEvent({ type: "keyUp", keyCode: "Enter" })
   }
   // A hidden headless view draws about one frame a second; the overlay sends its note two frames
-  // after Enter, which would be too late to count. Asking for pictures keeps frames coming.
-  // Once the window has closed the page is destroyed, and capturePage throws at once (not in its
-  // promise): the timer stops itself, or the main process dies with an error dialog.
-  const frames = setInterval(() => (wc.isDestroyed() ? clearInterval(frames) : void wc.capturePage().catch(() => undefined)), 30)
+  // after Enter, which would be too late to count. Asking for a repaint keeps the page's frames
+  // coming. (Asking it for pictures instead slowed them, to about two a second.)
+  // The window is hidden, so it draws no frame at all unless a picture of it is asked for, and
+  // its replies, hints and transitions wait on frames: there, pictures, one after another.
+  // Once the window has closed, touching it or the page throws at once (not in a promise): both
+  // stop themselves, or the main process dies with an error dialog.
+  const closed = () => win.isDestroyed() || wc.isDestroyed()
+  const frames = setInterval(() => (closed() ? clearInterval(frames) : wc.invalidate()), 16)
+  void (async () => {
+    while (!closed()) {
+      await win.webContents.capturePage().catch(() => undefined)
+      await sleep(30)
+    }
+  })()
   frames.unref()
   const note = async (selector: string, words: string) => {
     const at = (await js(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`)) as { x: number; y: number }
