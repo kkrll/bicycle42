@@ -2,7 +2,8 @@
 
 The in-page review layer of bicycle 42: `overlay.js` (one dependency-free script that a host
 injects into the page) and `prompt.js` (note → prompt text). The protocol between the overlay and
-its host is in [`src/protocol.js`](src/protocol.js). What it is for and its keys are in the
+its host is in [`protocol.ts`](protocol.ts): the messages of both directions and what a note
+carries, as types the overlay's files and the app both name. What it is for and its keys are in the
 [root README](../README.md).
 
 `overlay.js` is built, not written. [`src/`](src) is ES modules; `bun run build` has esbuild
@@ -14,7 +15,8 @@ request, the app's build and the benchmark build it themselves; it is not commit
 ## Source
 
 ```
-src/protocol.js     the protocol with the host, the keys and the gestures (a comment: the built script starts with it)
+protocol.ts         the messages between the overlay and its host, and a note's shape: types only, shared with the app
+src/protocol.js     what the overlay is, its keys and its gestures (a comment: the built script starts with it)
 src/state.js        the host bridge, the transient state
 src/ui.js           the layer's icons, and words with key symbols drawn in them
 src/component.js    what the page's framework calls an element, read from the page's own objects
@@ -63,7 +65,7 @@ bar) for motion mode and its tests.
 ## Test
 
 ```bash
-bun run check                          # tsc over src/: names and module members that resolve nowhere, a few seconds
+bun run check                          # tsc over src/: names and module members that resolve nowhere, messages that are not the protocol's; a few seconds
 bun run test                           # end-to-end tests in headless Chromium, about a minute
 CHROMIUM=/path/to/chrome bun run test  # when the tests do not find your Chromium
 node scripts/screenshot.mjs        # regenerates docs/harness.png

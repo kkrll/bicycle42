@@ -8,67 +8,10 @@
  *
  * ── Protocol ────────────────────────────────────────────────────────────────────────────────────
  * page → host   window.__review(JSON.stringify(msg))      (a CDP Runtime.addBinding, or a shim)
- *   { type: "ready", url, viewport }                      overlay mounted; host replies with "state"
- *   { type: "toggle", enabled? }                          mod+U (Preview: review off, or back on), or Esc
- *                                                         with nothing selected; enabled: true from mod+P/O/I
- *                                                         or mod+shift+P while review is off (the mode
- *                                                         follows once it is on)
- *   { type: "mode", mode: "notes"|"canvas"|"motion", brush }  the mode or the brush changed (also sent
- *                                                         after every "state"). The host has the
- *                                                         switch for both; the layer has none
- *   { type: "draft", draft | null }                       current unsent note, debounced
- *   { type: "note", note }                                submitted; card is hidden, outlines and
- *                                                         strokes stay drawn until "captured".
- *                                                         note.lane is "bg" when sent with alt+Enter
- *                                                         (to the host's background session)
- *   { type: "pins-placement", unplaced: [id] }            pins whose element can't be found (shown
- *                                                         at their stored position, if any, dimmed)
- *   { type: "pin", id }                                   a pin was clicked
- *   { type: "edits-shown", id, show }                     reply to "edits", two frames after the page
- *                                                         changed; id and show are echoed as received
- *
- *   A note made in canvas mode carries, besides the usual fields:
- *     note.edits?: Edit[]   at most 40. Kinds sent: "style" { css, changes: [{prop, from, to}] } (typed
- *                           declarations and resize/gap drags, one per element), "class" { from, to },
- *                           "move" { parent, fromIndex, toIndex, before }, "text" { from, to }, "hide".
- *                           Each has selector, tag, label, component?, repeated?.
- *     note.css?: string     the batch stylesheet (new rules), verbatim
- *     note.targets          the edited elements; note.bounds their rects before and after, united
- *   The draft carries the unsent batch as draft.edits (opaque: { els, sheet, ops }), draft.paths
- *   (where its elements were, to find them after a reload) and draft.note.
- *
- *   A note made in motion mode is about one animation, and carries:
- *     note.motion           { kind: "keyframes"|"transition"|"script", name, selector, label,
- *                             shared?, isNew?, from?, animation?: { to, from? }, keyframes?: { to, from? },
- *                             changes?: [{ prop, from, to }], starts?, current? } (see `Motion` in
- *                             app/src/main/review.ts). Its words may be empty when it changes something.
- *   The draft carries the unsent motion edits as draft.motion (opaque: { kf, use, note? }).
- *
  * host → page   window.__b42.receive(msg)
- *   { type: "state", enabled, draft?, pins?, templates? } templates: [{ name, hint }], offered after "/"
- *   { type: "enabled", enabled }
- *   { type: "mode", mode?: "notes"|"canvas"|"motion", brush? }  the host's switch. brush: true goes to notes
- *                                                         mode first: the brush belongs to it
- *   { type: "pins", pins: [Pin] }
- *       Pin = { id, n, status: queued|working|done|failed|paused|stopped, lane?: "bg", note?,
- *               selector?, tag?, text?, component?,      from the note's first target, for re-finding
- *               at?: [x, y] }                            document coords, the last-resort position
- *   { type: "captured", id }                              screenshot taken; clear the selection.
- *                                                         Clicks made before this are held, then applied
- *   { type: "captured", id, ok: false, why? }             the host did not take the note: nothing is
- *                                                         cleared, the card (or the canvas batch) comes
- *                                                         back and says why. A host answers every note
- *                                                         one way or the other; with no answer in 2 s
- *                                                         the note counts as taken (a slow screenshot)
- *   { type: "edits", id, show }                           hide (show: false) or show again everything
- *                                                         the sent canvas note `id` applied: styles,
- *                                                         classes, text, order, its stylesheet. While
- *                                                         any batch is hidden the layer's own chrome is
- *                                                         hidden too, as during a capture
- *
- * host → page, sync  window.__b42.busy()                true while the reviewer is mid-note (card
- *                                                         open, selection, drag, capture): a host
- *                                                         that reloads the page waits for false
+ * host → page, sync  window.__b42.busy()                true while the reviewer is mid-note
+ * Every message of both directions, and what a note, a draft and a pin carry, are types in
+ * ../protocol.ts (PageMessage, HostMessage, PageNote, Draft, Pin), shared with the app.
  *
  * Modes: mod+U Preview (pressed again, back to the mode it left) · mod+P Annotate (notes) · mod+shift+P
  * the brush · mod+O Edit (canvas) · mod+I Motion. By the key's place (KeyU…), so any layout has them.

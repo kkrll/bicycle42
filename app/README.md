@@ -41,6 +41,7 @@ node scripts/build.mjs && node_modules/.bin/electron --ozone-platform=headless -
 
 ```
 src/shared/types.ts     the contract: AppState, ChatEvent, Commands, Backend. Read this first.
+../overlay/protocol.ts  the page's side of it: the overlay's messages and a note's shape, shared with the overlay
 src/main/index.ts       controller: owns AppState, wires the four parts below
 src/main/page.ts        the page: a WebContentsView with the overlay injected over CDP, in its own script world
 src/main/review.ts      a site's notes and their status rules (pure, no Electron)

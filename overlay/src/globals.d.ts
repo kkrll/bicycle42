@@ -10,5 +10,5 @@ interface Window {
   /** page → host: the host's binding, or the harness's shim. Takes a message as JSON. */
   __review?: (json: string) => void;
   /** host → page: what mount.js puts here. Its presence stops a second copy of the overlay. */
-  __b42?: { version: string; busy(): boolean; receive(msg: any): void };
+  __b42?: import("../protocol").OverlayApi;
 }

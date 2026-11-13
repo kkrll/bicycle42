@@ -5,6 +5,7 @@ export const DRAG_PX = 5;
 export const CAPTURE_TIMEOUT_MS = 2000;
 
 // ── host bridge ─────────────────────────────────────────────────────────────────────────────
+/** @param {import("../protocol").PageMessage} msg */
 export const send = (msg) => {
   const fn = window.__review;
   if (typeof fn !== "function") return;

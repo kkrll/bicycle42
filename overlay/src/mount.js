@@ -121,7 +121,7 @@ window.__b42 = {
   version: VERSION,
   busy: () => !!(S.card || S.pending || S.drag || Notes.hasDraft() || Canvas.busy() || Motion.busy()),
   receive(msg) {
-    if (typeof msg === "string") msg = JSON.parse(msg);
+    if (typeof msg === "string") msg = /** @type {import("../protocol").HostMessage} */ (JSON.parse(msg));
     if (!root) return;
     switch (msg.type) {
       case "state":

@@ -237,7 +237,7 @@ async function main() {
   await forge("forged_4") // well inside the window of that Enter
   await sleep(300)
   check("one Enter admits one note", count("note") === notes + 1)
-  page.send({ type: "captured", id: pageNote(real?.note)?.id })
+  page.send({ type: "captured", id: pageNote(real?.note)?.id as string })
   await until(async () => (await page.overlay("window.__b42.busy()")) === false, 2000)
   wc.sendInputEvent({ type: "keyDown", keyCode: "Enter", modifiers: ["alt"] })
   await forge("after_alt_enter")
@@ -272,7 +272,7 @@ async function main() {
   wc.sendInputEvent({ type: "mouseUp", x: sendBox.x, y: sendBox.y, button: "left", clickCount: 1 })
   const byClick = await until(() => messages.find((m) => m.type === "note" && pageNote(m.note)?.text === "sent with a click"), 2000)
   check("a real click on the card's ↵ sends the note", !!byClick)
-  page.send({ type: "captured", id: pageNote(byClick?.note)?.id })
+  page.send({ type: "captured", id: pageNote((byClick as { note?: unknown } | undefined)?.note)?.id as string })
   await until(async () => (await page.overlay("window.__b42.busy()")) === false, 2000)
 
   // ── reloads ────────────────────────────────────────────────────────────────────────────────

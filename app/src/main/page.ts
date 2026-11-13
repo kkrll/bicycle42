@@ -6,11 +6,14 @@
 // the overlay shares the page's DOM, but the page's scripts can't see its globals or call the binding. This file knows nothing about notes: it hands the overlay's messages to the
 // controller and offers load / capture / send.
 import { WebContentsView, type BrowserWindow, type NativeImage } from "electron"
+import type { HostMessage, PageMessage } from "../../../overlay/protocol"
 import type { Rect } from "../shared/types"
 
 export type PageState = { url: string; loading: boolean; error?: string; canGoBack: boolean; canGoForward: boolean; hmr: boolean }
 
-export type PageMessage = { type: "ready" | "toggle" | "mode" | "draft" | "note" | "pins-placement" | "pin" | "edits-shown"; [k: string]: unknown }
+/** overlay → host, as the overlay's protocol has it. What arrives is only known to have one of
+ *  its types (PAGE_EVENTS below): its fields are the page's to fill, and are checked where used. */
+export type { PageMessage }
 
 export type Page = {
   readonly view: WebContentsView
@@ -23,7 +26,7 @@ export type Page = {
   /** Where the view sits in the window (CSS px); null hides it. */
   setBounds(bounds: Rect | null): void
   /** host → overlay (window.__b42.receive). */
-  send(msg: unknown): void
+  send(msg: HostMessage): void
   capture(): Promise<NativeImage>
   /** Reloads once the reviewer isn't mid-note (overlay busy() is false). No-op when the page hot-reloads itself. */
   reloadWhenIdle(): void
@@ -351,7 +354,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     opts.onChange()
   }
 
-  function send(msg: unknown) {
+  function send(msg: HostMessage) {
     if (gone()) return
     // No overlay on the page (placeholder, mid-navigation) is not an error: it asks for state on "ready".
     void overlay(`window.__b42 && window.__b42.receive(${JSON.stringify(JSON.stringify(msg))})`)
