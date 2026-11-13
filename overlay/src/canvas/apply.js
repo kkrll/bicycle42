@@ -1,6 +1,15 @@
+import { adopt, BOOST } from "../page.js";
+import { C, MAX_CLASS, MAX_CSS, MAX_SHEET } from "./state.js";
+import { elOf, stableSel, STAMP, stampOf } from "./stamps.js";
+import { usable } from "./css.js";
+import { drawBar } from "./bar.js";
+import { T } from "./tree.js";
+import { kick } from "../render.js";
+import { hostEl } from "../mount.js";
+
 // ── applying the batches ────────────────────────────────────────────────────────────────────
 /** A top-level cut of stylesheet text: one string per rule, so a change re-inserts one rule. */
-function splitRules(text) {
+export function splitRules(text) {
   const out = [];
   let depth = 0, start = 0;
   const cut = (end) => {
@@ -62,7 +71,7 @@ function setRules(b, k, rules) {
 }
 
 /** The children of P in the order the move ops ask for. */
-function ordered(base, ops) {
+export function ordered(base, ops) {
   const L = base.slice();
   for (const op of ops) {
     const el = elOf(op.rs);
@@ -77,7 +86,7 @@ function ordered(base, ops) {
   return L;
 }
 
-const setText = (el, s) => {
+export const setText = (el, s) => {
   const t = el.firstChild;
   if (el.childNodes.length === 1 && t.nodeType === 3) t.data = s; // the same text node: a framework keeps its reference
   else el.textContent = s;
@@ -86,7 +95,7 @@ const setClass = (el, v) => (v === null ? el.removeAttribute("class") : el.setAt
 
 /** Make the page show every batch that is not hidden. Idempotent: it writes only what differs,
  *  so it is also what runs after the page re-renders. */
-function applyAll() {
+export function applyAll() {
   if (C.edit) return;
   clearTimeout(C.slowTimer);
   C.slowTimer = 0;

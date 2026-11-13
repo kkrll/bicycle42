@@ -1,7 +1,13 @@
+import { S } from "../state.js";
+import { draftChanged } from "../draft.js";
+import { autosize, drawCardSend, PLACEHOLDER } from "./card.js";
+import { chip, menuEl, textarea } from "./mount.js";
+import { kick } from "../render.js";
+
 // ── templates ───────────────────────────────────────────────────────────────────────────────
 // "/" at the start of a note lists kinds of work (variants, accessible, grade, …). Picking one
 // puts a chip on the card; whatever is typed after it steers the template, and may be nothing.
-function setTemplate(name) {
+export function setTemplate(name) {
   S.template = name || null;
   S.menu = null;
   if (!chip) return;
@@ -13,7 +19,7 @@ function setTemplate(name) {
   drawMenu();
 }
 
-function updateMenu() {
+export function updateMenu() {
   const m = !S.template && S.templates.length ? /^\/([a-z-]*)$/.exec(textarea.value) : null;
   const found = m ? S.templates.filter((t) => t.name.startsWith(m[1])) : [];
   S.menu = found.length ? found : null;
@@ -21,7 +27,7 @@ function updateMenu() {
   drawMenu();
 }
 
-function drawMenu() {
+export function drawMenu() {
   if (!menuEl) return;
   menuEl.hidden = !S.menu;
   menuEl.replaceChildren(
@@ -46,7 +52,7 @@ function drawMenu() {
   kick();
 }
 
-function pickTemplate(t) {
+export function pickTemplate(t) {
   textarea.value = "";
   setTemplate(t.name);
   autosize();

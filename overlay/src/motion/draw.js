@@ -1,10 +1,23 @@
 // Motion mode, the mode and what is drawn: switched on and off, the dock drawn from the data,
 // and every frame the playhead, the time and the outlines on the page.
 
+import { isMac, S } from "../state.js";
+import { icon } from "../ui.js";
+import { adopt, rectOf } from "../page.js";
+import * as Notes from "../notes/api.js";
+import * as Canvas from "../canvas/api.js";
+import { apply, curve, DOCK_H, esc, frames, KIND_TITLE, kindIcon, M, MAJOR, mi, mq, name, openDirty, openKf, openUse, r1, RATE_TEXT, readOnly, scan, secs } from "./model.js";
+import { animOf, knownNames, letGo, position, running, selectEl, show } from "./open.js";
+import { cssText, keyInfo, laneOrder, rows, segEase, sharedBy, snapshot, timing } from "./edit.js";
+import { closePop, cssEl, dock, ftEl, hdEl, kbEl, listEl, msgEl, noteEl, sug, sugHide, tagEl, tlEl } from "./input.js";
+import { modeOn, setMode } from "../mode.js";
+import { kick } from "../render.js";
+import { root } from "../mount.js";
+
 // ── mode ─────────────────────────────────────────────────────────────────────────────────
 /** Motion mode's own part of switching it on or off. The switch is setMode (mode.js): it
  *  turns the other modes off first. */
-function setOn(on) {
+export function setOn(on) {
   if (on === M.on || !dock) return;
   closePop();
   sugHide();
@@ -39,7 +52,7 @@ function setOn(on) {
   kick();
 }
 /** After a reload (the agent's own edits cause many) the reviewer is still in motion mode. */
-function resume() {
+export function resume() {
   let was = false;
   try {
     was = sessionStorage.getItem("b42-motion") === "1";
@@ -47,7 +60,7 @@ function resume() {
   if (was && modeOn() === "notes" && !S.card && !Notes.hasDraft()) setMode("motion");
 }
 /** Room for the dock: the page can scroll its last part out from under it. */
-function syncUi() {
+export function syncUi() {
   if (!(M.on && S.enabled)) {
     if (M.ui) adopt(M.ui, false);
     return;
@@ -80,18 +93,18 @@ function watchSuspects(on) {
 }
 
 // ── drawing ──────────────────────────────────────────────────────────────────────────────
-const typingIn = (el) => {
+export const typingIn = (el) => {
   const a = root.activeElement;
   return !!a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && el.contains(a);
 };
 /** A field of the dock, focused once the dock has been drawn again (a keyframe's value, after
  *  the keyframe or its lane is added). */
-const focusLater = (sel) =>
+export const focusLater = (sel) =>
   setTimeout(() => {
     const f = dock.querySelector(sel);
     if (f && !f.disabled) f.select ? f.select() : f.focus();
   }, 0);
-function draw() {
+export function draw() {
   if (!dock || !M.on) return;
   if (sug && !sug.f.isConnected) sugHide();
   drawList();
@@ -106,7 +119,7 @@ function draw() {
   drawFoot();
   kick();
 }
-function drawList() {
+export function drawList() {
   if (!dock || !M.on) return;
   const list = rows();
   listEl._rows = list;
@@ -154,7 +167,7 @@ function laneBars(p) {
   for (const f of fr) out.push(`<i class="m-key m-gr${on(f) ? " on" : ""}" style="--at: ${f.at / 100}" data-at="${f.at}" data-prop="${esc(p)}" title="${esc(f.vals[p])}"></i>`);
   return out.join("");
 }
-function drawLanes() {
+export function drawLanes() {
   const o = M.open;
   tlEl.classList.toggle("ro", readOnly());
   if (!o) {
@@ -197,7 +210,7 @@ function drawLanes() {
   html.push(`<div class="m-phl"><div class="m-flag" hidden><b></b></div></div>`);
   tlEl.innerHTML = html.join("");
 }
-function keyEditor() {
+export function keyEditor() {
   const k = keyInfo();
   if (!k) return "";
   const ro = k.ro ? "disabled" : "";
@@ -218,7 +231,7 @@ function sentStatus() {
   return b ? `Sent · preview stays until ${b.n !== null ? `note ${b.n}` : "the note"} is done` : "";
 }
 /** The note that goes with the open animation, and Send; or what the line has to say. */
-function drawFoot() {
+export function drawFoot() {
   if (!ftEl) return;
   const o = M.open, can = !!o && (openDirty() || !!noteEl.value.trim());
   const busy = root.activeElement === noteEl || !!noteEl.value;
@@ -233,7 +246,7 @@ function drawFoot() {
   go.title = can ? "Send this animation to the agent (↵)" : o ? "Change it, or say what it should do, first" : "Open an animation first";
 }
 /** A message on the line under the timeline, for a moment. */
-function flash(text) {
+export function flash(text) {
   M.msg = text;
   drawFoot();
   clearTimeout(M.msgTimer);
@@ -245,7 +258,7 @@ function flash(text) {
 
 // ── one frame ────────────────────────────────────────────────────────────────────────────
 /** Every frame: the playhead, the time, the play button, the outlines on the page. */
-function frame(capturing) {
+export function frame(capturing) {
   if (!dock) return null;
   const on = M.on && S.enabled && !capturing;
   if (dock._shown !== on) {
@@ -316,4 +329,4 @@ function frame(capturing) {
   return out;
 }
 /** More frames are needed: something plays, is dragged, or a ring is going out. */
-const busyFrames = () => M.on && S.enabled && (running() || !!M.drag || performance.now() < M.findUntil || !!(M.ro && M.ro.on));
+export const busyFrames = () => M.on && S.enabled && (running() || !!M.drag || performance.now() < M.findUntil || !!(M.ro && M.ro.on));

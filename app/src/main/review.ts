@@ -12,120 +12,16 @@
 // conversation" the lane points somewhere else, and that conversation's events are not about
 // the notes sent before. `lane` only says how the note is shown.
 import { cssWords, editWords, motionLines } from "../../../overlay/prompt.js"
+import type { Box, Edit, Motion, PageNote, Pin } from "../../../overlay/protocol"
 import type { InboxStatus, NoteRow, NoteStatus } from "../shared/types"
 
 /** Bump when the saved shape changes; store.ts moves files of any other version aside. */
 export const REVIEW_VERSION = 1
 
-/** A rectangle as the overlay sends it: viewport CSS px. (shared `Rect` is the window's, with width/height.) */
-export type Box = { x: number; y: number; w: number; h: number }
-
-/** One canvas-mode edit: something the reviewer did to a real element of the page by dragging,
- *  typing or deleting, or by writing CSS for it in the inspector. Absolute (a target value, not a
- *  delta). The agent makes it real in code.
- *
- *  The inspector reports everything set on one element as a single "style" edit (`css` and
- *  `changes`), sizes and spacing set by dragging included; "resize", "gap", "padding" and "margin"
- *  are the older, one-property form of the same and are still read. */
-export type Edit = {
-  kind: "move" | "resize" | "gap" | "padding" | "margin" | "text" | "hide" | "style" | "class"
-  /** The edited element (for gap: the parent whose gap changed). */
-  selector: string
-  tag: string
-  /** A plain name for it: "Button · Start free trial". */
-  label: string
-  component?: string
-  /** The CSS property changed, when there is one: "width", "row-gap", "padding-top", … */
-  prop?: string
-  /** "16px", the old text, or (class) the original class attribute. */
-  from?: string
-  /** "32px", the new text, or (class) the edited class attribute. */
-  to?: string
-  /** style only: the declarations typed for this element (and written by gestures), verbatim. */
-  css?: string
-  /** style only: each property set, with its computed value before and after. */
-  changes?: Array<{ prop: string; from: string; to: string }>
-  /** move only. */
-  parent?: { selector: string; label: string; layout: "flex-row" | "flex-column" | "grid" | "block" }
-  /** 0-based among element siblings. */
-  fromIndex?: number
-  toIndex?: number
-  /** The sibling it now sits before; null = it is the last one. */
-  before?: { selector: string; label: string } | null
-  /** How many siblings look like the same component. More than 1 means "repeated". */
-  repeated?: number
-}
-
-/** One animation, changed in motion mode (or only talked about, for a transition or a script's
- *  animation, which the page can't edit). Everything in it ends up in the prompt or in the panel. */
-export type Motion = {
-  kind: "keyframes" | "transition" | "script"
-  /** The keyframes' name (a script's animation id; "transition" for a transition). */
-  name: string
-  /** The element that plays it, and its plain name: "Heading · Ship calmer interfaces". */
-  selector: string
-  label: string
-  /** keyframes: how many elements play these keyframes. More than 1: a change to them changes all. */
-  shared?: number
-  /** keyframes: a new animation on the element. */
-  isNew?: true
-  /** keyframes: the element got keyframes of its own (`name`), copied from these. */
-  from?: string
-  /** keyframes: the element's `animation` value now, and before. */
-  animation?: { to: string; from?: string }
-  /** keyframes: the @keyframes text now, and before. */
-  keyframes?: { to: string; from?: string }
-  /** keyframes: what changed in how it plays, each with its value before and after. */
-  changes?: Array<{ prop: "duration" | "delay" | "easing" | "count" | "direction" | "fill"; from: string; to: string }>
-  /** keyframes: what should start it, when that is not what starts it now. */
-  starts?: "load" | "view" | "hover" | "click" | "appear" | "scroll"
-  /** transition and script: what the page has, in one line. */
-  current?: string
-}
-
-/** The overlay's note, as it sends it (see the protocol in overlay/src/protocol.js). */
-export type PageNote = {
-  id: string
-  text: string
-  url: string
-  viewport: { w: number; h: number; dpr: number; scrollX: number; scrollY: number }
-  targets: Array<{
-    selector: string
-    tag: string
-    text?: string
-    rect: Box
-    component?: { name: string; stack: string[]; source?: string }
-  }>
-  area: Box | null
-  strokes: number[][][]
-  bounds: Box | null
-  lane?: "bg"
-  /** A note template chosen with "/" in the note card ("variants", "grade", …). */
-  template?: string
-  /** Pictures the reviewer pasted into the note, as data URIs. Named here, not by the page. */
-  images?: Array<{ name: string; uri: string }>
-  /** Canvas mode: what the reviewer changed on the live page. Such a note may have no words. */
-  edits?: Edit[]
-  /** Canvas mode: new CSS rules the reviewer typed for the whole batch, verbatim. A note may be
-   *  nothing but this. */
-  css?: string
-  /** Motion mode: the one animation the note is about. */
-  motion?: Motion
-}
-
-export type Pin = {
-  id: string
-  n: number
-  status: "queued" | "working" | "done" | "failed" | "paused" | "stopped"
-  lane?: "bg"
-  selector?: string
-  tag?: string
-  text?: string
-  component?: string
-  at?: [number, number]
-  /** The reviewer's words, for the pin's tooltip. */
-  note?: string
-}
+// What the overlay sends and is sent: a rectangle (viewport CSS px; the shared `Rect` is the
+// window's, with width/height), a canvas edit, a motion note's animation, the note, a pin. They
+// are the protocol's, shared with the overlay, and go by the same names here as before.
+export type { Box, Edit, Motion, PageNote, Pin }
 
 export type Note = Omit<NoteRow, "edits" | "motion"> & {
   /** Canvas edits, as the page sent them (checked). The row shows them as sentences. */

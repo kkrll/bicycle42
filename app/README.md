@@ -13,7 +13,9 @@ bun run typecheck
 ```
 
 `scripts/build.mjs` bundles main and preload with esbuild, the window with Vite and Solid, and
-puts the overlay (built from `../overlay/src`) and `../assets/icon.png` beside them.
+puts the overlay and `../assets/icon.png` beside them. The overlay is built by its own script
+(`../overlay/scripts/build.mjs`, esbuild over `../overlay/src`), with the overlay's esbuild,
+or the app's when the overlay's packages are not installed.
 
 Settings and notes live in the app's user-data folder (`~/.config/bicycle42` on Linux);
 `BICYCLE42_DATA=/some/folder` puts them elsewhere.
@@ -39,6 +41,7 @@ node scripts/build.mjs && node_modules/.bin/electron --ozone-platform=headless -
 
 ```
 src/shared/types.ts     the contract: AppState, ChatEvent, Commands, Backend. Read this first.
+../overlay/protocol.ts  the page's side of it: the overlay's messages and a note's shape, shared with the overlay
 src/main/index.ts       controller: owns AppState, wires the four parts below
 src/main/page.ts        the page: a WebContentsView with the overlay injected over CDP, in its own script world
 src/main/review.ts      a site's notes and their status rules (pure, no Electron)
@@ -84,7 +87,7 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   script world of their own (`WORLD` in `page.ts`): they share the page's document, but the
   site's scripts can't call the one or reach into the other. As a second lock, a note counts
   only right after a real Enter key press in the page (or a real click, for a Send button).
-  One small script does run among the page's own (`overlay/src/component.js`): what React or
+  One small script does run among the page's own (`overlay/src/lookup.js`, with `component.js`): what React or
   Vue calls an element is in the page's objects, so it reads that there and answers the overlay
   through an event; the answer is checked like anything else the page says.
   Page text is quoted in the prompt as data.

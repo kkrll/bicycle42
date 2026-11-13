@@ -1,3 +1,5 @@
+import { line } from "../page.js";
+
 // ── typed CSS: scanning, checking ───────────────────────────────────────────────────────────
 // Not a CSS parser: it only finds where declarations and rule heads start and end, so a rejected
 // one can be underlined and a drag can replace `width: …` in place. The browser does the parsing.
@@ -45,7 +47,7 @@ const declOf = (t) => {
   const m = /^([^:\s]+)\s*:\s*([\s\S]*)$/.exec(t);
   return m ? { prop: m[1].startsWith("--") ? m[1] : m[1].toLowerCase(), value: m[2].trim() } : null;
 };
-const supports = (prop, value) => {
+export const supports = (prop, value) => {
   try {
     return CSS.supports(prop, value.replace(/!\s*important\s*$/i, "").trim());
   } catch {
@@ -55,7 +57,7 @@ const supports = (prop, value) => {
 const short = (s) => (s.length > 28 ? `${s.slice(0, 27)}…` : s);
 
 /** What the browser will not take, as ranges of the text with a reason each. */
-function problems(text, sheet) {
+export function problems(text, sheet) {
   const { segs, balanced } = scanCss(text);
   const out = [];
   for (const g of segs) {
@@ -83,7 +85,7 @@ function problems(text, sheet) {
 
 // Asked on every apply (and that runs on every re-render of the page), so the answer is kept.
 const balance = new Map();
-const usable = (css, max) => {
+export const usable = (css, max) => {
   if (!css.trim() || css.length > max) return false;
   let ok = balance.get(css);
   if (ok === undefined) {
@@ -94,7 +96,7 @@ const usable = (css, max) => {
 };
 
 /** The top-level properties a declaration text sets, for the note's before → after list. */
-function topProps(css) {
+export function topProps(css) {
   const out = [];
   for (const g of scanCss(css).segs) {
     if (g.depth || g.head) continue;
@@ -105,7 +107,7 @@ function topProps(css) {
 }
 
 /** `css` with `prop: value` set: replaced where it is declared at the top level, else added. */
-function setDecl(css, prop, value) {
+export function setDecl(css, prop, value) {
   let hit = null;
   for (const g of scanCss(css).segs) if (!g.depth && !g.head && declOf(g.text)?.prop === prop) hit = g;
   if (hit) return `${css.slice(0, hit.s)}${prop}: ${value}${css.slice(hit.e)}`;

@@ -1,3 +1,10 @@
+import { S } from "./state.js";
+import { icon, ICONS } from "./ui.js";
+import { rectOf } from "./page.js";
+import * as Notes from "./notes/api.js";
+import { active, pool } from "./render.js";
+import { domVersion, hostEl, variantsEl, variantStyle } from "./mount.js";
+
 // ── variants ────────────────────────────────────────────────────────────────────────────────
 // The /variants template asks the agent to render every option as siblings in one wrapper:
 //   <div data-b42-variants="hero-cta">
@@ -15,7 +22,7 @@ try {
 // a dark olive on a light page, pale yellow on a dark one. The card and its chips are always dark.
 function pageAccent() {
   for (const el of [document.body, document.documentElement]) {
-    const m = el && /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/.exec(getComputedStyle(el).backgroundColor);
+    const m = el && /** @type {any} */ (/rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/.exec(getComputedStyle(el).backgroundColor));
     if (m && (m[4] === undefined || Number(m[4]) > 0.5))
       return 0.2126 * m[1] + 0.7152 * m[2] + 0.0722 * m[3] < 110 ? "#fffaa0" : "#3b4d22";
   }
@@ -70,7 +77,7 @@ function keepVariant(g) {
 }
 
 function makeVariantBar() {
-  const bar = document.createElement("div");
+  const bar = /** @type {any} */ (document.createElement("div")); // (it carries its group, as _group)
   bar.className = "vbar";
   const button = (text, title, run) => {
     const b = document.createElement("button");
@@ -92,7 +99,7 @@ function makeVariantBar() {
   return bar;
 }
 
-function drawVariants(capturing) {
+export function drawVariants(capturing) {
   scanVariants();
   const shown = S.enabled && !capturing ? V.groups.filter((g) => g.el.isConnected) : [];
   const bars = pool(variantsEl, shown.length, makeVariantBar);

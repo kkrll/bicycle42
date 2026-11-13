@@ -1,6 +1,20 @@
+import { icon } from "../ui.js";
+import { line, plainLabel } from "../page.js";
+import { C, clean, COMPUTED, MAX_CLASS, MAX_CSS, MAX_SHEET } from "./state.js";
+import { entry } from "./stamps.js";
+import { problems, setDecl, supports, topProps } from "./css.js";
+import { applyAll } from "./apply.js";
+import { commit } from "./batch.js";
+import { dock, syncUi } from "./cursor.js";
+import { drawBar, drawPop, flash, hush } from "./bar.js";
+import { reveal, T } from "./tree.js";
+import { clsEl, compEl, cssEl, freeEl, insp, ipath } from "./mount.js";
+import { kick, pool } from "../render.js";
+import { domVersion, root } from "../mount.js";
+
 // ── inspector: classes, element styles, stylesheet, computed ────────────────────────────────
 /** Put the batch's text into the fields (never into the one being typed in, unless forced). */
-function syncFields(force) {
+export function syncFields(force) {
   if (!insp) return;
   const el = C.sel && C.sel.isConnected ? C.sel : null;
   const e = el && C.draft.B.els[C.selRs];
@@ -68,7 +82,7 @@ function mark(area, sheet) {
 }
 
 /** Typing: the page follows within a frame; the undo step closes when the typing pauses. */
-function typed(field) {
+export function typed(field) {
   const v = clean(field.value);
   if (v !== field.value) {
     const at = field.selectionStart - (field.value.length - v.length);
@@ -116,7 +130,7 @@ const pretty = (v) =>
     `#${[r, g, b].map((x) => Number(x).toString(16).padStart(2, "0")).join("")}${a === undefined ? "" : Math.round(Number(a) * 255).toString(16).padStart(2, "0")}`)
     .replace(/(-?\d+\.\d\d+)px/g, (_, x) => `${Math.round(Number(x) * 10) / 10}px`);
 
-function drawComputed() {
+export function drawComputed() {
   const el = C.sel;
   const now = performance.now();
   // The page changes an element's look without changing the tree: a class or an inline style
@@ -169,7 +183,7 @@ function drawComputed() {
   });
 }
 
-const unmarkValue = (row) => {
+export const unmarkValue = (row) => {
   if (!row._bad) return;
   row._bad = false;
   row.lastChild.classList.remove("bad");
@@ -178,7 +192,7 @@ const unmarkValue = (row) => {
 
 /** A computed value was edited: write `prop: value;` into Element styles (the way a drag does),
  *  unless the browser would not take it; then it is marked, like rejected CSS, and not written. */
-function setValue(field) {
+export function setValue(field) {
   const row = field.parentElement, p = row._p, v = line(clean(field.value));
   if (!C.sel || !p) return;
   if (!v || v === row._v) {
@@ -203,7 +217,7 @@ function setValue(field) {
 
 /** Element | Global: the selection's own styles, or the batch's stylesheet. Without a selection
  *  there is only Global; with one it is Element, unless the reviewer chose Global themselves. */
-function drawTabs() {
+export function drawTabs() {
   const el = C.sel && C.sel.isConnected ? C.sel : null;
   const global = !el || C.pin;
   const tEl = insp.querySelector(".t-el"), tGl = insp.querySelector(".t-gl");
@@ -221,7 +235,7 @@ function drawTabs() {
   tGl.querySelector(".dot").hidden = !C.draft.B.sheet.trim(); // rules are waiting in there
 }
 
-function setPanel(h, collapsed, settled = true) {
+export function setPanel(h, collapsed, settled = true) {
   const opened = C.collapsed && !collapsed;
   C.ph = Math.round(Math.min(Math.max(h, 140), Math.max(140, window.innerHeight * 0.7)));
   C.collapsed = collapsed;

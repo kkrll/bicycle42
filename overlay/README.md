@@ -2,20 +2,56 @@
 
 The in-page review layer of bicycle 42: `overlay.js` (one dependency-free script that a host
 injects into the page) and `prompt.js` (note → prompt text). The protocol between the overlay and
-its host is in [`src/protocol.js`](src/protocol.js). What it is for and its keys are in the
+its host is in [`protocol.ts`](protocol.ts): the messages of both directions and what a note
+carries, as types the overlay's files and the app both name. What it is for and its keys are in the
 [root README](../README.md).
 
-`overlay.js` is built, not written: `bun run build` joins the pieces in [`src/`](src) into one
-closure, in the order listed in [`scripts/build.mjs`](scripts/build.mjs), which also says how a
-piece and a module see each other. The harness server builds it on every request, the app's build
-and the benchmark build it themselves; it is not committed.
+`overlay.js` is built, not written. [`src/`](src) is ES modules; `bun run build` has esbuild
+follow the imports from `src/mount.js` and put every file into one scope, unminified, inside one
+function whose first statement stops a second copy ([`scripts/build.mjs`](scripts/build.mjs)).
+The result is a classic script with no imports of its own. The harness server builds it on every
+request, the app's build and the benchmark build it themselves; it is not committed.
+
+## Source
+
+```
+protocol.ts         the messages between the overlay and its host, and a note's shape: types only, shared with the app
+src/protocol.js     what the overlay is, its keys and its gestures (a comment: the built script starts with it)
+src/state.js        the host bridge, the transient state
+src/ui.js           the layer's icons, and words with key symbols drawn in them
+src/component.js    what the page's framework calls an element, read from the page's own objects
+src/page.js         geometry, element identity, picking, the rules previews adopt
+src/draft.js        the draft the host keeps: the note in progress, canvas's batch, motion's animations
+src/variants.js     the page's own variants, switched from a small bar
+src/sent.js         the pins' tooltip; a note from any mode sent, and the host's answer
+src/mode.js         which mode is on, the one switch between them, the host's switch, the brush
+src/input.js        the page's pointer and keys: what every mode shares, then the mode that is on
+src/render.js       one frame at a time: each mode's part, the outlines, the pins
+src/mount.js        the layer's elements and its shadow root, the host's API (window.__b42); the build starts here
+src/styles.css      the layer's styles, imported as text
+src/notes/          notes mode: a note about the page, its outlines, area and strokes, on a card
+src/canvas/         canvas mode: the page's real elements edited, the batch sent as one note
+src/motion/         motion mode: what moves on the page, one animation per note
+src/lookup.js       the small second script (overlay-lookup.js): component.js and its listener
+src/globals.d.ts    what the type check cannot read from the .js files
+```
+
+- **A mode is a folder, and the rest of the overlay sees only its `api.js`**, imported whole
+  (`import * as Canvas from "./canvas/api.js"`). The files of a mode import each other freely.
+- **A file can only assign what it declares.** What a mode's `mount` finds in the layer is
+  declared in that mount's file and exported; the other files read it. State that many files
+  change is a property of an object (`S`, canvas's `C`, motion's `M`), never a variable.
+- **`component.js` stands alone**: it is also built into `overlay-lookup.js`, which a host that
+  gives the overlay a script world of its own adds among the page's scripts (`buildLookup()`).
+- **Function names are kept** (esbuild's `keepNames`) where one scope would rename them: the
+  benchmark counts the overlay's frames by the name of the function asked for.
 
 ![harness](docs/harness.png)
 
 ## Harness
 
 ```bash
-bun install          # only playwright-core, for the tests; it uses your installed Chromium
+bun install          # esbuild for the build, typescript for the check, playwright-core for the tests (it uses your installed Chromium)
 bun run harness      # http://127.0.0.1:4173/   (HOST=0.0.0.0 to reach it from another machine)
 ```
 
@@ -29,7 +65,7 @@ bar) for motion mode and its tests.
 ## Test
 
 ```bash
-bun run check                          # names and module members that resolve nowhere, a few seconds
+bun run check                          # tsc over src/: names and module members that resolve nowhere, messages that are not the protocol's; a few seconds
 bun run test                           # end-to-end tests in headless Chromium, about a minute
 CHROMIUM=/path/to/chrome bun run test  # when the tests do not find your Chromium
 node scripts/screenshot.mjs        # regenerates docs/harness.png

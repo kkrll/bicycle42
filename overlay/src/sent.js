@@ -1,3 +1,13 @@
+import { CAPTURE_TIMEOUT_MS, S, send } from "./state.js";
+import { line, pick } from "./page.js";
+import { draftTimer, serializeDraft } from "./draft.js";
+import * as Notes from "./notes/api.js";
+import * as Canvas from "./canvas/api.js";
+import * as Motion from "./motion/api.js";
+import { modeOn } from "./mode.js";
+import { kick, render } from "./render.js";
+import { tip } from "./mount.js";
+
 // ── pin tooltip ─────────────────────────────────────────────────────────────────────────────
 const STATUS_WORDS = { queued: "Waiting", working: "Working", done: "Done", failed: "Failed", paused: "Paused (offline)", stopped: "Stopped" };
 
@@ -24,12 +34,12 @@ function showTip(el) {
   tip.style.transform = `translate(${Math.round(left)}px, ${Math.round(Math.max(8, top))}px)`;
 }
 
-function hideTip() {
+export function hideTip() {
   if (tip && !tip.hidden) tip.hidden = true; // (writing `hidden` again restyles, even unchanged)
 }
 
-function makePin() {
-  const el = document.createElement("div");
+export function makePin() {
+  const el = /** @type {any} */ (document.createElement("div")); // (it carries its pin, as _pin)
   el.addEventListener("mouseenter", () => showTip(el));
   el.addEventListener("mouseleave", hideTip);
   // Clicking a pin shows its note in the app's panel; it never starts a selection.
@@ -38,8 +48,9 @@ function makePin() {
 }
 
 // ── a note sent ─────────────────────────────────────────────────────────────────────────────
-/** A note from any mode goes to the host; finishCapture or refuseCapture follows. */
-function dispatch(note) {
+/** A note from any mode goes to the host; finishCapture or refuseCapture follows.
+ *  @param {import("../protocol").PageNote} note */
+export function dispatch(note) {
   // Hide the card (and, via S.pending, hover and pins) before the host takes its screenshot.
   Notes.closeCard();
   Notes.hideSent();
@@ -54,7 +65,7 @@ function dispatch(note) {
 /** The host did not take the note ("captured" with ok: false): it must not look sent. Nothing
  *  of a plain note was cleared yet (finishCapture does that), so its card opens again with
  *  the words in it; a canvas batch goes back to being the unsent one. */
-function refuseCapture(id, why) {
+export function refuseCapture(id, why) {
   if (!S.pending || S.pending !== id) return;
   S.pending = null;
   S.buffered = null;
@@ -66,7 +77,7 @@ function refuseCapture(id, why) {
   kick();
 }
 
-function finishCapture(id) {
+export function finishCapture(id) {
   if (!S.pending || S.pending !== id) return;
   S.pending = null;
   Canvas.finish();

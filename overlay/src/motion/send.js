@@ -1,8 +1,18 @@
 // Motion mode, sending: the open animation as a note, its rules kept applied until the note is
 // done, and what is unsent kept by the host across a reload.
 
+import { S } from "../state.js";
+import { adopt, BOOST, describe, editSel, plainLabel, vp } from "../page.js";
+import { draftChanged } from "../draft.js";
+import { dispatch } from "../sent.js";
+import { anyDirty, apply, entryCss, kfDirty, M, MAX_KF, mq, ms, openDirty, openKf, openUse, playsDirty, readList, scan, serialize, useDirty } from "./model.js";
+import { letGo, openCss, setSel, show } from "./open.js";
+import { sharedBy, snapshot, timing } from "./edit.js";
+import { draw, drawFoot, flash } from "./draw.js";
+import { noteEl } from "./input.js";
+
 // ── sending ──────────────────────────────────────────────────────────────────────────────
-/** The open animation, as the note says it (see `Motion` in app/src/main/review.ts). */
+/** The open animation, as the note says it (see `Motion` in ../../protocol.ts). */
 function payload() {
   const o = M.open, el = mq(o.rs);
   const who = { selector: editSel(el), label: plainLabel(el) };
@@ -14,7 +24,7 @@ function payload() {
     return { kind: o.kind, name: o.kind === "transition" ? "transition" : o.name.slice(0, 64), ...who, current: current.slice(0, 400) };
   }
   const u = openUse(), k = openKf();
-  const out = { kind: "keyframes", name: k.name, ...who, shared: sharedBy() };
+  const out = /** @type {any} */ ({ kind: "keyframes", name: k.name, ...who, shared: sharedBy() });
   if (u.isNew) out.isNew = true;
   if (u.from) out.from = u.from;
   if (useDirty(u)) out.animation = { to: entryCss({ name: u.name, ...u.timing }), ...(u.isNew ? {} : { from: entryCss({ name: u.from || u.name, ...u.orig }) }) };
@@ -25,7 +35,7 @@ function payload() {
   if (u.plays.how !== "asnow") out.starts = u.plays.how;
   return out;
 }
-function submit(background) {
+export function submit(background) {
   if (S.pending) return;
   const o = M.open, el = o && mq(o.rs), words = noteEl.value.trim();
   if (!o || !el) return flash("Open an animation first: click something that moves, or a row of the list");
@@ -46,7 +56,7 @@ function submit(background) {
     strokes: [],
     bounds: target.rect,
     time: Date.now(),
-    ...(background ? { lane: "bg" } : {}),
+    ...(background ? { lane: /** @type {const} */ ("bg") } : {}),
     motion,
   };
   // What it was, until the host takes it; then its rules move to a sheet of their own, and it
@@ -103,7 +113,7 @@ function moveToSent(id) {
 }
 /** The host did not take the note: the animation is unsent again, with its undo steps and words.
  *  Another note's id (an older one, or a canvas note) changes nothing here. */
-function refuse(id, say) {
+export function refuse(id, say) {
   const u = M.unsent;
   if (!u || u.id !== id) return false;
   M.unsent = null;
@@ -132,12 +142,12 @@ function dropSent(b) {
   adopt(b.sheet, false);
   for (const { x, index, entry } of b.undo) if (x.base[index]) x.base[index] = entry;
 }
-function finish(id) {
+export function finish(id) {
   if (M.unsent && M.unsent.id === id) M.unsent = null;
   if (S.quiet === id) S.sel = [];
 }
 /** A sent animation is a preview until the agent is finished with its note. */
-function dropFinished() {
+export function dropFinished() {
   let changed = false;
   M.sent = M.sent.filter((b) => {
     const p = S.pins.find((x) => x.id === b.id);
@@ -174,14 +184,14 @@ function dropFinished() {
 
 // ── the draft the host keeps ─────────────────────────────────────────────────────────────
 /** What is unsent, for the host to keep across a reload: the edited keyframes and uses only. */
-function draft() {
+export function draft() {
   const kf = [...M.kf].filter(([, k]) => kfDirty(k));
   const use = [...M.use].filter(([, u]) => useDirty(u) || playsDirty(u));
   const words = noteEl ? noteEl.value : "";
   if (!kf.length && !use.length && !words) return null;
   return { kf, use, ...(words ? { note: words } : {}) };
 }
-function restore(d) {
+export function restore(d) {
   if (!d || typeof d !== "object" || anyDirty()) return;
   try {
     const kf = (Array.isArray(d.kf) ? d.kf : []).filter((e) => Array.isArray(e) && typeof e[0] === "string" && e[1] && Array.isArray(e[1].frames));

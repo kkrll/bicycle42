@@ -1,9 +1,17 @@
+import { icon } from "../ui.js";
+import { line, SKIP } from "../page.js";
+import { C } from "./state.js";
+import { select } from "./select.js";
+import { treeEl, trows, tspace } from "./mount.js";
+import { kick, pool } from "../render.js";
+import { domVersion } from "../mount.js";
+
 // ── inspector: the tree ─────────────────────────────────────────────────────────────────────
 // A flat list of the rows that are open, built by walking only the expanded elements, and drawn
 // through a window: however large the page, the tree holds a screenful of row elements.
 const ROW = 20;
-const T = { open: new WeakSet(), rows: [], ver: -1, at: 0, need: true, scroll: 0, first: -1 };
-const treeKids = (el) => [...el.children].filter((c) => !SKIP.test(c.tagName));
+export const T = { open: new WeakSet(), rows: [], ver: -1, at: 0, need: true, scroll: 0, first: -1 };
+export const treeKids = (el) => [...el.children].filter((c) => !SKIP.test(c.tagName));
 const hasKids = (el) => {
   for (let c = el.firstElementChild; c; c = c.nextElementSibling) if (!SKIP.test(c.tagName)) return true;
   return false;
@@ -26,7 +34,7 @@ function buildRows() {
 }
 
 /** Open the way down to an element and bring its row into view. */
-function reveal(el) {
+export function reveal(el) {
   for (let a = el.parentElement; a; a = a.parentElement) T.open.add(a);
   buildRows();
   const i = T.rows.findIndex((r) => r.el === el);
@@ -39,7 +47,7 @@ function reveal(el) {
 }
 const treeHeight = () => Math.max(ROW, C.ph - 31);
 
-function toggleRow(el, open) {
+export function toggleRow(el, open) {
   if (open ?? !T.open.has(el)) T.open.add(el);
   else T.open.delete(el);
   buildRows();
@@ -54,7 +62,7 @@ function makeRow() {
   return row;
 }
 
-function drawTree() {
+export function drawTree() {
   // After DOM changes the list is walked again, but not more often than a few times a second.
   if (T.ver !== domVersion && (T.ver < 0 || performance.now() - T.at > 200)) buildRows();
   else if (!T.need) return;
@@ -101,7 +109,7 @@ function drawTree() {
   }
 }
 
-function treeKey(key) {
+export function treeKey(key) {
   const i = T.rows.findIndex((r) => r.el === C.sel);
   const el = C.sel;
   if (i < 0) return void (T.rows[0] && select(T.rows[0].el));

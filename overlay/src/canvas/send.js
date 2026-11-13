@@ -1,3 +1,17 @@
+import { S, send } from "../state.js";
+import { adopt, describe, editSel, line, rectOf, round, union, vp } from "../page.js";
+import { dispatch } from "../sent.js";
+import { C, EMPTY, MAX_CLASS, MAX_CSS, MAX_SHEET, MAX_TEXT, newBatch } from "./state.js";
+import { elOf, stableSel } from "./stamps.js";
+import { topProps } from "./css.js";
+import { applyAll } from "./apply.js";
+import { commit, countEdits } from "./batch.js";
+import { select } from "./select.js";
+import { drawBar, flash, setPop } from "./bar.js";
+import { syncFields } from "./inspector.js";
+import { cnote } from "./mount.js";
+import { hostEl } from "../mount.js";
+
 // ── sending ─────────────────────────────────────────────────────────────────────────────────
 const tidy = (e, selector = e.selector) => {
   const out = { selector, tag: e.tag, label: e.label };
@@ -5,9 +19,9 @@ const tidy = (e, selector = e.selector) => {
   if (e.repeated) out.repeated = e.repeated;
   return out;
 };
-const value = (s) => line(s).slice(0, 400);
+export const value = (s) => line(s).slice(0, 400);
 
-function submitCanvas(background) {
+export function submitCanvas(background) {
   if (C.typeTimer) commit();
   if (S.pending) return;
   const B = C.draft.B;
@@ -97,7 +111,7 @@ function submitCanvas(background) {
     strokes: [],
     bounds: bounds && round(bounds),
     time: Date.now(),
-    ...(background ? { lane: "bg" } : {}),
+    ...(background ? { lane: /** @type {const} */ ("bg") } : {}),
     ...(edits.length ? { edits } : {}),
     ...(css ? { css } : {}),
   };
@@ -123,7 +137,7 @@ function submitCanvas(background) {
 /** The host refused the note: its batch is the unsent one again, with its undo steps and its
  *  words, and the bar says why. Anything typed since (the Global box and the note field stay
  *  usable while the answer is awaited) is added to it, not lost. */
-function unsendCanvas(id, say) {
+export function unsendCanvas(id, say) {
   const u = C.unsent;
   const i = C.sent.findIndex((b) => b.id === id);
   if (i < 0 || !u || u.id !== id) return flash(say); // another note's refusal: what is unsent stays
@@ -158,12 +172,12 @@ function unsendCanvas(id, say) {
 }
 
 /** The host took the note: its batch is no longer one to give back. */
-function finish() {
+export function finish() {
   C.unsent = null;
 }
 
 /** A sent batch is a preview until the agent is finished with its note. */
-function dropFinished() {
+export function dropFinished() {
   let changed = false;
   C.sent = C.sent.filter((b) => {
     const p = S.pins.find((x) => x.id === b.id);
@@ -199,7 +213,7 @@ function forget(rs, k) {
   if (st) delete st[k];
 }
 
-function showEdits(msg) {
+export function showEdits(msg) {
   const b = C.sent.find((x) => x.id === msg.id);
   if (b) {
     if (msg.show === false) C.hide.add(b.id);

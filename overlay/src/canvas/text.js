@@ -1,9 +1,18 @@
+import { line } from "../page.js";
+import { C } from "./state.js";
+import { meta } from "./stamps.js";
+import { setText } from "./apply.js";
+import { commit } from "./batch.js";
+import { editCursor } from "./cursor.js";
+import { drawBar, flash } from "./bar.js";
+import { kick } from "../render.js";
+
 // ── text, edited in place ───────────────────────────────────────────────────────────────────
 // The element itself becomes editable for the moment (plain text only), so the words wrap and
 // look exactly as they will. The attribute goes the moment editing ends, whichever way it ends.
-const inEdit = (e) => e.composedPath().includes(C.edit.el);
+export const inEdit = (e) => e.composedPath().includes(C.edit.el);
 
-function startEdit(el) {
+export function startEdit(el) {
   if (![...el.childNodes].every((n) => n.nodeType === 3) || !el.textContent.trim())
     return flash(el.childElementCount ? "Double-click the words themselves: this has elements inside" : "No text here to edit");
   if (C.typeTimer) commit();
@@ -22,7 +31,7 @@ function startEdit(el) {
   kick();
 }
 
-function endEdit(keep) {
+export function endEdit(keep) {
   const ed = C.edit;
   if (!ed) return;
   C.edit = null;

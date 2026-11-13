@@ -1,5 +1,20 @@
+import { S, send, VERSION } from "./state.js";
+import { vp } from "./page.js";
+import { restoreDraft } from "./draft.js";
+import * as Notes from "./notes/api.js";
+import { finishCapture, refuseCapture } from "./sent.js";
+import * as Canvas from "./canvas/api.js";
+import * as Motion from "./motion/api.js";
+import { hostMode, retellMode } from "./mode.js";
+import { blockIfActive, isOurs, onKeyDown, onPointerDown, onPointerMove, onPointerUp, setEnabled, setPins } from "./input.js";
+import { active, kick } from "./render.js";
+import STYLES from "./styles.css"; // its text: the build loads a stylesheet as a string
+
 // ── mount ───────────────────────────────────────────────────────────────────────────────────
-const STYLES = include("styles.css");
+// The layer's own elements, made by mount(). A file can only assign what it declares, so they
+// are here and not with the rest of the state; every other file reads them.
+export let hostEl, root, boxes, pinsEl, cursorStyle, tip, variantsEl, variantStyle;
+export let domVersion = 0; // bumped on every DOM mutation; pins re-search only when it changes
 
 // The layer has to be the topmost thing on the page and has to take typing, whatever the page
 // shows. Two browser rules decide where it sits:
@@ -73,7 +88,7 @@ function mount() {
   // Something of the page's entered the top layer after us: go back on top of it.
   window.addEventListener(
     "toggle",
-    (e) => {
+    (/** @type {any} */ e) => {
       if (e.target !== hostEl && e.newState === "open" && e.target.matches?.("[popover], dialog")) raise();
     },
     true,
@@ -106,7 +121,7 @@ window.__b42 = {
   version: VERSION,
   busy: () => !!(S.card || S.pending || S.drag || Notes.hasDraft() || Canvas.busy() || Motion.busy()),
   receive(msg) {
-    if (typeof msg === "string") msg = JSON.parse(msg);
+    if (typeof msg === "string") msg = /** @type {import("../protocol").HostMessage} */ (JSON.parse(msg));
     if (!root) return;
     switch (msg.type) {
       case "state":
@@ -116,8 +131,7 @@ window.__b42 = {
         if (msg.draft && !Notes.hasDraft() && !Canvas.hasEdits()) restoreDraft(msg.draft);
         Canvas.resume();
         Motion.resume();
-        modeTold = ""; // a new page, or a host that asks again: it hears the mode whatever it was
-        tellMode();
+        retellMode();
         break;
       case "mode":
         hostMode(msg);

@@ -1,9 +1,15 @@
 // Motion mode, editing: undo, keyframes shared or made the element's own, a keyframe or a lane
 // added, moved or removed, the timing, the keyframes as text; and the list's rows, as data.
 
+import { editSel } from "../page.js";
+import { draftChanged } from "../draft.js";
+import { apply, DIRECTION, FILL, frames, HOW, kfDirty, M, MAX_KF, mq, ms, name, openKf, openUse, parseKf, pathOf, playsDirty, r1, readList, scan, serialize, splitTop, useDirty } from "./model.js";
+import { animOf, openCss, openScript, openTransition, seek, useKf } from "./open.js";
+import { draw, drawList, flash } from "./draw.js";
+
 // ── undo ─────────────────────────────────────────────────────────────────────────────────
-const snapshot = () => JSON.stringify({ kf: [...M.kf], use: [...M.use], open: M.open && M.open.kind === "css" ? M.open : null });
-function commit() {
+export const snapshot = () => JSON.stringify({ kf: [...M.kf], use: [...M.use], open: M.open && M.open.kind === "css" ? M.open : null });
+export function commit() {
   const now = snapshot();
   if (now !== M.snap) {
     M.past.push(M.snap);
@@ -16,7 +22,7 @@ function commit() {
   draw();
   draftChanged();
 }
-function travel(from, to) {
+export function travel(from, to) {
   if (!from.length) return;
   to.push(M.snap);
   M.snap = from.pop();
@@ -32,7 +38,7 @@ function travel(from, to) {
   draftChanged();
 }
 /** The open animation as the page has it (or as it was last sent): its edits go. */
-function discard() {
+export function discard() {
   let u = openUse(), k = openKf();
   if (!u) return;
   if (u.from) {
@@ -61,14 +67,14 @@ function discard() {
 
 // ── shared keyframes ─────────────────────────────────────────────────────────────────────
 /** How many elements play the open keyframes. A change to them changes every one. */
-function sharedBy() {
+export function sharedBy() {
   const k = openKf();
   const a = k && M.scan.anims.find((x) => x.name === k.name);
   return a ? a.els.length : 1;
 }
 /** The open element gets keyframes of its own: a copy, under a new name, with the changes made
  *  so far; the shared ones go back to what the page has, for the other elements. */
-function detach() {
+export function detach() {
   const u = openUse(), k = openKf();
   if (!u || !k || sharedBy() < 2) return;
   let nm = `${k.name}-2`;
@@ -87,7 +93,7 @@ function detach() {
 }
 
 // ── editing keyframes ────────────────────────────────────────────────────────────────────
-function moveKey(prop, from, to) {
+export function moveKey(prop, from, to) {
   const k = openKf();
   if (!k) return false;
   const F = k.frames, a = F.find((f) => f.at === from);
@@ -112,7 +118,7 @@ function moveKey(prop, from, to) {
 /** A new keyframe where a lane was pressed twice. It takes the value the animation has at that
  *  moment, so adding one changes nothing until it is edited; a transform comes back from the
  *  browser as a matrix, which nobody wants to edit, so there the keyframe before is copied. */
-function addKey(prop, at) {
+export function addKey(prop, at) {
   const k = openKf(), el = mq(M.open && M.open.rs);
   if (!k || !el) return;
   let f = k.frames.find((x) => x.at === at);
@@ -121,7 +127,7 @@ function addKey(prop, at) {
   const cs = getComputedStyle(el);
   for (const p of props) {
     if (f && p in f.vals) continue;
-    let v = cs.getPropertyValue(p).replace(/-?\d*\.\d{4,}/g, (n) => String(Math.round(n * 1000) / 1000));
+    let v = cs.getPropertyValue(p).replace(/-?\d*\.\d{4,}/g, (/** @type {any} */ n) => String(Math.round(n * 1000) / 1000));
     if (/^matrix/.test(v) || !v) {
       const before = k.frames.filter((x) => x.at <= at && p in x.vals).pop() || k.frames.find((x) => p in x.vals);
       v = before ? before.vals[p] : v || "initial";
@@ -133,7 +139,7 @@ function addKey(prop, at) {
   M.key = { at, prop };
   commit();
 }
-function removeKey() {
+export function removeKey() {
   const k = openKf(), selKey = M.key;
   if (!k || !selKey) return;
   const f = k.frames.find((x) => x.at === selKey.at);
@@ -146,7 +152,7 @@ function removeKey() {
   M.key = null;
   commit();
 }
-function addLane(prop) {
+export function addLane(prop) {
   const k = openKf(), el = mq(M.open && M.open.rs);
   prop = prop.trim().toLowerCase();
   if (!k || !el || !prop || !CSS.supports(prop, "initial") || laneOrder().includes(prop)) return false;
@@ -163,7 +169,7 @@ function addLane(prop) {
   seek(1);
   return true;
 }
-function removeLane(prop) {
+export function removeLane(prop) {
   const k = openKf();
   if (!k) return;
   for (const f of k.frames) delete f.vals[prop];
@@ -172,13 +178,13 @@ function removeLane(prop) {
   commit();
 }
 /** The lanes keep their place while keyframes are dragged past each other. */
-function laneOrder() {
+export function laneOrder() {
   const have = new Set(frames().flatMap((f) => Object.keys(f.vals)));
   M.lanes = M.lanes.filter((p) => have.has(p));
   for (const p of have) if (!M.lanes.includes(p)) M.lanes.push(p);
   return M.lanes;
 }
-function keyInfo() {
+export function keyInfo() {
   const selKey = M.key, o = M.open;
   if (!selKey || !o) return null;
   const f = frames().find((x) => x.at === selKey.at);
@@ -189,7 +195,7 @@ function keyInfo() {
   return { f, at: f.at, prop: selKey.prop, value: selKey.prop ? f.vals[selKey.prop] : null, ease, dflt: t ? t.easing : "", last: f.at >= 100 || o.kind === "transition", ro };
 }
 /** One field of the selected keyframe: "val", "ease" or "at". False when the browser says no. */
-function setKey(what, v, done) {
+export function setKey(what, v, done) {
   const k = openKf(), selKey = M.key;
   if (!k || !selKey) return false;
   const fr = k.frames.find((x) => x.at === selKey.at);
@@ -215,7 +221,7 @@ function setKey(what, v, done) {
   }
   return true;
 }
-function segEase(at, prop) {
+export function segEase(at, prop) {
   const f = frames().find((x) => x.at === at);
   const own = M.ro && M.ro.laneEase ? M.ro.laneEase[prop] : f ? f.ease : "";
   const t = timing();
@@ -223,7 +229,7 @@ function segEase(at, prop) {
 }
 
 // ── timing ───────────────────────────────────────────────────────────────────────────────
-function timing() {
+export function timing() {
   const o = M.open;
   if (!o) return null;
   if (o.kind === "css") return openUse().timing;
@@ -231,14 +237,14 @@ function timing() {
   return { duration: M.ro.total, delay: 0, easing: M.ro.items.length ? M.ro.items[0].easing : "ease", count: "1", direction: "normal", fill: "none" };
 }
 /** One field of the timing, or of what starts it ("how"). False when the value is not one. */
-function setTiming(what, v, done) {
+export function setTiming(what, v, done) {
   const u = openUse();
   if (!u) return false;
   if (what === "how") {
     if (!HOW[v]) return false;
     u.plays.how = v;
   } else {
-    let val = String(v).trim(), ok = true;
+    let val = /** @type {any} */ (String(v).trim()), ok = true;
     if (what === "duration" || what === "delay") {
       ok = val !== "" && Number.isFinite(Number(val)) && Math.abs(Number(val)) <= 600000 && (what === "delay" || Number(val) >= 0);
       val = Number(val);
@@ -258,14 +264,14 @@ function setTiming(what, v, done) {
 }
 
 // ── the text ─────────────────────────────────────────────────────────────────────────────
-function cssText() {
+export function cssText() {
   const k = openKf();
   if (k) return serialize(k.name, k.frames);
   if (M.ro && M.open.kind === "script") return serialize(M.open.name, M.ro.frames);
   if (M.ro && M.open.kind === "transition") return `${editSel(M.sel)} {\n  transition: ${M.ro.items.map((x) => `${x.prop} ${ms(x.duration)} ${x.easing}`).join(",\n    ")};\n}`;
   return "";
 }
-function setCss(text) {
+export function setCss(text) {
   const k = openKf();
   if (!k) return "";
   if (text.length > MAX_KF) return `Too long: ${MAX_KF} characters at most`;
@@ -291,7 +297,7 @@ function setCss(text) {
   return "";
 }
 /** Why `nm` cannot be the open keyframes' new name, or "". */
-function nameProblem(nm) {
+export function nameProblem(nm) {
   if (!/^-?[a-zA-Z_][\w-]{0,60}$/.test(nm)) return "A name is letters, digits, - and _, and starts with a letter";
   if (M.kf.has(nm) || M.scan.rules.has(nm) || M.scan.anims.some((a) => a.name === nm)) return `“${nm}” is taken`;
   return "";
@@ -312,7 +318,7 @@ function rename(k, nm) {
   return true;
 }
 /** The name typed in the band, for keyframes made here. */
-function setName(v, done) {
+export function setName(v, done) {
   const k = openKf(), nm = String(v).trim();
   if (!k || !k.isNew) return false;
   if (nm === k.name) return true;
@@ -331,8 +337,8 @@ function setName(v, done) {
 // A row says `text`, and smaller beside it `aside`: an animation's name and what plays it, or,
 // for what has no name (a transition, a script's frames), the element and what moves. A row
 // under a group of elements says only its element.
-function rows() {
-  const found = M.scan, o = M.open, out = [];
+export function rows() {
+  const found = M.scan, o = M.open, out = /** @type {any[]} */ ([]);
   const timingOf = (el, nm) => {
     const u = M.use.get(`${pathOf(el)}|${nm}`);
     return u ? u.timing : readList(el).find((x) => x.name === nm) || null;

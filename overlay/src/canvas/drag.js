@@ -1,7 +1,25 @@
+import { DRAG_PX, mod } from "../state.js";
+import { BOOST, editSel, line, pick, plainLabel, readView, rectOf, VP } from "../page.js";
+import * as Notes from "../notes/api.js";
+import { C, kids, MAX_CSS, num, px } from "./state.js";
+import { entry, meta, stableSel, stamp } from "./stamps.js";
+import { setDecl } from "./css.js";
+import { applyAll, ordered } from "./apply.js";
+import { commit } from "./batch.js";
+import { between, cursorOf, flow, select, zoneOf } from "./select.js";
+import { endEdit, startEdit } from "./text.js";
+import { liveEnd, liveSet, shield } from "./cursor.js";
+import { flash, hush, setPop } from "./bar.js";
+import { T } from "./tree.js";
+import { syncFields } from "./inspector.js";
+import { block, isOurs } from "../input.js";
+import { kick } from "../render.js";
+import { root } from "../mount.js";
+
 // ── drags ───────────────────────────────────────────────────────────────────────────────────
 // pointermove only records where the pointer is. The frame does the work: it measures once when
 // the drag starts (sizes, siblings), then each frame computes one value and writes one rule.
-function cvDown(e, z) {
+export function cvDown(e, z) {
   hush();
   if (C.pop) setPop(C.pop);
   const f = root.activeElement;
@@ -15,7 +33,7 @@ function cvDown(e, z) {
   C.drag = { x0: x, y0: y, x, y, zone: z || (body ? { t: "body" } : null), mode: null, free: mod(e), sx: window.scrollX, sy: window.scrollY };
 }
 
-function cvMove(e) {
+export function cvMove(e) {
   const d = C.drag;
   if (!d) {
     const z = zoneOf(e);
@@ -40,7 +58,7 @@ function cvMove(e) {
   kick();
 }
 
-function cvUp(e) {
+export function cvUp(e) {
   const d = C.drag;
   if (!d) return;
   block(e);
@@ -61,13 +79,13 @@ function cvUp(e) {
   else if (el !== C.sel) select(el);
 }
 
-function cancelDrag() {
+export function cancelDrag() {
   const d = C.drag;
   C.drag = null;
   if (d && d.mode && d.mode !== "start") endDrag(d, false);
 }
 
-function startDrag(d) {
+export function startDrag(d) {
   beginDrag(d);
   if (d.mode !== "none") shield(d.mode === "move" ? "grabbing" : cursorOf(d.zone)); // the cursor for the whole drag
 }
@@ -167,7 +185,7 @@ function startMove(d, el) {
   liveSet(C.selRs, "opacity", "0.35");
 }
 
-function stepDrag(d) {
+export function stepDrag(d) {
   const dx = d.x - d.x0 + VP.sx - d.sx, dy = d.y - d.y0 + VP.sy - d.sy;
   const key = `${dx}|${dy}|${d.free}`;
   if (key === d.key) return;
