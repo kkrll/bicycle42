@@ -24,7 +24,7 @@ function payload() {
     return { kind: o.kind, name: o.kind === "transition" ? "transition" : o.name.slice(0, 64), ...who, current: current.slice(0, 400) };
   }
   const u = openUse(), k = openKf();
-  const out = { kind: "keyframes", name: k.name, ...who, shared: sharedBy() };
+  const out = /** @type {any} */ ({ kind: "keyframes", name: k.name, ...who, shared: sharedBy() });
   if (u.isNew) out.isNew = true;
   if (u.from) out.from = u.from;
   if (useDirty(u)) out.animation = { to: entryCss({ name: u.name, ...u.timing }), ...(u.isNew ? {} : { from: entryCss({ name: u.from || u.name, ...u.orig }) }) };

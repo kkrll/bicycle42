@@ -317,7 +317,7 @@ export function scan() {
     if (cs.animationName !== "none") for (const nm of splitTop(cs.animationName)) (anims.get(nm) || anims.set(nm, []).get(nm)).push(el);
     if (cs.transitionProperty !== "none" && splitTop(cs.transitionDuration).some((d) => parseFloat(d) > 0)) transitions.push(el);
   }
-  const live = document.getAnimations();
+  const live = /** @type {any[]} */ (document.getAnimations());
   const running = new Set(live.filter((a) => a.playState === "running" && a.animationName).map((a) => a.animationName));
   M.scan = {
     rules,

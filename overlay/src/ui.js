@@ -30,7 +30,7 @@ export function keyNodes(text) {
     }
     const t = document.createElement("template");
     t.innerHTML = icon(part, 12);
-    const svg = t.content.firstChild;
+    const svg = /** @type {Element} */ (t.content.firstChild);
     svg.classList.add("kg");
     svg.setAttribute("role", "img");
     svg.setAttribute("aria-label", KEY_NAMES[part]);

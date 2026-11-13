@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { serve } from "../scripts/serve.mjs";
+import { build } from "../scripts/build.mjs";
 
 const CANDIDATES = [
   process.env.CHROMIUM,
@@ -203,12 +204,10 @@ test("a refusal of another note leaves the one being sent alone: refused itself,
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   // No host message reaches Motion.refuse with an id that is not the pending one (refuseCapture
-  // checks first), so the module is put on the page for this test, as the overlay is served.
-  await page.route("**/overlay.js", async (route) => {
-    const res = await route.fetch();
-    const body = (await res.text()).replace("window.__b42 = {", "window.__motion = Motion;\n  window.__b42 = {");
-    await route.fulfill({ response: res, body });
-  });
+  // checks first), so the module is put on the page for this test: the overlay is built with
+  // two lines more, which run after its own.
+  const withMotion = build('import * as Motion from "./motion/api.js";\nwindow.__motion = Motion;');
+  await page.route("**/overlay.js", (route) => route.fulfill({ contentType: "text/javascript", body: withMotion }));
   await page.goto(`${base}/?delay=150&page=motion`);
   const f = await pageFrame(page);
   await motionOn(f);

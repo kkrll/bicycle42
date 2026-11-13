@@ -121,7 +121,7 @@ export function editSel(el) {
 let componentAnswer = null;
 window.addEventListener(
   "b42:component-is",
-  (e) => {
+  (/** @type {CustomEvent} */ e) => {
     e.stopImmediatePropagation();
     componentAnswer = e.detail;
   },
@@ -176,8 +176,8 @@ function textOf(el) {
   if (!el.firstElementChild) text = el.textContent || "";
   else {
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-    let prev = null;
-    for (let n = walker.nextNode(); n && text.length < 240; n = walker.nextNode()) {
+    let prev = /** @type {any} */ (null);
+    for (let n = /** @type {any} */ (walker.nextNode()); n && text.length < 240; n = walker.nextNode()) {
       const a = prev && prev.parentNode, b = n.parentNode;
       if (prev && a !== b && !((a.contains(b) && INLINE.test(b.tagName)) || (b.contains(a) && INLINE.test(a.tagName)))) text += " ";
       text += n.data;

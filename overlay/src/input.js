@@ -19,7 +19,7 @@ export const block = (e) => {
 
 export function onPointerDown(e) {
   if (!S.enabled) return;
-  const mode = current();
+  const mode = /** @type {any} */ (current()); // (only canvas mode has a zoneOf)
   const zone = mode.zoneOf ? mode.zoneOf(e) : null; // a handle, an edge or a gap of the canvas selection: ours, but a page gesture
   if (isOurs(e) && !zone) return;
   mode.pointerDown(e, zone);

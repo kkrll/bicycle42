@@ -111,7 +111,7 @@ export function openTransition(el) {
   const col = (p) => splitTop(cs.getPropertyValue(p));
   const props = col("transition-property"), dur = col("transition-duration"), del = col("transition-delay"), ease = col("transition-timing-function");
   const at = (list, i) => list[i % list.length];
-  let state = null;
+  let state = /** @type {any} */ (null);
   const walk = (list) => {
     for (const r of list) {
       if (r.cssRules && r.cssRules.length && !r.selectorText) walk(r.cssRules);

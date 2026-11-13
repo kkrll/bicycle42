@@ -97,7 +97,7 @@ export function layoutHit(g, r) {
   // Corners: 16px to hit (less on a small element), an 8px square to see. Edges: the strip
   // between the corners, 6px outside the border and 3px inside, so the body stays draggable.
   const c = Math.max(8, Math.min(16, w / 2, h / 2));
-  handles.forEach((el, i) => (g.resizable ? at(el, (i % 2) * w - c / 2, (i > 1) * h - c / 2, c, c) : gone(el)));
+  handles.forEach((el, i) => (g.resizable ? at(el, (i % 2) * w - c / 2, /** @type {any} */ (i > 1) * h - c / 2, c, c) : gone(el)));
   const ex = w - c, ey = h - c;
   [[c / 2, -6, ex, 9], [w - 3, c / 2, 9, ey], [c / 2, h - 3, ex, 9], [-6, c / 2, 9, ey]].forEach(([x, y, ww, hh], i) =>
     g.resizable && ww > 0 && hh > 0 ? at(edges[i], x, y, ww, hh) : gone(edges[i]));

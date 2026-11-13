@@ -8,10 +8,9 @@ import * as Motion from "./motion/api.js";
 import { hostMode, retellMode } from "./mode.js";
 import { blockIfActive, isOurs, onKeyDown, onPointerDown, onPointerMove, onPointerUp, setEnabled, setPins } from "./input.js";
 import { active, kick } from "./render.js";
+import STYLES from "./styles.css"; // its text: the build loads a stylesheet as a string
 
 // ── mount ───────────────────────────────────────────────────────────────────────────────────
-const STYLES = include("styles.css");
-
 // The layer's own elements, made by mount(). A file can only assign what it declares, so they
 // are here and not with the rest of the state; every other file reads them.
 export let hostEl, root, boxes, pinsEl, cursorStyle, tip, variantsEl, variantStyle;
@@ -89,7 +88,7 @@ function mount() {
   // Something of the page's entered the top layer after us: go back on top of it.
   window.addEventListener(
     "toggle",
-    (e) => {
+    (/** @type {any} */ e) => {
       if (e.target !== hostEl && e.newState === "open" && e.target.matches?.("[popover], dialog")) raise();
     },
     true,

@@ -39,7 +39,7 @@ export function hideTip() {
 }
 
 export function makePin() {
-  const el = document.createElement("div");
+  const el = /** @type {any} */ (document.createElement("div")); // (it carries its pin, as _pin)
   el.addEventListener("mouseenter", () => showTip(el));
   el.addEventListener("mouseleave", hideTip);
   // Clicking a pin shows its note in the app's panel; it never starts a selection.

@@ -3,11 +3,13 @@
 //   node scripts/build.mjs [out]    writes overlay.js (or out); overlay.js is not committed
 //   import { build } from "./build.mjs"; build()   the text, for the harness server and the app
 //
-// The pieces in PARTS are joined, in order, inside one closure, and share its scope: a piece uses
-// what the pieces before it declared (and, inside functions, what any piece declares).
-// An entry { module, files } is a module: its files share a scope of their own inside the closure,
-// and the rest of the overlay sees only the object its files declare as `api`, under `module`.
-// include("name") in a piece becomes the text of src/name as a template literal (styles.css).
+// src/ is ES modules. esbuild starts at src/mount.js, follows the imports and puts every file it
+// reaches into one scope, in the order the imports give; nothing is minified, so a line of the
+// built script reads as its line in src/ (each file starts with a comment that names it).
+// A stylesheet is imported as its text. The result has no imports or exports of its own, so it
+// is the body of one function here: a host needs a classic script, and the first statement has
+// to be the one that stops a second copy.
+import { buildSync } from "esbuild";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,124 +17,40 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(ROOT, "src");
 
-/** The protocol (a comment) comes first, outside the closure; then these, in this order. */
-export const PARTS = [
-  "state.js", // the host bridge, the transient state
-  "ui.js", // the layer's icons, and words with key symbols drawn in them
-  "component.js", // what the page's framework calls an element, read from the page's own objects
-  "page.js", // geometry, element identity, picking, the rules previews adopt
-  "draft.js", // the draft the host keeps: the note in progress, canvas's batch, motion's animations
-  {
-    module: "Notes", // notes mode: a note about the page, its outlines, area and strokes, on a card
-    files: [
-      "notes/card.js", // the card: its markup, what it says it is about, where it sits
-      "notes/templates.js", // "/" and the list of templates
-      "notes/pictures.js", // pictures pasted into the note
-      "notes/draft.js", // the note in progress: whether there is one, emptied, restored
-      "notes/submit.js", // the note sent, refused, taken
-      "notes/sent.js", // the "Sent" chip where the card was, and Esc's undo
-      "notes/frame.js", // one frame: the hover outline, the ink, the card's place
-      "notes/input.js", // the page's pointer and the card's keys
-      "notes/mount.js", // its elements in the layer, and their listeners; shown with review
-      "notes/api.js", // what the rest of the overlay sees
-    ],
-  },
-  "variants.js", // the page's own variants, switched from a small bar
-  "sent.js", // the pins' tooltip; a note from any mode sent, and the host's answer
-  {
-    module: "Canvas", // canvas mode: the page's real elements edited, the batch sent as one note
-    files: [
-      "canvas/state.js", // its rules, its limits and its state
-      "canvas/stamps.js", // which element an edit is on, after the page re-renders or reloads
-      "canvas/css.js", // typed CSS: where declarations start and end, what the browser rejects
-      "canvas/apply.js", // the batches shown on the page: adopted rules, DOM writes put back exactly
-      "canvas/batch.js", // the unsent batch: commit, undo, reset, its draft
-      "canvas/send.js", // a batch sent as one note, given back when refused, dropped when done
-      "canvas/select.js", // the selection, what can be grabbed around it, hide, parent and child
-      "canvas/drag.js", // drags: resize, gap, reorder
-      "canvas/text.js", // text edited in place
-      "canvas/cursor.js", // the page's cursor and room under the dock, a drag's live rule
-      "canvas/bar.js", // the bar: the batch's count and actions, messages, the two lists
-      "canvas/keys.js", // its keys
-      "canvas/tree.js", // the inspector's tree of the page's elements
-      "canvas/inspector.js", // the inspector's fields: classes, element styles, stylesheet, computed
-      "canvas/frame.js", // one frame: the drag's write, the selection's geometry, the drawing
-      "canvas/mount.js", // its elements in the layer, and their listeners
-      "canvas/api.js", // on and off, and what the rest of the overlay sees
-    ],
-  },
-  {
-    module: "Motion", // motion mode: what moves on the page, one animation per note
-    files: [
-      "motion/model.js", // motion mode: the constants, the state M, the page's animations read and applied
-      "motion/open.js", // opening one, and playing it with the page's own Animation object
-      "motion/edit.js", // undo, shared keyframes, keyframes and timing edited, the text, the list's rows
-      "motion/send.js", // the open animation sent as a note, and the draft the host keeps
-      "motion/draw.js", // the mode on and off, the dock drawn, one frame
-      "motion/input.js", // the pointer, the small sheet, clicks, fields and keys, mount
-      "motion/api.js", // what the rest of the overlay sees
-    ],
-  },
-  "mode.js", // which mode is on, the one switch between them, the host's switch, the brush
-  "input.js", // the page's pointer and keys: what every mode shares, then the mode that is on
-  "render.js", // one frame at a time: each mode's part, the outlines, the pins
-  "mount.js", // the layer's elements and its shadow root, the host's API
-];
-
-const read = (name) => fs.readFileSync(path.join(SRC, name), "utf8").replace(/\n$/, "");
-const indent = (text, n) => text.split("\n").map((l) => (l ? " ".repeat(n) + l : l)).join("\n");
-
-// While the files become ES modules, one area at a time, a piece may already say what it imports
-// and exports. The pieces still share one closure, so those words are passed over here: an import
-// line becomes an empty line and an exported declaration a plain one, and no line moves.
-const plain = (text) => text.replace(/^import .*;$/gm, "").replace(/^export (?=(?:async )?function |const |let |class )/gm, "");
-
-function piece(name) {
-  return plain(read(name)).replace(/^( *)(.*)include\("([^"]+)"\)(.*)$/gm, (_, ind, before, file, after) => {
-    const text = read(file);
-    if (/[`\\]|\$\{/.test(text)) throw new Error(`${file}: no \`, \\ or \${ in an included file`);
-    return `${ind}${before}\`\n${indent(text, ind.length + 2)}\n${ind}\`${after}`;
+/** One script from an entry and all it imports. Throws with esbuild's message (a missing file,
+ *  a name a file does not export, a write to an imported name). */
+function bundle(entry, more) {
+  const { outputFiles } = buildSync({
+    ...entry,
+    bundle: true,
+    write: false,
+    format: "esm",
+    charset: "utf8", // the key symbols and the dashes as they are written, not as escapes
+    loader: { ".css": "text" },
+    absWorkingDir: ROOT, // the comments that name each file say src/…, wherever the build is run from
+    ...more,
   });
+  return outputFiles[0].text;
 }
 
-// Each piece starts with a line that names it, so a line of the built script can be traced back
-// (scripts/check.mjs does).
-export const MARK = "// ── src/";
-const marked = (name) => `${MARK}${name}\n${piece(name)}`;
-
-export function build() {
-  const body = PARTS.map((p) =>
-    typeof p === "string"
-      ? marked(p)
-      : `const ${p.module} = (() => {\n${p.files.map((f) => indent(marked(f), 2)).join("\n")}\n  return api;\n})();\n`,
-  ).join("\n");
-  return `${read("protocol.js")}\n// Built from src/ by scripts/build.mjs: edit those, not this.\n(() => {\n  "use strict";\n  if (window.__b42) return;\n\n${indent(body, 2)}\n})();\n`;
+/** The overlay. `also` is module code that runs after the overlay's own, with src/ as its
+ *  folder: a test puts one of the modules on the page with it. */
+export function build(also = "") {
+  // (The entry is this one line and not mount.js itself: an entry's exports are kept in the
+  // result, and mount.js exports the layer's elements to the other files.)
+  const entry = { stdin: { contents: `import "./mount.js";\n${also}\n`, resolveDir: SRC, sourcefile: "entry.js" } };
+  // Two files may give a function the same name (three have a `frame`), and one scope then
+  // renames all but one. keepNames leaves each function's own name on it: the benchmark counts
+  // the overlay's frames by the name of the function asked for.
+  const code = bundle(entry, { keepNames: true });
+  const protocol = fs.readFileSync(path.join(SRC, "protocol.js"), "utf8").replace(/\n$/, "");
+  return `${protocol}\n// Built from src/ by scripts/build.mjs: edit those, not this.\n(() => {\n  "use strict";\n  if (window.__b42) return;\n\n${code}})();\n`;
 }
 
 /** The script a host adds among the page's own scripts when the overlay runs in a world apart
- *  from them: it answers the overlay's "b42:component" (see page.js) with what the framework
- *  calls the element. It is in before the page's scripts, so they never see either event. */
+ *  from them (src/lookup.js): src/component.js and the listener that answers with it. */
 export function buildLookup() {
-  return `// Built from src/component.js by scripts/build.mjs: edit that, not this.
-(() => {
-  "use strict";
-${indent(plain(read("component.js")), 2)}
-  window.addEventListener(
-    "b42:component",
-    (e) => {
-      e.stopImmediatePropagation();
-      const el = e.composedPath()[0];
-      if (!el || el.nodeType !== 1) return;
-      let c = null;
-      try {
-        c = componentOf(el);
-      } catch {}
-      if (c) el.dispatchEvent(new CustomEvent("b42:component-is", { detail: JSON.stringify(c), bubbles: true, composed: true }));
-    },
-    true,
-  );
-})();
-`;
+  return `// Built from src/lookup.js by scripts/build.mjs: edit that, not this.\n(() => {\n  "use strict";\n${bundle({ entryPoints: [path.join(SRC, "lookup.js")] })}})();\n`;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

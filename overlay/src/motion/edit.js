@@ -127,7 +127,7 @@ export function addKey(prop, at) {
   const cs = getComputedStyle(el);
   for (const p of props) {
     if (f && p in f.vals) continue;
-    let v = cs.getPropertyValue(p).replace(/-?\d*\.\d{4,}/g, (n) => String(Math.round(n * 1000) / 1000));
+    let v = cs.getPropertyValue(p).replace(/-?\d*\.\d{4,}/g, (/** @type {any} */ n) => String(Math.round(n * 1000) / 1000));
     if (/^matrix/.test(v) || !v) {
       const before = k.frames.filter((x) => x.at <= at && p in x.vals).pop() || k.frames.find((x) => p in x.vals);
       v = before ? before.vals[p] : v || "initial";
@@ -244,7 +244,7 @@ export function setTiming(what, v, done) {
     if (!HOW[v]) return false;
     u.plays.how = v;
   } else {
-    let val = String(v).trim(), ok = true;
+    let val = /** @type {any} */ (String(v).trim()), ok = true;
     if (what === "duration" || what === "delay") {
       ok = val !== "" && Number.isFinite(Number(val)) && Math.abs(Number(val)) <= 600000 && (what === "delay" || Number(val) >= 0);
       val = Number(val);
@@ -338,7 +338,7 @@ export function setName(v, done) {
 // for what has no name (a transition, a script's frames), the element and what moves. A row
 // under a group of elements says only its element.
 export function rows() {
-  const found = M.scan, o = M.open, out = [];
+  const found = M.scan, o = M.open, out = /** @type {any[]} */ ([]);
   const timingOf = (el, nm) => {
     const u = M.use.get(`${pathOf(el)}|${nm}`);
     return u ? u.timing : readList(el).find((x) => x.name === nm) || null;

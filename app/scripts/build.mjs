@@ -2,7 +2,8 @@
 //   main.cjs      the Electron main process          (esbuild, src/main/index.ts)
 //   preload.cjs   the bridge into the app window      (esbuild, src/preload.ts)
 //   renderer/     the app window's UI                 (vite + solid, src/renderer)
-//   overlay.js    the shared in-page review layer     (built from ../overlay/src)
+//   overlay.js    the shared in-page review layer     (esbuild, ../overlay/src; the overlay's own
+//                                                     build does it, with the esbuild installed there)
 //   icon.png      the app icon, when there is one     (copied from ../assets)
 //   test/         with --tests: every test/*.ts bundled to .cjs
 //
@@ -91,7 +92,7 @@ if (watch) {
   for (const e of entries) await (await context({ ...node, ...e })).watch()
   await viteBuild(renderer)
   // An edit in ../overlay/src builds dist/overlay.js again, once the edits pause. A failed build
-  // keeps the last one and the watching. (A file added to the overlay's PARTS needs a restart.)
+  // keeps the last one and the watching.
   let timer
   fs.watch(path.join(root, "../overlay/src"), { recursive: true }, () => {
     clearTimeout(timer)
