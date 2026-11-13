@@ -1,3 +1,8 @@
+import { S, send } from "./state.js";
+import * as Notes from "./notes/api.js";
+import * as Canvas from "./canvas/api.js";
+import * as Motion from "./motion/api.js";
+
 // ── mode ────────────────────────────────────────────────────────────────────────────────────
 // Notes, canvas or motion: one at a time, and the brush only in notes mode. Switching from one
 // to another is none of the modes' own business: it is here. (The bar tells the host the mode:
@@ -14,12 +19,12 @@ const MODES = { notes: Notes, canvas: Canvas, motion: Motion };
 
 /** Which mode is on. Canvas and motion mode each say so of themselves while they switch (the
  *  host is told the mode from inside their setOn), so it is read from them, here and nowhere else. */
-const modeOn = () => (Canvas.on() ? "canvas" : Motion.on() ? "motion" : "notes");
-const current = () => MODES[modeOn()];
+export const modeOn = () => (Canvas.on() ? "canvas" : Motion.on() ? "motion" : "notes");
+export const current = () => MODES[modeOn()];
 
 /** The one switch: the mode that is on goes off, then the brush (it belongs to notes mode), then
  *  the new one comes on. */
-function setMode(name) {
+export function setMode(name) {
   const was = modeOn();
   if (name === was) return;
   if (was !== "notes") MODES[was].setOn(false);
@@ -29,7 +34,7 @@ function setMode(name) {
 }
 
 /** The brush belongs to notes mode: while it is on, a plain drag draws (what alt+drag always does). */
-function setBrush(on) {
+export function setBrush(on) {
   if (S.brush === on) return;
   S.brush = on;
   Canvas.drawBar();
@@ -37,7 +42,7 @@ function setBrush(on) {
 
 /** The host has the mode switch and the brush: it is told whenever either changes here (a key,
  *  Esc, a note sent, a reload that comes back in edit mode). */
-function tellMode() {
+export function tellMode() {
   const mode = modeOn(), key = `${mode}|${S.brush}`;
   if (modeTold === undefined || key === modeTold) return; // nothing before the host's first "state"
   modeTold = key;
@@ -45,13 +50,13 @@ function tellMode() {
 }
 
 /** A new page, or a host that asks again: it hears the mode whatever it was. */
-function retellMode() {
+export function retellMode() {
   modeTold = "";
   tellMode();
 }
 
 /** From the host's switch. The brush belongs to notes mode: switching it on leaves edit mode. */
-function hostMode(msg) {
+export function hostMode(msg) {
   if (msg.brush === true) {
     setMode("notes");
     return setBrush(true);

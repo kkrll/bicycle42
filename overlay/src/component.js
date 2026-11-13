@@ -3,7 +3,7 @@
 // when it runs among the page's scripts. It is built twice: into the overlay, for a host that
 // runs the overlay there (the harness), and alone as the lookup script (build.mjs, buildLookup),
 // which a host that gives the overlay its own world adds to the page's. Nothing but `el` in it.
-function componentOf(el) {
+export function componentOf(el) {
   const key = Object.keys(el).find((k) => k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$"));
   if (key) {
     const stack = [];

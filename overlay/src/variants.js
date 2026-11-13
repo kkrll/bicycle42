@@ -1,3 +1,10 @@
+import { S } from "./state.js";
+import { icon, ICONS } from "./ui.js";
+import { rectOf } from "./page.js";
+import * as Notes from "./notes/api.js";
+import { active, pool } from "./render.js";
+import { domVersion, hostEl, variantsEl, variantStyle } from "./mount.js";
+
 // ── variants ────────────────────────────────────────────────────────────────────────────────
 // The /variants template asks the agent to render every option as siblings in one wrapper:
 //   <div data-b42-variants="hero-cta">
@@ -92,7 +99,7 @@ function makeVariantBar() {
   return bar;
 }
 
-function drawVariants(capturing) {
+export function drawVariants(capturing) {
   scanVariants();
   const shown = S.enabled && !capturing ? V.groups.filter((g) => g.el.isConnected) : [];
   const bars = pool(variantsEl, shown.length, makeVariantBar);

@@ -1,10 +1,21 @@
+import { S, send, VERSION } from "./state.js";
+import { vp } from "./page.js";
+import { restoreDraft } from "./draft.js";
+import * as Notes from "./notes/api.js";
+import { finishCapture, refuseCapture } from "./sent.js";
+import * as Canvas from "./canvas/api.js";
+import * as Motion from "./motion/api.js";
+import { hostMode, retellMode } from "./mode.js";
+import { blockIfActive, isOurs, onKeyDown, onPointerDown, onPointerMove, onPointerUp, setEnabled, setPins } from "./input.js";
+import { active, kick } from "./render.js";
+
 // ── mount ───────────────────────────────────────────────────────────────────────────────────
 const STYLES = include("styles.css");
 
 // The layer's own elements, made by mount(). A file can only assign what it declares, so they
 // are here and not with the rest of the state; every other file reads them.
-let hostEl, root, boxes, pinsEl, cursorStyle, tip, variantsEl, variantStyle;
-let domVersion = 0; // bumped on every DOM mutation; pins re-search only when it changes
+export let hostEl, root, boxes, pinsEl, cursorStyle, tip, variantsEl, variantStyle;
+export let domVersion = 0; // bumped on every DOM mutation; pins re-search only when it changes
 
 // The layer has to be the topmost thing on the page and has to take typing, whatever the page
 // shows. Two browser rules decide where it sits:

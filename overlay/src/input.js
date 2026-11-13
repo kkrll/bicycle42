@@ -1,6 +1,15 @@
+import { mod, S, send } from "./state.js";
+import * as Notes from "./notes/api.js";
+import { hideTip } from "./sent.js";
+import * as Canvas from "./canvas/api.js";
+import * as Motion from "./motion/api.js";
+import { current, setBrush, setMode } from "./mode.js";
+import { kick } from "./render.js";
+import { hostEl, pinsEl } from "./mount.js";
+
 // ── input ───────────────────────────────────────────────────────────────────────────────────
-const isOurs = (e) => !!hostEl && e.composedPath().includes(hostEl);
-const block = (e) => {
+export const isOurs = (e) => !!hostEl && e.composedPath().includes(hostEl);
+export const block = (e) => {
   e.preventDefault();
   e.stopPropagation();
   e.stopImmediatePropagation();
@@ -8,7 +17,7 @@ const block = (e) => {
 // What every mode shares is here: the keys that switch review and canvas mode, what is ours, what
 // is kept from the page. The rest goes to the handlers of the mode that is on (mode.js).
 
-function onPointerDown(e) {
+export function onPointerDown(e) {
   if (!S.enabled) return;
   const mode = current();
   const zone = mode.zoneOf ? mode.zoneOf(e) : null; // a handle, an edge or a gap of the canvas selection: ours, but a page gesture
@@ -18,7 +27,7 @@ function onPointerDown(e) {
 
 /** A press on the page in notes or canvas mode, before the mode's own part of it (their
  *  pointerDown calls this first). False when that is all there is to it. */
-function pagePress(e) {
+export function pagePress(e) {
   Canvas.closePop(); // a click on the page closes whichever list is open
   if (Canvas.inEdit(e)) {
     e.stopImmediatePropagation(); // the caret goes where it is clicked
@@ -35,17 +44,17 @@ function pagePress(e) {
   return true;
 }
 
-function onPointerMove(e) {
+export function onPointerMove(e) {
   if (!S.enabled) return;
   current().pointerMove(e);
 }
 
-function onPointerUp(e) {
+export function onPointerUp(e) {
   if (!S.enabled) return;
   current().pointerUp(e);
 }
 
-function blockIfActive(e) {
+export function blockIfActive(e) {
   if (!S.enabled || isOurs(e)) return;
   // While text is edited in place, the mouse works inside it (caret, selection); the page's own
   // handlers still see nothing, and a click still does nothing (no link is followed).
@@ -65,7 +74,7 @@ function brushKey() {
   setBrush(true);
 }
 
-function onKeyDown(e) {
+export function onKeyDown(e) {
   const want = !mod(e) || e.altKey ? undefined : e.shiftKey ? (e.code === "KeyP" ? "brush" : undefined) : MODE_KEYS[e.code];
   if (want) {
     block(e);
@@ -79,7 +88,7 @@ function onKeyDown(e) {
   current().key(e);
 }
 
-function setEnabled(on) {
+export function setEnabled(on) {
   S.enabled = on;
   if (on && S.modeAfter) S.modeAfter === "brush" ? brushKey() : setMode(S.modeAfter);
   S.modeAfter = null;
@@ -99,7 +108,7 @@ function setEnabled(on) {
   kick();
 }
 
-function setPins(pins) {
+export function setPins(pins) {
   const old = new Map(S.pins.map((p) => [p.id, p]));
   S.pins = (pins || []).map((p) => ({ ...p, el: old.get(p.id)?.el }));
   if (Canvas.hasSent()) Canvas.dropFinished();

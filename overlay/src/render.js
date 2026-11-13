@@ -1,6 +1,15 @@
 // ── render ──────────────────────────────────────────────────────────────────────────────────
 
-function pool(container, n, make) {
+import { S, send } from "./state.js";
+import { findPin, readView, rectOf, toView, VP } from "./page.js";
+import * as Notes from "./notes/api.js";
+import { drawVariants } from "./variants.js";
+import { hideTip, makePin } from "./sent.js";
+import * as Canvas from "./canvas/api.js";
+import * as Motion from "./motion/api.js";
+import { boxes, domVersion, pinsEl, root } from "./mount.js";
+
+export function pool(container, n, make) {
   while (container.children.length < n) container.appendChild(make());
   while (container.children.length > n) container.lastChild.remove();
   return [...container.children];
@@ -37,7 +46,7 @@ function pinPoint(el) {
   return [r.left - 8, r.top - 8];
 }
 
-function render() {
+export function render() {
   if (!root) return;
   readView();
   // A batch hidden for the host's "before" picture counts as a capture: no chrome in that picture.
@@ -122,7 +131,7 @@ const ACTIVE_MS = 500;
 let idleTimer = 0;
 let lastInput = 0;
 let raf = 0; // the frame asked for, 0 when none is
-function active() {
+export function active() {
   lastInput = performance.now();
   kick();
 }
@@ -140,7 +149,7 @@ function frame() {
     }, IDLE_TICK_MS);
 }
 
-function kick() {
+export function kick() {
   if (!raf && root) raf = requestAnimationFrame(frame);
 }
 

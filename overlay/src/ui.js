@@ -1,6 +1,6 @@
 // ── icons and keys ──────────────────────────────────────────────────────────────────────────
 // Every icon of the layer: inline SVG on a 16px grid, stroked in the text colour. No glyphs.
-const ICONS = {
+export const ICONS = {
   "chevron-down": '<path d="m4 6 4 4 4-4"/>',
   "chevron-up": '<path d="m4 10 4-4 4 4"/>',
   "chevron-right": '<path d="m6 4 4 4-4 4"/>',
@@ -15,12 +15,12 @@ const ICONS = {
   "⌥": '<path d="M2 3.3h3.7l4.6 9.4H14M9.7 3.3H14"/>',
   "↵": '<path d="M13.3 3.3v4a2.7 2.7 0 0 1-2.7 2.7H2.7M5.7 7l-3 3 3 3"/>',
 };
-const icon = (name, size = 16) =>
+export const icon = (name, size = 16) =>
   `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 const KEY_NAMES = { "⌘": "command", "⇧": "shift", "⌥": "option", "↵": "return" };
 /** Words with key symbols in them ("↵ send", "⌘Z"), as nodes: the symbols drawn at the size of
  *  the letters, the rest as text (never markup, so any words are safe here). */
-function keyNodes(text) {
+export function keyNodes(text) {
   const out = document.createDocumentFragment();
   for (const part of String(text).split(/([⌘⇧⌥↵])/)) {
     if (!part) continue;

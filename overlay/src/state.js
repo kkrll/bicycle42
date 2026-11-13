@@ -1,11 +1,11 @@
-const VERSION = "0.1.0";
-const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-const mod = (e) => (isMac ? e.metaKey : e.ctrlKey);
-const DRAG_PX = 5;
-const CAPTURE_TIMEOUT_MS = 2000;
+export const VERSION = "0.1.0";
+export const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+export const mod = (e) => (isMac ? e.metaKey : e.ctrlKey);
+export const DRAG_PX = 5;
+export const CAPTURE_TIMEOUT_MS = 2000;
 
 // ── host bridge ─────────────────────────────────────────────────────────────────────────────
-const send = (msg) => {
+export const send = (msg) => {
   const fn = window.__review;
   if (typeof fn !== "function") return;
   try {
@@ -16,7 +16,7 @@ const send = (msg) => {
 };
 
 // ── state (transient only) ──────────────────────────────────────────────────────────────────
-const S = {
+export const S = {
   enabled: false,
   hover: null, // Element
   sel: [], // Element[]
@@ -39,5 +39,5 @@ const S = {
   unplaced: "",
 };
 
-const SVG = "http://www.w3.org/2000/svg"; // the namespace of the layer's own SVG elements
+export const SVG = "http://www.w3.org/2000/svg"; // the namespace of the layer's own SVG elements
 

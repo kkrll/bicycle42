@@ -1,18 +1,21 @@
+import { componentOf } from "./component.js";
+import { hostEl } from "./mount.js";
+
 // ── geometry helpers ────────────────────────────────────────────────────────────────────────
-const vp = () => ({
+export const vp = () => ({
   w: window.innerWidth,
   h: window.innerHeight,
   dpr: window.devicePixelRatio || 1,
   scrollX: Math.round(window.scrollX),
   scrollY: Math.round(window.scrollY),
 });
-const toView = ([x, y]) => [x - window.scrollX, y - window.scrollY];
-const rectOf = (el) => {
+export const toView = ([x, y]) => [x - window.scrollX, y - window.scrollY];
+export const rectOf = (el) => {
   const r = el.getBoundingClientRect();
   return { x: r.left, y: r.top, w: r.width, h: r.height };
 };
-const round = (r) => ({ x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) });
-const union = (rects) => {
+export const round = (r) => ({ x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) });
+export const union = (rects) => {
   const rs = rects.filter(Boolean);
   if (!rs.length) return null;
   const x = Math.min(...rs.map((r) => r.x));
@@ -21,18 +24,18 @@ const union = (rects) => {
   const b = Math.max(...rs.map((r) => r.y + r.h));
   return { x, y, w: r - x, h: b - y };
 };
-const bboxOf = (pts) => {
+export const bboxOf = (pts) => {
   const xs = pts.map((p) => p[0]);
   const ys = pts.map((p) => p[1]);
   const x = Math.min(...xs);
   const y = Math.min(...ys);
   return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
 };
-const docToViewRect = (r) => r && { x: r.x - window.scrollX, y: r.y - window.scrollY, w: r.w, h: r.h };
+export const docToViewRect = (r) => r && { x: r.x - window.scrollX, y: r.y - window.scrollY, w: r.w, h: r.h };
 
 // The window's scroll and size, read once at the top of each frame (before anything is written).
-const VP = { sx: 0, sy: 0, w: 0, h: 0 };
-const readView = () => {
+export const VP = { sx: 0, sy: 0, w: 0, h: 0 };
+export const readView = () => {
   VP.sx = window.scrollX;
   VP.sy = window.scrollY;
   VP.w = window.innerWidth;
@@ -40,14 +43,14 @@ const readView = () => {
 };
 
 // ── element identity ────────────────────────────────────────────────────────────────────────
-const unique = (sel) => {
+export const unique = (sel) => {
   try {
     return document.querySelectorAll(sel).length === 1;
   } catch {
     return false;
   }
 };
-const q = (sel) => {
+export const q = (sel) => {
   if (!sel) return null;
   try {
     return document.querySelector(sel);
@@ -55,7 +58,7 @@ const q = (sel) => {
     return null;
   }
 };
-const SKIP = /^(SCRIPT|STYLE|HEAD|LINK|META|TITLE|NOSCRIPT|TEMPLATE|B42-REVIEW)$/;
+export const SKIP = /^(SCRIPT|STYLE|HEAD|LINK|META|TITLE|NOSCRIPT|TEMPLATE|B42-REVIEW)$/;
 
 /** One step of a selector path: tag, up to two classes, and its place among siblings of its tag. */
 function segment(cur) {
@@ -75,7 +78,7 @@ function segment(cur) {
   return seg;
 }
 
-function selectorFor(el) {
+export function selectorFor(el) {
   if (el.id && unique(`#${CSS.escape(el.id)}`)) return `#${CSS.escape(el.id)}`;
   for (const a of ["data-testid", "data-test", "data-cy"]) {
     const v = el.getAttribute(a);
@@ -97,7 +100,7 @@ function selectorFor(el) {
 /** The selector an edit is reported under: anchored at the nearest ancestor with an id
  *  (`#plans > article.card:nth-of-type(2)`), so it stays right when the page has a second group
  *  that looks the same; without one near, the shortest path that matches exactly one element. */
-function editSel(el) {
+export function editSel(el) {
   const base = selectorFor(el);
   if (/^[#[]/.test(base)) return base; // its own id or test id, or already anchored at an id
   const parts = [];
@@ -125,7 +128,7 @@ window.addEventListener(
   true,
 );
 
-function component(el) {
+export function component(el) {
   const own = componentOf(el);
   if (own) return own;
   componentAnswer = null;
@@ -146,7 +149,7 @@ function component(el) {
   return { framework: c.framework, name: stack[0], stack, ...(word(c.source, 300) ? { source: c.source } : {}) };
 }
 
-function describe(el) {
+export function describe(el) {
   const d = { selector: selectorFor(el), tag: el.tagName.toLowerCase() };
   if (el.id) d.id = el.id;
   const cls = typeof el.className === "string" ? el.className.trim() : el.getAttribute("class") || "";
@@ -184,12 +187,12 @@ function textOf(el) {
   text = text.replace(/\s+/g, " ").trim();
   return text.length > 80 ? `${text.slice(0, 79)}…` : text;
 }
-const line = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+export const line = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 
 /** Re-find a pin's element after the page changed. The agent's own edit is what changes the
  *  element, so the selector often points at the wrong node (or none). Order: selector whose
  *  text still matches → same tag (and component) with the same text → selector anyway. */
-function findPin(p) {
+export function findPin(p) {
   const bySel = q(p.selector);
   if (bySel && (!p.text || textOf(bySel) === p.text)) return bySel;
   if (p.text && document.body) {
@@ -207,7 +210,7 @@ function findPin(p) {
   return bySel;
 }
 
-const label = (el) => {
+export const label = (el) => {
   const c = component(el);
   let s = el.tagName.toLowerCase();
   if (el.id) s += `#${el.id}`;
@@ -220,7 +223,7 @@ const KINDS = { a: "Link", button: "Button", img: "Image", svg: "Icon", input: "
   span: "Text", label: "Label", ul: "List", ol: "List", li: "List item", nav: "Navigation", header: "Header", footer: "Footer",
   section: "Section", article: "Card", form: "Form", table: "Table", video: "Video", h1: "Heading", h2: "Heading", h3: "Heading",
   h4: "Heading", h5: "Heading", h6: "Heading" };
-const plainLabel = (el, max = 32) => {
+export const plainLabel = (el, max = 32) => {
   const tag = el.tagName.toLowerCase();
   const kind = component(el)?.name || KINDS[tag] || (el.getAttribute("role") ? el.getAttribute("role") : "Block");
   const words = (el.getAttribute("aria-label") || el.getAttribute("alt") || el.getAttribute("placeholder") || textOf(el)).trim();
@@ -228,7 +231,7 @@ const plainLabel = (el, max = 32) => {
 };
 
 // ── picking ─────────────────────────────────────────────────────────────────────────────────
-function pick(x, y) {
+export function pick(x, y) {
   const el = document.elementFromPoint(x, y);
   if (!el || el === hostEl || el === document.documentElement || el === document.body) return null;
   return el;
@@ -237,7 +240,7 @@ function pick(x, y) {
 /** Elements fully inside a viewport rect, reduced to the outermost ones: the first 20 in
  *  document order. The tree is walked, and what is inside an element that is itself inside is
  *  not looked at. (Children can overflow a parent that lies outside, so those are all visited.) */
-function elementsIn(r) {
+export function elementsIn(r) {
   if (!document.body) return [];
   const out = [];
   const visit = (el) => {
@@ -253,7 +256,7 @@ function elementsIn(r) {
 }
 
 /** Elements a stroke points at: a closed loop selects what it encloses, an open line what it crosses. */
-function strokeTargets(pts) {
+export function strokeTargets(pts) {
   const view = pts.map(toView);
   const box = bboxOf(view);
   const [sx, sy] = view[0];
@@ -278,8 +281,8 @@ function strokeTargets(pts) {
 // ── rules the page adopts ───────────────────────────────────────────────────────────────────
 // Typed declarations must win over the site's rules the way an inline style would, without
 // "!important" in what the agent reads: three ids' worth of specificity that matches anything.
-const BOOST = ":not(#b42-x#b42-x#b42-x)";
-const adopt = (sheet, on) => {
+export const BOOST = ":not(#b42-x#b42-x#b42-x)";
+export const adopt = (sheet, on) => {
   const list = document.adoptedStyleSheets;
   const has = list.includes(sheet);
   if (on && !has) document.adoptedStyleSheets = [...list, sheet];

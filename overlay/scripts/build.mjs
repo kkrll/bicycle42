@@ -82,8 +82,13 @@ export const PARTS = [
 const read = (name) => fs.readFileSync(path.join(SRC, name), "utf8").replace(/\n$/, "");
 const indent = (text, n) => text.split("\n").map((l) => (l ? " ".repeat(n) + l : l)).join("\n");
 
+// While the files become ES modules, one area at a time, a piece may already say what it imports
+// and exports. The pieces still share one closure, so those words are passed over here: an import
+// line becomes an empty line and an exported declaration a plain one, and no line moves.
+const plain = (text) => text.replace(/^import .*;$/gm, "").replace(/^export (?=(?:async )?function |const |let |class )/gm, "");
+
 function piece(name) {
-  return read(name).replace(/^( *)(.*)include\("([^"]+)"\)(.*)$/gm, (_, ind, before, file, after) => {
+  return plain(read(name)).replace(/^( *)(.*)include\("([^"]+)"\)(.*)$/gm, (_, ind, before, file, after) => {
     const text = read(file);
     if (/[`\\]|\$\{/.test(text)) throw new Error(`${file}: no \`, \\ or \${ in an included file`);
     return `${ind}${before}\`\n${indent(text, ind.length + 2)}\n${ind}\`${after}`;
@@ -111,7 +116,7 @@ export function buildLookup() {
   return `// Built from src/component.js by scripts/build.mjs: edit that, not this.
 (() => {
   "use strict";
-${indent(read("component.js"), 2)}
+${indent(plain(read("component.js")), 2)}
   window.addEventListener(
     "b42:component",
     (e) => {
