@@ -875,7 +875,7 @@ test("U6 the bar keeps its width and place through every state; U5 Send is off w
   await page.mouse.click(t.x + 40, t.y + 20);
   await page.mouse.click(t.x + 40, t.y + 20);
   await settle(f);
-  assert.equal(await ui(f, (r) => r.querySelector(".bmsg").textContent), "Editing text · ↵ keep · esc revert");
+  assert.equal(await ui(f, (r) => r.querySelector(".bmsg").textContent), "Editing text"); // the keys are behind the bar's "?", not in its message
   await look("editing text");
   await page.keyboard.press("Escape");
   await send(page);
@@ -962,7 +962,13 @@ test("P5 while a brace is open, what was complete stays applied; the open rule i
   // the same in Element styles
   await clickAt(page, f, "#cta");
   await field(f, "css").click();
-  await page.keyboard.type("height: 60px; &:hover {");
+  // What stays applied is the last complete text a frame saw, so the declaration has to reach
+  // the page before the brace opens, as it does at a person's speed. Keys sent with no pause
+  // can share one frame, and then the complete text was never seen.
+  await page.keyboard.type("height: 60px;");
+  await f.waitForFunction(() => getComputedStyle(document.querySelector("#cta")).height === "60px");
+  await page.keyboard.type(" &:hover {");
+  await f.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelector(".css").parentElement.nextElementSibling.textContent.includes("unbalanced braces"));
   await settle(f);
   assert.equal(await style(f, "#cta", "height"), "60px");
   await page.close();
