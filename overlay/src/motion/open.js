@@ -1,12 +1,18 @@
 // Motion mode, opening and playing: what is open in the dock, and the page's own Animation
 // object for it, played, paused and stopped at a frame.
 
+import { adopt, BOOST } from "../page.js";
+import { apply, clamp, DOCK_H, fromApi, M, mq, parseKf, pathOf, r1, readList, scan, serialize, splitTop } from "./model.js";
+import { commit, nameProblem, snapshot } from "./edit.js";
+import { draw, flash, focusLater } from "./draw.js";
+import { kick } from "../render.js";
+
 // ── opening one ──────────────────────────────────────────────────────────────────────────
 function baseFor(rs, el) {
   for (const u of M.use.values()) if (u.rs === rs) return u.base;
   return readList(el);
 }
-function show(open) {
+export function show(open) {
   // What was stopped at a frame to be looked at goes on from there: nothing stays frozen behind.
   const was = M.open && M.open.kind !== "transition" ? animOf() : null;
   if (was && was.playState === "paused" && !(open && M.open.kind === open.kind && M.open.rs === open.rs && M.open.name === open.name)) {
@@ -24,7 +30,7 @@ function show(open) {
   apply();
   draw();
 }
-function openCss(el, nm) {
+export function openCss(el, nm) {
   const rs = pathOf(el);
   setSel(el);
   if (!M.kf.has(nm)) {
@@ -65,7 +71,7 @@ function attach(el, nm, timing = { duration: 400, delay: 0, easing: "ease-out", 
 }
 /** New keyframes for the selected element: a fade up to start from, under a name that says it
  *  is new (not "fade-up-2", which reads as a copy of the page's own), ready to be renamed. */
-function newAnimation() {
+export function newAnimation() {
   if (!M.sel) return;
   let nm = "new-animation";
   for (let i = 2; nameProblem(nm); i++) nm = `new-animation-${i}`;
@@ -74,11 +80,11 @@ function newAnimation() {
   focusLater("[data-name]");
 }
 /** Every keyframes the selected element could play: the page's, and those made here. */
-const knownNames = () => [...new Set([...M.scan.rules.keys(), ...M.scan.anims.map((a) => a.name), ...M.kf.keys()])]
+export const knownNames = () => [...new Set([...M.scan.rules.keys(), ...M.scan.anims.map((a) => a.name), ...M.kf.keys()])]
   .filter((n) => M.kf.has(n) || M.scan.rules.has(n)).sort();
 /** Keyframes the page has, played by the selected element too: timed as the first element that
  *  plays them times them, or, when nothing plays them, once over 600ms. */
-function useKf(nm) {
+export function useKf(nm) {
   if (!M.sel) return;
   if (!M.kf.has(nm)) {
     const rule = M.scan.rules.get(nm);
@@ -90,7 +96,7 @@ function useKf(nm) {
   const { name: _, ...timing } = e || { duration: 600, delay: 0, easing: "ease-in-out", count: "1", direction: "normal", fill: "none" };
   attach(M.sel, nm, timing);
 }
-function openScript(a) {
+export function openScript(a) {
   const el = a.effect.target, t = a.effect.getTiming();
   setSel(el);
   M.ro = { frames: fromApi(a.effect.getKeyframes()), timing: { duration: +t.duration || 0, delay: t.delay, easing: t.easing, count: t.iterations === Infinity ? "infinite" : String(t.iterations), direction: t.direction, fill: t.fill === "auto" ? "none" : t.fill } };
@@ -99,7 +105,7 @@ function openScript(a) {
 }
 /** A transition has no keyframes: two values per property and the state that switches them,
  *  found in the page's own rules (`.primary:hover`). Playing it applies that rule. */
-function openTransition(el) {
+export function openTransition(el) {
   const rs = pathOf(el), cs = getComputedStyle(el);
   setSel(el);
   const col = (p) => splitTop(cs.getPropertyValue(p));
@@ -151,12 +157,12 @@ function openTransition(el) {
   M.ro = { frames: [...fr.values()].sort((a, b) => a.at - b.at), laneEase, state, total, on: false, items };
   show({ kind: "transition", rs, name: "transition" });
 }
-function setSel(el) {
+export function setSel(el) {
   M.sel = el;
   M.selRs = el ? pathOf(el) : "";
 }
 /** A click on the page: the element, and with it the first thing that moves it. */
-function selectEl(el) {
+export function selectEl(el) {
   if (!el) {
     setSel(null);
     return show(null);
@@ -173,7 +179,7 @@ function selectEl(el) {
 }
 /** Bring the element into view, and send a ring out from it: the way to find something small
  *  (a 12px spinner) after choosing it in the list. */
-function reveal(el) {
+export function reveal(el) {
   if (!el || !el.isConnected) return;
   const r = el.getBoundingClientRect();
   if (r.bottom < 0 || r.top > window.innerHeight - DOCK_H || r.right < 0 || r.left > window.innerWidth) el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
@@ -184,7 +190,7 @@ function reveal(el) {
 // ── playing ──────────────────────────────────────────────────────────────────────────────
 /** The page's own Animation object for what is open. One that ended without holding its last
  *  frame is no longer listed by the element, but the object still plays: it is kept. */
-function animOf() {
+export function animOf() {
   const o = M.open, el = o && mq(o.rs);
   if (!el || o.kind === "transition") return null;
   if (o.kind === "script") return M.held;
@@ -208,7 +214,7 @@ function revive() {
   return animOf();
 }
 const backward = (t) => t.direction === "reverse" || t.direction === "alternate-reverse";
-function play() {
+export function play() {
   if (M.open && M.open.kind === "transition") return flip();
   const a = animOf() || revive();
   if (!a) return;
@@ -217,18 +223,18 @@ function play() {
   a.play();
   kick();
 }
-function pause() {
+export function pause() {
   const a = animOf();
   if (a) a.pause();
 }
-const running = () => {
+export const running = () => {
   if (!M.open || M.open.kind === "transition") return false;
   const a = animOf();
   return !!a && a.playState === "running";
 };
-const toggle = () => (M.open && M.open.kind === "transition" ? flip() : running() ? pause() : play());
+export const toggle = () => (M.open && M.open.kind === "transition" ? flip() : running() ? pause() : play());
 /** Show the frame at `p` (0…1 along the keyframes) and stay there. */
-function seek(p) {
+export function seek(p) {
   const a = animOf() || revive();
   M.pos = p = clamp(p, 0, 1);
   if (!a) return;
@@ -249,7 +255,7 @@ function flip() {
   for (const a of el.getAnimations()) if (a instanceof CSSTransition) a.playbackRate = M.rate;
   kick();
 }
-function position() {
+export function position() {
   const o = M.open, el = o && mq(o.rs);
   if (!el) return null;
   if (o.kind === "transition") {
@@ -265,7 +271,7 @@ function position() {
 }
 /** What was paused to be looked at plays again, and nothing is switched on for it: leaving
  *  motion mode leaves the page moving as it does (with the unsent edits). */
-function letGo() {
+export function letGo() {
   const a = M.open && M.open.kind !== "transition" ? animOf() : null;
   if (a && a.playState === "paused") {
     a.playbackRate = 1;

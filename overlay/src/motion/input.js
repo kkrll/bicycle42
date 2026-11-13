@@ -1,12 +1,25 @@
 // Motion mode, input: the page's pointer, the timeline's, the small sheet over the dock, clicks,
 // fields and keys; the dock's elements found and listened to.
 
+import { mod, S } from "../state.js";
+import { pick } from "../page.js";
+import { draftChanged } from "../draft.js";
+import { apply, clamp, COUNT, curve, DIRECTION, EASINGS, esc, FILL, HOW, M, openKf, openUse, PROPS, r1, RATES, readOnly } from "./model.js";
+import { animOf, newAnimation, position, reveal, seek, selectEl, toggle, useKf } from "./open.js";
+import { addKey, addLane, commit, detach, discard, keyInfo, laneOrder, moveKey, removeKey, removeLane, setCss, setKey, setName, setTiming, timing, travel } from "./edit.js";
+import { submit } from "./send.js";
+import { draw, drawFoot, drawLanes, focusLater, keyEditor, typingIn } from "./draw.js";
+import { setMode } from "../mode.js";
+import { block, isOurs } from "../input.js";
+import { kick } from "../render.js";
+import { root } from "../mount.js";
+
 // The dock's elements, found by mount(), and what the small sheet hangs from: declared here,
 // where they are assigned.
-let dock, listEl, hdEl, tlEl, cssEl, kbEl, ftEl, noteEl, msgEl, popEl, sugEl, tagEl, popAnchor = null;
+export let dock, listEl, hdEl, tlEl, cssEl, kbEl, ftEl, noteEl, msgEl, popEl, sugEl, tagEl, popAnchor = null;
 
 // ── the page's pointer ───────────────────────────────────────────────────────────────────
-function pointerDown(e) {
+export function pointerDown(e) {
   if (S.pending) return block(e); // the screenshot is being taken: nothing new until it is
   if (popEl && !popEl.hidden) closePop();
   block(e);
@@ -16,10 +29,10 @@ function pointerDown(e) {
   selectEl(el);
 }
 /** A press let go on the page is kept from it, as the press was. */
-function pointerUp(e) {
+export function pointerUp(e) {
   if (!isOurs(e)) block(e);
 }
-function pointerMove(e) {
+export function pointerMove(e) {
   if (isOurs(e)) {
     if (M.hover) {
       M.hover = null;
@@ -105,7 +118,7 @@ function openPop(anchor, html) {
   popEl.style.left = `${clamp(r.right - w, 8, innerWidth - w - 8)}px`;
   popEl.style.top = `${clamp(r.top - h - 8 >= 8 ? r.top - h - 8 : r.bottom + 8, 8, innerHeight - h - 8)}px`;
 }
-function closePop() {
+export function closePop() {
   if (popEl) popEl.hidden = true;
   popAnchor = null;
 }
@@ -129,7 +142,7 @@ function easePop(b) {
 // The property and easing fields offer their values in a list of our own: a datalist's popup is
 // the system's, drawn in its own type and size, over the timeline, wherever the browser puts it.
 const SUGGEST = { props: () => PROPS.filter((p) => !laneOrder().includes(p)), ease: () => EASINGS };
-let sug = null; // what is listed: { f: the field, items, i: the one marked (Enter picks it), -1 for none }
+export let sug = null; // what is listed: { f: the field, items, i: the one marked (Enter picks it), -1 for none }
 /** List what the field offers: all of it when it gets the caret, what matches once it is typed in. */
 function sugShow(f, typed) {
   const all = SUGGEST[f.dataset.sug] ? SUGGEST[f.dataset.sug]() : [];
@@ -149,7 +162,7 @@ function sugShow(f, typed) {
   sugEl.style.top = `${r.top - h - 6 >= 8 ? r.top - h - 6 : r.bottom + 6}px`;
   sugMark(i);
 }
-function sugHide() {
+export function sugHide() {
   sug = null;
   if (sugEl) sugEl.hidden = true;
 }
@@ -284,7 +297,7 @@ function onField(e, done) {
   }
 }
 /** Keys while motion mode is on. Typing in the dock's fields never reaches the page. */
-function key(e) {
+export function key(e) {
   const f = root.activeElement;
   const field = f && /^(INPUT|TEXTAREA)$/.test(f.tagName) && (dock.contains(f) || popEl.contains(f)) ? f : null;
   if (field) {
@@ -343,7 +356,7 @@ function key(e) {
 }
 
 // ── mount ────────────────────────────────────────────────────────────────────────────────
-function mount() {
+export function mount() {
   dock = root.querySelector(".m-dock");
   listEl = dock.querySelector(".m-list");
   hdEl = dock.querySelector(".m-hd");

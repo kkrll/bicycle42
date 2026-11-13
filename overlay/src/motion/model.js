@@ -1,3 +1,7 @@
+import { icon, ICONS } from "../ui.js";
+import { adopt, BOOST, plainLabel, SKIP, unique } from "../page.js";
+import { hostEl, root } from "../mount.js";
+
 // ── motion mode ─────────────────────────────────────────────────────────────────────────────
 // The reviewer looks at what moves on the page and changes it: an animation's keyframes, and
 // how one element plays them (duration, delay, easing, repeats, what starts it). One animation
@@ -15,27 +19,27 @@
 //
 // The files of motion/ share one scope. This one holds the constants, the state M, and the model:
 // elements of the page, keyframes as text, how an element plays them, applying, what moves here.
-const EASINGS = ["linear", "ease", "ease-in", "ease-out", "ease-in-out", "cubic-bezier(0.2, 0.8, 0.2, 1)", "cubic-bezier(0.34, 1.56, 0.64, 1)", "steps(4, end)"];
-const PROPS = ["opacity", "transform", "translate", "scale", "rotate", "background-color", "color", "border-color", "box-shadow", "filter", "backdrop-filter", "clip-path",
+export const EASINGS = ["linear", "ease", "ease-in", "ease-out", "ease-in-out", "cubic-bezier(0.2, 0.8, 0.2, 1)", "cubic-bezier(0.34, 1.56, 0.64, 1)", "steps(4, end)"];
+export const PROPS = ["opacity", "transform", "translate", "scale", "rotate", "background-color", "color", "border-color", "box-shadow", "filter", "backdrop-filter", "clip-path",
   "width", "height", "max-height", "top", "left", "border-radius", "letter-spacing", "background-position", "stroke-dashoffset"];
 // What starts it: the agent wires this up in code; here it plays when Play is pressed.
-const HOW = { asnow: "As now", load: "On load", view: "In view", hover: "On hover", click: "On click", appear: "On appear", scroll: "On scroll" };
+export const HOW = { asnow: "As now", load: "On load", view: "In view", hover: "On hover", click: "On click", appear: "On appear", scroll: "On scroll" };
 // The choices for how it plays, as [label, what it means]; the key is the CSS value.
-const COUNT = { 1: ["Once"], 2: ["2×"], 3: ["3×"], infinite: ["Forever"] };
-const DIRECTION = { normal: ["Forward"], reverse: ["Backward", "From the last keyframe to the first"], alternate: ["Alternate", "Forward, then backward, and so on"],
+export const COUNT = { 1: ["Once"], 2: ["2×"], 3: ["3×"], infinite: ["Forever"] };
+export const DIRECTION = { normal: ["Forward"], reverse: ["Backward", "From the last keyframe to the first"], alternate: ["Alternate", "Forward, then backward, and so on"],
   "alternate-reverse": ["Alt. reverse", "Backward, then forward, and so on"] };
-const FILL = { none: ["None", "Before it starts and after it ends, the element looks as it does without it"], forwards: ["Hold end", "After it ends, it stays on the last keyframe"],
+export const FILL = { none: ["None", "Before it starts and after it ends, the element looks as it does without it"], forwards: ["Hold end", "After it ends, it stays on the last keyframe"],
   backwards: ["Hold start", "During the delay, it waits on the first keyframe"], both: ["Hold both", "Waits on the first keyframe, stays on the last"] };
-const RATES = [1, 0.5, 0.25, 0.1];
-const RATE_TEXT = { 1: "1×", 0.5: "½×", 0.25: "¼×", 0.1: "⅒×" };
-const MAJOR = [50, 100, 200, 250, 500, 1000, 2000, 5000];
-const DOCK_H = 360;
-const MAX_KF = 4000; // the keyframes' text, as the host takes it
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
-const r1 = (n) => Math.round(n * 10) / 10;
-const ms = (n) => `${Math.round(n)}ms`;
-const secs = (n) => `${+(n / 1000).toFixed(2)}s`;
+export const RATES = [1, 0.5, 0.25, 0.1];
+export const RATE_TEXT = { 1: "1×", 0.5: "½×", 0.25: "¼×", 0.1: "⅒×" };
+export const MAJOR = [50, 100, 200, 250, 500, 1000, 2000, 5000];
+export const DOCK_H = 360;
+export const MAX_KF = 4000; // the keyframes' text, as the host takes it
+export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+export const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
+export const r1 = (n) => Math.round(n * 10) / 10;
+export const ms = (n) => `${Math.round(n)}ms`;
+export const secs = (n) => `${+(n / 1000).toFixed(2)}s`;
 const MI = {
   play: '<path d="M5 3.2v9.6L12.5 8z" fill="currentColor" stroke="none"/>',
   pause: '<path d="M5.5 3.5v9M10.5 3.5v9"/>',
@@ -47,7 +51,7 @@ const MI = {
   trash: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.5 8.5h6l.5-8.5"/>',
   link: '<path d="M7 9a2.5 2.5 0 0 0 3.5 0l2-2A2.5 2.5 0 0 0 9 3.5l-.5.5"/><path d="M9 7a2.5 2.5 0 0 0-3.5 0l-2 2A2.5 2.5 0 0 0 7 12.5l.5-.5"/>',
 };
-const mi = (name, size = 16) => (ICONS[name] ? icon(name, size)
+export const mi = (name, size = 16) => (ICONS[name] ? icon(name, size)
   : `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${MI[name]}</svg>`);
 // What kind of motion a row is (24 grid, drawn at 16): a keyframe animation is a ball leaving
 // echoes; a transition goes from one state to another; a script's ball is in braces; frame by
@@ -63,10 +67,10 @@ const KIND = {
   script: `<path d="M6 5.5c-1.7 0-2.5.8-2.5 2.5v1.5c0 1.3-.7 2.5-2 2.5 1.3 0 2 1.2 2 2.5V16c0 1.7.8 2.5 2.5 2.5M18 5.5c1.7 0 2.5.8 2.5 2.5v1.5c0 1.3.7 2.5 2 2.5-1.3 0-2 1.2-2 2.5V16c0 1.7-.8 2.5-2.5 2.5" stroke="${K}" stroke-linecap="round"/><circle cx="12" cy="12" r="4" fill="${K}"/>`,
   frames: `<circle cx="4.5" cy="12" r="3" stroke="${K}"/><circle cx="12" cy="12" r="3" stroke="${K}"/><circle cx="19.5" cy="12" r="3" fill="${K}" stroke="${K}"/>`,
 };
-const KIND_TITLE = { css: "Keyframes", unused: "Keyframes nothing plays", transition: "Transition", script: "Script (animate())", frames: "Moved by a script, frame by frame" };
-const kindIcon = (kind) => `<svg class="m-kind" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">${KIND[kind] || KIND.css}</svg>`;
+export const KIND_TITLE = { css: "Keyframes", unused: "Keyframes nothing plays", transition: "Transition", script: "Script (animate())", frames: "Moved by a script, frame by frame" };
+export const kindIcon = (kind) => `<svg class="m-kind" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">${KIND[kind] || KIND.css}</svg>`;
 
-const M = {
+export const M = {
   on: false,
   sel: null, selRs: "", hover: null,
   kf: new Map(), // name → { name, frames: [{ at, ease, vals: { prop: value } }], orig, isNew }
@@ -94,7 +98,7 @@ const M = {
 };
 
 // ── elements of the page ─────────────────────────────────────────────────────────────────
-const mq = (rs) => {
+export const mq = (rs) => {
   try {
     return rs ? document.querySelector(rs) : null;
   } catch {
@@ -102,7 +106,7 @@ const mq = (rs) => {
   }
 };
 /** A path from the body: no class names, so it also names the elements our own rules are for. */
-function pathOf(el) {
+export function pathOf(el) {
   const parts = [];
   for (let cur = el; cur && cur.nodeType === 1; cur = cur.parentElement) {
     if (cur === document.body || cur === document.documentElement) {
@@ -121,7 +125,7 @@ function pathOf(el) {
   return parts.join(" > ");
 }
 /** "Heading · Ship calmer…", or with short only the words (the kind when there are none). */
-const name = (el, short = false) => {
+export const name = (el, short = false) => {
   if (!el) return "(gone)";
   const s = plainLabel(el, 28);
   const i = s.indexOf(" · ");
@@ -130,7 +134,7 @@ const name = (el, short = false) => {
   const cls = (typeof el.className === "string" ? el.className : el.getAttribute("class") || "").trim().split(/\s+/)[0];
   return cls ? (short ? `.${cls}` : `${s} · .${cls}`) : s;
 };
-const splitTop = (s, sep = ",") => {
+export const splitTop = (s, sep = ",") => {
   const out = [];
   let depth = 0, start = 0;
   for (let i = 0; i < s.length; i++) {
@@ -148,7 +152,7 @@ const splitTop = (s, sep = ",") => {
 // ── keyframes as text ────────────────────────────────────────────────────────────────────
 // Not a CSS parser: it finds the keyframe blocks and cuts their declarations, and the browser
 // says whether a value is one. Shorthands stay as they were typed.
-function parseKf(text) {
+export function parseKf(text) {
   const t = text.replace(/\/\*[\s\S]*?(\*\/|$)/g, "");
   const m = /@keyframes\s+([^\s{]+)\s*\{/.exec(t);
   if (!m) return { error: "No @keyframes rule" };
@@ -180,7 +184,7 @@ function parseKf(text) {
   if (!closed) return { error: "A brace is open" };
   return { name: m[1], frames: [...at.values()].sort((a, b) => a.at - b.at) };
 }
-function serialize(nm, frames) {
+export function serialize(nm, frames) {
   const body = frames.map((f) => {
     const d = Object.entries(f.vals).map(([p, v]) => `${p}: ${v};`);
     if (f.ease) d.push(`animation-timing-function: ${f.ease};`);
@@ -189,7 +193,7 @@ function serialize(nm, frames) {
   return `@keyframes ${nm} {\n${body.join("\n")}\n}`;
 }
 /** Keyframes as the Web Animations API gives them (a script's, or a stylesheet we may not read). */
-function fromApi(list) {
+export function fromApi(list) {
   const kebab = (s) => (s === "cssFloat" ? "float" : s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`));
   return list.map((k) => {
     const vals = {};
@@ -197,7 +201,7 @@ function fromApi(list) {
     return { at: r1(k.computedOffset * 100), ease: k.easing && k.easing !== "linear" ? k.easing : "", vals };
   });
 }
-function entryCss(e) {
+export function entryCss(e) {
   const out = [e.name, ms(e.duration)];
   if (e.easing !== "ease") out.push(e.easing);
   if (e.delay) out.push(ms(e.delay));
@@ -224,10 +228,10 @@ function curvePoints(easing, w, h, pad) {
     return "";
   }
 }
-const curve = (easing) => `<svg class="m-cv" viewBox="0 0 28 28" aria-hidden="true"><polyline points="${curvePoints(easing, 28, 28, 6)}" fill="none" stroke="#fffaa0" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+export const curve = (easing) => `<svg class="m-cv" viewBox="0 0 28 28" aria-hidden="true"><polyline points="${curvePoints(easing, 28, 28, 6)}" fill="none" stroke="#fffaa0" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
 
 // ── how an element plays its animations ──────────────────────────────────────────────────
-function readList(el) {
+export function readList(el) {
   const cs = getComputedStyle(el);
   const names = splitTop(cs.animationName);
   if (names.length === 1 && names[0] === "none") return [];
@@ -238,17 +242,17 @@ function readList(el) {
   return names.map((nm, i) => ({ name: nm, duration: Math.round(parseFloat(at(dur, i)) * 1000) || 0, delay: Math.round(parseFloat(at(del, i)) * 1000) || 0,
     easing: at(ease, i), count: at(n, i), direction: at(dir, i), fill: at(fill, i) }));
 }
-const kfDirty = (k) => !!k && (k.isNew || serialize(k.name, k.frames) !== k.orig);
-const useDirty = (u) => !!u && (u.isNew || !!u.from || JSON.stringify(u.timing) !== JSON.stringify(u.orig));
-const playsDirty = (u) => !!u && (u.plays.how !== "asnow" || !!u.plays.words.trim());
-const openKf = () => (M.open && M.open.kind === "css" ? M.kf.get(M.open.name) : null);
-const openUse = () => (M.open && M.open.kind === "css" ? M.use.get(`${M.open.rs}|${M.open.name}`) : null);
-const frames = () => (openKf() ? openKf().frames : M.ro ? M.ro.frames : []);
-const readOnly = () => !!M.open && M.open.kind !== "css";
+export const kfDirty = (k) => !!k && (k.isNew || serialize(k.name, k.frames) !== k.orig);
+export const useDirty = (u) => !!u && (u.isNew || !!u.from || JSON.stringify(u.timing) !== JSON.stringify(u.orig));
+export const playsDirty = (u) => !!u && (u.plays.how !== "asnow" || !!u.plays.words.trim());
+export const openKf = () => (M.open && M.open.kind === "css" ? M.kf.get(M.open.name) : null);
+export const openUse = () => (M.open && M.open.kind === "css" ? M.use.get(`${M.open.rs}|${M.open.name}`) : null);
+export const frames = () => (openKf() ? openKf().frames : M.ro ? M.ro.frames : []);
+export const readOnly = () => !!M.open && M.open.kind !== "css";
 /** Anything unsent: an edit, or how it starts. */
-const anyDirty = () => [...M.kf.values()].some(kfDirty) || [...M.use.values()].some((u) => useDirty(u) || playsDirty(u));
+export const anyDirty = () => [...M.kf.values()].some(kfDirty) || [...M.use.values()].some((u) => useDirty(u) || playsDirty(u));
 /** The open animation has something to send. */
-const openDirty = () => {
+export const openDirty = () => {
   const u = openUse();
   return !!u && (useDirty(u) || playsDirty(u) || kfDirty(openKf()));
 };
@@ -273,7 +277,7 @@ function rulesText() {
   if (M.on && M.isolate && M.selRs) out.push(`body *:not(${M.selRs}, ${M.selRs} *) { visibility: hidden !important; }`, `${M.selRs} { visibility: visible !important; }`);
   return out.join("\n");
 }
-function apply() {
+export function apply() {
   const text = rulesText();
   if (!M.sheet) {
     if (!text) return;
@@ -290,7 +294,7 @@ function apply() {
 }
 
 // ── what moves on this page ──────────────────────────────────────────────────────────────
-function scan() {
+export function scan() {
   const rules = new Map(); // name → the @keyframes rule that wins (the last one)
   const walk = (list) => {
     for (const r of list) {
