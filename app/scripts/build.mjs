@@ -2,8 +2,8 @@
 //   main.cjs      the Electron main process          (esbuild, src/main/index.ts)
 //   preload.cjs   the bridge into the app window      (esbuild, src/preload.ts)
 //   renderer/     the app window's UI                 (vite + solid, src/renderer)
-//   overlay.js    the shared in-page review layer     (esbuild, ../overlay/src; the overlay's own
-//                                                     build does it, with the esbuild installed there)
+//   overlay.js    the shared in-page review layer     (esbuild, ../overlay/src: the overlay's own
+//                                                     build does it, see ../../overlay/scripts/build.mjs)
 //   icon.png      the app icon, when there is one     (copied from ../assets)
 //   test/         with --tests: every test/*.ts bundled to .cjs
 //

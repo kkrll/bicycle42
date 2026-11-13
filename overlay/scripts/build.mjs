@@ -9,13 +9,24 @@
 // A stylesheet is imported as its text. The result has no imports or exports of its own, so it
 // is the body of one function here: a host needs a classic script, and the first statement has
 // to be the one that stops a second copy.
-import { buildSync } from "esbuild";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = path.join(ROOT, "src");
+
+// esbuild is the overlay's own, or the app's: the app's build calls this one, and someone who
+// only runs the app has installed the app's packages and not the overlay's.
+function esbuild() {
+  try {
+    return createRequire(import.meta.url)("esbuild");
+  } catch {
+    return createRequire(path.join(ROOT, "../app/package.json"))("esbuild");
+  }
+}
+const { buildSync } = esbuild();
 
 /** One script from an entry and all it imports. Throws with esbuild's message (a missing file,
  *  a name a file does not export, a write to an imported name). */
