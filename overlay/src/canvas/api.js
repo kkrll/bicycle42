@@ -51,13 +51,9 @@ function letGo() {
 
 // ── what the rest of the overlay sees ───────────────────────────────────────────────────────
 const api = {
-  get on() {
-    return C.on;
-  },
+  on: () => C.on,
   /** A sent batch is switched off for the host's "before" picture: that counts as a capture. */
-  get hiding() {
-    return C.hide.size > 0;
-  },
+  hiding: () => C.hide.size > 0,
   html: HTML,
   mount: mountCanvas, setOn, resume: resumeCanvas, letGo, syncUi, drawBar, frame: cvFrame,
   pointerDown: (e, z) => pagePress(e) && cvDown(e, z), // after what notes mode does with a press too (input.js)

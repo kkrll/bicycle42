@@ -14,7 +14,6 @@ const PENCIL = `<filter id="b42-pencil" filterUnits="userSpaceOnUse">
 
 /** The ink's part of the layer, under the outlines. mount.js puts it in its place; mount() finds it. */
 const INK_HTML = `<svg class="ink" xmlns="${SVG}"><defs>${PENCIL}</defs><g class="areas"></g><g class="strokes" filter="url(#b42-pencil)"></g></svg>`;
-let ink, strokesEl, pencil; // found by mount()
 
 // ── one frame ───────────────────────────────────────────────────────────────────────────────
 // render.js asks for it in two parts, in the order of its reads and writes: the outline is

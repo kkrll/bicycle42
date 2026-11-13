@@ -41,7 +41,7 @@ function render() {
   if (!root) return;
   readView();
   // A batch hidden for the host's "before" picture counts as a capture: no chrome in that picture.
-  const capturing = !!S.pending || Canvas.hiding;
+  const capturing = !!S.pending || Canvas.hiding();
   drawVariants(capturing);
   const canvasBoxes = Canvas.frame(capturing);
   const motionBoxes = Motion.frame(capturing);
@@ -121,6 +121,7 @@ const IDLE_TICK_MS = 250;
 const ACTIVE_MS = 500;
 let idleTimer = 0;
 let lastInput = 0;
+let raf = 0; // the frame asked for, 0 when none is
 function active() {
   lastInput = performance.now();
   kick();

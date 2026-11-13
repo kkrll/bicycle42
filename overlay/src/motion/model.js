@@ -10,7 +10,7 @@
 //  - a sent animation's rules move to a stylesheet of their own, which stays applied until its
 //    pin is done, failed or stopped (or the page reloads), as a sent canvas batch does;
 //  - the dock is drawn from that data; nothing in it is state of its own but what is open.
-// Motion mode is a module: the rest of the overlay sees only its api (in input.js), and its
+// Motion mode is a module: the rest of the overlay sees only its api (in api.js), and its
 // names stay out of the canvas code's way.
 //
 // The files of motion/ share one scope. This one holds the constants, the state M, and the model:
@@ -92,7 +92,6 @@ const M = {
   drag: null, last: null, findUntil: 0, obs: null, ui: null,
   msg: "", msgTimer: 0, done: "", doneTimer: 0,
 };
-let dock, listEl, hdEl, tlEl, cssEl, kbEl, ftEl, noteEl, msgEl, popEl, sugEl, tagEl, popAnchor = null;
 
 // ── elements of the page ─────────────────────────────────────────────────────────────────
 const mq = (rs) => {

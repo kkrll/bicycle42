@@ -39,8 +39,5 @@ const S = {
   unplaced: "",
 };
 
-let hostEl, root, boxes, pinsEl, cursorStyle, tip, variantsEl, variantStyle;
 const SVG = "http://www.w3.org/2000/svg"; // the namespace of the layer's own SVG elements
-let raf = 0;
-let domVersion = 0; // bumped on every DOM mutation; pins re-search only when it changes
 

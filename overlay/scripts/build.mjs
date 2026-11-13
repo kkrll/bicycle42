@@ -17,7 +17,7 @@ const SRC = path.join(ROOT, "src");
 
 /** The protocol (a comment) comes first, outside the closure; then these, in this order. */
 export const PARTS = [
-  "state.js", // the host bridge, the transient state, the elements of the layer
+  "state.js", // the host bridge, the transient state
   "ui.js", // the layer's icons, and words with key symbols drawn in them
   "component.js", // what the page's framework calls an element, read from the page's own objects
   "page.js", // geometry, element identity, picking, the rules previews adopt
@@ -69,13 +69,14 @@ export const PARTS = [
       "motion/edit.js", // undo, shared keyframes, keyframes and timing edited, the text, the list's rows
       "motion/send.js", // the open animation sent as a note, and the draft the host keeps
       "motion/draw.js", // the mode on and off, the dock drawn, one frame
-      "motion/input.js", // the pointer, the small sheet, clicks, fields and keys, mount; the api
+      "motion/input.js", // the pointer, the small sheet, clicks, fields and keys, mount
+      "motion/api.js", // what the rest of the overlay sees
     ],
   },
   "mode.js", // which mode is on, the one switch between them, the host's switch, the brush
   "input.js", // the page's pointer and keys: what every mode shares, then the mode that is on
   "render.js", // one frame at a time: each mode's part, the outlines, the pins
-  "mount.js", // the shadow root, the host's API
+  "mount.js", // the layer's elements and its shadow root, the host's API
 ];
 
 const read = (name) => fs.readFileSync(path.join(SRC, name), "utf8").replace(/\n$/, "");

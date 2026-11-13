@@ -2,7 +2,6 @@
 // mount.js; the template list and the pictures in templates.js and pictures.js.)
 
 // ── note card ───────────────────────────────────────────────────────────────────────────────
-let card, what, refs, textarea, chip, menuEl; // found by mount()
 const PLACEHOLDER = "Note…"; // what else the card does (/, a pasted picture) is behind its "?"
 // The card's keys: behind its "?", shown while the pointer (or focus) is on it. The card itself
 // carries no instructions, only what is being noted and the ↵ that sends it.

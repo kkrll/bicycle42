@@ -14,7 +14,7 @@ const MODES = { notes: Notes, canvas: Canvas, motion: Motion };
 
 /** Which mode is on. Canvas and motion mode each say so of themselves while they switch (the
  *  host is told the mode from inside their setOn), so it is read from them, here and nowhere else. */
-const modeOn = () => (Canvas.on ? "canvas" : Motion.on ? "motion" : "notes");
+const modeOn = () => (Canvas.on() ? "canvas" : Motion.on() ? "motion" : "notes");
 const current = () => MODES[modeOn()];
 
 /** The one switch: the mode that is on goes off, then the brush (it belongs to notes mode), then
@@ -42,6 +42,12 @@ function tellMode() {
   if (modeTold === undefined || key === modeTold) return; // nothing before the host's first "state"
   modeTold = key;
   send({ type: "mode", mode, brush: !!S.brush });
+}
+
+/** A new page, or a host that asks again: it hears the mode whatever it was. */
+function retellMode() {
+  modeTold = "";
+  tellMode();
 }
 
 /** From the host's switch. The brush belongs to notes mode: switching it on leaves edit mode. */

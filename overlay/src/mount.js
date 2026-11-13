@@ -1,6 +1,11 @@
 // ── mount ───────────────────────────────────────────────────────────────────────────────────
 const STYLES = include("styles.css");
 
+// The layer's own elements, made by mount(). A file can only assign what it declares, so they
+// are here and not with the rest of the state; every other file reads them.
+let hostEl, root, boxes, pinsEl, cursorStyle, tip, variantsEl, variantStyle;
+let domVersion = 0; // bumped on every DOM mutation; pins re-search only when it changes
+
 // The layer has to be the topmost thing on the page and has to take typing, whatever the page
 // shows. Two browser rules decide where it sits:
 //  - the top layer (modal dialogs, popovers) paints over every z-index, so the layer is a
@@ -116,8 +121,7 @@ window.__b42 = {
         if (msg.draft && !Notes.hasDraft() && !Canvas.hasEdits()) restoreDraft(msg.draft);
         Canvas.resume();
         Motion.resume();
-        modeTold = ""; // a new page, or a host that asks again: it hears the mode whatever it was
-        tellMode();
+        retellMode();
         break;
       case "mode":
         hostMode(msg);

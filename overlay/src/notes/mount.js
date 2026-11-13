@@ -1,4 +1,9 @@
 // ── mount ───────────────────────────────────────────────────────────────────────────────────
+// Notes mode's elements, found by mount(): declared here, where they are assigned.
+let ink, strokesEl, pencil; // the ink (frame.js)
+let card, what, refs, textarea, chip, menuEl; // the note card (card.js)
+let sentEl; // the "Sent" chip (sent.js)
+
 /** Its elements in the layer (mount.js puts its markup in place first), and their listeners. */
 function mount() {
   ink = root.querySelector(".ink");

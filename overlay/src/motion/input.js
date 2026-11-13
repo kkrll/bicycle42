@@ -1,5 +1,9 @@
 // Motion mode, input: the page's pointer, the timeline's, the small sheet over the dock, clicks,
-// fields and keys; the dock's elements found and listened to; and what the rest of the overlay sees.
+// fields and keys; the dock's elements found and listened to.
+
+// The dock's elements, found by mount(), and what the small sheet hangs from: declared here,
+// where they are assigned.
+let dock, listEl, hdEl, tlEl, cssEl, kbEl, ftEl, noteEl, msgEl, popEl, sugEl, tagEl, popAnchor = null;
 
 // ── the page's pointer ───────────────────────────────────────────────────────────────────
 function pointerDown(e) {
@@ -396,14 +400,3 @@ function mount() {
   tlEl.addEventListener("pointerup", tlUp);
   tlEl.addEventListener("pointercancel", tlUp);
 }
-
-const api = {
-  get on() {
-    return M.on;
-  },
-  mount, setOn, resume, syncUi, letGo, frame, busyFrames, key, pointerDown, pointerMove, pointerUp, submit, refuse, finish, dropFinished, draft, restore,
-  hasSent: () => M.sent.length > 0,
-  busy: () => !!M.drag,
-  /** For tests: the engine's state and a few actions. */
-  debug: { M, seek, play, pause, position, select: selectEl, openCss, setTiming, setKey, rows },
-};
