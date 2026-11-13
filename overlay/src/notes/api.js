@@ -1,3 +1,12 @@
+import { CARD_HTML, closeCard, openCard } from "./card.js";
+import { setTemplate } from "./templates.js";
+import { clearDraft, hasDraft, restore } from "./draft.js";
+import { finish, refuse } from "./submit.js";
+import { hideSent, showSent } from "./sent.js";
+import { frame, INK_HTML, outlines } from "./frame.js";
+import { key, pointerDown, pointerMove, pointerUp } from "./input.js";
+import { mount, syncUi, textarea } from "./mount.js";
+
 // ── what the rest of the overlay sees ───────────────────────────────────────────────────────
 // Notes mode has no setOn: it is on when canvas and motion mode are off (mode.js).
 const api = {

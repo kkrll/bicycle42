@@ -1,8 +1,23 @@
 // Notes mode, input: the page's pointer (hover, click, shift+click, an area, a drawing) and the
 // keys of the note card. (The draft, the card and the rest of notes mode are beside it in notes/.)
 
+import { DRAG_PX, mod, S, send } from "../state.js";
+import { elementsIn, pick, strokeTargets, toView } from "../page.js";
+import { draftChanged, restoreDraft, serializeDraft } from "../draft.js";
+import { autosize, openCard, updateCardMeta } from "./card.js";
+import { drawMenu, pickTemplate, setTemplate, updateMenu } from "./templates.js";
+import { setImages } from "./pictures.js";
+import { clearDraft, hasDraft } from "./draft.js";
+import { submit } from "./submit.js";
+import { hideSent, offerUndo } from "./sent.js";
+import { textarea } from "./mount.js";
+import * as Canvas from "../canvas/api.js";
+import { setBrush } from "../mode.js";
+import { block, isOurs, pagePress } from "../input.js";
+import { kick } from "../render.js";
+
 // ── the page's pointer ───────────────────────────────────────────────────────────────────
-function pointerDown(e) {
+export function pointerDown(e) {
   if (!pagePress(e)) return;
   S.drag = {
     x0: e.clientX,
@@ -16,7 +31,7 @@ function pointerDown(e) {
   };
 }
 
-function pointerMove(e) {
+export function pointerMove(e) {
   const d = S.drag;
   if (!d) {
     const next = isOurs(e) ? null : pick(e.clientX, e.clientY);
@@ -37,7 +52,7 @@ function pointerMove(e) {
   kick();
 }
 
-function pointerUp(e) {
+export function pointerUp(e) {
   const d = S.drag;
   if (!d) return;
   block(e);
@@ -95,7 +110,7 @@ function walk(dir) {
   kick();
 }
 
-function key(e) {
+export function key(e) {
   if (e.key === "Escape" && Canvas.closePop()) {
     block(e);
     return;

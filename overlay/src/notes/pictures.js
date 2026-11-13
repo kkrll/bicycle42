@@ -1,3 +1,7 @@
+import { S } from "../state.js";
+import { refs, textarea } from "./mount.js";
+import { kick } from "../render.js";
+
 // ── pasted pictures ─────────────────────────────────────────────────────────────────────────
 // A reference to go with the words ("like this"). They are scaled down here, so a full-screen
 // screenshot costs the agent no more than the note's own crops, and they are not part of the
@@ -5,7 +9,7 @@
 const MAX_IMAGES = 4;
 const IMAGE_SIDE = 1600;
 
-function setImages(list) {
+export function setImages(list) {
   S.images = list;
   if (!refs) return;
   refs.replaceChildren(
@@ -47,7 +51,7 @@ async function addImage(file) {
   }
 }
 
-function onPaste(e) {
+export function onPaste(e) {
   const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith("image/"));
   if (!files.length) return; // plain text pastes as usual
   e.preventDefault();

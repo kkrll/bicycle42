@@ -1,6 +1,13 @@
 // Notes mode, drawn: the hover outline, the ink (strokes and areas, the drag's live one) and the
 // card's place, one frame at a time. render.js calls these; the outlines of S.sel are its own.
 
+import { S, SVG } from "../state.js";
+import { bboxOf, rectOf, union, VP } from "../page.js";
+import { placeCard, strokeBox } from "./card.js";
+import { ink, pencil, strokesEl } from "./mount.js";
+import { modeOn } from "../mode.js";
+import { pool } from "../render.js";
+
 // ── ink ─────────────────────────────────────────────────────────────────────────────────────
 // Pencil strokes: noise nudges the edge, and a fine paper grain cuts small breaks into the line
 // (alpha = 4.4·grain − 1.3), like graphite on paper. Picked in harness/strokes.html.
@@ -13,7 +20,7 @@ const PENCIL = `<filter id="b42-pencil" filterUnits="userSpaceOnUse">
 </filter>`;
 
 /** The ink's part of the layer, under the outlines. mount.js puts it in its place; mount() finds it. */
-const INK_HTML = `<svg class="ink" xmlns="${SVG}"><defs>${PENCIL}</defs><g class="areas"></g><g class="strokes" filter="url(#b42-pencil)"></g></svg>`;
+export const INK_HTML = `<svg class="ink" xmlns="${SVG}"><defs>${PENCIL}</defs><g class="areas"></g><g class="strokes" filter="url(#b42-pencil)"></g></svg>`;
 
 // ── one frame ───────────────────────────────────────────────────────────────────────────────
 // render.js asks for it in two parts, in the order of its reads and writes: the outline is
@@ -22,14 +29,14 @@ const INK_HTML = `<svg class="ink" xmlns="${SVG}"><defs>${PENCIL}</defs><g class
 // two writes would cost a second style recalc).
 
 /** Its outline, the hover's (only while notes mode is on), for render.js to draw with the others. */
-function outlines(capturing) {
+export function outlines(capturing) {
   if (S.enabled && !capturing && !S.drag && modeOn() === "notes" && S.hover && S.hover.isConnected && !S.sel.includes(S.hover))
     return [[rectOf(S.hover), "hover"]];
   return [];
 }
 
 /** The rest of its part of a frame: the ink drawn and the card placed. */
-function frame(capturing) {
+export function frame(capturing) {
   const d = S.drag;
 
   // ink: committed strokes, area, and the live drag

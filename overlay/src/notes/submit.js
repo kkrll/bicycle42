@@ -1,5 +1,15 @@
+import { S } from "../state.js";
+import { bboxOf, describe, docToViewRect, round, toView, union, vp } from "../page.js";
+import { openCard, setHint } from "./card.js";
+import { setTemplate } from "./templates.js";
+import { setImages } from "./pictures.js";
+import { hasDraft } from "./draft.js";
+import { textarea } from "./mount.js";
+import { dispatch } from "../sent.js";
+import { setBrush } from "../mode.js";
+
 // ── submit ──────────────────────────────────────────────────────────────────────────────────
-function submit(background) {
+export function submit(background) {
   const text = textarea.value.trim();
   if (!text && !S.template) return;
   if (!hasDraft()) return;
@@ -27,14 +37,14 @@ function submit(background) {
 }
 
 /** The host did not take the note: its card opens again with the words in it, and says why. */
-function refuse(say) {
+export function refuse(say) {
   openCard();
   setHint(say);
 }
 
 /** A note was taken (this mode's or another's): the words, pictures, template and marks of the
  *  note go. (S.sel, the sent note's outlines whatever made it, goes in finishCapture.) */
-function finish() {
+export function finish() {
   S.area = null;
   S.strokes = [];
   textarea.value = "";

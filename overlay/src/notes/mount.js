@@ -1,11 +1,21 @@
+import { S } from "../state.js";
+import { keyNodes } from "../ui.js";
+import { draftChanged } from "../draft.js";
+import { autosize, CARD_KEYS, drawCardSend, setHint } from "./card.js";
+import { setTemplate, updateMenu } from "./templates.js";
+import { onPaste } from "./pictures.js";
+import { submit } from "./submit.js";
+import { hideSent } from "./sent.js";
+import { root } from "../mount.js";
+
 // ── mount ───────────────────────────────────────────────────────────────────────────────────
 // Notes mode's elements, found by mount(): declared here, where they are assigned.
-let ink, strokesEl, pencil; // the ink (frame.js)
-let card, what, refs, textarea, chip, menuEl; // the note card (card.js)
-let sentEl; // the "Sent" chip (sent.js)
+export let ink, strokesEl, pencil; // the ink (frame.js)
+export let card, what, refs, textarea, chip, menuEl; // the note card (card.js)
+export let sentEl; // the "Sent" chip (sent.js)
 
 /** Its elements in the layer (mount.js puts its markup in place first), and their listeners. */
-function mount() {
+export function mount() {
   ink = root.querySelector(".ink");
   strokesEl = ink.querySelector(".strokes");
   pencil = ink.querySelector("#b42-pencil");
@@ -54,7 +64,7 @@ function mount() {
 }
 
 /** Review on or off: the card shows again, with the caret in it, or it and the chip are hidden. */
-function syncUi() {
+export function syncUi() {
   if (!S.enabled) {
     card.hidden = true;
     hideSent();
