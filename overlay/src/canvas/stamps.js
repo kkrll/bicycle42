@@ -1,3 +1,8 @@
+import { component, editSel, line, plainLabel, q, unique } from "../page.js";
+import { draftChanged } from "../draft.js";
+import { C, EMPTY, kids } from "./state.js";
+import { hostEl } from "../mount.js";
+
 // ── which element: paths and stamps ─────────────────────────────────────────────────────────
 /** Where an element is: a path of tags and places from the nearest id. Unlike selectorFor it
  *  uses no class names, so it still matches after the reviewer edits the class list. It says
@@ -27,17 +32,17 @@ function pathSel(el) {
 // the ones around it. The stamp is lost when the page builds the element anew (or reloads):
 // then the element is the one where the old one last was, as before. An element with an id of
 // its own needs no stamp.
-const STAMP = "data-b42e";
+export const STAMP = "data-b42e";
 const stampSel = (id) => `[${STAMP}="${id}"]`;
-const stampOf = (rs) => /^\[data-b42e="([a-z0-9]+)"\]$/.exec(rs)?.[1];
+export const stampOf = (rs) => /^\[data-b42e="([a-z0-9]+)"\]$/.exec(rs)?.[1];
 const stampBase = `${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 5)}`; // (a restored draft has stamps of an earlier load)
 let stampN = 0;
 
 /** The selector that says which element this is: its stamp if it has one, else its path. */
-const stableSel = (el) => (el.hasAttribute(STAMP) ? stampSel(el.getAttribute(STAMP)) : pathSel(el));
+export const stableSel = (el) => (el.hasAttribute(STAMP) ? stampSel(el.getAttribute(STAMP)) : pathSel(el));
 
 /** The same for an element that is being edited: it gets its stamp now. */
-function stamp(el) {
+export function stamp(el) {
   const path = pathSel(el);
   if (!el.hasAttribute(STAMP)) {
     if (el === document.body || el === document.documentElement || (el.id && path === `#${CSS.escape(el.id)}`)) return path;
@@ -50,7 +55,7 @@ function stamp(el) {
   return rs;
 }
 
-function elOf(rs) {
+export function elOf(rs) {
   let el = C.found.get(rs);
   const id = stampOf(rs);
   if (el && el.isConnected) {
@@ -91,19 +96,19 @@ function readPaths() {
 
 /** The page changed its tree (the layer's own observer says so): the paths are read now, or,
  *  while the page keeps changing, in a frame soon after (readPathsIfDue). */
-function treeChanged(records) {
+export function treeChanged(records) {
   if ((C.found.size || C.sel) && records.some((r) => r.type === "childList")) {
     if (performance.now() - C.pathsAt > 50) readPaths();
     else C.pathsDirty = true;
   }
 }
 
-function readPathsIfDue(now) {
+export function readPathsIfDue(now) {
   if (C.pathsDirty && now - C.pathsAt > 50) readPaths();
 }
 
 /** What every edit says about its element (the wire names), plus `rs` for our own use. */
-function meta(el) {
+export function meta(el) {
   const m = { selector: editSel(el), rs: stamp(el), tag: el.tagName.toLowerCase(), label: line(plainLabel(el)) };
   const c = component(el);
   if (c) m.component = line(c.name);
@@ -114,7 +119,7 @@ function meta(el) {
   return m;
 }
 
-function entry(el) {
+export function entry(el) {
   const els = C.draft.B.els;
   return (el.hasAttribute(STAMP) && els[stampSel(el.getAttribute(STAMP))]) || els[stamp(el)] || (els[stamp(el)] = { ...meta(el), css: "" });
 }

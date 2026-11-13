@@ -1,3 +1,17 @@
+import { S } from "../state.js";
+import { pick, q, rectOf, VP } from "../page.js";
+import { C } from "./state.js";
+import { elOf, stampOf } from "./stamps.js";
+import { between, buildGeo, layoutHit, select } from "./select.js";
+import { startDrag, stepDrag } from "./drag.js";
+import { endEdit } from "./text.js";
+import { dock } from "./cursor.js";
+import { drawTree, reveal, T } from "./tree.js";
+import { drawComputed, syncFields } from "./inspector.js";
+import { bandEl, bar, corner, cv, dimEl, ghostEl, hitEl, insEl, insp, labEl } from "./mount.js";
+import { modeOn } from "../mode.js";
+import { domVersion } from "../mount.js";
+
 // ── canvas: one frame ───────────────────────────────────────────────────────────────────────
 const place = (el, x, y, w, h, cls) => {
   const k = `${x}|${y}|${w}|${h}|${cls}`;
@@ -11,7 +25,7 @@ const place = (el, x, y, w, h, cls) => {
   }
   if (cls !== undefined) el.className = cls;
 };
-const gone = (el) => {
+export const gone = (el) => {
   if (el._k === "") return;
   el._k = "";
   el.hidden = true;
@@ -23,7 +37,7 @@ const say = (el, text, x, y, cls) => {
 
 /** Everything canvas mode does in a frame: the drag's one write, then the reads and the drawing.
  *  Returns the outlines to draw with the others, or null when canvas mode shows nothing. */
-function cvFrame(capturing) {
+export function cvFrame(capturing) {
   if (!bar) return null;
   const show = S.enabled && !capturing && modeOn() !== "motion"; // motion mode has its own dock
   if (bar._shown !== show) bar.hidden = corner.hidden = !(bar._shown = show);

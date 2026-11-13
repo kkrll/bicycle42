@@ -1,3 +1,23 @@
+import { S } from "../state.js";
+import { draftChanged } from "../draft.js";
+import * as Notes from "../notes/api.js";
+import { C, EMPTY } from "./state.js";
+import { readPathsIfDue, treeChanged } from "./stamps.js";
+import { commit, draft, restoreEdits } from "./batch.js";
+import { dropFinished, finish, showEdits, unsendCanvas } from "./send.js";
+import { select, zoneOf } from "./select.js";
+import { cancelDrag, cvDown, cvMove, cvUp } from "./drag.js";
+import { endEdit, inEdit } from "./text.js";
+import { syncUi } from "./cursor.js";
+import { closePop, drawBar, hush, setPop } from "./bar.js";
+import { cvKey } from "./keys.js";
+import { syncFields } from "./inspector.js";
+import { cvFrame } from "./frame.js";
+import { bar, cnote, HTML, mountCanvas } from "./mount.js";
+import { setMode } from "../mode.js";
+import { pagePress } from "../input.js";
+import { kick } from "../render.js";
+
 // ── on and off ──────────────────────────────────────────────────────────────────────────────
 /** Canvas mode's own part of switching it on or off. The switch is setMode (mode.js): it
  *  turns the other modes off first. */

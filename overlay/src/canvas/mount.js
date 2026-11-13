@@ -1,7 +1,25 @@
+import { isMac, S } from "../state.js";
+import { icon } from "../ui.js";
+import { draftChanged } from "../draft.js";
+import { C, MAX_CSS } from "./state.js";
+import { entry } from "./stamps.js";
+import { setDecl } from "./css.js";
+import { commit, redo, reset, undo } from "./batch.js";
+import { submitCanvas } from "./send.js";
+import { cursorOf, select } from "./select.js";
+import { syncUi } from "./cursor.js";
+import { drawBar, setPop } from "./bar.js";
+import { T, toggleRow } from "./tree.js";
+import { drawTabs, setPanel, setValue, syncFields, typed, unmarkValue } from "./inspector.js";
+import { setMode } from "../mode.js";
+import { isOurs } from "../input.js";
+import { kick } from "../render.js";
+import { root } from "../mount.js";
+
 // ── mount ───────────────────────────────────────────────────────────────────────────────────
 // Its part of the layer: the grab elements around the selection, the inspector, the bar and
 // the "?" in the corner. mount.js puts it in its place among the rest; mountCanvas finds them.
-const HTML = `<div class="cv" hidden><div class="band" hidden></div>
+export const HTML = `<div class="cv" hidden><div class="band" hidden></div>
       <div class="hit" hidden><div class="gzs"></div><div class="eg" hidden></div><div class="eg" hidden></div><div class="eg" hidden></div><div class="eg" hidden></div>
         <div class="hd" hidden></div><div class="hd" hidden></div><div class="hd" hidden></div><div class="hd" hidden></div></div>
       <div class="ghost" hidden></div><div class="ins" hidden></div><div class="lab dim" hidden></div><div class="lab live" hidden></div>
@@ -36,9 +54,9 @@ const HTML = `<div class="cv" hidden><div class="band" hidden></div>
       <input class="cnote" type="text" spellcheck="false" autocomplete="off" placeholder="Add a note…" hidden><span class="bmsg" hidden></span></div>
     <div class="corner" hidden><div class="pop" hidden></div><button type="button" class="help" title="Keys and gestures" aria-label="Keys and gestures">${icon("help")}</button></div>`;
 
-let corner, bar, insp, cv, cnote, treeEl, trows, tspace, clsEl, cssEl, freeEl, compEl, ipath, bandEl, ghostEl, insEl, labEl, dimEl, handles, edges, hitEl, gzEl, shieldEl;
+export let corner, bar, insp, cv, cnote, treeEl, trows, tspace, clsEl, cssEl, freeEl, compEl, ipath, bandEl, ghostEl, insEl, labEl, dimEl, handles, edges, hitEl, gzEl, shieldEl;
 
-function mountCanvas() {
+export function mountCanvas() {
   bar = root.querySelector(".bar");
   corner = root.querySelector(".corner");
   cnote = bar.querySelector(".cnote");

@@ -1,5 +1,17 @@
+import { rectOf } from "../page.js";
+import { C, num } from "./state.js";
+import { meta, stableSel } from "./stamps.js";
+import { commit } from "./batch.js";
+import { hush } from "./bar.js";
+import { reveal, T, treeKids } from "./tree.js";
+import { syncFields } from "./inspector.js";
+import { gone } from "./frame.js";
+import { edges, gzEl, handles } from "./mount.js";
+import { kick, pool } from "../render.js";
+import { hostEl } from "../mount.js";
+
 // ── selection and its geometry ──────────────────────────────────────────────────────────────
-function select(el) {
+export function select(el) {
   if (C.typeTimer) commit();
   hush();
   C.sel = el || null;
@@ -14,7 +26,7 @@ function select(el) {
 }
 
 /** The children of P that take part in its layout, in the order they are laid out. */
-function flow(P) {
+export function flow(P) {
   const fg = /flex|grid/.test(getComputedStyle(P).display);
   const out = [];
   for (let i = 0; i < P.children.length && out.length < 200; i++) {
@@ -31,7 +43,7 @@ function flow(P) {
 }
 
 /** The empty band between two neighbours: side by side, or one under the other. */
-function between(a, b, pr) {
+export function between(a, b, pr) {
   const top = Math.max(a.y, b.y), bot = Math.min(a.y + a.h, b.y + b.h);
   if (b.x >= a.x + a.w - 0.5 && bot > top) return { axis: "x", rect: { x: a.x + a.w, y: top, w: Math.max(0, b.x - a.x - a.w), h: bot - top } };
   if (b.y < a.y + a.h - 0.5) return null;
@@ -58,7 +70,7 @@ function gapZones(g, P, only) {
   }
 }
 
-function buildGeo(el, r) {
+export function buildGeo(el, r) {
   const d = getComputedStyle(el).display;
   const g = { el, r, resizable: d !== "inline" && d !== "contents" && r.w > 0 && r.h > 0, zones: [] };
   const P = el.parentElement;
@@ -70,7 +82,7 @@ function buildGeo(el, r) {
 /** Lay out what the pointer can grab around the selection: corners, edges, the gaps. They are
  *  the layer's own elements (so the cursor is theirs, and "what is under the pointer" is the
  *  event's target), placed relative to the selection's corner; the frame moves them as one. */
-function layoutHit(g, r) {
+export function layoutHit(g, r) {
   const w = r.w, h = r.h;
   const at = (el, x, y, ww, hh) => {
     const k = `${x}|${y}|${ww}|${hh}`;
@@ -106,14 +118,14 @@ function layoutHit(g, r) {
     if (zs[i]._c !== cur) zs[i].style.cursor = zs[i]._c = cur;
   });
 }
-const zoneOf = (e) => (C.sel && e.composedPath()[0]._z) || null;
-const cursorOf = (z) =>
+export const zoneOf = (e) => (C.sel && e.composedPath()[0]._z) || null;
+export const cursorOf = (z) =>
   !z || z.t === "body" ? "default"
   : z.t === "space" ? (z.axis === "x" ? "col-resize" : "row-resize")
   : z.hx && z.hy ? (z.hx === z.hy ? "nwse-resize" : "nesw-resize")
   : z.hx ? "ew-resize" : "ns-resize";
 
-function hideSel() {
+export function hideSel() {
   const el = C.sel;
   const m = meta(el);
   select(null);
@@ -121,7 +133,7 @@ function hideSel() {
   commit();
 }
 
-function cvWalk(up) {
+export function cvWalk(up) {
   let next = up ? C.sel.parentElement : treeKids(C.sel).find((k) => k.getClientRects().length) || null;
   if (next === document.documentElement) next = null;
   if (next) select(next);

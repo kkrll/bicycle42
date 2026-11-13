@@ -1,5 +1,21 @@
+import { mod } from "../state.js";
+import * as Notes from "../notes/api.js";
+import { C } from "./state.js";
+import { commit, redo, undo } from "./batch.js";
+import { submitCanvas } from "./send.js";
+import { cvWalk, hideSel, select } from "./select.js";
+import { cancelDrag } from "./drag.js";
+import { endEdit } from "./text.js";
+import { setPop } from "./bar.js";
+import { treeKey } from "./tree.js";
+import { setValue, unmarkValue } from "./inspector.js";
+import { clsEl, insp, treeEl } from "./mount.js";
+import { setMode } from "../mode.js";
+import { block } from "../input.js";
+import { root } from "../mount.js";
+
 // ── keys ────────────────────────────────────────────────────────────────────────────────────
-function cvKey(e) {
+export function cvKey(e) {
   const f = root.activeElement;
   const area = f && f.tagName === "TEXTAREA" && f !== Notes.textarea ? f : null; // an inspector text area
   const field = area || (f && f.tagName === "INPUT" ? f : null);

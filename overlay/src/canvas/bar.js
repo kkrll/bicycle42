@@ -1,5 +1,21 @@
+import { isMac } from "../state.js";
+import { icon, keyNodes } from "../ui.js";
+import { line } from "../page.js";
+import { C } from "./state.js";
+import { elOf } from "./stamps.js";
+import { topProps } from "./css.js";
+import { applyAll, splitRules } from "./apply.js";
+import { commit, countEdits } from "./batch.js";
+import { value } from "./send.js";
+import { select } from "./select.js";
+import { dock } from "./cursor.js";
+import { syncFields } from "./inspector.js";
+import { bar, clsEl, cnote, corner, cssEl, freeEl } from "./mount.js";
+import { tellMode } from "../mode.js";
+import { root } from "../mount.js";
+
 // ── the bar ─────────────────────────────────────────────────────────────────────────────────
-function flash(text) {
+export function flash(text) {
   C.msg = text;
   drawBar();
   clearTimeout(C.msgTimer);
@@ -10,7 +26,7 @@ function flash(text) {
 }
 
 /** Any change of state takes a refusal off the bar: it must never describe something older. */
-function hush() {
+export function hush() {
   if (!C.msg) return;
   C.msg = "";
   clearTimeout(C.msgTimer);
@@ -23,7 +39,7 @@ function sentStatus() {
   return b ? `Sent · preview stays until ${typeof b.n === "number" ? `note ${b.n}` : "the note"} is done` : "";
 }
 
-function drawBar() {
+export function drawBar() {
   if (!bar) return;
   const B = C.draft.B;
   const n = countEdits(B) + (B.sheet.trim() ? 1 : 0);
@@ -155,20 +171,20 @@ function removeEdit(row) {
   syncFields(true);
 }
 
-function setPop(which) {
+export function setPop(which) {
   C.pop = which === C.pop ? "" : which;
   drawPop();
   drawBar();
 }
 
 /** Closes whichever list is open; false when none was. */
-function closePop() {
+export function closePop() {
   if (!C.pop) return false;
   setPop(C.pop);
   return true;
 }
 
-function drawPop() {
+export function drawPop() {
   // Two lists, one open at a time: the batch above the bar, the keys above the "?" in the corner.
   const rows = C.pop === "list" ? editRows() : [];
   if (C.pop === "list" && !rows.length) C.pop = "";

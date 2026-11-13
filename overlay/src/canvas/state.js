@@ -1,3 +1,5 @@
+import { hostEl } from "../mount.js";
+
 // ── canvas mode ─────────────────────────────────────────────────────────────────────────────
 // The reviewer edits the page's real elements and sends the batch as one note. Three rules:
 //  - one source of truth per element: its "Element styles" text. Typing writes it, and so do the
@@ -9,16 +11,16 @@
 //    the one other write is the stamp that says which element an edit is on (see stamp());
 //  - the batch is plain data ({ els, sheet, ops }), so undo is a stack of snapshots, the draft is
 //    the batch itself, and a sent batch is the same object with a note id.
-const MAX_EDITS = 40;
-const MAX_CSS = 4000;
-const MAX_SHEET = 8000;
-const MAX_CLASS = 1000;
-const MAX_TEXT = 2000;
-const COMPUTED = ["display", "flex-direction", "align-items", "justify-content", "gap", "width", "height", "padding", "margin",
+export const MAX_EDITS = 40;
+export const MAX_CSS = 4000;
+export const MAX_SHEET = 8000;
+export const MAX_CLASS = 1000;
+export const MAX_TEXT = 2000;
+export const COMPUTED = ["display", "flex-direction", "align-items", "justify-content", "gap", "width", "height", "padding", "margin",
   "font-family", "font-size", "font-weight", "line-height", "letter-spacing", "color", "background-color", "border-radius"];
-const newBatch = () => ({ els: {}, sheet: "", ops: [] });
-const EMPTY = JSON.stringify(newBatch());
-const C = {
+export const newBatch = () => ({ els: {}, sheet: "", ops: [] });
+export const EMPTY = JSON.stringify(newBatch());
+export const C = {
   on: false,
   sel: null, // the selected element
   selRs: "", // its stable selector: its key in the batch, and how it is found again after a re-render
@@ -56,8 +58,8 @@ try {
   C.collapsed = !!p.c;
 } catch {}
 
-const num = (s) => parseFloat(s) || 0;
-const px = (n) => `${Math.round(n * 100) / 100}px`;
-const clean = (s) => s.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, ""); // tabs and line breaks stay
-const kids = (P) => [...P.children].filter((c) => c !== hostEl);
+export const num = (s) => parseFloat(s) || 0;
+export const px = (n) => `${Math.round(n * 100) / 100}px`;
+export const clean = (s) => s.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, ""); // tabs and line breaks stay
+export const kids = (P) => [...P.children].filter((c) => c !== hostEl);
 

@@ -1,5 +1,13 @@
+import { draftChanged } from "../draft.js";
+import { C, EMPTY, MAX_EDITS, newBatch } from "./state.js";
+import { stampOf } from "./stamps.js";
+import { applyAll } from "./apply.js";
+import { flash, hush } from "./bar.js";
+import { syncFields } from "./inspector.js";
+import { cnote } from "./mount.js";
+
 // ── the batch: commit, undo, reset, draft ───────────────────────────────────────────────────
-const countEdits = (B) =>
+export const countEdits = (B) =>
   Object.values(B.els).reduce((n, e) => n + (e.css.trim() ? 1 : 0) + (e.cls ? 1 : 0), 0) + B.ops.length;
 
 function prune(B) {
@@ -11,7 +19,7 @@ function prune(B) {
 }
 
 /** Close an undo step: the batch as it stands becomes the new committed state. */
-function commit() {
+export function commit() {
   clearTimeout(C.typeTimer);
   C.typeTimer = 0;
   hush();
@@ -46,10 +54,10 @@ function travel(from, to) {
   syncFields(true);
   draftChanged();
 }
-const undo = () => travel(C.past, C.future);
-const redo = () => travel(C.future, C.past);
+export const undo = () => travel(C.past, C.future);
+export const redo = () => travel(C.future, C.past);
 
-function reset() {
+export function reset() {
   if (C.typeTimer) commit();
   if (C.snap === EMPTY) return;
   C.draft.B = newBatch();
@@ -57,7 +65,7 @@ function reset() {
   syncFields(true);
 }
 
-function restoreEdits(d) {
+export function restoreEdits(d) {
   if (!d || C.snap !== EMPTY) return;
   // The words typed for the batch are a draft on their own: they come back with or without edits.
   if (cnote && typeof d.note === "string" && !cnote.value) cnote.value = d.note;
@@ -92,7 +100,7 @@ function pathsOf(B) {
 }
 
 /** The unsent batch and the words typed for it, for the draft the host keeps; null without either. */
-function draft() {
+export function draft() {
   const edits = C.snap !== EMPTY ? C.draft.B : null;
   const words = cnote ? cnote.value : "";
   if (!edits && !words) return null;
