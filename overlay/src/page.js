@@ -150,13 +150,14 @@ export function component(el) {
 }
 
 export function describe(el) {
-  const d = { selector: selectorFor(el), tag: el.tagName.toLowerCase() };
+  const d = /** @type {import("../protocol").Target} */ ({ selector: selectorFor(el), tag: el.tagName.toLowerCase() }); // (the rest is added below)
   if (el.id) d.id = el.id;
   const cls = typeof el.className === "string" ? el.className.trim() : el.getAttribute("class") || "";
   if (cls) d.classes = cls.slice(0, 200);
   const text = textOf(el);
   if (text) d.text = text;
   d.rect = round(rectOf(el));
+  /** @type {Record<string, string>} */
   const attrs = {};
   for (const a of ["role", "aria-label", "data-testid", "href", "src", "alt", "type", "name", "placeholder", "title"]) {
     const v = el.getAttribute(a);

@@ -12,7 +12,7 @@ import { draw, drawFoot, flash } from "./draw.js";
 import { noteEl } from "./input.js";
 
 // ── sending ──────────────────────────────────────────────────────────────────────────────
-/** The open animation, as the note says it (see `Motion` in app/src/main/review.ts). */
+/** The open animation, as the note says it (see `Motion` in ../../protocol.ts). */
 function payload() {
   const o = M.open, el = mq(o.rs);
   const who = { selector: editSel(el), label: plainLabel(el) };
@@ -56,7 +56,7 @@ export function submit(background) {
     strokes: [],
     bounds: target.rect,
     time: Date.now(),
-    ...(background ? { lane: "bg" } : {}),
+    ...(background ? { lane: /** @type {const} */ ("bg") } : {}),
     motion,
   };
   // What it was, until the host takes it; then its rules move to a sheet of their own, and it

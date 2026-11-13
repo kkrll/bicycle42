@@ -48,7 +48,8 @@ export function makePin() {
 }
 
 // ── a note sent ─────────────────────────────────────────────────────────────────────────────
-/** A note from any mode goes to the host; finishCapture or refuseCapture follows. */
+/** A note from any mode goes to the host; finishCapture or refuseCapture follows.
+ *  @param {import("../protocol").PageNote} note */
 export function dispatch(note) {
   // Hide the card (and, via S.pending, hover and pins) before the host takes its screenshot.
   Notes.closeCard();

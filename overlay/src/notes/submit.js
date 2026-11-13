@@ -28,7 +28,7 @@ export function submit(background) {
     strokes,
     bounds: bounds && round(bounds),
     time: Date.now(),
-    ...(background ? { lane: "bg" } : {}),
+    ...(background ? { lane: /** @type {const} */ ("bg") } : {}),
     ...(S.images.length ? { images: S.images } : {}),
     ...(S.template ? { template: S.template } : {}),
   };

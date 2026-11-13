@@ -15,7 +15,7 @@ export type Viewport = { w: number; h: number; dpr: number; scrollX: number; scr
 export type Mode = "notes" | "canvas" | "motion"
 
 /** What the page's framework calls an element (React, Vue), with its dev source when present. */
-export type Component = { framework?: "react" | "vue"; name: string; stack: string[]; source?: string }
+export type Component = { /** "react" or "vue". */ framework?: string; name: string; stack: string[]; source?: string }
 
 /** One element a note is about. */
 export type Target = {
@@ -133,8 +133,8 @@ export type Draft = {
   text: string
   /** Selectors of what is selected for the note. */
   targets: string[]
+  /** Both in document coordinates (a note's own are the viewport's). */
   area: Box | null
-  /** Document coordinates. */
   strokes: number[][][]
   template: string | null
   /** Canvas mode's unsent batch (opaque: { els, sheet, ops }), where its elements were (to find
@@ -170,8 +170,9 @@ export type Template = { name: string; hint: string }
 export type PageMessage =
   /** The overlay is mounted; the host replies with "state". */
   | { type: "ready"; url: string; viewport: Viewport }
-  /** mod+U (Preview: review off, or back on), or Esc with nothing selected. enabled: true from
-   *  mod+P/O/I or mod+shift+P while review is off (the mode follows once it is on). */
+  /** mod+U (Preview: review off, or back on). enabled: false from Esc with nothing selected;
+   *  enabled: true from mod+P/O/I or mod+shift+P while review is off (the mode follows once it
+   *  is on). */
   | { type: "toggle"; enabled?: boolean }
   /** The mode or the brush changed (also sent after every "state"). The host has the switch for
    *  both; the layer has none. */

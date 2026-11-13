@@ -111,7 +111,7 @@ export function submitCanvas(background) {
     strokes: [],
     bounds: bounds && round(bounds),
     time: Date.now(),
-    ...(background ? { lane: "bg" } : {}),
+    ...(background ? { lane: /** @type {const} */ ("bg") } : {}),
     ...(edits.length ? { edits } : {}),
     ...(css ? { css } : {}),
   };

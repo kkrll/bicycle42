@@ -22,7 +22,8 @@ const SRC = path.join(ROOT, "src");
 function esbuild() {
   try {
     return createRequire(import.meta.url)("esbuild");
-  } catch {
+  } catch (err) {
+    if (err.code !== "MODULE_NOT_FOUND") throw err; // installed here and broken: say so, not the app's instead
     return createRequire(path.join(ROOT, "../app/package.json"))("esbuild");
   }
 }
