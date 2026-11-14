@@ -2497,9 +2497,9 @@ details[open] > summary > .caret {
 .composer textarea {
   display: block;
   width: 100%;
-  /* Grows with its text from three lines to twelve, then scrolls. No script involved. */
+  /* One line when empty; grows with its text to twelve, then scrolls. No script involved. */
   field-sizing: content;
-  min-height: calc(3lh + 16px);
+  min-height: calc(1lh + 16px);
   max-height: calc(12lh + 16px);
   padding: 9px 10px 7px;
   border: 0;
