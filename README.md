@@ -141,7 +141,7 @@ a skill or a helper agent.
 
 ## Not built yet
 
-- Signed builds and installers.
+- A Developer ID signature, Intel builds, and Windows and Linux packages.
 - Tabs and device widths.
 - Before and after pictures of what the agent changed, and taking back one note
   (`/undo` takes back the last message and everything after it).
