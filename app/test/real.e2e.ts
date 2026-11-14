@@ -12,7 +12,7 @@
 // permission requests, and deletes the conversation and the folder when it ends.
 // Exits 0 when every check passes.
 import { app, nativeImage, type BrowserWindow } from "electron"
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawn } from "node:child_process"
 import fs from "node:fs"
 import http from "node:http"
 import os from "node:os"
@@ -138,7 +138,10 @@ async function main() {
     console.log(`deleted conversations: ${deleted.join(", ") || "none"}; left in the folder: ${left}`)
     siteServer.close()
     fs.rmSync(root, { recursive: true, force: true })
-    console.log(`removed ${root}: ${!fs.existsSync(root)}`)
+    // Chromium writes its own state into the profile once more as it shuts down, after this
+    // process can do anything about it: a shell waits for the process to be gone and removes
+    // the folder again.
+    spawn("sh", ["-c", 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; sleep 1; rm -rf -- "$2"', "sh", String(process.pid), root], { detached: true, stdio: "ignore" }).unref()
   }
 
   let failed = 1
