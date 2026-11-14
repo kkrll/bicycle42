@@ -205,6 +205,38 @@ test("↑ moves the selection to the parent", async () => {
   await page.close();
 });
 
+test("the page sees nothing of the layer's own UI: no press on the card, no focus or pointer leaving for it", async () => {
+  const { page, f } = await open();
+  // What a dialog that closes at a press outside it, or a focus trap, listens for: on the
+  // document, capturing, so only a stop at the window keeps it from them.
+  await f.evaluate(() => {
+    window.saw = [];
+    const ours = (n) => n && n.nodeName === "B42-REVIEW";
+    for (const t of ["pointerdown", "mousedown", "pointerup", "mouseup", "click", "pointermove", "mouseover", "focusin", "focus", "focusout", "blur", "mouseout", "pointerout", "mouseleave"])
+      document.addEventListener(t, (e) => ours(e.target) && window.saw.push(t), true);
+    // (Leaving for the layer only: the pointer or focus coming back from it is the page's to know.)
+    for (const t of ["focusout", "blur", "mouseout", "pointerout", "mouseleave"])
+      document.addEventListener(t, (e) => ours(e.relatedTarget) && window.saw.push(t + " for the layer"), true);
+    document.querySelector("input[name=email]").focus();
+  });
+  await clickAt(page, f, "#cta"); // the card opens and takes focus from the page's field
+  assert.equal(await cardOpen(f), true);
+  const at = (sel) =>
+    f.evaluate((sel) => {
+      const frame = window.frameElement.getBoundingClientRect();
+      const r = document.querySelector("b42-review").shadowRoot.querySelector(sel).getBoundingClientRect();
+      return [frame.x + r.x + r.width / 2, frame.y + r.y + r.height / 2];
+    }, sel);
+  await page.mouse.move(...(await at(".card textarea")), { steps: 4 }); // the pointer leaves the page for the card
+  await page.mouse.click(...(await at(".card textarea")));
+  await page.keyboard.type("still open");
+  await page.mouse.click(...(await at(".card .csend"))); // the layer's own listeners still get the click
+  await waitNotes(page, 1);
+  assert.equal((await notes(page))[0].text, "still open");
+  assert.deepEqual(await f.evaluate(() => window.saw), []);
+  await page.close();
+});
+
 test("Esc cancels, then exits review mode; clicks reach the page again", async () => {
   const { page, f } = await open();
   await clickAt(page, f, "#cta");
