@@ -14,6 +14,41 @@ export const block = (e) => {
   e.stopPropagation();
   e.stopImmediatePropagation();
 };
+
+// ── the layer's own UI, kept from the page ──────────────────────────────────────────────────
+// A press on the note card is, to the page, a press on <b42-review>: outside its dialog, which
+// closes at it. So the page is not told of the pointer on the layer's own UI at all, or of focus in it. The event
+// stops at the window, before any listener of the page's (a capturing one on the document too),
+// and the layer's elements get a copy that does not leave the shadow root. What the browser
+// does at the event itself (the caret, focus, a button's click) is not a listener and still
+// happens; a copy cancelled by the layer cancels it.
+export const OURS_ONLY = [
+  "pointerdown", "pointerup", "pointercancel", "pointermove", "pointerover", "pointerout", "pointerenter", "pointerleave",
+  "mousedown", "mouseup", "mousemove", "mouseover", "mouseout", "mouseenter", "mouseleave",
+  "click", "dblclick", "auxclick", "contextmenu",
+  "focus", "blur", // (focusin and focusout have no listener in the layer: mount.js stops them, with no copy)
+]; // prettier-ignore
+export function oursOnly(e) {
+  if (!isOurs(e)) return;
+  e.stopImmediatePropagation();
+  /** @type {any} */
+  const init = {};
+  for (const k in e) init[k] = e[k]; // (an event's fields are its prototype's: a spread has none of them)
+  init.composed = false;
+  const copy = new /** @type {any} */ (e.constructor)(e.type, init);
+  if (!e.composedPath()[0].dispatchEvent(copy)) e.preventDefault();
+}
+
+// The other half: the pointer or focus leaving something of the page's for the layer. A field
+// that lost focus to the note card, a menu the pointer left for it: the page would close or
+// take focus back (a dialog's focus trap does), and the note would be about another state.
+// (Coming back, the page is told as ever. Text edited in place is the layer's own business on
+// the page's element: it ends at that blur.)
+export const LEFT_FOR_US = ["focusout", "blur", "pointerout", "pointerleave", "mouseout", "mouseleave"];
+export function leftForUs(e) {
+  if (e.relatedTarget === hostEl && !isOurs(e) && !Canvas.inEdit(e)) e.stopImmediatePropagation();
+}
+
 // What every mode shares is here: the keys that switch review and canvas mode, what is ours, what
 // is kept from the page. The rest goes to the handlers of the mode that is on (mode.js).
 

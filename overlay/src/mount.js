@@ -6,7 +6,7 @@ import { finishCapture, refuseCapture } from "./sent.js";
 import * as Canvas from "./canvas/api.js";
 import * as Motion from "./motion/api.js";
 import { hostMode, retellMode } from "./mode.js";
-import { blockIfActive, isOurs, onKeyDown, onPointerDown, onPointerMove, onPointerUp, setEnabled, setPins } from "./input.js";
+import { blockIfActive, isOurs, LEFT_FOR_US, leftForUs, onKeyDown, onPointerDown, onPointerMove, onPointerUp, OURS_ONLY, oursOnly, setEnabled, setPins } from "./input.js";
 import { active, kick } from "./render.js";
 import STYLES from "./styles.css"; // its text: the build loads a stylesheet as a string
 
@@ -113,6 +113,10 @@ function mount() {
   window.addEventListener("resize", kick, { passive: true });
   for (const type of ["pointerdown", "pointermove", "pointerup", "keydown", "keyup", "wheel"])
     window.addEventListener(type, active, { capture: true, passive: true });
+
+  // Last, so that what is above has seen the event: the layer's own UI is not the page's to see.
+  for (const t of OURS_ONLY) window.addEventListener(t, oursOnly, opts);
+  for (const t of LEFT_FOR_US) window.addEventListener(t, leftForUs, true);
 
   send({ type: "ready", url: location.href, viewport: vp() });
 }
