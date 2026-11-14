@@ -1106,6 +1106,18 @@
   gap: 10px;
 }
 
+/* The conversation the note is in, when it is not the open one: at the end of its status line. */
+.note-where {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
 .note-words {
   font-size: var(--text-ui);
   overflow-wrap: anywhere;

@@ -190,12 +190,14 @@ function notes(): NoteRow[] {
     text,
     status,
     lane: "main",
+    // A conversation has taken every note that waits, is worked on or is done.
+    ...(status === "queued" || status === "working" || status === "done" ? { sent: true as const, session: extra.lane === "bg" ? "s-bg" : SESSION } : {}),
     ...extra,
   })
   return [
-    row(1, "pl-8", "done", { sent: true, pictures: "both", accepted: true }),
-    row(2, "hide on mobile", "done", { sent: true, pictures: "before", takenBack: "asked" }),
-    row(3, "make this the primary button style", "done", { sent: true, pictures: "both" }),
+    row(1, "pl-8", "done", { pictures: "both", accepted: true }),
+    row(2, "hide on mobile", "done", { pictures: "before", takenBack: "asked" }),
+    row(3, "make this the primary button style", "done", { pictures: "both" }),
     row(4, "too much space between the heading and the paragraph, should match the cards below", "working"),
     row(5, "swap these two", "queued"),
     row(6, "logo is blurry on retina", "failed", { error: "The server stopped answering (timeout after 30 s)." }),
@@ -490,6 +492,14 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
         if (error) Object.assign(note, { status: "failed", error, stopped: true })
         else note.status = "done"
       }
+  }
+  /** As main decides it: the newest finished note of an idle conversation is undone exactly;
+   *  for any other the agent is asked. */
+  function takeBackWay(id: string): "undone" | "asked" {
+    const note = state.review.notes.find((n) => n.id === id)
+    const newest = state.review.notes.filter((n) => n.session === note?.session && n.status === "done").at(-1)
+    const busy = note?.session === state.session?.id ? state.session?.busy : state.sessions.find((s) => s.id === note?.session)?.busy
+    return note && note === newest && !busy ? "undone" : "asked"
   }
   /** The next waiting message gets its turn, or the agent goes idle. */
   function next() {
@@ -930,10 +940,12 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       })
       push()
     },
+    takeBackWay: (id) => takeBackWay(id),
     takeBackNote(id) {
-      state.review.notes = state.review.notes.map((n) => (n.id === id ? { ...n, takenBack: "asked" as const } : n))
+      const how = takeBackWay(id)
+      state.review.notes = state.review.notes.map((n) => (n.id === id ? { ...n, takenBack: how } : n))
       push()
-      return "asked" as const
+      return how
     },
     addCheckpoint(name) {
       emit({ type: "item", session: sid(), item: { kind: "marker", id: `checkpoint:c-${++serial}`, time: Date.now(), tone: "info", text: name || "Checkpoint", checkpoint: `c-${serial}` } })

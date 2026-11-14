@@ -238,6 +238,7 @@ async function main() {
   check("the waiting note is a row of the list and not a card in the conversation", (await ui(`document.querySelectorAll(".notes-list .note").length === 2 && !document.querySelector(".transcript .user.pending") && !document.querySelector(".transcript").textContent.includes("tighter heading")`)) === true)
   await ui(`document.querySelectorAll(".notes-list .note-main")[1].click()`)
   check("its own view says it waits, with Cancel", (await until(() => ui(`document.querySelector(".note-view .note-wait")?.textContent === "Waiting for its turn" && document.querySelector(".note-view .note-cancel")?.textContent.trim() === "Cancel"`))) === true)
+  check("…and names no conversation: it is in the open one", notes()[1]?.session === SES && (await ui(`!document.querySelector(".note-view .note-where")`)) === true)
   await ui(`document.querySelector(".note-back").click()`)
 
   // The agent answers note 1, picks up note 2, answers it, and stops.

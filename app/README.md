@@ -82,7 +82,14 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   re-reads it after a reconnect, so a dropped connection can't duplicate or reorder messages.
 - **A note remembers the conversation it was sent to**, and carries a message id chosen here.
   Switching conversations, a restart or a dropped connection can't mark it done by mistake, and
-  retrying after a lost reply can't queue it twice.
+  retrying after a lost reply can't queue it twice. Its row says which conversation
+  (`NoteRow.session`), so the note's view can name one that is not open and Follow up can open
+  it first; a background note's follow-up stays in the open conversation, since the background
+  one is not a conversation to talk in.
+- **Take back says its way before it goes.** `takeBackWay` answers "undone" (the note is the
+  newest message of an idle conversation: an exact undo) or "asked" (the agent is asked to
+  reverse it); the view puts that in its question and hands it to `takeBackNote`, which does
+  nothing when the conversation has moved to the other way meanwhile.
 - **The page is untrusted.** The overlay and its way to the app (`window.__review`) are in a
   script world of their own (`WORLD` in `page.ts`): they share the page's document, but the
   site's scripts can't call the one or reach into the other. As a second lock, a note counts

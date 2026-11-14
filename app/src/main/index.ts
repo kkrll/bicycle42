@@ -1243,6 +1243,23 @@ async function laneSession(s: Site, lane: Lane): Promise<string> {
   }
   return pending
 }
+/** A finished note that can be taken back, and how that would go now. The newest message of an
+ *  idle conversation can be undone exactly, files and all ("undone"). An older one has later
+ *  work on top of it, and a busy conversation cannot be undone: there only the agent can take
+ *  it out ("asked"). */
+async function takeBack(id: unknown) {
+  const s = site
+  const note = typeof id === "string" ? s?.review.note(id) : undefined
+  if (!s || !note?.session || !note.message || note.status !== "done") throw new Error("Only a finished note can be taken back.")
+  if (note.takenBack) throw new Error("This note was already taken back.")
+  const b = need()
+  const info = await b.session(note.session)
+  if (!info) throw new Error("Its conversation no longer exists.")
+  const last = info.busy ? null : await b.lastTurn(note.session)
+  const how: "undone" | "asked" = last?.id === note.message ? "undone" : "asked"
+  return { s, note: note as typeof note & { session: string; message: string }, how }
+}
+
 /** Two alt+Enter notes in a row must not make two background conversations. */
 const backgrounds = new Map<string, Promise<string>>()
 
@@ -1501,27 +1518,20 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     if (typeof id !== "string" || !s || s.review.note(id)?.status !== "done") return
     if (s.review.mark(id, { accepted: accepted ? true : undefined })) changed(s)
   },
-  async takeBackNote(id) {
-    const s = site
-    const note = typeof id === "string" ? s?.review.note(id) : undefined
-    if (!s || !note?.session || !note.message || note.status !== "done") throw new Error("Only a finished note can be taken back.")
-    if (note.takenBack) throw new Error("This note was already taken back.")
+  async takeBackWay(id) {
+    return (await takeBack(id)).how
+  },
+  async takeBackNote(id, expect) {
+    const { s, note, how } = await takeBack(id)
+    // The question named one way; the conversation has moved since, and this is not that way.
+    if ((expect === "undone" || expect === "asked") && expect !== how) throw new Error("Its conversation changed meanwhile. Press Take back again to see what it would do now.")
     const b = need()
-    const info = await b.session(note.session)
-    if (!info) throw new Error("Its conversation no longer exists.")
-    // The newest message can be undone exactly, files and all. An older one has later work on
-    // top of it: only the agent can take it out from under that.
-    const last = info.busy ? null : await b.lastTurn(note.session)
-    let how: "undone" | "asked"
-    if (last?.id === note.message) {
-      await b.undo(note.session, note.message)
-      how = "undone"
-    } else {
+    if (how === "undone") await b.undo(note.session, note.message)
+    else {
       const diff = await b.diff(note.session, note.message).catch(() => [] as FileChange[])
       await b.prompt(note.session, { text: takeBackPrompt(note.n, note.text, diff) })
-      how = "asked"
     }
-    s.review.mark(id, { takenBack: how, accepted: undefined })
+    s.review.mark(note.id, { takenBack: how, accepted: undefined })
     changed(s)
     return how
   },

@@ -75,8 +75,12 @@ note says and, once the agent is done, what came of it. Its area as it was when
 you made the note and as it is now the agent is done (the second picture is taken only on the
 page the note was made on, at the same window width); what changed in the code for it (notes
 that waited together for the agent share one diff); and three things to do: **Accept** it,
-**Follow up** on it in the conversation, or **Take back** what the agent did. The newest
-message is taken back exactly, files included; for an older one the agent is asked to reverse it.
+**Follow up** on it in the conversation, or **Take back** what the agent did. Take back first
+says which way it will go: the newest message of an idle conversation is undone exactly, files
+included; for an older one, or while the agent works, the agent is asked to reverse it.
+A note stays with the conversation it was sent in. When that is not the open one, the note says
+which ("In Pricing page review"), Follow up opens it before starting the message, and Take back
+acts there.
 A note that still waits for its turn is in the list and not in the conversation; opened, it
 says so and has **Cancel**, which takes it out of the queue and leaves it on the list, stopped,
 with Retry.

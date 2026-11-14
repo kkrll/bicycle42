@@ -30,10 +30,8 @@ export type Note = Omit<NoteRow, "edits" | "motion"> & {
   css?: string
   /** A motion note's animation (checked). */
   motion?: Motion
-  /** The message id the backend gave it; inbox events carry it. */
+  /** The message id the backend gave it; inbox events carry it. Set together with `session`. */
   message?: string
-  /** The conversation that accepted it. Set together with `message`. */
-  session?: string
   /** Where its picture was taken: the page, the marked area and the viewport then, so the same
    *  picture can be taken once the agent is done. */
   shot?: { url: string; bounds: Box | null; viewport: PageNote["viewport"] }
@@ -607,7 +605,7 @@ export function createReview(saved?: unknown): Review {
         ...(n.edits || n.css ? { edits: [...(n.edits ?? []).map((e) => editWords(e)), ...(n.css ? [`${capital(cssWords(n.css))}.`] : [])] } : {}),
         ...(n.motion ? { edits: motionLines(n.motion), motion: true as const } : {}),
         ...(n.error ? { error: n.error } : {}),
-        ...(n.session && n.message ? { sent: true as const } : {}),
+        ...(n.session && n.message ? { sent: true as const, session: n.session } : {}),
         ...(n.pictures ? { pictures: n.pictures } : {}),
         ...(n.accepted ? { accepted: true as const } : {}),
         ...(n.takenBack ? { takenBack: n.takenBack } : {}),

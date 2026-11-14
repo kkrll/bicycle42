@@ -73,8 +73,9 @@ function NoteDetail(props: { note: NoteRow }) {
   const [diff, setDiff] = createSignal<FileChange[] | undefined>()
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal("")
-  /** "Take back" was pressed once: the second press does it. */
-  const [sure, setSure] = createSignal(false)
+  /** "Take back" was pressed once, and main said which way it would go: the second press does
+   *  that. */
+  const [sure, setSure] = createSignal<"undone" | "asked" | false>(false)
   const [busy, setBusy] = createSignal(false)
 
   const pictures = () => {
@@ -105,13 +106,47 @@ function NoteDetail(props: { note: NoteRow }) {
     ),
   )
   const totals = () => (diff() ?? []).reduce((t, f) => ({ additions: t.additions + f.additions, deletions: t.deletions + f.deletions }), { additions: 0, deletions: 0 })
-  const takeBack = () => {
+  const askTakeBack = () => {
     setBusy(true)
     setError("")
     b42
-      .invoke("takeBackNote", n().id)
+      .invoke("takeBackWay", n().id)
+      .then(setSure, (err) => setError(message(err)))
+      .finally(() => setBusy(false))
+  }
+  const takeBack = () => {
+    const way = sure()
+    if (!way) return
+    setBusy(true)
+    setError("")
+    b42
+      .invoke("takeBackNote", n().id, way)
       .catch((err) => setError(message(err)))
       .finally(() => (setBusy(false), setSure(false)))
+  }
+  // A note stays with the conversation it was sent in. When that is not the open one, the view
+  // names it, since Follow up and Take back act there.
+  const elsewhere = () => (n().session && n().session !== state.session?.id ? n().session : undefined)
+  const where = () => {
+    if (!elsewhere()) return ""
+    const title = state.sessions.find((s) => s.id === elsewhere())?.title
+    return title ? `In ${title}` : n().lane === "bg" ? "In the background conversation" : "In another conversation"
+  }
+  // The background conversation is not one to talk in: a follow-up on its note is said here.
+  const elsewhereToOpen = () => (n().lane === "bg" ? undefined : elsewhere())
+  const follow = () => {
+    const draft = () => {
+      setFollowUp({ text: `About note ${n().n} (“${clip(n().text)}”): `, at: Date.now() })
+      setOpenedNote("")
+    }
+    const target = elsewhereToOpen()
+    if (!target) return draft()
+    setBusy(true)
+    setError("")
+    b42
+      .invoke("openSession", target)
+      .then(draft, (err) => setError(message(err)))
+      .finally(() => setBusy(false))
   }
 
   return (
@@ -124,6 +159,11 @@ function NoteDetail(props: { note: NoteRow }) {
           <span class="note-status" data-status={shown()}>
             {noteWord(n())}
           </span>
+          <Show when={where()}>
+            <span class="note-where" title={`${where()}: Follow up and Take back act there.`}>
+              {where()}
+            </span>
+          </Show>
         </p>
         <p class="note-words">{n().text}</p>
         <Show when={n().edits}>
@@ -229,9 +269,13 @@ function NoteDetail(props: { note: NoteRow }) {
               when={!sure()}
               fallback={
                 <>
-                  <span class="note-ask">Take back what the agent did for note {n().n}?</span>
+                  <span class="note-ask">
+                    {sure() === "undone"
+                      ? `Note ${n().n} is the newest message in its conversation, so it is undone exactly, files included. /redo there brings it back.`
+                      : `Note ${n().n} can't be undone exactly (only the newest message of an idle conversation can). The agent is asked to reverse it.`}
+                  </span>
                   <button class="btn danger" disabled={busy()} onClick={takeBack}>
-                    Take back
+                    {sure() === "undone" ? "Undo it" : "Ask the agent"}
                   </button>
                   <button class="btn" disabled={busy()} onClick={() => setSure(false)}>
                     Keep
@@ -246,16 +290,14 @@ function NoteDetail(props: { note: NoteRow }) {
               </Show>
               <button
                 class="btn"
-                title="Say more about it in the conversation"
-                onClick={() => {
-                  setFollowUp({ text: `About note ${n().n} (“${clip(n().text)}”): `, at: Date.now() })
-                  setOpenedNote("")
-                }}
+                title={elsewhereToOpen() ? "Opens its conversation and starts a message about it there" : "Say more about it in the conversation"}
+                disabled={busy()}
+                onClick={follow}
               >
                 Follow up
               </button>
               <Show when={!n().takenBack}>
-                <button class="btn note-undo" title="Undo what the agent did for this note" onClick={() => setSure(true)}>
+                <button class="btn note-undo" title="Undo what the agent did for this note: says how before it does" disabled={busy()} onClick={askTakeBack}>
                   Take back
                 </button>
               </Show>

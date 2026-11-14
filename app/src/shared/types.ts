@@ -188,6 +188,9 @@ export type NoteRow = {
   lost?: true
   /** A conversation took it: what the agent changed for it can be asked for (`noteDiff`). */
   sent?: true
+  /** The conversation that took it. It need not be the open one: a note stays with the
+   *  conversation it was sent in, and a background note has one of its own. */
+  session?: string
   /** Which pictures of its area there are (`notePictures`): the one from when it was made, or
    *  that and the one taken when the agent was done. */
   pictures?: "before" | "both"
@@ -353,7 +356,10 @@ export type Commands = {
   /** Takes back what the agent did for a finished note. The newest message of its conversation
    *  is undone exactly, files included ("undone": /redo brings it back); for an older one the
    *  agent is asked to reverse its change ("asked"). */
-  takeBackNote(id: string): "undone" | "asked"
+  takeBackNote(id: string, expect?: "undone" | "asked"): "undone" | "asked"
+  /** Which of the two `takeBackNote` would do now, so the question before it can say. With
+   *  `expect`, `takeBackNote` does nothing and throws when it would by now do the other. */
+  takeBackWay(id: string): "undone" | "asked"
   /** Marks this point of the open conversation, to come back to. */
   addCheckpoint(name: string): void
   removeCheckpoint(id: string): void

@@ -434,6 +434,20 @@ test("clearDone takes only what is done: a failed or stopped note stays to be re
   assert.equal(r.add(pn())!.n, 1, "an empty review starts over")
 })
 
+test("a row names the conversation that took its note, once one has", () => {
+  const r = createReview()
+  const waiting = noteAt(r, "sending")
+  const main = noteAt(r, "queued")
+  const other = noteAt(r, "done", B)
+  const row = (id: string) => r.rows().find((x) => x.id === id)!
+  assert.deepEqual([row(waiting).sent, row(waiting).session], [undefined, undefined])
+  assert.deepEqual([row(main).sent, row(main).session], [true, A])
+  assert.deepEqual([row(other).sent, row(other).session], [true, B])
+  r.inbox(A, r.note(main)!.message!, "cancelled")
+  assert.equal(r.retry(main)?.id, main)
+  assert.equal(row(main).session, undefined, "a retry is not anybody's yet")
+})
+
 test("unplaced pins are counted", () => {
   const r = createReview()
   assert.equal(r.unplaced, 0)
