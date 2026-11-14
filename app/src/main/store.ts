@@ -10,10 +10,12 @@
 // it stays in memory for this run.
 import fs from "node:fs"
 import path from "node:path"
-import type { ModelRef } from "../shared/types"
+import type { Checkpoint, ModelRef } from "../shared/types"
 import { REVIEW_VERSION } from "./review"
 
-type Sites = Record<string, { directory: string; session?: string; bg?: string; url?: string; seen?: number }>
+/** `pinned`: the conversations kept at the top of the site's list, by id. */
+/** `checkpoints`: the named points of its conversations, to go back to. */
+type Sites = Record<string, { directory: string; session?: string; bg?: string; url?: string; seen?: number; pinned?: string[]; checkpoints?: Checkpoint[] }>
 
 /** What belongs to one server: its repo, pages and conversations. Folders and conversations
  *  of one server mean nothing on another. `prefix` goes before a site's origin in the name of

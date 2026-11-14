@@ -8,7 +8,7 @@ import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, type 
 import type { Mention, MentionOption, ModelInfo, PromptFile, SendOptions, SlashCommand } from "../shared/types"
 import { Icon, type IconName } from "./icons"
 import { SuggestMenu, type MenuItem } from "./menu"
-import { act, chat, keys, mac, message, b42, setNotice, state } from "./store"
+import { act, chat, followUp, keys, mac, message, b42, setNotice, state } from "./store"
 
 // ── a line of news under the box ────────────────────────────────────────────────────────────────
 
@@ -263,6 +263,9 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
   }
 
   // ── the server's commands, once per conversation ──
+  // A note's "Follow up": its words start the message, and the box takes the keyboard.
+  createEffect(on(followUp, (f) => f && draft(text().trim() ? `${text().trimEnd()}\n${f.text}` : f.text, undefined, true), { defer: true }))
+
   createEffect(
     on(
       () => state.session?.id,

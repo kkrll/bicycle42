@@ -740,12 +740,12 @@
   right: 6px;
   top: calc(100% + 6px);
   padding: 4px;
-  border: 1px solid var(--background-03);
+  border: 1px solid var(--background-05);
   border-radius: 8px;
 }
 
 .convo > .menu button {
-  height: 36px;
+  height: 32px;
   font-size: var(--text-ui);
 }
 
@@ -753,6 +753,167 @@
   min-width: 4ch;
   text-align: right;
   font-size: var(--text-control);
+}
+
+/* A row of the list: the conversation, then what can be done with it. Those show while the
+   pointer or focus is on the row, in the place of the count and the time. */
+.menu-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 32px;
+  border-radius: var(--radius);
+}
+
+.menu-row:hover,
+.menu-row:focus-within {
+  background: var(--surface);
+}
+
+.convo > .menu .menu-main {
+  flex: 1;
+  min-width: 0;
+  background: none;
+}
+
+.menu-meta {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--text-control);
+  font-weight: 400;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.menu-acts {
+  flex: none;
+  display: none;
+  padding-right: 4px;
+}
+
+.menu-row:hover .menu-acts,
+.menu-row:focus-within .menu-acts {
+  display: flex;
+}
+
+.menu-row:hover .menu-meta,
+.menu-row:focus-within .menu-meta {
+  display: none;
+}
+
+.convo > .menu .menu-acts .icon-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-grid;
+  color: var(--muted);
+}
+
+.convo > .menu .menu-acts .icon-btn:hover,
+.convo > .menu .menu-acts .icon-btn:focus-visible,
+.convo > .menu .menu-acts .icon-btn[aria-pressed="true"] {
+  background: var(--surface-strong);
+  color: var(--foreground);
+}
+
+.menu-pin {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 6px;
+  color: var(--muted);
+}
+
+.menu-pin > .icon {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+.menu-pin.busy {
+  color: var(--status-working);
+}
+
+.menu-row.current .menu-pin:not(.busy) {
+  color: var(--foreground);
+}
+
+.menu-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--muted);
+}
+
+.menu-search input,
+.menu-rename {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  font-size: var(--text-ui);
+  color: var(--foreground);
+  background: none;
+  border: 0;
+  outline: 0;
+}
+
+.menu-rename {
+  margin: 0 4px;
+  padding: 0 6px;
+  border-radius: var(--radius);
+  box-shadow: inset 0 0 0 1px var(--background-05);
+  background: var(--background);
+}
+
+.menu-rename:focus {
+  box-shadow: inset 0 0 0 1px var(--foreground);
+}
+
+.menu-ask {
+  flex: 1;
+  min-width: 0;
+  padding-left: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-ui);
+}
+
+.convo > .menu .menu-do {
+  flex: none;
+  width: auto;
+  height: 24px;
+  padding: 0 10px;
+  margin-right: 4px;
+  font-size: var(--text-control);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--background-05);
+}
+
+.convo > .menu .menu-do.danger {
+  color: var(--ink-bad);
+  box-shadow: inset 0 0 0 1px var(--ink-bad);
+}
+
+.convo > .menu .menu-archived {
+  height: 28px;
+  margin-top: 4px;
+  gap: 6px;
+  border-top: 1px solid var(--rule);
+  border-radius: 0;
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+.menu-error {
+  color: var(--ink-bad);
 }
 
 /* ── a reply still arriving ───────────────────────────────────────────────────────────────── */
@@ -876,4 +1037,310 @@
   font-size: var(--text-control);
   color: var(--muted);
   overflow-wrap: anywhere;
+}
+
+/* ── a note, open as a view of its own ──────────────────────────────────────────────────────── */
+
+/* It stands in the place of the list, the conversation's header and the transcript, which stay
+   mounted under it; the requests and the message box stay below. */
+.notes[hidden],
+.chat.covered > .convo,
+.chat.covered > .transcript-wrap {
+  display: none;
+}
+
+.note-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.note-view-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 6px 0 4px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.note-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px 0 4px;
+  margin-right: auto;
+  border-radius: var(--radius);
+  font-size: var(--text-control);
+  font-weight: 600;
+}
+
+.note-back:hover {
+  background: var(--surface);
+}
+
+.note-at {
+  padding: 0 4px;
+  font-size: var(--text-control);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The one part that scrolls. */
+.note-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px var(--gutter) 16px;
+}
+
+.note-said {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.note-words {
+  font-size: var(--text-ui);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.note-body > .note-edits,
+.note-body > .note-error {
+  margin: 0;
+  padding: 0;
+  white-space: normal;
+}
+
+.note-body > .note-edits > li {
+  white-space: normal;
+}
+
+.note-shots {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.note-shot {
+  flex: 0 1 calc(50% - 4px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  text-align: left;
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+.note-shot > img {
+  display: block;
+  width: 100%;
+  max-height: 160px;
+  object-fit: cover;
+  object-position: top left;
+  border-radius: var(--radius);
+  box-shadow: 0 0 0 1px var(--background-05);
+  background: var(--surface);
+}
+
+.note-shot:hover > img,
+.note-shot:focus-visible > img {
+  box-shadow: 0 0 0 1px var(--foreground);
+}
+
+.note-aside {
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+.note-diff-btn {
+  align-self: flex-start;
+  gap: 6px;
+}
+
+.note-acts {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px var(--gutter);
+  border-top: 1px solid var(--rule);
+}
+
+.note-acts .btn[aria-pressed="true"] {
+  background: var(--surface-strong);
+}
+
+.note-acts .note-undo {
+  margin-left: auto;
+}
+
+.note-ask {
+  flex: 1 1 100%;
+  font-size: var(--text-control);
+}
+
+.btn.danger,
+.text-btn.danger {
+  color: var(--ink-bad);
+}
+
+/* ── the repo, in the conversation's header: what is not committed, Commit ──────────────────── */
+
+.repo-chip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: var(--radius);
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+.repo-chip:hover,
+.repo-chip[aria-expanded="true"] {
+  background: var(--surface-strong);
+}
+
+.repo-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 6px;
+  right: 6px;
+  z-index: 2;
+  max-height: min(420px, 70vh);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px var(--gutter) var(--gutter);
+  border: 1px solid var(--background-05);
+  border-radius: 8px;
+  background: var(--background);
+  animation: fadeIn var(--duration-exit) var(--ease-entrance);
+}
+
+.repo-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+.repo-branch {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.repo-count {
+  flex: none;
+  white-space: nowrap;
+}
+
+.repo-files {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-control);
+}
+
+.repo-files > li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+}
+
+.repo-status {
+  flex: none;
+  width: 1ch;
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+
+.repo-status[data-status="added"] {
+  color: var(--ink-good);
+}
+
+.repo-status[data-status="deleted"] {
+  color: var(--ink-bad);
+}
+
+.repo-file {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  font-family: var(--font-mono);
+}
+
+.repo-message {
+  padding: 6px 8px;
+  resize: vertical;
+  border: 1px solid var(--background-05);
+  border-radius: var(--radius);
+  background: var(--background);
+  font: inherit;
+  font-size: var(--text-ui);
+  color: var(--foreground);
+  outline: 0;
+}
+
+.repo-message:focus {
+  border-color: var(--foreground);
+}
+
+.repo-acts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.repo-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+/* ── a checkpoint in the transcript ─────────────────────────────────────────────────────────── */
+
+.marker.checkpoint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.marker.checkpoint > .icon {
+  flex: none;
+}
+
+.checkpoint-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--foreground);
 }

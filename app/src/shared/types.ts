@@ -81,6 +81,8 @@ export type ChatMarker = {
   time: number
   text: string
   tone: "info" | "error"
+  /** This line is a checkpoint: its id, for going back to it or removing it. */
+  checkpoint?: string
   /** The agent's run failed by itself. (Stopped by the reviewer is also "error" in tone.) */
   failed?: true
 }
@@ -184,7 +186,23 @@ export type NoteRow = {
   stopped?: true
   /** Its pin can't find its element on the page right now. */
   lost?: true
+  /** A conversation took it: what the agent changed for it can be asked for (`noteDiff`). */
+  sent?: true
+  /** Which pictures of its area there are (`notePictures`): the one from when it was made, or
+   *  that and the one taken when the agent was done. */
+  pictures?: "before" | "both"
+  /** The reviewer looked at the result and it is right. */
+  accepted?: true
+  /** What the agent did for it was taken back: "undone" with the conversation (it can still be
+   *  brought back), or the agent was "asked" to reverse it. */
+  takenBack?: "undone" | "asked"
 }
+
+/** A file the working tree has changed since the last commit. */
+export type RepoChange = { file: string; additions: number; deletions: number; status: "added" | "deleted" | "modified" }
+
+/** A named point in a conversation to go back to. */
+export type Checkpoint = { id: string; session: string; name: string; time: number }
 
 // ── app state ───────────────────────────────────────────────────────────────────────────────────
 // Main owns it and pushes the whole snapshot on every change. It stays small: the conversation
@@ -222,6 +240,14 @@ export type SessionSummary = {
   /** Set while part of the conversation is undone and can still be brought back: the id of the
    *  first message taken away. */
   undone?: string
+  /** Put away: out of the list, kept on the server, and can be brought back. */
+  archived?: true
+  /** Kept at the top of the list. The app's own: the server does not know. */
+  pinned?: true
+  /** How many of this site's notes went to it, and their words (lower case), for the list's
+   *  search. The app's own, of the notes still on the list. */
+  notes?: number
+  said?: string
 }
 
 /** The top bar's switch. "preview": the page as it is, review off. "notes": point at something
@@ -267,6 +293,9 @@ export type AppState = {
    *  its other projects: dev servers the agent started and nobody stopped. Something that
    *  has only just started (a command of the step the agent is on) is not here yet. */
   running: RunningCommand[]
+  /** The open repo under version control: its branch, and what is changed and not committed.
+   *  Absent when the folder is not a repository, or the server does not say. */
+  repo?: { branch?: string; changes: RepoChange[] }
   /** The agent was asked to get the site running (`startSite`) and has not finished answering. */
   startingSite?: true
   /** The open conversation. `null` until there is a folder. */
@@ -312,6 +341,29 @@ export type Commands = {
   removeNote(id: string): void
   /** Scrolls the page to the note's pin. */
   showNote(id: string): void
+  /** The note's area as it was when the note was made and, once the agent was done, as it is
+   *  then: JPEG data URIs of the ones there are. */
+  notePictures(id: string): { before?: string; after?: string }
+  /** What the agent changed in the code for the note: the files of the turn the note was part
+   *  of. Notes that waited together for the agent share a turn, and so a diff. */
+  noteDiff(id: string): FileChange[]
+  /** The result is right (or, with false, not looked at after all). */
+  acceptNote(id: string, accepted: boolean): void
+  /** Takes back what the agent did for a finished note. The newest message of its conversation
+   *  is undone exactly, files included ("undone": /redo brings it back); for an older one the
+   *  agent is asked to reverse its change ("asked"). */
+  takeBackNote(id: string): "undone" | "asked"
+  /** Marks this point of the open conversation, to come back to. */
+  addCheckpoint(name: string): void
+  removeCheckpoint(id: string): void
+  /** Takes the conversation back to a checkpoint: every message after it leaves, and the files
+   *  the agent changed since go back (in a git repository). /redo brings it all back until the
+   *  next message. Returns how many messages were taken back. */
+  returnToCheckpoint(id: string): number
+  /** Looks again at the repo's branch and uncommitted changes (`AppState.repo`). */
+  refreshRepo(): void
+  /** Asks the agent, in the open conversation, to commit everything changed with this message. */
+  commitChanges(message: string): void
   // connection and site
   connect(server: { url: string; password: string }): void
   /** The OpenCode server running on this computer, if there is one. Only its address: the
@@ -367,6 +419,19 @@ export type Commands = {
   stop(): void
   newSession(): void
   openSession(id: string): void
+  /** Looks at the server's list again: the list of conversations asks when it opens. */
+  refreshSessions(): void
+  /** The conversations put away, newest first. */
+  archivedSessions(): SessionSummary[]
+  /** Names a conversation. A name given here is kept: only a placeholder is ever replaced. */
+  renameSession(id: string, title: string): void
+  /** Keeps a conversation at the top of the list, or lets it go back among the others. */
+  pinSession(id: string, pinned: boolean): void
+  /** Puts a conversation away, or brings it back. The one on screen gives way to the most
+   *  recent other one, or to a new one. Its notes still finish. */
+  archiveSession(id: string, archived: boolean): void
+  /** Deletes a conversation on the server, for good. Unfinished notes sent to it fail. */
+  deleteSession(id: string): void
   setModel(model: ModelRef): void
   /** Saves the model new conversations start with. Works before any conversation exists, and
    *  leaves the open one on the model it has. */
@@ -437,7 +502,8 @@ export type Backend = {
   models(): Promise<ModelInfo[]>
   agents(): Promise<AgentInfo[]>
 
-  sessions(directory: string): Promise<SessionSummary[]>
+  /** The folder's conversations, newest first; with `archived`, the ones put away instead. */
+  sessions(directory: string, archived?: boolean): Promise<SessionSummary[]>
   /** Resolves `null` when the session no longer exists. */
   session(id: string): Promise<SessionSummary | null>
   createSession(input: { directory: string; model?: ModelRef; title?: string; parent?: string }): Promise<SessionSummary>
@@ -481,6 +547,14 @@ export type Backend = {
   /** Brings back everything undo() took away. */
   redo(session: string): Promise<void>
   rename(session: string, title: string): Promise<void>
+  /** The files changed by the turn that the user message `message` was part of, as patches. */
+  diff(session: string, message: string): Promise<FileChange[]>
+  /** The folder's branch and uncommitted changes; undefined when it is not under version control. */
+  vcs(directory: string): Promise<{ branch?: string; changes: RepoChange[] } | undefined>
+  /** Puts the conversation away (out of `sessions()`), or brings it back. */
+  archive(session: string, archived: boolean): Promise<void>
+  /** Deletes the conversation for good. */
+  remove(session: string): Promise<void>
   /** A new conversation that starts as a copy of this one. */
   fork(session: string): Promise<SessionSummary>
   /** Removes a queued message the agent has not picked up. */

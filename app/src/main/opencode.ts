@@ -35,6 +35,7 @@ import type {
   PromptFile,
   Question,
   QuestionField,
+  RepoChange,
   RunningCommand,
   SessionSummary,
   SlashCommand,
@@ -452,6 +453,7 @@ function sessionSummary(raw: unknown): SessionSummary | undefined {
     model: modelRef(s.model),
     agent: str(s.agent),
     undone: str(rec(s.revert).messageID),
+    archived: num(time.archived) !== undefined ? (true as const) : undefined,
   })
 }
 
@@ -1044,10 +1046,10 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
       return found
     },
 
-    async sessions(directory) {
+    async sessions(directory, archived = false) {
       // `directory` is an exact match. Without `archived` the list has archived sessions too, and
-      // without `parentID=null` it has the background children.
-      const query = `directory=${encodeURIComponent(directory)}&archived=false&parentID=null&order=desc`
+      // without `parentID=null` it has the background children. (No `limit`: the newest 50.)
+      const query = `directory=${encodeURIComponent(directory)}&archived=${archived}&parentID=null&order=desc`
       return list(await data("GET", `/api/session?${query}`)).flatMap((raw) => sessionSummary(raw) ?? [])
     },
 
@@ -1149,6 +1151,39 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
 
     async rename(id, title) {
       await api("PATCH", sessionPath(id), { title })
+    },
+
+    async diff(id, message) {
+      // Three lines around each change: without `context` every patch is the whole file.
+      const found: FileChange[] = []
+      for (const raw of list(await data("GET", `${sessionPath(id)}/diff?from=${encodeURIComponent(message)}&context=3`))) {
+        const f = rec(raw)
+        const file = str(f.file)
+        if (file) found.push({ file, patch: str(f.patch) ?? "", additions: num(f.additions) ?? 0, deletions: num(f.deletions) ?? 0 })
+      }
+      return found
+    },
+
+    async vcs(directory) {
+      const info = rec(rec(await data("GET", `/api/vcs?${atLocation(directory)}`)))
+      // A folder that is not a repository answers with no provider and an empty branch.
+      if (!str(info.provider)) return undefined
+      const changes: RepoChange[] = []
+      for (const raw of list(await data("GET", `/api/vcs/status?${atLocation(directory)}`))) {
+        const c = rec(raw)
+        const file = str(c.file)
+        const status = c.status === "added" || c.status === "deleted" ? c.status : "modified"
+        if (file) changes.push({ file, additions: num(c.additions) ?? 0, deletions: num(c.deletions) ?? 0, status })
+      }
+      return defined({ branch: str(rec(info.branch).current), changes })
+    },
+
+    async archive(id, archived) {
+      await api("PATCH", sessionPath(id), { archived })
+    },
+
+    async remove(id) {
+      await api("DELETE", sessionPath(id))
     },
 
     async fork(id) {

@@ -372,7 +372,7 @@ async function main() {
   const menu = (await until(() => ui(`(() => { const m = document.querySelector(".suggest"); return m && m.querySelectorAll(".suggest-item").length ? JSON.stringify([...m.children].map((c) => (c.classList.contains("suggest-group") ? "# " + c.textContent : c.querySelector(".suggest-label").textContent))) : "" })()`))) as string
   check(
     '"/" lists the built-in commands first, then the site\'s, and a built-in wins over a same-named one',
-    menu === JSON.stringify(["# Built in", "/compact", "/new", "/undo", "/redo", "/rename", "/fork", "# From this project", "/review"]),
+    menu === JSON.stringify(["# Built in", "/compact", "/new", "/undo", "/redo", "/rename", "/fork", "/checkpoint", "# From this project", "/review"]),
     menu,
   )
   await typeBox("/comp")

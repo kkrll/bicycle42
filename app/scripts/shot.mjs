@@ -56,6 +56,15 @@ const SHOTS = [
   { name: "model-choice", mock: "model-choice" },
   { name: "model-choice-filter", mock: "model-choice", query: "&previous", run: [type(".model-form input[type=search]", "gpt")], wait: 300, report: `[document.querySelector(".model-form button[type=submit]").textContent, document.querySelector(".connect-lead").textContent]` },
   { name: "model-choice-settings", mock: "review", run: [click("[data-action=settings]"), pause(300), click("[data-action=default-model]")], wait: 500 },
+  // The list of conversations (review-menu, below, is the list itself: pinned first, counts of
+  // notes): a row's own controls, a name being changed, a delete asked about and the archived.
+  // A finished note opened: its pictures, what changed in the code, the verdict. Then the
+  // repo's line opened, with the commit message the notes suggest.
+  { name: "note-detail", mock: "review", run: [click(".note:nth-of-type(3) .note-main"), pause(300), click(".note-diff-btn")], wait: 500 },
+  { name: "repo-commit", mock: "review", run: [click(".repo-chip")], wait: 400 },
+  { name: "conversations-row", mock: "review", run: [click(".convo-current"), pause(200), `document.querySelectorAll(".menu-main")[1].focus()`], wait: 300 },
+  { name: "conversations-rename", mock: "review", run: [click(".convo-current"), pause(200), click(".menu-row:nth-of-type(2) [data-do=rename]")], wait: 300 },
+  { name: "conversations-delete", mock: "review", run: [click(".convo-current"), pause(200), click(".menu-row:nth-of-type(3) [data-do=ask-delete]"), pause(100), click(".menu-archived")], wait: 400 },
   { name: "repo", mock: "repo" },
   { name: "empty", mock: "empty" },
   { name: "running", mock: "review", run: [click('[data-action="running"]')], wait: 500 },

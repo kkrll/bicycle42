@@ -174,17 +174,19 @@ computed value of each property before and after (`gap: 16px → 32px`); a class
 the project keeps its styles. With them go two pictures of the same area, **before** and **after**
 the edits, named as such. If the page does not switch the edits
 off in time for the before picture (one second), the note goes with the after picture alone. In
-the notes list a canvas note has the sliders icon; its tooltip, and the row itself once its pin is
-clicked, list the edits in words. A canvas note sent without words is called by its edits
+the notes list a canvas note has the sliders icon; its tooltip, and the note's own view once it is
+opened, list the edits in words. A canvas note sent without words is called by its edits
 (`3 canvas edits: moved "Card · Pricing", styled "Card · Features", 1 new CSS rule`) in the list,
 on its pin and in the chat. A note may be new CSS rules and nothing else.
 
 ## Not done yet
 
 - Tabs and device widths (two tabs at 390 and 1440).
-- Before/after crops of what the agent changed, and taking back one note. (`/undo` takes back
-  the last message and everything after it, which is all the server offers; one turn out of the
-  middle needs its own design. Undoing does not yet change the status of the notes it covers.)
+- A note's diff is its turn's: notes that waited together for the agent share one, and taking
+  back a note that is not the newest message is a request to the agent, not an exact undo
+  (the server undoes from a message on, never one turn out of the middle).
+- The picture after the agent is done is taken only while the page the note was made on is
+  open at the same width; a note finished while the reviewer is elsewhere has none.
 - Slash commands OpenCode has that are not here: `/share` (this server has no route for it),
   `/export`, `/copy`, `/timeline`, and choosing the message to fork from (a fork copies the
   whole conversation).

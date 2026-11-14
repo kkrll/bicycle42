@@ -1514,6 +1514,10 @@ test("compact, undo, redo, rename, fork: one request each, as the server's route
     await backend.undo("ses_1", "msg_3")
     await backend.redo("ses_1")
     await backend.rename("ses_1", "Pricing page")
+    await backend.archive("ses_1", true)
+    await backend.archive("ses_1", false)
+    server.route("DELETE", "/api/session/ses_1", {})
+    await backend.remove("ses_1")
     const copy = await backend.fork("ses_1")
     assert.equal(copy.id, "ses_2")
     assert.equal(copy.title, "Fix the header (fork)")
@@ -1527,9 +1531,25 @@ test("compact, undo, redo, rename, fork: one request each, as the server's route
         ["POST", "/api/session/ses_1/revert/stage", { messageID: "msg_3" }],
         ["DELETE", "/api/session/ses_1/revert", undefined],
         ["PATCH", "/api/session/ses_1", { title: "Pricing page" }],
+        ["PATCH", "/api/session/ses_1", { archived: true }],
+        ["PATCH", "/api/session/ses_1", { archived: false }],
+        ["DELETE", "/api/session/ses_1", undefined],
         ["POST", "/api/session/ses_1/fork", {}],
       ],
     )
+  }))
+
+test("diff and vcs: a turn's files as patches; a folder's branch and changes, or nothing when it is not a repository", () =>
+  withServer(async (server, backend) => {
+    server.route("GET", "/api/session/ses_1/diff", { json: { data: [{ file: "src/a.css", patch: "@@ -1 +1 @@\n-a\n+b", additions: 1, deletions: 1, status: "modified" }, { patch: "no file" }] } })
+    assert.deepEqual(await backend.diff("ses_1", "msg_3"), [{ file: "src/a.css", patch: "@@ -1 +1 @@\n-a\n+b", additions: 1, deletions: 1 }])
+    assert.equal(server.requests[0]!.query.toString(), "from=msg_3&context=3")
+
+    server.route("GET", "/api/vcs", { json: { data: { provider: "git", branch: { current: "polish", default: "main" } } } })
+    server.route("GET", "/api/vcs/status", { json: { data: [{ file: "a", additions: 2, deletions: 1, status: "added" }, { file: "b", status: "renamed" }, {}] } })
+    assert.deepEqual(await backend.vcs("/site"), { branch: "polish", changes: [{ file: "a", additions: 2, deletions: 1, status: "added" }, { file: "b", additions: 0, deletions: 0, status: "modified" }] })
+    server.route("GET", "/api/vcs", { json: { data: { branch: {} } } })
+    assert.equal(await backend.vcs("/site"), undefined)
   }))
 
 test("compact, undo, redo, rename, fork: the server's reason for refusing is passed on", () =>

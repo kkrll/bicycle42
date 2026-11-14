@@ -34,6 +34,9 @@ export type Note = Omit<NoteRow, "edits" | "motion"> & {
   message?: string
   /** The conversation that accepted it. Set together with `message`. */
   session?: string
+  /** Where its picture was taken: the page, the marked area and the viewport then, so the same
+   *  picture can be taken once the agent is done. */
+  shot?: { url: string; bounds: Box | null; viewport: PageNote["viewport"] }
   /** For re-finding the pin after the page changes. */
   anchor: { selector?: string; tag?: string; text?: string; component?: string; at?: [number, number] }
 }
@@ -73,6 +76,12 @@ export type Review = {
   clearFinished(): void
   note(id: string): Note | undefined
   rows(): NoteRow[]
+  /** What the reviewer, or the app, says of a note beside its status: which pictures it has,
+   *  that it was accepted, that it was taken back. `undefined` clears. True when it changed. */
+  mark(id: string, change: { pictures?: Note["pictures"]; accepted?: true | undefined; takenBack?: Note["takenBack"] }): boolean
+  /** The words of every note a conversation accepted, by conversation: what the list of
+   *  conversations counts and searches. */
+  said(): Array<{ session: string; text: string }>
   pins(): Pin[]
   /** A note is on its way to the agent or with it (sending, queued, working). Unlike sessions(),
    *  this counts notes still being sent, which have no session yet. */
@@ -343,6 +352,15 @@ function savedNote(raw: unknown): Note | undefined {
   if (css) note.css = css
   const motion = pageMotion(raw.motion)
   if (motion) note.motion = motion
+  if (raw.pictures === "before" || raw.pictures === "both") note.pictures = raw.pictures
+  if (raw.accepted === true) note.accepted = true
+  if (raw.takenBack === "undone" || raw.takenBack === "asked") note.takenBack = raw.takenBack
+  const shot = isObj(raw.shot) ? raw.shot : undefined
+  const v = shot && isObj(shot.viewport) ? shot.viewport : undefined
+  const b = shot && isObj(shot.bounds) ? shot.bounds : undefined
+  const nums = (o: Record<string, unknown>, keys: string[]) => keys.every((k) => typeof o[k] === "number" && Number.isFinite(o[k]))
+  if (shot && str(shot.url) && v && nums(v, ["w", "h", "dpr", "scrollX", "scrollY"]) && (!b || nums(b, ["x", "y", "w", "h"])))
+    note.shot = { url: shot.url as string, bounds: b ? (b as unknown as Box) : null, viewport: v as unknown as PageNote["viewport"] }
   // The screenshot and prompt of a note still on its way out died with the app. So did our
   // knowledge of where a note went, if it was saved before notes recorded their session.
   const unsent = note.status === "capturing" || note.status === "sending"
@@ -445,6 +463,7 @@ export function createReview(saved?: unknown): Review {
         ...(pn.edits?.length ? { edits: pn.edits } : {}),
         ...(pn.css ? { css: pn.css } : {}),
         ...(pn.motion ? { motion: pn.motion } : {}),
+        shot: { url: pn.url, bounds: pn.bounds, viewport: pn.viewport },
       }
       notes.push(note)
       review.draft = null
@@ -562,6 +581,20 @@ export function createReview(saved?: unknown): Review {
 
     note: find,
 
+    mark(id, change) {
+      const note = find(id)
+      if (!note) return false
+      let touched = false
+      for (const key of ["pictures", "accepted", "takenBack"] as const) {
+        if (!(key in change) || note[key] === change[key]) continue
+        if (change[key] === undefined) delete note[key]
+        else (note as Record<string, unknown>)[key] = change[key]
+        touched = true
+      }
+      return touched
+    },
+
+    said: () => notes.flatMap((n) => (n.session ? [{ session: n.session, text: n.text }] : [])),
     rows: () =>
       notes.map((n) => ({
         id: n.id,
@@ -572,6 +605,10 @@ export function createReview(saved?: unknown): Review {
         ...(n.edits || n.css ? { edits: [...(n.edits ?? []).map((e) => editWords(e)), ...(n.css ? [`${capital(cssWords(n.css))}.`] : [])] } : {}),
         ...(n.motion ? { edits: motionLines(n.motion), motion: true as const } : {}),
         ...(n.error ? { error: n.error } : {}),
+        ...(n.session && n.message ? { sent: true as const } : {}),
+        ...(n.pictures ? { pictures: n.pictures } : {}),
+        ...(n.accepted ? { accepted: true as const } : {}),
+        ...(n.takenBack ? { takenBack: n.takenBack } : {}),
         ...(n.status === "failed" && (n.error === ERR.interrupted || n.error === ERR.cancelled) ? { stopped: true as const } : {}),
         ...(unplaced.includes(n.id) ? { lost: true as const } : {}),
       })),

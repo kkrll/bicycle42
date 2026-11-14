@@ -25,9 +25,13 @@ import type {
   BackendEvent,
   CommandResult,
   ChatEvent,
+  ChatItem,
+  ChatMarker,
+  Checkpoint,
   Commands,
   CommandName,
   ConnectionState,
+  FileChange,
   Lane,
   Mention,
   MentionOption,
@@ -38,6 +42,7 @@ import type {
   Question,
   SendOptions,
   ProjectInfo,
+  RepoChange,
   RunningCommand,
   ServerInfo,
   SessionSummary,
@@ -46,9 +51,11 @@ import type {
 } from "../shared/types"
 import { noteImages } from "./images"
 import { readLocal } from "./local"
+import { isPlaceholder, placeholderTitle, titleFrom } from "./naming"
 import { createOpenCode, type OpenCode } from "./opencode"
 import { createPage, type Page, type PageMessage } from "./page"
 import { createReview, imageUri, pageNote, type PageNote, type Review } from "./review"
+import { createShots } from "./shots"
 import { createStore, type SavedServer } from "./store"
 
 type Level = "info" | "warn" | "error"
@@ -63,6 +70,7 @@ const say = (err: unknown) => (err instanceof Error ? err.message : String(err))
 app.setPath("userData", process.env.BICYCLE42_DATA || path.join(app.getPath("appData"), "bicycle42"))
 
 const store = createStore(app.getPath("userData"), { log })
+const noteShots = createShots(app.getPath("userData"), log)
 
 // ── secrets ─────────────────────────────────────────────────────────────────────────────────────
 // The server password is stored through the OS keychain when there is one. Without (a Linux box
@@ -98,6 +106,7 @@ let agents: AgentInfo[] = []
 const sites = new Map<string, Site>()
 /** A server's name is a label, not a description. */
 const SERVER_NAME_MAX = 60
+const SESSION_TITLE_MAX = 120
 let site: Site | undefined
 /** What the overlay on the page last said about itself: in canvas ("edit") or motion mode, the
  *  brush on. Not saved: the page remembers its own mode across a reload and says it again. */
@@ -171,8 +180,9 @@ function snapshot(): AppState {
     ...(starting && siteAsked === session?.id ? { startingSite: true as const } : {}),
     ...(missingFolder && !saved ? { missingFolder } : {}),
     running: runningShown(),
+    ...(repo ? { repo } : {}),
     session,
-    sessions,
+    sessions: listed(),
     models,
     agents,
     ...(model ? { defaultModel: model } : {}),
@@ -498,7 +508,7 @@ async function openSiteNow() {
     if (!current) {
       current = await b.createSession({
         directory: saved.directory,
-        title: `Review · ${s.origin === HOME ? folderName(saved.directory) : new URL(s.origin).host}`,
+        title: placeholderTitle(s.origin === HOME ? folderName(saved.directory) : new URL(s.origin).host),
         ...(defaultModel() ? { model: defaultModel() } : {}),
       })
       store.update((x) => {
@@ -517,6 +527,7 @@ async function openSiteNow() {
     session = current
     push()
     void refreshRunning()
+    void refreshRepo()
     void refreshSessions()
     void openChat(current.id)
     void settle(s)
@@ -550,6 +561,83 @@ async function folderExists(b: OpenCode, directory: string): Promise<boolean> {
 /** What a saved server is called: the reviewer's name, its computer's own, or its address. */
 const serverCalled = (x: SavedServer) => x.name ?? x.computer ?? ("url" in x ? x.url.replace(/^https?:\/\//, "") : "this computer")
 
+/** The site's conversations as the list shows them: the ones not put away, the pinned first,
+ *  each with the count and the words of the notes it was sent (the background conversation's
+ *  count with the conversation it runs beside). */
+function listed(): SessionSummary[] {
+  const saved = site && siteSettings(site.origin)
+  const pinned = new Set(saved?.pinned ?? [])
+  const said = new Map<string, string[]>()
+  for (const n of site?.review.said() ?? []) {
+    const id = n.session === saved?.bg && saved.session ? saved.session : n.session
+    said.set(id, [...(said.get(id) ?? []), n.text])
+  }
+  const all = sessions
+    .filter((x) => !x.archived)
+    .map((x) => {
+      const words = said.get(x.id)
+      return {
+        ...x,
+        ...(pinned.has(x.id) ? { pinned: true as const } : {}),
+        ...(words ? { notes: words.length, said: words.join("\n").toLowerCase().slice(0, 2000) } : {}),
+      }
+    })
+  return [...all.filter((x) => x.pinned), ...all.filter((x) => !x.pinned)]
+}
+
+/** A conversation has a new name: here at once, without waiting for the server to say so. */
+function retitle(id: string, title: string) {
+  if (session?.id === id) session = { ...session, title }
+  sessions = sessions.map((x) => (x.id === id ? { ...x, title } : x))
+  push()
+}
+
+/** Names a conversation after what was just said in it, while it still has its placeholder.
+ *  A name a person gave is left alone. */
+const naming = new Set<string>()
+async function autoName(id: string, text: string) {
+  const b = backend
+  const known = session?.id === id ? session : sessions.find((x) => x.id === id)
+  const title = known && isPlaceholder(known.title) ? titleFrom(text) : undefined
+  if (!b || !title || naming.has(id)) return
+  naming.add(id)
+  try {
+    await b.rename(id, title)
+    retitle(id, title)
+  } catch (err) {
+    log("warn", "can't name the conversation", say(err))
+  } finally {
+    naming.delete(id)
+  }
+}
+
+/** The conversation on screen is going (put away, or deleted): the site moves to the most
+ *  recent other one, or gets a new one. */
+async function leave(id: string) {
+  const s = site
+  if (!s) return
+  const next = sessions.find((x) => x.id !== id && !x.archived)
+  store.update((x) => {
+    const entry = x.sites[s.origin]
+    if (!entry || entry.session !== id) return
+    if (next) entry.session = next.id
+    else delete entry.session
+    delete entry.bg
+  })
+  session = null
+  await openSite()
+}
+
+function unpin(id: string) {
+  store.update((x) => {
+    for (const entry of Object.values(x.sites)) {
+      if (!entry.pinned?.includes(id)) continue
+      entry.pinned = entry.pinned.filter((p) => p !== id)
+      if (!entry.pinned.length) delete entry.pinned
+    }
+  })
+}
+
 async function refreshSessions() {
   const b = backend
   const s = site
@@ -577,7 +665,11 @@ async function openChat(id: string) {
     for (const [k, q] of questions) if (q.session === id) questions.delete(k)
     for (const p of t.permissions) permissions.set(p.id, p)
     for (const q of t.questions) questions.set(q.id, q)
-    toChat({ type: "reset", session: id, items: t.items })
+    toChat({ type: "reset", session: id, items: withCheckpoints(id, t.items) })
+    // A conversation from before conversations were named, or named nowhere else: by what was
+    // first said in it. (Asking for the site to be started is the app's words, not a subject.)
+    const first = t.items.find((i) => i.kind === "user" && !i.text.startsWith(START_PROMPT))
+    if (first?.kind === "user") void autoName(id, first.note?.text || first.text)
     // Events that arrived during the read. Upserts repeat harmlessly; a text delta already in the
     // transcript shows twice until its block ends, which replaces the text.
     for (const e of mine.held ?? []) toChat(e)
@@ -667,12 +759,16 @@ function onBackend(e: BackendEvent) {
       const s = origin ? sites.get(origin) : undefined
       if (!s) return
       const done = doneCount(s.review)
+      const was = new Set(doneIds(s.review))
       const touched =
         e.type === "inbox" ? s.review.inbox(e.session, e.id, e.status) : s.review.run(e.session, e.status, e.error)
+      if (e.type === "run" && e.status !== "started" && s === site) void refreshRepo()
       if (!touched) return
       changed(s)
       // Show the agent's change: a page without hot reload still has the old pixels.
       if (s === site && s.review.autoReload && doneCount(s.review) > done) page?.reloadWhenIdle()
+      // …and keep a picture of it, beside the one from when the note was made.
+      for (const id of doneIds(s.review)) if (!was.has(id)) afterPictures = afterPictures.then(() => afterPicture(s, id))
       return
     }
     case "session": {
@@ -763,9 +859,10 @@ function sameComputer() {
 
 /** What the agent is asked when the reviewer has a repo and no running site. It ends with a
  *  line the app can read (SITE_LINE). `failed` is an address that did not answer. */
+const START_PROMPT = "Get this project's site running so I can review it in bicycle 42."
 function startPrompt(failed: string) {
   return [
-    "Get this project's site running so I can review it in bicycle 42.",
+    START_PROMPT,
     ...(failed ? [`I expected it at ${failed}, which did not answer.`] : []),
     "",
     "- If its dev server is already running, use that. Otherwise start it as a background command of your shell tool, so it keeps running after you reply and I can stop it from bicycle 42. Do not detach it with nohup, & or a terminal multiplexer.",
@@ -803,6 +900,145 @@ async function started(id: string, ok: boolean) {
 }
 
 const doneCount = (r: Review) => r.rows().reduce((n, row) => n + (row.status === "done" ? 1 : 0), 0)
+const doneIds = (r: Review) => r.rows().flatMap((row) => (row.status === "done" ? [row.id] : []))
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+// ── a note's picture once the agent is done ─────────────────────────────────────────────────────
+// The note was sent with a picture of its area. When the agent has finished it, the same area is
+// pictured again: the page is put where it was scrolled then, the layer is hidden for the two
+// frames it takes, and the page goes back to where the reviewer has it. Only on the page the
+// note was made on, at the width it was made at, and never while a note is being written.
+
+/** After a note is done: the dev server's rebuild and the reload that follows (page.ts waits 400 ms). */
+const AFTER_WAIT = 1200
+/** After the page has loaded: fonts, pictures, an entrance animation. */
+const AFTER_SETTLE = 700
+const AFTER_TRIES = 40
+/** One at a time: each scrolls the page. */
+let afterPictures: Promise<void> = Promise.resolve()
+
+const samePage = (a: string, b: string) => {
+  try {
+    const x = new URL(a)
+    const y = new URL(b)
+    return x.origin === y.origin && x.pathname === y.pathname
+  } catch {
+    return false
+  }
+}
+
+async function afterPicture(s: Site, id: string) {
+  const p = page
+  const shot = s.review.note(id)?.shot
+  if (!p || !shot) return
+  const here = () => page === p && site === s && s.review.note(id)?.status === "done" && samePage(p.state().url, shot.url)
+  try {
+    await sleep(AFTER_WAIT)
+    for (let i = 0; i < AFTER_TRIES && here() && (p.state().loading || (await p.overlay("window.__b42 ? window.__b42.busy() : false"))); i++) await sleep(500)
+    if (!here() || p.state().loading) return
+    await sleep(AFTER_SETTLE)
+    const v = shot.viewport
+    if (!here() || (await p.evaluate("innerWidth")) !== v.w) return
+    const was = await p.evaluate(
+      `(() => { const s = document.createElement("style"); s.id = "b42-after"; s.textContent = "b42-review{visibility:hidden!important}"; document.documentElement.append(s);` +
+        ` const was = [scrollX, scrollY]; scrollTo({ left: ${Number(v.scrollX)}, top: ${Number(v.scrollY)}, behavior: "instant" });` +
+        ` return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(was)))) })()`,
+    )
+    try {
+      const n = s.review.note(id)?.n ?? 0
+      const file = noteImages(await p.capture(), { bounds: shot.bounds, viewport: v } as PageNote, n)[0]
+      if (file && noteShots.save(id, "after", file.uri) && s.review.mark(id, { pictures: "both" })) changed(s)
+    } finally {
+      const back = Array.isArray(was) ? `scrollTo({ left: ${Number(was[0])}, top: ${Number(was[1])}, behavior: "instant" });` : ""
+      await p.evaluate(`(() => { document.getElementById("b42-after")?.remove(); ${back} })()`)
+    }
+  } catch (err) {
+    log("warn", "no picture of the note's area after the agent was done", say(err))
+  }
+}
+
+// ── the repo: its branch, and what is not committed ─────────────────────────────────────────────
+
+let repo: { branch?: string; changes: RepoChange[] } | undefined
+const REPO_CHANGES_MAX = 200
+
+async function refreshRepo() {
+  const b = backend
+  const s = site
+  const directory = s && siteSettings(s.origin)?.directory
+  if (!b || !s || !directory) return void ((repo = undefined), push())
+  try {
+    const found = await b.vcs(directory)
+    if (backend !== b || site !== s) return
+    repo = found && { ...found, changes: found.changes.slice(0, REPO_CHANGES_MAX) }
+  } catch (err) {
+    // A server without these routes, or a folder it cannot read: no line about the repo.
+    if (backend !== b || site !== s) return
+    repo = undefined
+    log("warn", "can't read the repo's state", say(err))
+  }
+  push()
+}
+
+/** What the agent is asked for a commit. The message is the reviewer's, word for word. */
+function commitPrompt(message: string) {
+  return [
+    "Commit the work in this folder with git.",
+    "",
+    "- Stage every change in the working tree, new files included (git add -A).",
+    "- Use exactly this commit message, as it is written between the lines:",
+    "----",
+    message,
+    "----",
+    "- Do not push, and do not change any file.",
+    "",
+    "Reply with the commit's short hash and its subject, or with what stopped you.",
+  ].join("\n")
+}
+
+const DIFF_IN_PROMPT_MAX = 20_000
+
+/** What the agent is asked when a note that is not the newest message is taken back. */
+function takeBackPrompt(n: number, text: string, diff: FileChange[]) {
+  const patch = diff.map((f) => f.patch).join("\n")
+  return [
+    `Take back what you changed for UI review note ${n}: ${JSON.stringify(text)}.`,
+    "",
+    "- Put the code back to how it was before that note, and only that: leave every other change, earlier or later, as it is.",
+    "- If something done since depends on it, say so instead of breaking it.",
+    ...(patch
+      ? [
+          "",
+          "For reference, the diff of the turn that note was part of. Notes that waited together share a turn, so it may hold other notes' changes too:",
+          "```diff",
+          patch.length > DIFF_IN_PROMPT_MAX ? `${patch.slice(0, DIFF_IN_PROMPT_MAX)}\n… (cut)` : patch,
+          "```",
+        ]
+      : []),
+  ].join("\n")
+}
+
+// ── checkpoints ─────────────────────────────────────────────────────────────────────────────────
+// A named point in a conversation. It is a line in the transcript, kept by the app; going back
+// to it is the server's undo, to the first message said after it.
+
+const CHECKPOINT_NAME_MAX = 60
+const checkpointsOf = (id: string): Checkpoint[] =>
+  Object.values(store.settings().sites)
+    .flatMap((entry) => entry.checkpoints ?? [])
+    .filter((c) => c.session === id)
+const checkpointMarker = (c: Checkpoint): ChatMarker => ({ kind: "marker", id: `checkpoint:${c.id}`, time: c.time, tone: "info", text: c.name, checkpoint: c.id })
+
+/** The transcript with the conversation's checkpoints in it, each before the first thing that
+ *  happened after it. */
+function withCheckpoints(id: string, items: ChatItem[]): ChatItem[] {
+  const out = [...items]
+  for (const c of checkpointsOf(id).sort((a, b) => a.time - b.time)) {
+    const at = out.findIndex((i) => i.time > c.time)
+    out.splice(at < 0 ? out.length : at, 0, checkpointMarker(c))
+  }
+  return out
+}
 
 // ── the page ────────────────────────────────────────────────────────────────────────────────────
 
@@ -899,6 +1135,9 @@ async function onNote(s: Site, pn: PageNote) {
     // The pictures are taken: the overlay may take the next selection while the JPEGs are made.
     page?.send({ type: "captured", id: pn.id })
     if (shot) files = noteImages(shot, pn, note.n, before)
+    // The first picture is the area as it is now (for a canvas note, as it was before the
+    // reviewer's edits): what the agent's result will be looked at beside.
+    if (files[0] && noteShots.save(note.id, "before", files[0].uri)) s.review.mark(note.id, { pictures: "before" })
   } catch (err) {
     before = undefined
     page?.send({ type: "captured", id: pn.id })
@@ -965,6 +1204,7 @@ async function deliver(s: Site, id: string, lane: Lane) {
     payload.id ??= backend!.messageId()
     const sent = await backend!.prompt(target, { id: payload.id, text: payload.text, files: payload.files })
     s.review.sent(id, sent.id, target)
+    void autoName(target, s.review.rows().find((r) => r.id === id)?.text ?? "")
   } catch (err) {
     s.review.failed(id, say(err))
   }
@@ -1016,6 +1256,7 @@ const BUILTINS: SlashCommand[] = [
   { name: "redo", description: "Bring back what /undo took away", builtin: true },
   { name: "rename", description: "Name this conversation: /rename new name", builtin: true },
   { name: "fork", description: "Go on in a copy of this conversation", builtin: true },
+  { name: "checkpoint", description: "Mark this point to come back to: /checkpoint name", builtin: true },
 ]
 
 /** What "/undo yes" is: the word that confirms. */
@@ -1059,6 +1300,11 @@ const builtins: Record<string, Builtin> = {
         draft: `/undo ${UNDO_CONFIRM}`,
       }
     await b.undo(current.id, turn.id)
+    // The note it was says so in the list, until /redo.
+    for (const s of sites.values()) {
+      const row = s.review.rows().find((r) => s.review.note(r.id)?.message === turn.id && s.review.note(r.id)?.session === current.id && r.status === "done")
+      if (row && s.review.mark(row.id, { takenBack: "undone", accepted: undefined })) changed(s)
+    }
     // A note cannot be sent again from the message box; a typed message can, so it comes back.
     return { say: `Took back ${what}. /redo brings it back; your next message makes it final.`, ...(turn.note ? {} : { draft: turn.text }) }
   },
@@ -1066,6 +1312,11 @@ const builtins: Record<string, Builtin> = {
     const now = await b.session(current.id)
     if (!now?.undone) throw new Error("Nothing to redo.")
     await b.redo(current.id)
+    for (const s of sites.values()) {
+      let touched = false
+      for (const r of s.review.rows()) if (r.takenBack === "undone" && s.review.note(r.id)?.session === current.id) touched = s.review.mark(r.id, { takenBack: undefined }) || touched
+      if (touched) changed(s)
+    }
     return { say: "Brought back what was undone." }
   },
   async rename(b, current, args) {
@@ -1074,6 +1325,10 @@ const builtins: Record<string, Builtin> = {
     if (session?.id === current.id) (session = { ...session, title: args }), push()
     void refreshSessions()
     return { say: `Renamed to ${quoted(args)}.` }
+  },
+  async checkpoint(_b, _current, args) {
+    commands.addCheckpoint(args)
+    return { say: "Marked. The line in the conversation takes you back here." }
   },
   async fork(b, current) {
     const copy = await b.fork(current.id)
@@ -1208,7 +1463,10 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
   },
   clearNotes() {
     if (!site) return
+    const before = site.review.rows().map((r) => r.id)
     site.review.clearFinished()
+    const left = new Set(site.review.rows().map((r) => r.id))
+    for (const id of before) if (!left.has(id)) noteShots.drop(id)
     changed(site)
   },
   async retryNote(id) {
@@ -1227,7 +1485,100 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
   removeNote(id) {
     if (!site) return
     site.review.remove(id)
+    noteShots.drop(id)
     changed(site)
+  },
+  notePictures(id) {
+    return typeof id === "string" && site?.review.note(id)?.pictures ? noteShots.read(id) : {}
+  },
+  async noteDiff(id) {
+    const note = typeof id === "string" ? site?.review.note(id) : undefined
+    if (!note?.session || !note.message) throw new Error("This note has not reached the agent.")
+    return need().diff(note.session, note.message)
+  },
+  acceptNote(id, accepted) {
+    const s = site
+    if (typeof id !== "string" || !s || s.review.note(id)?.status !== "done") return
+    if (s.review.mark(id, { accepted: accepted ? true : undefined })) changed(s)
+  },
+  async takeBackNote(id) {
+    const s = site
+    const note = typeof id === "string" ? s?.review.note(id) : undefined
+    if (!s || !note?.session || !note.message || note.status !== "done") throw new Error("Only a finished note can be taken back.")
+    if (note.takenBack) throw new Error("This note was already taken back.")
+    const b = need()
+    const info = await b.session(note.session)
+    if (!info) throw new Error("Its conversation no longer exists.")
+    // The newest message can be undone exactly, files and all. An older one has later work on
+    // top of it: only the agent can take it out from under that.
+    const last = info.busy ? null : await b.lastTurn(note.session)
+    let how: "undone" | "asked"
+    if (last?.id === note.message) {
+      await b.undo(note.session, note.message)
+      how = "undone"
+    } else {
+      const diff = await b.diff(note.session, note.message).catch(() => [] as FileChange[])
+      await b.prompt(note.session, { text: takeBackPrompt(note.n, note.text, diff) })
+      how = "asked"
+    }
+    s.review.mark(id, { takenBack: how, accepted: undefined })
+    changed(s)
+    return how
+  },
+  addCheckpoint(name) {
+    const s = site
+    const current = needSession()
+    if (!s || !siteSettings(s.origin)) return
+    const clean = (typeof name === "string" ? name : "").replace(/\s+/g, " ").trim().slice(0, CHECKPOINT_NAME_MAX)
+    const made: Checkpoint = { id: `cp_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, session: current.id, name: clean || `Checkpoint ${checkpointsOf(current.id).length + 1}`, time: Date.now() }
+    store.update((x) => void (x.sites[s.origin] && (x.sites[s.origin]!.checkpoints = [...(x.sites[s.origin]!.checkpoints ?? []), made])))
+    if (chat?.session === current.id) toChat({ type: "item", session: current.id, item: checkpointMarker(made) })
+  },
+  removeCheckpoint(id) {
+    if (typeof id !== "string") return
+    let from: string | undefined
+    store.update((x) => {
+      for (const entry of Object.values(x.sites)) {
+        const found = entry.checkpoints?.find((c) => c.id === id)
+        if (!found) continue
+        from = found.session
+        entry.checkpoints = entry.checkpoints!.filter((c) => c.id !== id)
+        if (!entry.checkpoints.length) delete entry.checkpoints
+      }
+    })
+    if (from && chat?.session === from) toChat({ type: "remove", session: from, item: `checkpoint:${id}` })
+  },
+  async returnToCheckpoint(id) {
+    const cp = Object.values(store.settings().sites)
+      .flatMap((entry) => entry.checkpoints ?? [])
+      .find((c) => c.id === id)
+    if (!cp) throw new Error("That checkpoint is gone.")
+    const b = need()
+    const info = await b.session(cp.session)
+    if (!info) throw new Error("Its conversation no longer exists.")
+    if (info.busy) throw new Error("The agent is working. Stop it first.")
+    // Everything said after it goes: the first such message is where the server cuts.
+    const after = (await b.transcript(cp.session)).items.filter((i) => i.kind === "user" && !i.pending && i.time > cp.time)
+    if (!after.length) throw new Error("Nothing has been said since this checkpoint.")
+    await b.undo(cp.session, after[0]!.id)
+    const gone = new Set(after.map((i) => i.id))
+    for (const s of sites.values()) {
+      let touched = false
+      for (const row of s.review.rows()) {
+        const note = s.review.note(row.id)
+        if (note?.session === cp.session && note.message && gone.has(note.message) && note.status === "done") touched = s.review.mark(row.id, { takenBack: "undone", accepted: undefined }) || touched
+      }
+      if (touched) changed(s)
+    }
+    return after.length
+  },
+  async refreshRepo() {
+    await refreshRepo()
+  },
+  async commitChanges(message) {
+    const clean = typeof message === "string" ? message.trim() : ""
+    if (!clean) throw new Error("Write what the commit is.")
+    await need().prompt(needSession().id, { text: commitPrompt(clean) })
   },
   showNote(id) {
     const at = site?.review.note(id)?.anchor.at
@@ -1387,6 +1738,7 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     const current = needSession()
     const files = pictures(images)
     await b.prompt(current.id, { text, ...(files.length ? { files } : {}), ...sendOptions(options, chatDirectory(current)) })
+    void autoName(current.id, text)
   },
   async commands() {
     const b = need()
@@ -1452,6 +1804,50 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     if (!s || !siteSettings(s.origin)) return
     if (!(await need().session(id))) throw new Error("That conversation no longer exists.")
     await switchTo(id)
+  },
+  async refreshSessions() {
+    await refreshSessions()
+  },
+  async archivedSessions() {
+    const directory = site && siteSettings(site.origin)?.directory
+    return directory ? await need().sessions(directory, true) : []
+  },
+  async renameSession(id, title) {
+    if (typeof id !== "string" || !id || typeof title !== "string") return
+    const clean = title.replace(/\s+/g, " ").trim().slice(0, SESSION_TITLE_MAX)
+    if (!clean) throw new Error("Type a name for the conversation.")
+    await need().rename(id, clean)
+    retitle(id, clean)
+  },
+  pinSession(id, pinned) {
+    const s = site
+    if (typeof id !== "string" || !id || !s) return
+    unpin(id)
+    if (pinned) store.update((x) => void (x.sites[s.origin] && (x.sites[s.origin]!.pinned = [...(x.sites[s.origin]!.pinned ?? []), id])))
+    push()
+  },
+  async archiveSession(id, archived) {
+    if (typeof id !== "string" || !id) return
+    await need().archive(id, !!archived)
+    if (!archived) return void (await refreshSessions())
+    unpin(id)
+    const open = session?.id === id
+    if (open) await leave(id)
+    sessions = sessions.filter((x) => x.id !== id)
+    push()
+  },
+  async deleteSession(id) {
+    if (typeof id !== "string" || !id) return
+    await need().remove(id)
+    unpin(id)
+    // The server says so too (sessionGone); by then the site has moved on, so that it goes to
+    // the conversation before this one and not to a new one.
+    const owner = sites.get(owners.get(id) ?? "")
+    if (owner?.review.gone(id)) changed(owner)
+    const open = session?.id === id
+    if (open) await leave(id)
+    sessions = sessions.filter((x) => x.id !== id)
+    push()
   },
   async setModel(model) {
     const current = needSession()

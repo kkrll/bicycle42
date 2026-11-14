@@ -1,17 +1,20 @@
 // The conversation with the agent: switcher, transcript, things that need an answer, composer.
 import { For, Match, Show, Switch, createEffect, createMemo, createRoot, createSignal, on, onCleanup, onMount } from "solid-js"
+import type { JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import type {
   Answer,
   ChatAssistant,
   ChatPart,
   ChatUser,
+  Commands,
   FileChange,
   NoteStatus,
   PermissionAsk,
   PermissionDecision,
   Question,
   QuestionField,
+  SessionSummary,
 } from "../shared/types"
 import { Composer } from "./composer"
 import { CopyButton } from "./copy"
@@ -19,6 +22,7 @@ import { Icon, Kbd, toolIcon } from "./icons"
 import { ServerButton } from "./connect"
 import { openLightbox } from "./lightbox"
 import { Markdown } from "./markdown"
+import { RepoBar } from "./repo"
 import { act, chat, focusedNote, keys, mac, message, b42, setNotice, setSwitcherOpen, state } from "./store"
 
 // ── diffs ───────────────────────────────────────────────────────────────────────────────────────
@@ -49,7 +53,7 @@ function diffLines(patch: string): DiffLine[] {
   return out
 }
 
-function Counts(props: { additions: number; deletions: number }) {
+export function Counts(props: { additions: number; deletions: number }) {
   return (
     <span class="counts">
       <span class="plus">+{props.additions}</span>
@@ -87,7 +91,7 @@ function DiffRow(props: { line: DiffLine }) {
   )
 }
 
-function Changes(props: { changes: FileChange[] }) {
+export function Changes(props: { changes: FileChange[] }) {
   return (
     <For each={props.changes}>
       {(change) => {
@@ -800,11 +804,71 @@ function ago(time: number): string {
   return new Date(time).toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 
+// ── a checkpoint in the transcript ──────────────────────────────────────────────────────────────
+
+function CheckpointLine(props: { id: string; name: string }) {
+  /** "Return here" was pressed once: the second press does it. */
+  const [sure, setSure] = createSignal(false)
+  const [busy, setBusy] = createSignal(false)
+  const back = () => {
+    setBusy(true)
+    b42
+      .invoke("returnToCheckpoint", props.id)
+      .then(
+        (n) => setNotice(`Took back ${n === 1 ? "1 message" : `${n} messages`} and what the agent changed since. /redo brings it back until you say something new.`),
+        (err) => setNotice(message(err)),
+      )
+      .finally(() => (setBusy(false), setSure(false)))
+  }
+  return (
+    <div class="marker checkpoint" data-checkpoint={props.id}>
+      <Icon name="flag" />
+      <span class="checkpoint-name" title={props.name}>
+        {props.name}
+      </span>
+      <Show
+        when={sure()}
+        fallback={
+          <>
+            <button class="text-btn" title="Take the conversation, and the files, back to this point" onClick={() => setSure(true)}>
+              Return here
+            </button>
+            <button class="icon-btn small" title="Remove this checkpoint" aria-label="Remove this checkpoint" onClick={() => act("removeCheckpoint", props.id)}>
+              <Icon name="close" />
+            </button>
+          </>
+        }
+      >
+        <span>Everything after it goes.</span>
+        <button class="text-btn danger" disabled={busy()} onClick={back}>
+          Return
+        </button>
+        <button class="text-btn" disabled={busy()} onClick={() => setSure(false)}>
+          Stay
+        </button>
+      </Show>
+    </div>
+  )
+}
+
+/** The search field shows once the list is long enough to need it. */
+const SEARCH_FROM = 6
+
 function Conversations(props: { openSettings: () => void }) {
   const [open, setOpen] = createSignal(false)
+  const [query, setQuery] = createSignal("")
+  /** The row being renamed, and the one asked about before it is deleted. */
+  const [renaming, setRenaming] = createSignal("")
+  const [confirming, setConfirming] = createSignal("")
+  /** The archived conversations: asked for when their section is opened. */
+  const [archived, setArchived] = createSignal<SessionSummary[] | undefined>()
+  const [error, setError] = createSignal("")
   let root!: HTMLDivElement
   let button!: HTMLButtonElement
   let menu: HTMLDivElement | undefined
+  /** A row's control is about to be replaced by another (a name by its field): focus leaving
+   *  for a moment is not the reader leaving the menu. */
+  let swapping = false
 
   const close = (refocus: boolean) => {
     setOpen(false)
@@ -818,21 +882,175 @@ function Conversations(props: { openSettings: () => void }) {
   onMount(() => document.addEventListener("pointerdown", outside))
   onCleanup(() => document.removeEventListener("pointerdown", outside))
 
+  const stops = () => [...(menu?.querySelectorAll<HTMLElement>(".menu-search input, .menu-main") ?? [])]
   const step = (by: number) => {
-    const items = [...(menu?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
-    const at = items.indexOf(document.activeElement as HTMLButtonElement)
+    const items = stops()
+    const at = items.indexOf(document.activeElement as HTMLElement)
     items[(at + by + items.length) % items.length]?.focus()
   }
+  /** Changes what a row shows, then puts focus on what it shows now. */
+  const swap = (change: () => void, focus: string) => {
+    swapping = true
+    change()
+    queueMicrotask(() => {
+      ;(menu?.querySelector<HTMLElement>(focus) ?? stops()[0] ?? button).focus()
+      swapping = false
+    })
+  }
+  const row = (id: string) => `[data-session="${CSS.escape(id)}"]`
+
   createEffect(() => {
-    if (open()) (menu?.querySelector<HTMLButtonElement>("[aria-checked=true]") ?? menu?.querySelector("button"))?.focus()
+    if (!open()) return
+    setQuery("")
+    setRenaming("")
+    setConfirming("")
+    setArchived(undefined)
+    setError("")
+    act("refreshSessions")
+    ;(menu?.querySelector<HTMLElement>(".menu-search input") ?? menu?.querySelector<HTMLElement>("[aria-checked=true]") ?? stops()[0])?.focus()
   })
+
+  const q = () => query().trim().toLowerCase()
+  const found = createMemo(() => state.sessions.filter((s) => !q() || s.title.toLowerCase().includes(q()) || !!s.said?.includes(q())))
+  const foundArchived = createMemo(() => (archived() ?? []).filter((s) => !q() || s.title.toLowerCase().includes(q())))
+  const searchable = () => state.sessions.length >= SEARCH_FROM || !!query()
+
+  /** A command whose failure is said in the menu, where it was asked for. */
+  const run = <K extends "renameSession" | "archiveSession" | "deleteSession">(name: K, ...args: Parameters<Commands[K]>) => {
+    setError("")
+    return b42.invoke(name, ...args).then(
+      () => true,
+      (err) => (setError(message(err)), false),
+    )
+  }
+  const loadArchived = (): Promise<void> =>
+    b42.invoke("archivedSessions").then(
+      (list) => void setArchived(list),
+      (err) => {
+        setArchived([])
+        setError(message(err))
+      },
+    )
+  const rename = (s: SessionSummary, title: string) => {
+    const clean = title.replace(/\s+/g, " ").trim()
+    swap(() => setRenaming(""), `${row(s.id)} .menu-main`)
+    if (!clean || clean === s.title) return
+    void run("renameSession", s.id, clean).then((ok) => void (ok && s.archived && loadArchived()))
+  }
+  const putAway = (s: SessionSummary, away: boolean) => {
+    // The row goes: focus moves to the list first, so the menu stays open under the reader.
+    swap(() => undefined, away ? ".menu-search input" : ".menu-archived")
+    void run("archiveSession", s.id, away).then(() => void (archived() && loadArchived()))
+  }
+  const remove = (s: SessionSummary) => {
+    swap(() => setConfirming(""), ".menu-search input")
+    void run("deleteSession", s.id).then(() => void (archived() && loadArchived()))
+  }
+
+  const Row = (p: { s: SessionSummary }) => {
+    const s = () => p.s
+    const current = () => s().id === state.session?.id
+    return (
+      <div class="menu-row" data-session={s().id} classList={{ current: current() }}>
+        <Switch>
+          <Match when={confirming() === s().id}>
+            <span class="menu-ask" title={s().title}>
+              Delete “{s().title || "Untitled"}”?
+            </span>
+            <button class="menu-do danger" data-do="delete" onClick={() => remove(s())}>
+              Delete
+            </button>
+            <button class="menu-do" onClick={() => swap(() => setConfirming(""), `${row(s().id)} .menu-main`)}>
+              Keep
+            </button>
+          </Match>
+          <Match when={renaming() === s().id}>
+            <input
+              class="menu-rename"
+              type="text"
+              aria-label="The conversation's name"
+              spellcheck={false}
+              autocomplete="off"
+              value={s().title}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") rename(s(), e.currentTarget.value)
+                else if (e.key === "Escape") swap(() => setRenaming(""), `${row(s().id)} .menu-main`)
+                else return void e.stopPropagation() // the arrows move the caret here, not the row
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+            />
+          </Match>
+          <Match when={true}>
+            <button
+              class="menu-main"
+              role="menuitemradio"
+              aria-checked={current()}
+              onClick={() => {
+                if (s().archived) return putAway(s(), false)
+                close(true)
+                if (!current()) act("openSession", s().id)
+              }}
+            >
+              <Show when={s().pinned} fallback={<span class="dot" classList={{ busy: s().busy }} title={s().busy ? "Working" : undefined} />}>
+                <span class="menu-pin" classList={{ busy: s().busy }} title={s().busy ? "Pinned · working" : "Pinned"}>
+                  <Icon name="pin" />
+                </span>
+              </Show>
+              <span class="menu-title" title={s().title || "Untitled"}>
+                {s().title || "Untitled"}
+              </span>
+              <span class="menu-meta">
+                <Show when={s().notes}>
+                  <span title={`${s().notes} ${s().notes === 1 ? "note" : "notes"} of this site went to it`}>
+                    {s().notes} {s().notes === 1 ? "note" : "notes"}
+                  </span>
+                </Show>
+                <time>{ago(s().updated)}</time>
+              </span>
+            </button>
+            <span class="menu-acts">
+              <Show
+                when={!s().archived}
+                fallback={
+                  <button class="icon-btn small" title="Bring back" aria-label="Bring back" data-do="restore" onClick={() => putAway(s(), false)}>
+                    <Icon name="restore" />
+                  </button>
+                }
+              >
+                <button
+                  class="icon-btn small"
+                  title={s().pinned ? "Unpin" : "Pin to the top"}
+                  aria-label={s().pinned ? "Unpin" : "Pin to the top"}
+                  aria-pressed={!!s().pinned}
+                  data-do="pin"
+                  onClick={() => act("pinSession", s().id, !s().pinned)}
+                >
+                  <Icon name="pin" />
+                </button>
+                <button class="icon-btn small" title="Rename" aria-label="Rename" data-do="rename" onClick={() => swap(() => (setConfirming(""), setRenaming(s().id)), `${row(s().id)} .menu-rename`)}>
+                  <Icon name="pencil" />
+                </button>
+                <button class="icon-btn small" title="Archive (it can be brought back)" aria-label="Archive" data-do="archive" onClick={() => putAway(s(), true)}>
+                  <Icon name="archive" />
+                </button>
+              </Show>
+              <button class="icon-btn small" title="Delete" aria-label="Delete" data-do="ask-delete" onClick={() => swap(() => (setRenaming(""), setConfirming(s().id)), `${row(s().id)} [data-do=delete]`)}>
+                <Icon name="trash" />
+              </button>
+            </span>
+          </Match>
+        </Switch>
+      </div>
+    )
+  }
 
   return (
     <div
       class="convo"
       ref={root}
       onFocusOut={(e) => {
-        if (open() && !root.contains(e.relatedTarget as Node | null)) close(false)
+        if (open() && !swapping && !root.contains(e.relatedTarget as Node | null)) close(false)
       }}
     >
       <ServerButton onClick={props.openSettings} />
@@ -842,7 +1060,7 @@ function Conversations(props: { openSettings: () => void }) {
         aria-haspopup="menu"
         aria-expanded={open()}
         disabled={!state.session}
-        title="Switch conversation"
+        title="Conversations: switch, rename, archive"
         onClick={() => setOpen(!open())}
       >
         <Show when={state.session?.busy}>
@@ -851,6 +1069,7 @@ function Conversations(props: { openSettings: () => void }) {
         <span class="convo-title">{state.session?.title || "Conversation"}</span>
         <Icon name="down" />
       </button>
+      <RepoBar onOpen={() => close(false)} />
       <button
         class="icon-btn"
         title="New conversation, or another project"
@@ -868,31 +1087,56 @@ function Conversations(props: { openSettings: () => void }) {
           role="menu"
           ref={menu}
           onKeyDown={(e) => {
-            if (e.key === "Escape") close(true)
-            else if (e.key === "ArrowDown") step(1)
+            if (e.key === "Escape") {
+              if (confirming() || renaming()) swap(() => (setConfirming(""), setRenaming("")), ".menu-main")
+              else close(true)
+            } else if (e.key === "ArrowDown") step(1)
             else if (e.key === "ArrowUp") step(-1)
             else return
             e.preventDefault()
           }}
         >
-          <For each={state.sessions} fallback={<p class="menu-empty">No other conversations yet.</p>}>
-            {(s) => (
-              <button
-                role="menuitemradio"
-                aria-checked={s.id === state.session?.id}
-                onClick={() => {
-                  close(true)
-                  if (s.id !== state.session?.id) act("openSession", s.id)
+          <Show when={searchable()}>
+            <label class="menu-search">
+              <Icon name="search" />
+              <input
+                type="text"
+                aria-label="Search conversations, by name or by what a note said"
+                placeholder="Search names and notes"
+                spellcheck={false}
+                autocomplete="off"
+                value={query()}
+                onInput={(e) => setQuery(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return
+                  e.preventDefault()
+                  menu?.querySelector<HTMLElement>(".menu-main")?.click()
                 }}
-              >
-                <span class="dot" classList={{ busy: s.busy }} title={s.busy ? "Working" : undefined} />
-                <span class="menu-title" title={s.title || "Untitled"}>
-                  {s.title || "Untitled"}
-                </span>
-                <time>{ago(s.updated)}</time>
-              </button>
-            )}
-          </For>
+              />
+            </label>
+          </Show>
+          <Show when={error()}>
+            <p class="menu-empty menu-error" role="alert">
+              {error()}
+            </p>
+          </Show>
+          <For each={found()} fallback={<p class="menu-empty">{q() ? "No conversation matches." : "No other conversations yet."}</p>}>{(s) => <Row s={s} />}</For>
+          <button
+            class="menu-archived"
+            aria-expanded={!!archived()}
+            onClick={() => {
+              if (archived()) setArchived(undefined)
+              else void loadArchived()
+            }}
+          >
+            <Icon name="right" class="caret" />
+            Archived
+          </button>
+          <Show when={archived()}>
+            <For each={foundArchived()} fallback={<p class="menu-empty">{q() ? "Nothing archived matches." : "Nothing is archived."}</p>}>
+              {(s) => <Row s={s} />}
+            </For>
+          </Show>
         </div>
       </Show>
     </div>
@@ -901,7 +1145,15 @@ function Conversations(props: { openSettings: () => void }) {
 
 // ── the whole thing ─────────────────────────────────────────────────────────────────────────────
 
-export function Chat(props: { composerRef: (el: HTMLTextAreaElement) => void; openSettings: () => void }) {
+/** `covered`: something of the panel's (a note's view, passed as children) stands in the place of
+ *  the header and the transcript. They stay mounted under it, and the requests and the message
+ *  box stay in use. */
+export function Chat(props: {
+  composerRef: (el: HTMLTextAreaElement) => void
+  openSettings: () => void
+  covered?: boolean
+  children?: JSX.Element
+}) {
   let scroller!: HTMLDivElement
   let section!: HTMLElement
   let content!: HTMLDivElement
@@ -993,12 +1245,26 @@ export function Chat(props: { composerRef: (el: HTMLTextAreaElement) => void; op
 
   createEffect(on(() => state.session?.id, () => setMarks([]), { defer: true }))
 
+  // A hidden scroller forgets where it was: put it back when the cover goes.
+  createEffect(
+    on(
+      () => !!props.covered,
+      (covered) => {
+        if (covered) return
+        const top = lastTop
+        requestAnimationFrame(() => (stuck ? toBottom() : (scroller.scrollTop = top)))
+      },
+      { defer: true },
+    ),
+  )
+
   // Opening another conversation starts at its end.
   createEffect(on(() => state.session?.id, toBottom, { defer: true }))
 
   return (
-    <section class="chat" aria-label="Conversation" ref={section}>
+    <section class="chat" classList={{ covered: !!props.covered }} aria-label="Conversation" ref={section}>
       <Conversations openSettings={props.openSettings} />
+      {props.children}
       <div class="transcript-wrap" classList={{ away: away() }}>
         <div
           class="transcript"
@@ -1006,6 +1272,8 @@ export function Chat(props: { composerRef: (el: HTMLTextAreaElement) => void; op
           onScroll={() => {
             // Scroll events arrive a frame late, and the transcript may have grown since: "not at
             // the bottom" alone does not mean the reader left. Moving up does.
+            // Hidden under a note's view it reads as scrolled to the top; that is not the reader.
+            if (props.covered) return
             const top = scroller.scrollTop
             // The fade at the top edge only once something has gone under it.
             scroller.classList.toggle("scrolled", top > 4)
@@ -1027,9 +1295,16 @@ export function Chat(props: { composerRef: (el: HTMLTextAreaElement) => void; op
                   <Match when={item.kind === "assistant" && item}>{(i) => <Assistant item={i()} />}</Match>
                   <Match when={item.kind === "marker" && item}>
                     {(i) => (
-                      <div class="marker" classList={{ bad: i().tone === "error" }}>
-                        <span>{i().text}</span>
-                      </div>
+                      <Show
+                        when={i().checkpoint}
+                        fallback={
+                          <div class="marker" classList={{ bad: i().tone === "error" }}>
+                            <span>{i().text}</span>
+                          </div>
+                        }
+                      >
+                        {(id) => <CheckpointLine id={id()} name={i().text} />}
+                      </Show>
                     )}
                   </Match>
                 </Switch>

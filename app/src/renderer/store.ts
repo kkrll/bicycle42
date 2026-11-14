@@ -189,6 +189,13 @@ export function host(url: string): string {
  *  same pin twice still counts. The notes list highlights it; the chat scrolls to its message. */
 export const [focusedNote, setFocusedNote] = createSignal<{ id: string; at: number } | null>(null)
 
+/** The note that is open as a view of its own, over the list and the conversation; "" for none. */
+export const [openedNote, setOpenedNote] = createSignal("")
+
+/** Words put into the message box from elsewhere (a note's "Follow up"). `at` changes on every
+ *  press, so the same words twice still count. */
+export const [followUp, setFollowUp] = createSignal<{ text: string; at: number } | null>(null)
+
 /** The notes list is open (not folded to its header). Shared: the top bar's count and a clicked
  *  pin both open it. */
 export const [notesOpen, setNotesOpenSignal] = createSignal(recall("notes.open") !== "0")

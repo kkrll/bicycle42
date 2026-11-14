@@ -6,6 +6,7 @@ import type { NoteRow } from "../shared/types"
 import { Chat } from "./chat"
 import { SetupSteps, serverLabel } from "./connect"
 import { Icon } from "./icons"
+import { NoteView } from "./note-detail"
 import {
   act,
   chat,
@@ -15,6 +16,8 @@ import {
   expandNotes,
   notesForced,
   notesOpen,
+  openedNote,
+  setOpenedNote,
   offline,
   b42,
   recall,
@@ -42,6 +45,9 @@ const WORD: Record<Shown, string> = {
   done: "done",
   failed: "failed",
 }
+
+/** The word for a note's state, as its row and its own view say it. */
+export const noteWord = (note: NoteRow): string => (note.takenBack ? "taken back" : note.accepted ? "accepted" : WORD[noteShown(note)])
 
 /** Every count comes from the one tally in store.ts. */
 export type Counts = ReturnType<typeof tallyNotes>
@@ -74,7 +80,7 @@ const ROW = 32
 const LIST_DEFAULT = ROW * 5 + 6
 const LIST_MIN = ROW + 6
 
-function Notes(props: { listHeight: number; open: boolean; onToggle: () => void; width: number }) {
+function Notes(props: { listHeight: number; open: boolean; onToggle: () => void; width: number; hidden: boolean }) {
   const counts = createMemo(countNotes)
   // Every count in words when they fit beside "Notes" and "Clear done" (about 6.4px a character
   // at 12px); otherwise the short form, which drops nothing.
@@ -83,13 +89,11 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
     const room = (props.width || 400) - 24 - 96 - (counts().done ? 84 : 0)
     return text.length * 6.4 > room
   }
-  // How many rows sit below the list's visible edge, so it is plain that the list goes on.
-  const [below, setBelow] = createSignal(0)
   // The list's height, cut back to the last whole row that fits, so no row shows half.
   const [snap, setSnap] = createSignal<number | null>(null)
   let list: HTMLUListElement | undefined
   const measure = () => {
-    if (!list) return setBelow(0)
+    if (!list) return
     let fit = 0
     let all = true
     for (const li of list.children) {
@@ -101,14 +105,9 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
       fit += h
     }
     setSnap(all ? null : fit + 6)
-    const edge = list.scrollTop + list.clientHeight - 6
-    let n = 0
-    for (const li of list.children) if ((li as HTMLElement).offsetTop + (li as HTMLElement).offsetHeight > edge + 1) n++
-    setBelow(n)
   }
-  const parallel = () => state.review.notes.some((n) => n.lane === "bg")
   const LEGEND = "Round pins wait their turn in one queue; square pins (Alt+Enter) run in parallel with it."
-  // Measured a frame later: the "more below" line it may add changes the size it observes.
+  // Measured a frame later, once the rows have their heights.
   const observer = new ResizeObserver(() => requestAnimationFrame(measure))
   onCleanup(() => observer.disconnect())
   createEffect(
@@ -130,12 +129,13 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
   createEffect(
     on(focusedNote, (focus) => {
       if (!focus) return
+      // With a note open as a view, the clicked pin's note takes its place; otherwise the list
+      // only points at the row.
+      if (openedNote()) return void setOpenedNote(focus.id)
       // The panel or the list may have just been opened: wait for layout.
       requestAnimationFrame(() => {
         const row = rows.get(focus.id)
         if (!row) return
-        // A canvas note's row just grew by its list of edits: fit the list to whole rows first.
-        measure()
         row.scrollIntoView({ block: "nearest" })
         row.classList.remove("flash")
         void row.offsetWidth
@@ -144,8 +144,22 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
     }),
   )
 
+  // Back from a note's view: the row it was opened from is in view and has the focus again.
+  createEffect(
+    on(openedNote, (id, before) => {
+      if (id || !before) return
+      requestAnimationFrame(() => {
+        const row = rows.get(before)
+        row?.scrollIntoView({ block: "nearest" })
+        row?.querySelector<HTMLElement>(".note-main")?.focus()
+      })
+    }),
+  )
+  const lostLabel = () =>
+    state.review.unplaced === 1 ? "1 pin can't find its element" : `${state.review.unplaced} pins can't find their element`
+
   return (
-    <section class="notes" aria-label="Notes">
+    <section class="notes" aria-label="Notes" hidden={props.hidden}>
       <header class="section-head">
         <button class="section-toggle" aria-expanded={props.open} onClick={props.onToggle}>
           <Icon name="right" class="caret" />
@@ -171,38 +185,32 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
             {shortWords(counts()) || "none yet"}
           </span>
         </button>
+        <Show when={state.review.unplaced > 0}>
+          <button class="lost-btn" aria-expanded={why()} title={lostLabel()} aria-label={lostLabel()} onClick={() => setWhy(!why())}>
+            <Icon name="alert" />
+            {state.review.unplaced}
+          </button>
+        </Show>
         <Show when={counts().done}>
           <button class="text-btn" title="Take finished notes off the list" onClick={() => act("clearNotes")}>
             Clear done
           </button>
         </Show>
       </header>
+      <Show when={state.review.unplaced > 0 && why()}>
+        <div class="notes-lost-more">
+          <p>
+            <strong>{lostLabel()}. </strong>
+            <Show when={lostNumbers()}>{(which) => <>{which()}. </>}</Show>
+            The page changed under {state.review.unplaced === 1 ? "that pin" : "those pins"}: the element moved or is
+            gone. The notes still go to the agent. Reloading places the pins again once the element is back.
+          </p>
+          <button class="btn" onClick={() => act("reload")}>
+            Reload page
+          </button>
+        </div>
+      </Show>
       <Show when={props.open}>
-        <Show when={state.review.unplaced > 0}>
-          <div class="notes-lost">
-            <Icon name="alert" />
-            <span class="notes-lost-text">
-              {state.review.unplaced === 1
-                ? "1 pin can't find its element"
-                : `${state.review.unplaced} pins can't find their element`}
-            </span>
-            <button class="text-btn" aria-expanded={why()} onClick={() => setWhy(!why())}>
-              {why() ? "Hide" : "Show"}
-            </button>
-          </div>
-          <Show when={why()}>
-            <div class="notes-lost-more">
-              <p>
-                <Show when={lostNumbers()}>{(which) => <strong>{which()}. </strong>}</Show>
-                The page changed under {state.review.unplaced === 1 ? "that pin" : "those pins"}: the element moved or
-                is gone. The notes still go to the agent. Reloading places the pins again once the element is back.
-              </p>
-              <button class="btn" onClick={() => act("reload")}>
-                Reload page
-              </button>
-            </div>
-          </Show>
-        </Show>
         <Show when={state.review.notes.length}>
           <ul
             class="notes-list"
@@ -224,10 +232,17 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
                     aria-current={focusedNote()?.id === note.id ? "true" : undefined}
                   >
                     <div class="note-line">
-                      <button class="note-main" title={noteTitle(note)} onClick={() => act("showNote", note.id)}>
+                      <button
+                        class="note-main"
+                        title={noteTitle(note)}
+                        onClick={() => {
+                          act("showNote", note.id)
+                          setOpenedNote(note.id)
+                        }}
+                      >
                         <span
                           class="badge"
-                          data-status={shown()}
+                          data-status={note.takenBack ? "stopped" : shown()}
                           data-lane={note.lane}
                           title={note.lane === "bg" ? "Runs in parallel with the main queue" : undefined}
                         >
@@ -251,9 +266,21 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
                             <Icon name="alert" />
                           </span>
                         </Show>
-                        <span class="note-status" data-status={shown()}>
-                          {WORD[shown()]}
-                        </span>
+                        {/* The badge's colour says waiting; a word is kept for what says more. */}
+                        <Show
+                          when={note.accepted && !note.takenBack}
+                          fallback={
+                            <Show when={note.takenBack || shown() !== "queued"}>
+                              <span class="note-status" data-status={shown()}>
+                                {noteWord(note)}
+                              </span>
+                            </Show>
+                          }
+                        >
+                          <span class="note-lost" title="Accepted">
+                            <Icon name="check" />
+                          </span>
+                        </Show>
                       </button>
                       {/* A failed note's two ways out sit in its own row, not behind a hover. */}
                       <Show when={note.status === "failed"}>
@@ -270,14 +297,6 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
                         </button>
                       </Show>
                     </div>
-                    {/* A canvas note's edits, in words, under the row that is being looked at. */}
-                    <Show when={focusedNote()?.id === note.id && note.edits}>
-                      {(edits) => (
-                        <ol class="note-edits">
-                          <For each={edits()}>{(edit) => <li title={edit}>{edit}</li>}</For>
-                        </ol>
-                      )}
-                    </Show>
                     <Show when={note.status === "failed"}>
                       <p class="note-error" classList={{ quiet: shown() === "stopped" }} title={note.error}>
                         {note.error || (shown() === "stopped" ? "Stopped before it finished." : "Could not be sent.")}
@@ -288,29 +307,6 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
               }}
             </For>
           </ul>
-          {/* Outside the scrolling list: how much more there is, and what a square pin means. */}
-          <Show when={below() > 0 || parallel()}>
-            <div class="notes-foot">
-              <Show when={below() > 0}>
-                <button
-                  class="notes-more"
-                  onClick={() => list?.scrollBy({ top: list.clientHeight - ROW, behavior: "smooth" })}
-                >
-                  <Icon name="down" />
-                  {below()} more below
-                </button>
-              </Show>
-              <Show when={parallel()}>
-                <span class="notes-legend" title={LEGEND}>
-                  {/* A sample of the badge itself, so it reads as a key, not a checkbox. */}
-                  <span class="badge legend-badge" data-lane="bg" data-status="queued" aria-hidden="true">
-                    1
-                  </span>
-                  square: runs in parallel
-                </span>
-              </Show>
-            </div>
-          </Show>
         </Show>
       </Show>
     </section>
@@ -630,8 +626,8 @@ export function Panel(props: {
   const [listHeight, setListHeight] = createSignal(Number(recall("notes.height")) || LIST_DEFAULT)
   // The conversation keeps at least 160px of messages, under its header and above the message box;
   // the notes header takes its line too. What is left can go to the list.
-  // (notes header, conversation header, message box, the 160, the "more below" line, the lost-pins line)
-  const room = () => props.size.height - 36 - 36 - 140 - 160 - 28 - (state.review.unplaced ? 28 : 0)
+  // (notes header, conversation header, message box, the 160)
+  const room = () => props.size.height - 36 - 36 - 140 - 160
   const maxList = () => Math.max(LIST_MIN, room())
   // A narrow or short panel folds the list to its one-line summary, unless the reviewer opens it.
   const cramped = () => props.size.width > 0 && (props.size.width < 360 || room() < ROW * 3 + 6)
@@ -647,6 +643,12 @@ export function Panel(props: {
     if (save) remember("notes.height", String(listHeight()))
   }
   const [picking, setPicking] = createSignal(false)
+  // The note open as a view of its own. It closes when its note is gone: removed, cleared, or
+  // the site changed.
+  const opened = createMemo(() => state.review.notes.find((n) => n.id === openedNote()))
+  createEffect(() => {
+    if (openedNote() && !opened()) setOpenedNote("")
+  })
   const noConversation = () => !state.session && chat.items.length > 0 && state.connection.status === "online"
 
   return (
@@ -679,14 +681,17 @@ export function Panel(props: {
             open={listOpen()}
             onToggle={toggleList}
             width={props.size.width}
+            hidden={!!opened()}
           />
-          <Show when={listOpen() && state.review.notes.length}>
+          <Show when={listOpen() && state.review.notes.length && !opened()}>
             <Divider height={listHeight()} max={maxList} set={setList} />
           </Show>
           <Show when={noConversation()}>
             <NoConversation chooseFolder={() => setPicking(true)} />
           </Show>
-          <Chat composerRef={props.composerRef} openSettings={props.openSettings} />
+          <Chat composerRef={props.composerRef} openSettings={props.openSettings} covered={!!opened()}>
+            <Show when={opened()}>{(note) => <NoteView note={note()} />}</Show>
+          </Chat>
         </Match>
       </Switch>
     </>
