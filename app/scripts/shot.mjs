@@ -36,6 +36,9 @@ const pastePicture = `(async () => {
   document.querySelector(".composer textarea").dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }))
 })()`
 
+/** The panel at 360px, about the narrowest it is used at. */
+const narrowPanel = `document.querySelector(".app").style.setProperty("--panel-width", "360px")`
+
 /** name, mock scenario, then optional: extra query, script to run after load, ms to wait, size. */
 const SHOTS = [
   { name: "connect", mock: "connect" },
@@ -113,6 +116,12 @@ const SHOTS = [
   // The app's own commands: /compact leaves a folded summary in the conversation; /undo asks first.
   { name: "slash-compact", mock: "review", run: [typeIn("/compact"), key("Escape"), key("Enter"), pause(1200), `document.querySelector("[data-summary]").open = true`], wait: 400, report: `document.querySelector("[data-summary=done] summary").textContent` },
   { name: "slash-undo", mock: "review", run: [typeIn("/undo"), key("Escape"), key("Enter")], wait: 500, report: `[document.querySelector(".composer-hint").textContent, document.querySelector(".composer textarea").value]` },
+  // The context meter: quiet from half full, the warning colour from 80% with its question
+  // open, and the bottom row of a sidebar at its narrowest, while the agent works.
+  { name: "context", mock: "review", query: "&context=0.62", report: `document.querySelector(".meter").title` },
+  { name: "context-warn", mock: "review", query: "&context=0.853", run: [click(".meter")], wait: 400, report: `document.querySelector(".meter-pop").textContent` },
+  { name: "context-narrow", mock: "busy", query: "&context=0.853", run: [narrowPanel], wait: 1200 },
+  { name: "context-narrow-open", mock: "review", query: "&context=0.62", run: [narrowPanel, click(".meter")], wait: 400 },
   { name: "mention-menu", mock: "review", run: [typeIn("Match the spacing in @her")], wait: 500 },
   { name: "mention-empty", mock: "review", run: [typeIn("@")], wait: 500 },
   { name: "mention-narrow", mock: "review", size: [640, 720], run: [typeIn("Look at @nav")], wait: 500 },

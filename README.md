@@ -85,6 +85,12 @@ has uncommitted changes, the conversation's header shows how many lines are adde
 open it for the branch, the files and a commit message started from the finished notes, and **Commit**
 asks the agent to commit everything, without pushing.
 
+**Context:** a long review fills what the agent can keep in mind. From half full, the message
+box shows how full it is, as a percentage beside the model (hover for the numbers); from 80% it
+turns amber. Press it and then **Compact**, or type `/compact`: the agent summarises the
+conversation so far and continues from the summary. That cannot be undone, so it asks first.
+Left alone, the server does the same by itself when the context is nearly full.
+
 The app makes three sounds: a rising one when the agent asks something or wants permission, a
 falling one when a note fails or the server is lost, and a single note when the agent has
 finished everything you sent. They can be turned off in the settings (the server button, in the

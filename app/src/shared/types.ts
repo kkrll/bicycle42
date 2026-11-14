@@ -18,7 +18,14 @@ export type ModelInfo = {
   images: boolean
   /** Effort levels, e.g. low | medium | high. Empty when the model has none. */
   variants: string[]
+  /** How many tokens the model can be given at once: the window its context is measured
+   *  against. Absent when the server does not say. */
+  context?: number
 }
+
+/** How full a conversation's context was at the agent's last finished step, in tokens, and
+ *  which provider counted them: another provider's model counts differently. */
+export type ContextUse = { used: number; providerID?: string }
 
 export type AgentInfo = { id: string; name: string }
 
@@ -313,6 +320,11 @@ export type AppState = {
   modelChoice?: { suggested: ModelRef; previous?: ModelRef }
   permissions: PermissionAsk[]
   questions: Question[]
+  /** How full the open conversation's context is: the tokens the agent's last finished step
+   *  held, and the model's window (absent when the server gives none). Absent until a step has
+   *  finished, right after a summary (nothing has measured what is left yet), and after a
+   *  change to another provider's model. */
+  context?: { used: number; limit?: number }
 }
 
 export type Rect = { x: number; y: number; width: number; height: number }
@@ -480,6 +492,9 @@ export type BackendEvent =
   /** The conversation was deleted on the server. Nothing sent to it will finish. */
   | { type: "session-gone"; session: string }
   | { type: "chat"; event: ChatEvent }
+  /** A step ended and its tokens were counted, or (without `context`) the conversation was
+   *  summarised and what it holds now is not known until the next step. */
+  | { type: "context"; session: string; context?: ContextUse }
   | { type: "permission"; ask: PermissionAsk }
   | { type: "permission-done"; session: string; id: string }
   | { type: "question"; question: Question }
@@ -491,6 +506,8 @@ export type Transcript = {
   items: ChatItem[]
   permissions: PermissionAsk[]
   questions: Question[]
+  /** Absent when no step has finished since the conversation began or was last summarised. */
+  context?: ContextUse
 }
 
 export type Backend = {

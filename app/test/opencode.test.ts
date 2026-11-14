@@ -7,7 +7,7 @@ import test, { afterEach } from "node:test"
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import path from "node:path"
-import { chatItems, createEventMapper, createOpenCode as create, parseNote, timing } from "../src/main/opencode"
+import { chatItems, contextOf, contextUsed, contextWindow, createEventMapper, createOpenCode as create, parseNote, timing } from "../src/main/opencode"
 import type { BackendEvent, ChatAssistant, ChatEvent, ChatItem, ChatPart } from "../src/shared/types"
 import { start, until, VERSION, type FakeServer } from "./fake-server"
 
@@ -636,13 +636,13 @@ test("listFolders: paths are resolved against whatever location the server answe
     ])
   }))
 
-test("models: enabled models, whether they take images, their effort levels", () =>
+test("models: enabled models, whether they take images, their effort levels, their window", () =>
   withServer(async (server, backend) => {
     server.route("GET", "/api/model", {
       json: {
         data: [
-          { id: "haiku", providerID: "anthropic", name: "Haiku 5.5", capabilities: { input: ["text", "image", "pdf"] }, variants: [{ id: "low", settings: {} }, { id: "high" }], enabled: true },
-          { id: "iceman-free", providerID: "opencode", name: "Iceman Free", capabilities: { input: ["text"] }, variants: [], enabled: true },
+          { id: "haiku", providerID: "anthropic", name: "Haiku 5.5", capabilities: { input: ["text", "image", "pdf"] }, variants: [{ id: "low", settings: {} }, { id: "high" }], enabled: true, limit: { context: 200000, output: 32000 } },
+          { id: "iceman-free", providerID: "opencode", name: "Iceman Free", capabilities: { input: ["text"] }, variants: [], enabled: true, limit: { context: 200000, input: 160000, output: 32000 } },
           { id: "off", providerID: "opencode", name: "Off", enabled: false },
           { id: "bare", providerID: "x" },
           { name: "no id" },
@@ -650,8 +650,8 @@ test("models: enabled models, whether they take images, their effort levels", ()
       },
     })
     assert.deepEqual(await backend.models(), [
-      { providerID: "anthropic", id: "haiku", name: "Haiku 5.5", images: true, variants: ["low", "high"] },
-      { providerID: "opencode", id: "iceman-free", name: "Iceman Free", images: false, variants: [] },
+      { providerID: "anthropic", id: "haiku", name: "Haiku 5.5", images: true, variants: ["low", "high"], context: 200000 },
+      { providerID: "opencode", id: "iceman-free", name: "Iceman Free", images: false, variants: [], context: 160000 },
       { providerID: "x", id: "bare", name: "bare", images: false, variants: [] },
     ])
   }))
@@ -1746,3 +1746,64 @@ test("a motion note's prompt: the animation in words, its CSS fenced, what start
   assert.match(tp, /^Make the smallest change that does this\./m)
   assert.equal(noteWords({ ...base, text: "", motion: tr }), "")
 })
+
+// ── how full the context is ─────────────────────────────────────────────────────────────────────
+
+const usage = (input: number, output: number, read = 0, write = 0, reasoning = 0) => ({ input, output, reasoning, cache: { read, write } })
+
+test("context: a step's tokens add up to what the server compares with the window", () => {
+  // As a step of a cached conversation reports them: almost everything read from the cache.
+  assert.equal(contextUsed(usage(2, 106, 55087, 612)), 55807)
+  assert.equal(contextUsed(usage(964, 19, 132736, 0, 275)), 133994)
+  assert.equal(contextUsed(usage(0, 0)), undefined, "a step that counted nothing says nothing")
+  assert.equal(contextUsed(undefined), undefined)
+  assert.equal(contextUsed({ input: 10, output: "5", cache: { read: -3 } }), 10, "what is not a count is left out")
+})
+
+test("context: the window is the smaller of a model's input and context limits", () => {
+  assert.equal(contextWindow({ context: 200000, output: 32000 }), 200000)
+  assert.equal(contextWindow({ context: 200000, input: 160000, output: 32000 }), 160000)
+  assert.equal(contextWindow({ input: 128000, output: 4000 }), 128000)
+  assert.equal(contextWindow({ context: 0, output: 0 }), undefined)
+  assert.equal(contextWindow(undefined), undefined)
+})
+
+test("context: a conversation's count is its last finished step's, and a summary empties it", () => {
+  const step = (id: string, tokens?: object, extra: object = {}) => ({ id, type: "assistant", time: { created: 1 }, model: { id: "opus", providerID: "anthropic" }, content: [], ...(tokens ? { tokens } : {}), ...extra })
+  const said = { id: "msg_u", type: "user", time: { created: 1 }, text: "hello" }
+  assert.equal(contextOf([]), undefined)
+  assert.equal(contextOf([said, step("msg_1")]), undefined, "a step still running has no count")
+  assert.deepEqual(contextOf([said, step("msg_1", usage(10, 20, 3000, 400, 5)), step("msg_2", usage(2, 100, 50000, 600))]), { used: 50702, providerID: "anthropic" })
+  // A step that failed is not what the server measures by; the one before it is.
+  assert.deepEqual(contextOf([step("msg_1", usage(10, 20, 3000)), step("msg_2", usage(1, 1, 90000), { error: { type: "provider.error", message: "overloaded" } })]), { used: 3030, providerID: "anthropic" })
+  const summary = (status: string) => ({ id: "msg_c", type: "compaction", status, reason: "manual", time: { created: 5 }, summary: "So far.", tokens: usage(4, 2377, 423597, 3678) })
+  const before = step("msg_1", usage(2, 100, 150000))
+  assert.equal(contextOf([before, summary("completed")]), undefined, "the summary's own tokens are what writing it cost, not what is left")
+  assert.deepEqual(contextOf([before, summary("completed"), step("msg_2", usage(2, 50, 9000))]), { used: 9052, providerID: "anthropic" })
+  assert.deepEqual(contextOf([before, summary("failed")]), { used: 150102, providerID: "anthropic" }, "a summary that did not happen changes nothing")
+  assert.deepEqual(contextOf([before, summary("running")]), { used: 150102, providerID: "anthropic" })
+  // What is undone is not in the conversation.
+  assert.deepEqual(contextOf([step("msg_1", usage(1, 1, 1000)), { ...said, id: "msg_u2" }, step("msg_2", usage(1, 1, 5000))], "msg_u2"), { used: 1002, providerID: "anthropic" })
+})
+
+test("mapper: a step that ends says how full the context is; a summary says it is not known", () => {
+  const counts = (events: unknown[]) => replay(events).out.filter((e) => e.type === "context")
+  const started = (id: string, providerID = "anthropic") => ev("session.step.started", { assistantMessageID: id, agent: "build", model: { id: "opus", providerID }, started: 1 })
+  assert.deepEqual(counts([started("msg_1"), ev("session.step.ended", { assistantMessageID: "msg_1", finish: "stop", cost: 0, tokens: usage(2, 106, 55087, 612) })]), [
+    { type: "context", session: S, context: { used: 55807, providerID: "anthropic" } },
+  ])
+  // A failed step and a step without counts say nothing.
+  assert.deepEqual(counts([started("msg_2"), ev("session.step.failed", { assistantMessageID: "msg_2", error: { type: "provider.error", message: "x" }, tokens: usage(1, 1, 99000) })]), [])
+  assert.deepEqual(counts([started("msg_3"), ev("session.step.ended", { assistantMessageID: "msg_3", finish: "stop", cost: 0, tokens: usage(0, 0) })]), [])
+  assert.deepEqual(counts([ev("session.compaction.started", { reason: "auto" }), ev("session.compaction.ended", { reason: "auto", text: "Short." })]), [{ type: "context", session: S }])
+})
+
+test("transcript: it carries the context's count", () =>
+  withServer(async (server, backend) => {
+    server.route("GET", "/api/session/ses_1", { json: { data: { id: "ses_1", location: { directory: "/repo" }, time: { created: 1, updated: 1 } } } })
+    for (const part of ["inbox", "permission", "form"]) server.route("GET", `/api/session/ses_1/${part}`, { json: { data: [] } })
+    server.route("GET", "/api/session/ses_1/message", {
+      json: { data: [{ id: "msg_1", type: "assistant", time: { created: 1, completed: 2 }, model: { id: "opus", providerID: "anthropic" }, content: [], tokens: usage(2, 100, 120000, 898) }], cursor: {} },
+    })
+    assert.deepEqual((await backend.transcript("ses_1")).context, { used: 121000, providerID: "anthropic" })
+  }))

@@ -14,6 +14,7 @@
 // unknown is skipped and logged once.
 import { posix } from "node:path"
 import type {
+  ContextUse,
   AgentInfo,
   Backend,
   BackendEvent,
@@ -284,6 +285,45 @@ function summaryFailed(id: string, time: number, error: unknown): ChatMarker {
   return { kind: "marker", id, time, text: `The conversation was not summarised${why ? `: ${why}` : ""}.`, tone: e.type === "compaction.unavailable" ? "info" : "error" }
 }
 
+// ── how full the context is ─────────────────────────────────────────────────────────────────────
+// The server decides when to summarise by itself from the last finished step that has token
+// counts and no error: it adds up everything that step read and wrote (input, cache read, cache
+// write, output, reasoning) and compares the sum with the model's window less a reserve. The
+// meter counts the same way, against the whole window, so it and the server never disagree about
+// which number is growing.
+
+/** The tokens one step held, or undefined when it reports none. */
+export function contextUsed(tokens: unknown): number | undefined {
+  const t = rec(tokens)
+  const cache = rec(t.cache)
+  const used = [t.input, cache.read, cache.write, t.output, t.reasoning].reduce<number>((sum, n) => sum + Math.max(0, num(n) ?? 0), 0)
+  return used > 0 ? used : undefined
+}
+
+/** A model's window: the smaller of its input and context limits when it has both, as the
+ *  server takes it. Undefined when it gives neither. */
+export function contextWindow(limit: unknown): number | undefined {
+  const l = rec(limit)
+  const sizes = [num(l.input), num(l.context)].filter((n): n is number => n !== undefined && n > 0)
+  return sizes.length ? Math.min(...sizes) : undefined
+}
+
+/** What a conversation's context held at its last finished step, from its message list (oldest
+ *  first). A summary empties it: the steps before no longer say what is in it. Messages from
+ *  `undone` on are not part of the conversation. */
+export function contextOf(messages: unknown[], undone?: string): ContextUse | undefined {
+  let context: ContextUse | undefined
+  for (const raw of messages) {
+    const m = rec(raw)
+    if (undone && str(m.id) === undone) break
+    if (m.type === "compaction" && m.status === "completed") context = undefined
+    if (m.type !== "assistant" || m.error) continue
+    const used = contextUsed(m.tokens)
+    if (used) context = defined({ used, providerID: str(rec(m.model).providerID) })
+  }
+  return context
+}
+
 /** The line where an undone part of the conversation was. `turns` is how many of the user's
  *  messages went. */
 function undoneMarker(boundary: string, time: number, turns: number): ChatMarker {
@@ -462,6 +502,8 @@ function sessionSummary(raw: unknown): SessionSummary | undefined {
 type Step = {
   time: number
   dir: string | undefined
+  /** Whose model runs the step: its token counts are that provider's. */
+  provider: string | undefined
   parts: ChatPart[]
   /** tool.called and tool.success carry neither the name nor the input, so they are kept. */
   tools: Map<string, { name: string; input: unknown }>
@@ -577,6 +619,8 @@ export function createEventMapper(emit: (event: BackendEvent) => void, warn: War
         // Started before this connection: the list has it under the id it started with, which
         // this event does not carry. Have the conversation re-read.
         if (!running) return emit({ type: "resync", session })
+        // What the summary left in the context is counted by the next step.
+        emit({ type: "context", session })
         return chat({ type: "item", session, item: summaryItem(running.id, running.time, d.reason, str(d.text) ?? running.text, true) })
       }
       case "session.compaction.failed": {
@@ -595,7 +639,7 @@ export function createEventMapper(emit: (event: BackendEvent) => void, warn: War
       case "session.step.started": {
         const id = str(d.assistantMessageID)
         if (!id) return
-        const step: Step = { time: num(d.started) ?? time, dir: str(rec(ev.location).directory), parts: [], tools: new Map() }
+        const step: Step = { time: num(d.started) ?? time, dir: str(rec(ev.location).directory), provider: str(rec(d.model).providerID), parts: [], tools: new Map() }
         steps.set(id, step)
         gaps.delete(session)
         return chat({ type: "item", session, item: { kind: "assistant", id, time: step.time, parts: [], done: false } })
@@ -615,6 +659,8 @@ export function createEventMapper(emit: (event: BackendEvent) => void, warn: War
         }
         const error = type === "session.step.failed" ? str(rec(d.error).message) : undefined
         const item: ChatAssistant = defined({ kind: "assistant", id, time: step.time, parts: step.parts, done: true, error })
+        const used = error === undefined && type === "session.step.ended" ? contextUsed(d.tokens) : undefined
+        if (used) emit({ type: "context", session, context: defined({ used, providerID: step.provider }) })
         return chat({ type: "item", session, item })
       }
 
@@ -978,6 +1024,7 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
           name: str(m.name) ?? id,
           images: list(rec(m.capabilities).input).includes("image"),
           variants: list(m.variants).flatMap((v) => str(rec(v).id) ?? []),
+          ...defined({ context: contextWindow(m.limit) }),
         })
       }
       return models
@@ -1250,8 +1297,10 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
         if (batch.length < PAGE || !next) break
         query = `cursor=${encodeURIComponent(next)}&limit=${PAGE}`
       }
+      const undone = str(rec(rec(info).revert).messageID)
       return {
-        items: chatItems(messages, list(inbox), str(rec(rec(info).location).directory), warn, str(rec(rec(info).revert).messageID)),
+        ...defined({ context: contextOf(messages, undone) }),
+        items: chatItems(messages, list(inbox), str(rec(rec(info).location).directory), warn, undone),
         permissions: list(permissions).flatMap((raw) => permissionAsk(raw) ?? []),
         questions: list(forms).flatMap((raw) => question(raw, warn) ?? []),
       }

@@ -31,6 +31,7 @@ import type {
   Commands,
   CommandName,
   ConnectionState,
+  ContextUse,
   FileChange,
   Lane,
   Mention,
@@ -121,8 +122,25 @@ const permissions = new Map<string, PermissionAsk>()
 const questions = new Map<string, Question>()
 
 /** The conversation the window shows. While its transcript loads, live events wait in `held`;
- *  `again` asks for one more read after this one (something was missed meanwhile). */
-let chat: { session: string; held: ChatEvent[] | null; again: boolean } | undefined
+ *  `again` asks for one more read after this one (something was missed meanwhile), and
+ *  `counted` is the context's count that arrived meanwhile. */
+let chat: { session: string; held: ChatEvent[] | null; again: boolean; counted?: { context?: ContextUse } } | undefined
+
+/** What the context of the conversation on screen held at the agent's last finished step.
+ *  Undefined when nothing has measured it. */
+let measured: { session: string; use: ContextUse } | undefined
+
+/** The open conversation's context for the window: the measurement, beside the window of the
+ *  model the conversation is on. The server sets aside a count made by another provider's
+ *  model when it decides whether the context is full, so it is not shown either. */
+function contextShown(): AppState["context"] {
+  // A conversation the server names no model for runs on the default, as the pickers show it.
+  const model = session?.model ?? defaultModel()
+  if (!measured || !session || measured.session !== session.id) return undefined
+  if (model && measured.use.providerID && measured.use.providerID !== model.providerID) return undefined
+  const limit = model && models.find((m) => m.providerID === model.providerID && m.id === model.id)?.context
+  return { used: measured.use.used, ...(limit ? { limit } : {}) }
+}
 
 /** What each unfinished note was sent with, so it can be sent again. `id` is the message id the
  *  server knows it by: sending the same id twice queues it once, which makes a retry after a
@@ -189,6 +207,7 @@ function snapshot(): AppState {
     ...(modelChoice && model ? { modelChoice: { suggested: model, ...(modelChoice.previous ? { previous: modelChoice.previous } : {}) } } : {}),
     permissions: [...permissions.values()],
     questions: [...questions.values()],
+    ...(contextShown() ? { context: contextShown() } : {}),
   }
 }
 
@@ -657,7 +676,7 @@ async function openChat(id: string) {
   // A read of this conversation is already under way: one more after it is enough, however
   // many times that is asked. (A transcript with screenshots is megabytes.)
   if (chat?.session === id && chat.held) return void (chat.again = true)
-  const mine = (chat = { session: id, held: [] as ChatEvent[] | null, again: false })
+  const mine: NonNullable<typeof chat> = (chat = { session: id, held: [], again: false })
   try {
     const t = await b.transcript(id)
     if (chat !== mine) return
@@ -665,6 +684,7 @@ async function openChat(id: string) {
     for (const [k, q] of questions) if (q.session === id) questions.delete(k)
     for (const p of t.permissions) permissions.set(p.id, p)
     for (const q of t.questions) questions.set(q.id, q)
+    measured = t.context && { session: id, use: t.context }
     toChat({ type: "reset", session: id, items: withCheckpoints(id, t.items) })
     // A conversation from before conversations were named, or named nowhere else: by what was
     // first said in it. (Asking for the site to be started is the app's words, not a subject.)
@@ -673,6 +693,8 @@ async function openChat(id: string) {
     // Events that arrived during the read. Upserts repeat harmlessly; a text delta already in the
     // transcript shows twice until its block ends, which replaces the text.
     for (const e of mine.held ?? []) toChat(e)
+    // …and what was counted during it, which is newer than what the read saw.
+    if (mine.counted) measured = mine.counted.context && { session: id, use: mine.counted.context }
   } catch (err) {
     if (chat !== mine) return
     toChat({
@@ -782,6 +804,13 @@ function onBackend(e: BackendEvent) {
       else if (session?.id !== e.session.id) return
       return push()
     }
+    case "context":
+      if (!chat || e.session !== chat.session) return
+      // During a read of the conversation the count waits, like the chat's events: the read
+      // may have seen less.
+      if (chat.held) return void (chat.counted = { context: e.context })
+      measured = e.context && { session: e.session, use: e.context }
+      return push()
     case "chat":
       if (!chat || e.event.session !== chat.session) return
       if (chat.held) chat.held.push(e.event)

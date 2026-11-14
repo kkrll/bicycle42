@@ -73,7 +73,7 @@ async function main() {
       location: { directory: "/" },
       data: [
         { id: "iceman-free", providerID: "opencode", name: "Iceman", capabilities: { tools: true, input: ["text"] }, variants: [], enabled: true, status: "active" },
-        { id: "sonnet", providerID: "anthropic", name: "Sonnet", capabilities: { tools: true, input: ["text", "image"] }, variants: [{ id: "high" }], enabled: true, status: "active" },
+        { id: "sonnet", providerID: "anthropic", name: "Sonnet", capabilities: { tools: true, input: ["text", "image"] }, variants: [{ id: "high" }], enabled: true, status: "active", limit: { context: 200000, output: 32000 } },
       ],
     },
   })
@@ -394,6 +394,29 @@ async function main() {
     (await until(() => ui(`document.querySelector('[data-summary="done"] summary')?.textContent.startsWith("Conversation summarised") ?? false`))) === true && (await ui(`${box}.value`)) === "",
   )
   check("the notes are as they were", notes().map((n) => n.status).join() === statusesBefore, notes().map((n) => n.status).join())
+
+  // ── the context meter: not there with room to spare, then a percentage that can compact ────
+  const meterText = () => ui(`(() => { const m = document.querySelector(".composer-row .meter"); return m ? [m.textContent.trim(), m.classList.contains("warn"), m.title].join("|") : "" })()`)
+  const stepEnds = (id: string, read: number) => {
+    emit("session.step.started", { assistantMessageID: id, agent: "build", model: { id: "sonnet", providerID: "anthropic" }, started: 1 })
+    emit("session.step.ended", { assistantMessageID: id, finish: "stop", cost: 0, tokens: { input: 500, output: 400, reasoning: 100, cache: { read, write: 0 } } })
+  }
+  stepEnds("msg_ctx1", 79_000)
+  await sleep(300)
+  check("under half full the message box shows no meter", (await meterText()) === "", String(await meterText()))
+  stepEnds("msg_ctx2", 123_000)
+  check("from half full it shows the percentage, quietly", (await until(async () => (await meterText()) === "62%|false|Context: 124k of 200k tokens")) === true, String(await meterText()))
+  stepEnds("msg_ctx3", 169_000)
+  check("from 80% it takes the warning colour", (await until(async () => (await meterText()) === "85%|true|Context: 170k of 200k tokens")) === true, String(await meterText()))
+  await ui(`document.querySelector(".composer-row .meter").click()`)
+  const asked = (await until(() => ui(`document.querySelector(".meter-pop")?.textContent ?? ""`))) as string
+  check("pressing it asks first, and says what compacting does", /summarises the conversation so far/.test(asked) && /cannot be undone/.test(asked) && compacts.length === 1, asked)
+  await ui(`document.querySelector(".meter-pop .btn").click()`)
+  await until(() => compacts.length === 2)
+  check("Compact goes the way /compact does", compacts.length === 2 && JSON.stringify(compacts[1]?.body) === "{}" && (await until(() => ui(`!document.querySelector(".meter-pop")`))) === true)
+  emit("session.compaction.started", { reason: "manual", inputID: "msg_compact2" })
+  emit("session.compaction.ended", { reason: "manual", text: "A bigger button, a tighter heading." })
+  check("once the conversation is summarised the meter is gone", (await until(async () => (await meterText()) === "")) === true, String(await meterText()))
 
   // ── commands answer with plain sentences ───────────────────────────────────────────────────
   const refused = (await ui(`window.b42.invoke("connect", { url: "", password: "x" }).then(() => "", (e) => e.message)`)) as string
