@@ -182,7 +182,8 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   does at the window less a reserve (15% unless configured). After a summary nothing is known
   until the next step ends, and a count made by another provider's model is not used, as on the
   server. The window shows it in the message box's bottom row (`renderer/meter.tsx`, arithmetic
-  in `renderer/context.ts`): nothing under half, a percentage from there, the warning colour
+  in `renderer/context.ts`): nothing under half, a percentage from there (with the word
+  "Compact" while the agent is idle and no note waits), the warning colour
   from 80%, and behind it one confirmed action, Compact, which is `runCommand("compact")`.
   `/undo` first says what it would take back and waits for Enter, because the server takes back
   **everything from that message on**, the agent's file changes included (files only where the

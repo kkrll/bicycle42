@@ -131,6 +131,7 @@ const SHOTS = [
   // The context meter: quiet from half full, the warning colour from 80% with its question
   // open, and the bottom row of a sidebar at its narrowest, while the agent works.
   { name: "context", mock: "review", query: "&context=0.62", report: `document.querySelector(".meter").title` },
+  { name: "context-rest", mock: "empty", query: "&context=0.62" },
   { name: "context-warn", mock: "review", query: "&context=0.853", run: [click(".meter")], wait: 400, report: `document.querySelector(".meter-pop").textContent` },
   { name: "context-narrow", mock: "busy", query: "&context=0.853", run: [narrowPanel], wait: 1200 },
   { name: "context-narrow-open", mock: "review", query: "&context=0.62", run: [narrowPanel, click(".meter")], wait: 400 },

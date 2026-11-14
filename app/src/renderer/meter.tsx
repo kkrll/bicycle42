@@ -1,10 +1,12 @@
 // The context meter, in the message box's bottom row: how full the conversation's context is,
 // and a way to have it summarised without knowing the command. It is not there while less than
-// half is used. Pressing it asks first, because a summary cannot be taken back.
+// half is used. From there it also says "Compact" whenever the agent has nothing left to do: a
+// pause between rounds of notes is when a summary costs least. Pressing it asks first, because a
+// summary cannot be taken back.
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { meter } from "./context"
 import { Icon } from "./icons"
-import { b42, chat, message, setNotice, state } from "./store"
+import { b42, chat, message, setNotice, state, tallyNotes } from "./store"
 
 export function ContextMeter() {
   const [open, setOpen] = createSignal(false)
@@ -12,6 +14,8 @@ export function ContextMeter() {
   const shown = createMemo(() => meter(state.context))
   /** A summary is already being written: a second one would have nothing to do. */
   const summarising = () => chat.items.some((i) => i.kind === "assistant" && i.summary && !i.done)
+  /** Nothing is being worked on and nothing waits: the moment to suggest a summary. */
+  const resting = () => !!state.session && !state.session.busy && !summarising() && tallyNotes().left === 0
   let button!: HTMLButtonElement
   let pop: HTMLDivElement | undefined
 
@@ -60,6 +64,9 @@ export function ContextMeter() {
           >
             <Icon name="gauge" />
             {m().percent}%
+            <Show when={resting()}>
+              <span class="meter-word">Compact</span>
+            </Show>
           </button>
           <Show when={open()}>
             <div class="meter-pop" role="dialog" aria-label="Compact the conversation" ref={pop} onKeyDown={escape}>

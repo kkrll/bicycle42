@@ -94,7 +94,8 @@ asks the agent to commit everything, without pushing.
 
 **Context:** a long review fills what the agent can keep in mind. From half full, the message
 box shows how full it is, as a percentage beside the model (hover for the numbers); from 80% it
-turns amber. Press it and then **Compact**, or type `/compact`: the agent summarises the
+turns amber. While the agent has nothing left to do it also reads **Compact**: between rounds of
+notes is when a summary loses least. Press it and then **Compact**, or type `/compact`: the agent summarises the
 conversation so far and continues from the summary. That cannot be undone, so it asks first.
 Left alone, the server does the same by itself when the context is nearly full.
 
