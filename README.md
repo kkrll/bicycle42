@@ -14,10 +14,27 @@ It is for designers who work with a coding agent, and it is open source.
 
 ## Requirements
 
+- A Mac with Apple silicon, for the app below. From source it also runs on Intel Macs, Linux and Windows.
 - An OpenCode server, on this computer or another one.
-- Node 22 or newer with npm, or Bun.
 
-## Run it
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kkrll/bicycle42/main/install.sh | sh
+```
+
+The script downloads the latest release, checks its checksum and puts `bicycle 42.app` in
+`/Applications` (or `~/Applications` if that isn't writable). Run it again to update, or let the
+app do it: it checks for a new release on launch and every six hours, and offers to restart into it.
+
+The app is not signed with an Apple Developer ID, so a copy downloaded with a browser from the
+[releases page](https://github.com/kkrll/bicycle42/releases) is blocked the first time you open it.
+Allow it under System Settings → Privacy & Security → Open Anyway, or run
+`xattr -dr com.apple.quarantine "/Applications/bicycle 42.app"`. The install script avoids this.
+
+## Run from source
+
+Needs Node 22 or newer with npm, or Bun.
 
 ```bash
 cd app
@@ -25,8 +42,7 @@ bun install          # or: npm install
 bun run start        # or: npm start. Builds, then opens the app
 ```
 
-`bun run pack` (or `npm run pack`) builds a real app for this computer in `app/release/`, with
-its own name and icon. It is not signed with a developer certificate, and there are no installers yet.
+`bun run pack` builds the app for this computer in `app/release/` without zipping it.
 
 ## First launch
 
@@ -125,7 +141,7 @@ a skill or a helper agent.
 
 ## Not built yet
 
-- Signed builds and installers.
+- A Developer ID signature, Intel builds, and Windows and Linux packages.
 - Tabs and device widths.
 - Before and after pictures of what the agent changed, and taking back one note
   (`/undo` takes back the last message and everything after it).

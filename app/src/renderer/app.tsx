@@ -242,6 +242,7 @@ function TopBar(props: {
             <Icon name="draw" size={20} />
           </button>
           <ModeSwitch disabled={noOverlay()} />
+          <UpdateButton />
           {/* With the panel open the server button is in its conversation row, and the notes are
               right there: both are here only while they cannot be seen in the panel. */}
           <Show when={!props.panelOpen || !state.site?.directory}>
@@ -264,6 +265,24 @@ function TopBar(props: {
         </div>
       </Show>
     </header>
+  )
+}
+
+function UpdateButton() {
+  return (
+    <Show when={state.update?.status === "ready" || state.update?.status === "manual" ? state.update : undefined}>
+      {(update) => (
+        <button
+          class="icon-btn labelled"
+          data-action="update"
+          title={update().status === "ready" ? `Restart into bicycle 42 ${update().version}` : `Open the release page of bicycle 42 ${update().version}`}
+          onClick={() => act("installUpdate")}
+        >
+          <Icon name="up" />
+          <span>{update().status === "ready" ? "Restart to update" : `${update().version} is out`}</span>
+        </button>
+      )}
+    </Show>
   )
 }
 

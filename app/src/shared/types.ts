@@ -284,7 +284,11 @@ export type AppState = {
   modelChoice?: { suggested: ModelRef; previous?: ModelRef }
   permissions: PermissionAsk[]
   questions: Question[]
+  update?: UpdateInfo
 }
+
+/** A newer release. `manual`: this copy can't replace itself, so the release page is offered instead. */
+export type UpdateInfo = { version: string; status: "downloading" | "ready" | "manual" | "failed" }
 
 export type Rect = { x: number; y: number; width: number; height: number }
 
@@ -375,6 +379,8 @@ export type Commands = {
   replyPermission(id: string, decision: PermissionDecision): void
   answerQuestion(id: string, answer: Answer): void
   dismissQuestion(id: string): void
+  /** Restarts into the downloaded update, or opens the release page when there is none to install. */
+  installUpdate(): void
 }
 
 export type CommandName = keyof Commands
