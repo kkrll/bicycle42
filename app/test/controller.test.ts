@@ -728,6 +728,34 @@ test("commands, runCommand, cancelQueued: read once per folder, run in the open 
   }
 })
 
+test("cancelNote: a waiting note leaves the queue of the conversation it was sent to, and stays on the list, stopped", async () => {
+  const h = await boot()
+  try {
+    const old = await h.ready()
+    h.server.route("DELETE", /\/inbox\//, {})
+    const [a, b] = [h.note("a"), h.note("b")]
+    await until(() => h.w.prompts.length === 2)
+    h.agent.starts(old)
+    h.agent.picksUp(old, h.w.prompts[0]!.id)
+    await until(() => h.notes() === "1:working 2:queued")
+    await assert.rejects(h.cmd("cancelNote", a), /no longer waiting/, "only a waiting note")
+    await assert.rejects(h.cmd("cancelNote", "nope"), /no longer waiting/)
+
+    // Another conversation is open by now: the note's own is the one asked.
+    await h.cmd("newSession")
+    assert.notEqual(h.snap().session!.id, old)
+    await h.cmd("cancelNote", b)
+    const del = h.server.requests.find((r) => r.method === "DELETE")!
+    assert.equal(del.path, `/api/session/${old}/inbox/${h.w.prompts[1]!.id}`)
+    h.emit("session.inbox.cancelled", old, { inboxID: h.w.prompts[1]!.id })
+    await until(() => h.notes() === "1:working 2:failed")
+    const row = h.snap().review.notes[1]!
+    assert.deepEqual([row.stopped, row.error], [true, "Cancelled."])
+  } finally {
+    await h.close()
+  }
+})
+
 // ── canvas notes ─────────────────────────────────────────────────────────────────────────────────
 
 const EDITS = [
@@ -931,7 +959,7 @@ test("a note that is only new CSS rules is a note: named, pictured before and af
     assert.deepEqual(body.files!.map((f) => `${f.name}=${jpegOf(f)}`), ["note-1-before.jpg=before", "note-1-after.jpg=after"])
     assert.ok(body.text.includes(`New CSS rules to add (put them where this project keeps its styles, renamed to its conventions if needed):\n\`\`\`css\n${css}\n\`\`\`\n`))
     assert.equal(body.text.split("\n")[1], "Note: 1 canvas edit: 1 new CSS rule")
-    assert.deepEqual(h.snap().review.notes[0], { id: "s1", n: 1, text: "1 canvas edit: 1 new CSS rule", status: "queued", lane: "main", edits: ["1 new CSS rule."], sent: true, pictures: "before" })
+    assert.deepEqual(h.snap().review.notes[0], { id: "s1", n: 1, text: "1 canvas edit: 1 new CSS rule", status: "queued", lane: "main", edits: ["1 new CSS rule."], sent: true, session: h.snap().session!.id, pictures: "before" })
     // Too long to be carried, and nothing else in the note: there is no note.
     h.page.message(canvasNote("s2", { edits: undefined, css: "x".repeat(8001) }))
     await sleep(100)
@@ -1538,6 +1566,77 @@ test("a finished note is accepted, shows what changed for it, and is taken back 
         return false
       }
     })
+  } finally {
+    await h.close()
+  }
+})
+
+test("a note's row names its conversation; take back says which way it will go, and does not go the other way", async () => {
+  const h = await boot()
+  try {
+    const old = await h.ready()
+    const text = (n: number) => `UI review note ${n} on http://site.test/, window 800×600 @1x.\nNote: x\nMake the smallest change that does this.`
+    // The old conversation's newest message is note 2; the new one's is a typed message after note 3.
+    const newestFirst = (s: string): object[] =>
+      s === old
+        ? [{ id: h.w.prompts[1]!.id, type: "user", text: text(2) }, { id: h.w.prompts[0]!.id, type: "user", text: text(1) }]
+        : [{ id: "msg_typed", type: "user", text: "and the footer" }, { id: h.w.prompts[2]!.id, type: "user", text: text(3) }]
+    h.server.route("GET", /^\/api\/session\/[^/]+\/message$/, (req) => {
+      const list = newestFirst(req.path.split("/")[3]!)
+      return { json: { data: req.query.get("order") === "desc" ? list : [...list].reverse(), cursor: { previous: null, next: null } } }
+    })
+    h.server.route("POST", /\/revert\/stage$/, (req) => ({ json: { data: { messageID: (req.body as { messageID: string }).messageID } } }))
+
+    h.note("a")
+    h.note("b")
+    await until(() => h.w.prompts.length === 2)
+    h.agent.starts(old)
+    h.agent.picksUp(old, h.w.prompts[0]!.id)
+    h.agent.picksUp(old, h.w.prompts[1]!.id)
+    h.agent.finishes(old)
+    await until(() => h.notes() === "1:done 2:done")
+    await h.cmd("newSession")
+    const neu = h.snap().session!.id
+    h.note("c")
+    await until(() => h.w.prompts.length === 3)
+    h.agent.starts(neu)
+    h.agent.picksUp(neu, h.w.prompts[2]!.id)
+    h.agent.finishes(neu)
+    await until(() => h.notes() === "1:done 2:done 3:done")
+
+    const [a, b, c] = h.snap().review.notes
+    assert.deepEqual([a!.session, b!.session, c!.session], [old, old, neu], "each note says where it went, the open conversation or not")
+
+    // Note 1 has note 2 on top of it, note 3 a typed message: the agent is asked. Note 2 is the
+    // newest message of its conversation, which is idle and not the open one: an exact undo.
+    assert.equal(await h.cmd("takeBackWay", a!.id), "asked")
+    assert.equal(await h.cmd("takeBackWay", c!.id), "asked")
+    assert.equal(await h.cmd("takeBackWay", b!.id), "undone")
+    assert.equal(h.w.prompts.length, 3, "asking how changes nothing")
+    assert.equal(requestsTo(h, "/revert/stage").length, 0)
+    assert.deepEqual(h.snap().review.notes.map((n) => n.takenBack), [undefined, undefined, undefined])
+    // A busy conversation cannot be undone, whatever its newest message is.
+    h.agent.starts(old)
+    await sleep(50)
+    assert.equal(await h.cmd("takeBackWay", b!.id), "asked")
+    h.agent.finishes(old)
+    await sleep(50)
+    assert.equal(await h.cmd("takeBackWay", b!.id), "undone")
+
+    // The question said "asked"; by now it would be an exact undo, or the other way round: nothing is done.
+    await assert.rejects(h.cmd("takeBackNote", b!.id, "asked"), /changed meanwhile/)
+    await assert.rejects(h.cmd("takeBackNote", a!.id, "undone"), /changed meanwhile/)
+    assert.equal(h.w.prompts.length, 3)
+    assert.equal(requestsTo(h, "/revert/stage").length, 0)
+
+    assert.equal(await h.cmd("takeBackNote", b!.id, "undone"), "undone")
+    assert.deepEqual(requestsTo(h, "/revert/stage").map((r) => [r.path, r.body]), [[`/api/session/${old}/revert/stage`, { messageID: h.w.prompts[1]!.id }]])
+    assert.equal(await h.cmd("takeBackNote", a!.id, "asked"), "asked")
+    assert.equal(h.w.prompts[3]!.session, old, "the agent of the note's own conversation is asked")
+    assert.deepEqual(h.snap().review.notes.map((n) => n.takenBack), ["asked", "undone", undefined])
+
+    await assert.rejects(h.cmd("takeBackWay", b!.id), /already taken back/)
+    await assert.rejects(h.cmd("takeBackWay", "nope"), /Only a finished note/)
   } finally {
     await h.close()
   }

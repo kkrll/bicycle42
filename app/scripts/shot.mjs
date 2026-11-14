@@ -61,6 +61,18 @@ const SHOTS = [
   // A finished note opened: its pictures, what changed in the code, the verdict. Then the
   // repo's line opened, with the commit message the notes suggest.
   { name: "note-detail", mock: "review", run: [click(".note:nth-of-type(3) .note-main"), pause(300), click(".note-diff-btn")], wait: 500 },
+  // A note of another conversation names it at the end of its status line. Then Take back's
+  // question, which says the way it will go: the agent asked (its conversation is at work), or
+  // an exact undo (the newest message of an idle one).
+  {
+    name: "note-elsewhere",
+    mock: "review",
+    run: [`window.__mock.state.review.notes[2].session = "s-3"; 0`, click("[data-action=draw]"), click("[data-action=draw]"), click(".note:nth-of-type(3) .note-main")],
+    wait: 400,
+    report: `document.querySelector(".note-where").textContent`,
+  },
+  { name: "note-take-back", mock: "review", run: [click(".note:nth-of-type(3) .note-main"), pause(300), click(".note-undo")], wait: 400, report: `document.querySelector(".note-ask").textContent` },
+  { name: "note-take-back-exact", mock: "long", run: [click(".note:nth-of-type(10) .note-main"), pause(300), click(".note-undo")], wait: 400, report: `document.querySelector(".note-ask").textContent` },
   { name: "repo-commit", mock: "review", run: [click(".repo-chip")], wait: 400 },
   { name: "conversations-row", mock: "review", run: [click(".convo-current"), pause(200), `document.querySelectorAll(".menu-main")[1].focus()`], wait: 300 },
   { name: "conversations-rename", mock: "review", run: [click(".convo-current"), pause(200), click(".menu-row:nth-of-type(2) [data-do=rename]")], wait: 300 },
@@ -133,7 +145,9 @@ const SHOTS = [
   { name: "history", mock: "review", run: [typeIn(""), key("ArrowUp")], report: `document.querySelector(".composer textarea").value` },
   { name: "slash-run", mock: "review", run: [typeIn("/te"), pause(100), key("Enter"), pause(50), append("the pricing page"), key("Enter")], wait: 1500, report: `[...document.querySelectorAll(".user .user-text")].at(-1).textContent` },
   { name: "steer", mock: "busy", run: [pause(300), typeIn("stop, use the brand green instead"), key("Enter", { ctrlKey: true })], wait: 300, report: `[...document.querySelectorAll(".marker")].map((m) => m.textContent)` },
-  { name: "cancel", mock: "busy", run: [click(".wait-cancel")], wait: 300, report: `document.querySelectorAll(".user.pending").length` },
+  // A waiting note is in the list only; its own view says so and has its Cancel.
+  { name: "note-waiting", mock: "busy", run: [click('.note:has(.badge[data-status="queued"]) .note-main')], wait: 400, report: `[document.querySelectorAll(".user.pending").length, document.querySelector(".note-wait").textContent]` },
+  { name: "cancel", mock: "busy", run: [click('.note:has(.badge[data-status="queued"]) .note-main'), pause(300), click(".note-cancel")], wait: 300, report: `document.querySelector(".note-view .note-status").textContent` },
   {
     name: "drop",
     mock: "review",

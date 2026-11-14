@@ -587,7 +587,7 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
               field = el
               props.ref(el)
             }}
-            rows="3"
+            rows="1"
             aria-label="Message to the agent"
             aria-autocomplete="list"
             aria-controls={menu() ? menuId : undefined}

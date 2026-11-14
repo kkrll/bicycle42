@@ -188,6 +188,9 @@ export type NoteRow = {
   lost?: true
   /** A conversation took it: what the agent changed for it can be asked for (`noteDiff`). */
   sent?: true
+  /** The conversation that took it. It need not be the open one: a note stays with the
+   *  conversation it was sent in, and a background note has one of its own. */
+  session?: string
   /** Which pictures of its area there are (`notePictures`): the one from when it was made, or
    *  that and the one taken when the agent was done. */
   pictures?: "before" | "both"
@@ -335,6 +338,7 @@ export type Commands = {
   /** The brush on or off. On, it turns review on and goes to notes mode. */
   toggleBrush(): void
   toggleAutoReload(): void
+  /** Takes the notes that are done off the list. A failed or stopped one stays, with its Retry. */
   clearNotes(): void
   retryNote(id: string): void
   /** Takes a note off the list, whatever its state. The agent is not told. */
@@ -352,7 +356,10 @@ export type Commands = {
   /** Takes back what the agent did for a finished note. The newest message of its conversation
    *  is undone exactly, files included ("undone": /redo brings it back); for an older one the
    *  agent is asked to reverse its change ("asked"). */
-  takeBackNote(id: string): "undone" | "asked"
+  takeBackNote(id: string, expect?: "undone" | "asked"): "undone" | "asked"
+  /** Which of the two `takeBackNote` would do now, so the question before it can say. With
+   *  `expect`, `takeBackNote` does nothing and throws when it would by now do the other. */
+  takeBackWay(id: string): "undone" | "asked"
   /** Marks this point of the open conversation, to come back to. */
   addCheckpoint(name: string): void
   removeCheckpoint(id: string): void
@@ -416,6 +423,9 @@ export type Commands = {
   mentions(query: string): MentionOption[]
   /** Takes a message that is still waiting for its turn out of the queue. */
   cancelQueued(item: string): void
+  /** Takes a note that is still waiting for its turn out of its conversation's queue, whichever
+   *  conversation that is. The note stays on the list as stopped, with Retry. */
+  cancelNote(id: string): void
   stop(): void
   newSession(): void
   openSession(id: string): void

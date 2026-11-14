@@ -192,7 +192,7 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
           </button>
         </Show>
         <Show when={counts().done}>
-          <button class="text-btn" title="Take finished notes off the list" onClick={() => act("clearNotes")}>
+          <button class="text-btn" title="Take the notes that are done off the list" onClick={() => act("clearNotes")}>
             Clear done
           </button>
         </Show>
@@ -626,8 +626,8 @@ export function Panel(props: {
   const [listHeight, setListHeight] = createSignal(Number(recall("notes.height")) || LIST_DEFAULT)
   // The conversation keeps at least 160px of messages, under its header and above the message box;
   // the notes header takes its line too. What is left can go to the list.
-  // (notes header, conversation header, message box, the 160)
-  const room = () => props.size.height - 36 - 36 - 140 - 160
+  // (notes header, conversation header, message box at its one empty line, the 160)
+  const room = () => props.size.height - 36 - 36 - 100 - 160
   const maxList = () => Math.max(LIST_MIN, room())
   // A narrow or short panel folds the list to its one-line summary, unless the reviewer opens it.
   const cramped = () => props.size.width > 0 && (props.size.width < 360 || room() < ROW * 3 + 6)

@@ -413,22 +413,39 @@ test("rows and pins", () => {
   ])
 })
 
-test("clearFinished keeps what is still going, and numbering goes on from the last note left", () => {
+test("clearDone takes only what is done: a failed or stopped note stays to be retried, and numbering goes on from the last note left", () => {
   const r = createReview()
   const done = noteAt(r, "done")
   const working = noteAt(r, "working")
   const failed = noteAt(r, "failed")
-  r.clearFinished()
-  assert.deepEqual(r.rows().map((x) => x.id), [working])
+  const stopped = noteAt(r, "queued")
+  r.inbox(A, r.note(stopped)!.message!, "cancelled")
+  r.clearDone()
+  assert.deepEqual(r.rows().map((x) => x.id), [working, failed, stopped])
   assert.equal(r.note(done), undefined)
-  assert.equal(r.note(failed), undefined)
-  assert.equal(r.add(pn())!.n, 3, "after note 2")
+  assert.equal(r.rows()[2]!.stopped, true)
+  assert.equal(r.retry(failed)?.id, failed, "its Retry is still there")
+  assert.equal(r.add(pn())!.n, 5, "after note 4")
 
   r.run(A, "succeeded")
-  r.failed(r.rows()[1]!.id, "x")
-  r.clearFinished()
+  for (const row of r.rows()) if (row.status !== "done") r.remove(row.id)
+  r.clearDone()
   assert.deepEqual(r.rows(), [])
   assert.equal(r.add(pn())!.n, 1, "an empty review starts over")
+})
+
+test("a row names the conversation that took its note, once one has", () => {
+  const r = createReview()
+  const waiting = noteAt(r, "sending")
+  const main = noteAt(r, "queued")
+  const other = noteAt(r, "done", B)
+  const row = (id: string) => r.rows().find((x) => x.id === id)!
+  assert.deepEqual([row(waiting).sent, row(waiting).session], [undefined, undefined])
+  assert.deepEqual([row(main).sent, row(main).session], [true, A])
+  assert.deepEqual([row(other).sent, row(other).session], [true, B])
+  r.inbox(A, r.note(main)!.message!, "cancelled")
+  assert.equal(r.retry(main)?.id, main)
+  assert.equal(row(main).session, undefined, "a retry is not anybody's yet")
 })
 
 test("unplaced pins are counted", () => {
@@ -450,7 +467,7 @@ test("toJSON is versioned strict JSON and restores to the same review", () => {
   noteAt(r, "working", B)
   noteAt(r, "queued")
   r.add(pn({ targets: [{ selector: "p", tag: "p", rect: { x: 0, y: 0, w: 1, h: 1 } }], bounds: null }))
-  r.clearFinished()
+  r.clearDone()
   r.draft = { text: "half-written", gone: undefined }
   r.setUnplaced(["x"])
 

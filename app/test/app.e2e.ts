@@ -232,6 +232,14 @@ async function main() {
   emit("session.inbox.enqueued", { inboxID: "msg_2", item: { type: "user", payload: { text: (prompts[1]?.body as { text: string }).text }, delivery: "queue" } })
   await until(() => notes()[1]?.status === "queued")
   check("a second note queues behind the first", notes().map((n) => n.status).join() === "working,queued", notes().map((n) => n.status).join())
+  // The waiting note is said once: in the list. Its own view has the way out of the queue.
+  await until(() => ui(`document.querySelectorAll(".notes-list .note").length === 2`))
+  await sleep(200)
+  check("the waiting note is a row of the list and not a card in the conversation", (await ui(`document.querySelectorAll(".notes-list .note").length === 2 && !document.querySelector(".transcript .user.pending") && !document.querySelector(".transcript").textContent.includes("tighter heading")`)) === true)
+  await ui(`document.querySelectorAll(".notes-list .note-main")[1].click()`)
+  check("its own view says it waits, with Cancel", (await until(() => ui(`document.querySelector(".note-view .note-wait")?.textContent === "Waiting for its turn" && document.querySelector(".note-view .note-cancel")?.textContent.trim() === "Cancel"`))) === true)
+  check("…and names no conversation: it is in the open one", notes()[1]?.session === SES && (await ui(`!document.querySelector(".note-view .note-where")`)) === true)
+  await ui(`document.querySelector(".note-back").click()`)
 
   // The agent answers note 1, picks up note 2, answers it, and stops.
   const reply = (message: string, words: string) => {
@@ -356,6 +364,8 @@ async function main() {
     (await until(() => ui(`(() => { const r = document.querySelectorAll(".notes-list .note")[3]; return !!r && !!r.querySelector('[title^="Canvas note: 1 edit"] svg') && r.querySelector(".note-main").title.includes("1. Styled") })()`))) === true,
   )
   emit("session.inbox.enqueued", { inboxID: `msg_${prompts.length}`, item: { type: "user", payload: { text: canvas?.text }, delivery: "queue" } })
+  // It is in the conversation once the agent has picked it up; waiting, it is in the list only.
+  emit("session.inbox.delivered", { inboxID: `msg_${prompts.length}` })
   check(
     "the chat shows the canvas note by its name, not the prompt",
     (await until(() => ui(`[...document.querySelectorAll(".user .user-text")].some((u) => u.textContent === ${JSON.stringify(NAME)})`))) === true && !(await text()).includes("Canvas edits, made on the live page"),

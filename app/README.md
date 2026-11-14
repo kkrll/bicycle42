@@ -88,7 +88,14 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   re-reads it after a reconnect, so a dropped connection can't duplicate or reorder messages.
 - **A note remembers the conversation it was sent to**, and carries a message id chosen here.
   Switching conversations, a restart or a dropped connection can't mark it done by mistake, and
-  retrying after a lost reply can't queue it twice.
+  retrying after a lost reply can't queue it twice. Its row says which conversation
+  (`NoteRow.session`), so the note's view can name one that is not open and Follow up can open
+  it first; a background note's follow-up stays in the open conversation, since the background
+  one is not a conversation to talk in.
+- **Take back says its way before it goes.** `takeBackWay` answers "undone" (the note is the
+  newest message of an idle conversation: an exact undo) or "asked" (the agent is asked to
+  reverse it); the view puts that in its question and hands it to `takeBackNote`, which does
+  nothing when the conversation has moved to the other way meanwhile.
 - **The page is untrusted.** The overlay and its way to the app (`window.__review`) are in a
   script world of their own (`WORLD` in `page.ts`): they share the page's document, but the
   site's scripts can't call the one or reach into the other. As a second lock, a note counts
@@ -130,6 +137,11 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   select by that. So the edit stays put when the page adds, removes or reorders the elements
   around it, and the note names the element by the selector it has when it is sent. Only when
   the page builds the element anew (or reloads) is it found by where the old one last was.
+- **A waiting note is said once.** The server's queue holds notes and typed messages alike, and
+  the conversation gets both as waiting items; the window leaves out the ones that are notes on
+  the list (`ordered` in `renderer/chat.tsx`), so only a typed message waits there, with its
+  Cancel. A note's Cancel is in its own view and goes by the note (`cancelNote`), to the
+  conversation the note was sent to, which need not be the open one.
 - **A note has one name** (`noteWords` in `../overlay/prompt.js`): the reviewer's words, or a
   summary of its canvas edits. The list, the pin's tooltip and the chat all show that.
 - **The overlay sits in the browser's top layer** (it is a popover), so a site's own dialogs and
