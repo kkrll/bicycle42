@@ -1785,6 +1785,12 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     if (typeof item !== "string" || !item) return
     await need().cancelQueued(needSession().id, item)
   },
+  async cancelNote(id) {
+    const note = typeof id === "string" ? site?.review.note(id) : undefined
+    if (!note?.session || !note.message || note.status !== "queued") throw new Error("This note is no longer waiting.")
+    // The server's "cancelled" event is what moves the note; it arrives for any conversation.
+    await need().cancelQueued(note.session, note.message)
+  },
   async stop() {
     await need().stop(needSession().id)
   },

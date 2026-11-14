@@ -728,6 +728,34 @@ test("commands, runCommand, cancelQueued: read once per folder, run in the open 
   }
 })
 
+test("cancelNote: a waiting note leaves the queue of the conversation it was sent to, and stays on the list, stopped", async () => {
+  const h = await boot()
+  try {
+    const old = await h.ready()
+    h.server.route("DELETE", /\/inbox\//, {})
+    const [a, b] = [h.note("a"), h.note("b")]
+    await until(() => h.w.prompts.length === 2)
+    h.agent.starts(old)
+    h.agent.picksUp(old, h.w.prompts[0]!.id)
+    await until(() => h.notes() === "1:working 2:queued")
+    await assert.rejects(h.cmd("cancelNote", a), /no longer waiting/, "only a waiting note")
+    await assert.rejects(h.cmd("cancelNote", "nope"), /no longer waiting/)
+
+    // Another conversation is open by now: the note's own is the one asked.
+    await h.cmd("newSession")
+    assert.notEqual(h.snap().session!.id, old)
+    await h.cmd("cancelNote", b)
+    const del = h.server.requests.find((r) => r.method === "DELETE")!
+    assert.equal(del.path, `/api/session/${old}/inbox/${h.w.prompts[1]!.id}`)
+    h.emit("session.inbox.cancelled", old, { inboxID: h.w.prompts[1]!.id })
+    await until(() => h.notes() === "1:working 2:failed")
+    const row = h.snap().review.notes[1]!
+    assert.deepEqual([row.stopped, row.error], [true, "Cancelled."])
+  } finally {
+    await h.close()
+  }
+})
+
 // ── canvas notes ─────────────────────────────────────────────────────────────────────────────────
 
 const EDITS = [

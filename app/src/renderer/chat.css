@@ -1182,8 +1182,14 @@
   background: var(--surface-strong);
 }
 
-.note-acts .note-undo {
+.note-acts .note-undo,
+.note-acts .note-cancel {
   margin-left: auto;
+}
+
+.note-wait {
+  font-size: var(--text-control);
+  color: var(--muted);
 }
 
 .note-ask {

@@ -1165,16 +1165,19 @@ export function Chat(props: {
   let lastTop = 0
   const [away, setAway] = createSignal(false)
 
-  // What has happened, then what is still waiting for its turn. One list, so a message that is
-  // delivered moves within it and keeps its row; the same store objects, so <For> keeps every
-  // other row too. With nothing waiting it is the store's own array.
+  // What has happened, then the typed messages still waiting for their turn. One list, so a
+  // message that is delivered moves within it and keeps its row; the same store objects, so
+  // <For> keeps every other row too. With nothing waiting it is the store's own array.
   const ordered = createMemo(() => {
     // With no conversation open, the banner above the chat carries main's error; it is not
     // repeated here.
     if (!state.session) return chat.items.filter((item) => item.kind !== "marker")
     const waiting = chat.items.filter((item) => item.kind === "user" && item.pending)
     if (!waiting.length) return chat.items
-    return [...chat.items.filter((item) => !(item.kind === "user" && item.pending)), ...waiting]
+    // A waiting note is a row of the notes list already, and its own view has its Cancel: it is
+    // not said a second time here. One taken off the list has no other place, so it stays.
+    const listed = noteStatus()
+    return [...chat.items.filter((item) => !(item.kind === "user" && item.pending)), ...waiting.filter((item) => !(item.kind === "user" && item.note && listed.has(item.note.n)))]
   })
 
   /** The reader opened or closed something in the transcript. The growth that follows is theirs,

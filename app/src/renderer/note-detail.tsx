@@ -185,6 +185,27 @@ function NoteDetail(props: { note: NoteRow }) {
           <p class="note-error">{error()}</p>
         </Show>
       </div>
+      {/* A waiting note is not in the conversation: this is where it is taken out of the queue. */}
+      <Show when={n().status === "queued"}>
+        <div class="note-acts">
+          <span class="note-wait">Waiting for its turn</span>
+          <button
+            class="btn note-cancel"
+            title="Take this note out of the queue"
+            disabled={busy()}
+            onClick={() => {
+              setBusy(true)
+              setError("")
+              b42
+                .invoke("cancelNote", n().id)
+                .catch((err) => setError(message(err)))
+                .finally(() => setBusy(false))
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      </Show>
       {/* What can be done with it, always in reach under a long diff. */}
       <Show when={n().status === "done" || n().status === "failed"}>
         <div

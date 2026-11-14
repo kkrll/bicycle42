@@ -77,6 +77,9 @@ page the note was made on, at the same window width); what changed in the code f
 that waited together for the agent share one diff); and three things to do: **Accept** it,
 **Follow up** on it in the conversation, or **Take back** what the agent did. The newest
 message is taken back exactly, files included; for an older one the agent is asked to reverse it.
+A note that still waits for its turn is in the list and not in the conversation; opened, it
+says so and has **Cancel**, which takes it out of the queue and leaves it on the list, stopped,
+with Retry.
 
 **Checkpoints and commits:** `/checkpoint name` marks a point in the conversation. Its line
 has **Return here**, which takes back every message after it and the files the agent changed

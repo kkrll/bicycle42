@@ -133,7 +133,9 @@ const SHOTS = [
   { name: "history", mock: "review", run: [typeIn(""), key("ArrowUp")], report: `document.querySelector(".composer textarea").value` },
   { name: "slash-run", mock: "review", run: [typeIn("/te"), pause(100), key("Enter"), pause(50), append("the pricing page"), key("Enter")], wait: 1500, report: `[...document.querySelectorAll(".user .user-text")].at(-1).textContent` },
   { name: "steer", mock: "busy", run: [pause(300), typeIn("stop, use the brand green instead"), key("Enter", { ctrlKey: true })], wait: 300, report: `[...document.querySelectorAll(".marker")].map((m) => m.textContent)` },
-  { name: "cancel", mock: "busy", run: [click(".wait-cancel")], wait: 300, report: `document.querySelectorAll(".user.pending").length` },
+  // A waiting note is in the list only; its own view says so and has its Cancel.
+  { name: "note-waiting", mock: "busy", run: [click('.note:has(.badge[data-status="queued"]) .note-main')], wait: 400, report: `[document.querySelectorAll(".user.pending").length, document.querySelector(".note-wait").textContent]` },
+  { name: "cancel", mock: "busy", run: [click('.note:has(.badge[data-status="queued"]) .note-main'), pause(300), click(".note-cancel")], wait: 300, report: `document.querySelector(".note-view .note-status").textContent` },
   {
     name: "drop",
     mock: "review",

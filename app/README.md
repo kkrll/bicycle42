@@ -124,6 +124,11 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   select by that. So the edit stays put when the page adds, removes or reorders the elements
   around it, and the note names the element by the selector it has when it is sent. Only when
   the page builds the element anew (or reloads) is it found by where the old one last was.
+- **A waiting note is said once.** The server's queue holds notes and typed messages alike, and
+  the conversation gets both as waiting items; the window leaves out the ones that are notes on
+  the list (`ordered` in `renderer/chat.tsx`), so only a typed message waits there, with its
+  Cancel. A note's Cancel is in its own view and goes by the note (`cancelNote`), to the
+  conversation the note was sent to, which need not be the open one.
 - **A note has one name** (`noteWords` in `../overlay/prompt.js`): the reviewer's words, or a
   summary of its canvas edits. The list, the pin's tooltip and the chat all show that.
 - **The overlay sits in the browser's top layer** (it is a popover), so a site's own dialogs and

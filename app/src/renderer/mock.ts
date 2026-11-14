@@ -890,6 +890,15 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       emit({ type: "remove", session: sid(), item: id })
       push()
     },
+    cancelNote(id) {
+      const note = state.review.notes.find((x) => x.id === id)
+      if (!note || note.status !== "queued") throw new Error("This note is no longer waiting.")
+      const at = queue.findIndex((w) => w.n === note.n)
+      if (at >= 0) emit({ type: "remove", session: sid(), item: queue.splice(at, 1)[0]!.id })
+      // As main does: it stays on the list, stopped, with Retry.
+      state.review.notes = state.review.notes.map((x) => (x.id === id ? { ...x, status: "failed" as const, error: "Cancelled.", stopped: true as const } : x))
+      push()
+    },
     stop: () => stop(),
     newSession() {
       state.session = { id: `s-${++serial}`, title: "New conversation", updated: Date.now(), busy: false, directory: state.site?.directory ?? DIRECTORY }

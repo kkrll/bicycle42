@@ -417,6 +417,9 @@ export type Commands = {
   mentions(query: string): MentionOption[]
   /** Takes a message that is still waiting for its turn out of the queue. */
   cancelQueued(item: string): void
+  /** Takes a note that is still waiting for its turn out of its conversation's queue, whichever
+   *  conversation that is. The note stays on the list as stopped, with Retry. */
+  cancelNote(id: string): void
   stop(): void
   newSession(): void
   openSession(id: string): void
