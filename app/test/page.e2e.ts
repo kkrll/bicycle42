@@ -121,15 +121,17 @@ async function main() {
   check("onChange was called along the way", changes > 0, `${changes} times`)
   await until(() => js(`${shadow}?.querySelector('.root')?.classList.contains('on') ?? false`), 2000)
 
-  // A hidden headless view draws about one frame a second, and the overlay sends a note two
-  // frames after Enter: too late for the Enter check in page.ts, which a real window passes in
-  // ~30 ms. Asking for a repaint keeps frames coming at a normal rate (asking for pictures
-  // slowed them, to about two a second).
-  const frames = setInterval(() => (wc.isDestroyed() ? clearInterval(frames) : wc.invalidate()), 16)
+  // The overlay sends a note two frames after Enter, and page.ts counts the Enter for a second: a
+  // real window passes in ~30 ms. A view in a window never shown draws at its full rate only
+  // until a text field takes focus (the note card's does); about a second later it is down to
+  // one frame a second, and the note comes too late to count. Asking the view for a repaint
+  // does not bring the frames back. A window that is shown draws like a real one, and headless
+  // there is no screen for it to appear on. Inactive, so the page still has no OS focus.
+  win.showInactive()
 
   // ── act like a reviewer: click the hero button, type, press Enter ──────────────────────────
   const dbg = wc.debugger
-  // The window is hidden, so the page never has OS focus; emulate it so the note card can take keys.
+  // The window is not the active one, so the page never has OS focus; emulate it so the note card can take keys.
   await dbg.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true })
   const mouse = (type: string, x: number, y: number, extra = {}) =>
     dbg.sendCommand("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1, ...extra })
@@ -741,7 +743,6 @@ async function main() {
   place({ x: 0, y: 0, width: 800, height: 600 })
   check("bounds show it again, at the new size", page.view.getVisible() === true && (await until(() => js("innerWidth === 800 && innerHeight === 600"), 2000)) === true)
   check("evaluate resolves undefined on a script error", (await page.evaluate("nope.nope")) === undefined && (await page.evaluate("1 + 1")) === 2)
-  clearInterval(frames)
   page.dispose()
   check("dispose removes the view", win.contentView.children.length === 0)
   page.send({ type: "pins", pins: [] })
