@@ -19,7 +19,7 @@ const gone: FakeReply = { status: 404, json: { _tag: "SessionNotFoundError", mes
 
 type Stubs = {
   electron: { handlers: Record<string, (e: unknown, ...a: unknown[]) => unknown>; sent: [string, unknown][]; dialogs: unknown[] }
-  page: { message(msg: unknown): void; sent: { type: string; [k: string]: unknown }[]; capture?: () => unknown; page?: { load(url: string): void } }
+  page: { message(msg: unknown): void; sent: { type: string; [k: string]: unknown }[]; capture?: () => unknown; evaluate?: (js: string) => unknown; page?: { load(url: string): void } }
 }
 
 type World = {
@@ -1053,8 +1053,11 @@ test("/undo says what it will take back and waits for a yes; /redo brings it bac
     assert.equal(asked.say, 'This takes back your message "tighter" and everything after it: the agent\'s replies, and the changes it made to files since then. Press Enter to undo.')
     assert.equal(requestsTo(h, "/revert/stage").length, 0)
 
+    const reloads = () => h.page.sent.filter((m) => m.type === "RELOAD").length
+    assert.equal(reloads(), 0)
     const done = (await h.cmd("runCommand", "undo", "yes")) as { say: string; draft?: string }
     assert.deepEqual(requestsTo(h, "/revert/stage").map((r) => r.body), [{ messageID: "msg_3" }])
+    assert.equal(reloads(), 1, "the files went back: the page is loaded again to show them")
     assert.equal(done.draft, "tighter", "a typed message comes back into the box")
     assert.match(done.say, /^Took back your message "tighter"\. \/redo brings it back/)
     // The server says so on the stream; the conversation on screen is read again, cut at the boundary.
@@ -1070,7 +1073,9 @@ test("/undo says what it will take back and waits for a yes; /redo brings it bac
     assert.deepEqual(requestsTo(h, "/revert/stage").at(-1)!.body, { messageID: "msg_1" })
     await assert.rejects(Promise.resolve(h.cmd("runCommand", "undo", "yes")), /Nothing to undo\./)
 
+    const shown = reloads()
     assert.deepEqual(await h.cmd("runCommand", "redo", ""), { say: "Brought back what was undone." })
+    assert.equal(reloads(), shown + 1, "…and again when they are brought back")
     assert.equal(requestsTo(h, "/revert").filter((r) => r.method === "DELETE").length, 1)
     h.emit("session.revert.cleared", s)
     await until(() => h.snap().session?.undone === undefined)
@@ -1504,8 +1509,22 @@ test("a finished note is accepted, shows what changed for it, and is taken back 
     assert.deepEqual(await h.cmd("noteDiff", a!.id), [{ file: "src/a.css", patch: `@@ -1 +1 @@\n-a\n+b ${h.w.prompts[0]!.id}`, additions: 1, deletions: 1 }])
 
     // Not the newest message (the fake server lists none): the agent is asked, in the note's conversation.
+    const reloads = () => h.page.sent.filter((m) => m.type === "RELOAD").length
+    const shown = reloads()
     assert.equal(await h.cmd("takeBackNote", a!.id), "asked")
     assert.equal(h.w.prompts.length, 3)
+    // No note is finished by that run, but the files change in it: the page is loaded again
+    // when it ends, and only then.
+    h.agent.starts(s)
+    await sleep(50)
+    assert.equal(reloads(), shown)
+    h.agent.finishes(s)
+    await until(() => reloads() === shown + 1)
+    // A later run that takes nothing back leaves the page alone.
+    h.agent.starts(s)
+    h.agent.finishes(s)
+    await sleep(100)
+    assert.equal(reloads(), shown + 1)
     assert.equal(h.w.prompts[2]!.session, s)
     const row = h.snap().review.notes[0]!
     assert.deepEqual([row.status, row.takenBack, row.accepted], ["done", "asked", undefined])
@@ -1551,3 +1570,56 @@ test("a checkpoint is a line in the conversation, kept by the app; the repo's br
   }
 })
 
+
+test("the newest note is taken back exactly and a checkpoint is returned to: the page shows the files again, and a note taken back gets no second picture", async () => {
+  const h = await boot()
+  try {
+    const s = await h.ready()
+    h.page.capture = () => shot("p")
+    h.page.evaluate = (js) => (js === "innerWidth" ? 800 : [0, 0])
+    const finish = async (text: string) => {
+      const id = h.note(text)
+      const n = h.w.prompts.length
+      await until(() => h.w.prompts.length === n + 1)
+      h.agent.starts(s)
+      h.agent.picksUp(s, h.w.prompts[n]!.id)
+      h.agent.finishes(s)
+      await until(() => h.snap().review.notes.find((r) => r.id === id)?.status === "done")
+      return id
+    }
+    const row = (id: string) => h.snap().review.notes.find((r) => r.id === id)!
+    const reloads = () => h.page.sent.filter((m) => m.type === "RELOAD").length
+    // The server's side: the conversation's messages, and an undo that it holds.
+    // The first note is from before the checkpoint, what follows from after it.
+    const later = Date.now() + 60_000
+    const messages = () => h.w.prompts.map((p, i) => ({ id: p.id, type: "user", text: p.text, time: { created: i ? later + i : 1 } }))
+    h.server.route("GET", /^\/api\/session\/[^/]+\/message$/, (req) => ({ json: { data: req.query.get("order") === "desc" ? messages().reverse() : messages(), cursor: { previous: null, next: null } } }))
+    h.server.route("POST", `/api/session/${s}/revert/stage`, (req) => ({ json: { data: { messageID: (req.body as { messageID: string }).messageID } } }))
+
+    // A finished note is pictured again a moment later.
+    const a = await finish("a")
+    assert.equal(row(a).pictures, "before")
+    await until(() => row(a).pictures === "both", 6000)
+
+    await h.cmd("addCheckpoint", "after a")
+    const cp = h.chat().flatMap((e) => (e.type === "item" && e.item.kind === "marker" && e.item.checkpoint ? [e.item.checkpoint] : []))[0]!
+
+    // The newest one, taken back before that moment: the server's undo, the page loaded again,
+    // and no picture of an area that is as it was before the note.
+    const b = await finish("b")
+    const shown = reloads()
+    assert.equal(await h.cmd("takeBackNote", b), "undone")
+    assert.deepEqual(requestsTo(h, "/revert/stage").map((r) => r.body), [{ messageID: h.w.prompts[1]!.id }])
+    assert.equal(reloads(), shown + 1)
+    await sleep(2600)
+    assert.equal(row(b).pictures, "before")
+    assert.equal(row(a).pictures, "both")
+
+    // Back to the checkpoint: everything said after it, files included, so the page again.
+    assert.equal(await h.cmd("returnToCheckpoint", cp), 1)
+    assert.deepEqual(requestsTo(h, "/revert/stage").at(-1)!.body, { messageID: h.w.prompts[1]!.id })
+    assert.equal(reloads(), shown + 2)
+  } finally {
+    await h.close()
+  }
+})

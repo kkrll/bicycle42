@@ -28,7 +28,13 @@ bun run test:unit    # the Node part alone
 bun run check:design # the window's styles against the design system's rules
 ```
 
-The Electron parts load the pages in `../overlay/harness/`. No test needs an OpenCode server.
+The Electron parts load the pages in `../overlay/harness/`. None of these needs an OpenCode server.
+
+`bun run test:real` is the one that does, and it is not part of `bun run test`: it drives the
+app against the OpenCode server running on this computer with a real agent (three one-line CSS
+notes in a throwaway repository, then their pictures, diff, take back, a checkpoint and a
+commit), so it spends model tokens. It uses a free model unless `B42_REAL_MODEL=provider/model`
+names another, and deletes its conversation and its folder when it ends.
 
 `scripts/shot.mjs` takes screenshots of the window in every state from the renderer's mock
 (`src/renderer/mock.ts`); they go to `shots/` or `$SHOT_DIR`:

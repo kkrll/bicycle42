@@ -11,6 +11,8 @@ export const pageStub = {
   sent: [] as { type: string; [k: string]: unknown }[],
   /** Set by a test that wants screenshots: returns the next picture (see `fakeShot`). */
   capture: undefined as (() => unknown) | undefined,
+  /** Set by a test that has the page answer a script (its width, where it is scrolled). */
+  evaluate: undefined as ((js: string) => unknown) | undefined,
   page: undefined as Page | undefined,
 }
 ;(globalThis as Record<string, unknown>).__pageStub = pageStub
@@ -39,13 +41,16 @@ export async function createPage(_window: unknown, opts: Options): Promise<Page>
     // No pixels here: the controller sends the note without a screenshot, unless the test gives one.
     capture: () => (pageStub.capture ? Promise.resolve(pageStub.capture()) : Promise.reject(new Error("no screenshots in this test"))),
     reloadWhenIdle: () => void pageStub.sent.push({ type: "RELOAD" }),
-    evaluate: async () => undefined,
+    evaluate: async (js: string) => pageStub.evaluate?.(js),
+    // The overlay is never mid-note here.
+    overlay: async () => false,
     focus() {},
     dispose() {},
   } as unknown as Page
   pageStub.message = opts.onMessage
   pageStub.sent.length = 0
   pageStub.capture = undefined
+  pageStub.evaluate = undefined
   pageStub.page = page
   return page
 }

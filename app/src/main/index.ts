@@ -763,6 +763,7 @@ function onBackend(e: BackendEvent) {
       const touched =
         e.type === "inbox" ? s.review.inbox(e.session, e.id, e.status) : s.review.run(e.session, e.status, e.error)
       if (e.type === "run" && e.status !== "started" && s === site) void refreshRepo()
+      if (e.type === "run" && e.status !== "started" && reversing.delete(e.session)) showFiles(s)
       if (!touched) return
       changed(s)
       // Show the agent's change: a page without hot reload still has the old pixels.
@@ -903,6 +904,14 @@ const doneCount = (r: Review) => r.rows().reduce((n, row) => n + (row.status ===
 const doneIds = (r: Review) => r.rows().flatMap((row) => (row.status === "done" ? [row.id] : []))
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+/** The site's files changed with no note finished (something was taken back, or brought back):
+ *  a page without hot reload still has the old pixels, like after a note. */
+const showFiles = (s: Site | null | undefined) => {
+  if (s && s === site && s.review.autoReload) page?.reloadWhenIdle()
+}
+/** Conversations whose agent was asked to take a note back: its files change when that run ends. */
+const reversing = new Set<string>()
+
 // ── a note's picture once the agent is done ─────────────────────────────────────────────────────
 // The note was sent with a picture of its area. When the agent has finished it, the same area is
 // pictured again: the page is put where it was scrolled then, the layer is hidden for the two
@@ -931,7 +940,8 @@ async function afterPicture(s: Site, id: string) {
   const p = page
   const shot = s.review.note(id)?.shot
   if (!p || !shot) return
-  const here = () => page === p && site === s && s.review.note(id)?.status === "done" && samePage(p.state().url, shot.url)
+  // A note taken back meanwhile has nothing to show: the area is as it was before it.
+  const here = () => page === p && site === s && s.review.note(id)?.status === "done" && !s.review.note(id)?.takenBack && samePage(p.state().url, shot.url)
   try {
     await sleep(AFTER_WAIT)
     for (let i = 0; i < AFTER_TRIES && here() && (p.state().loading || (await p.overlay("window.__b42 ? window.__b42.busy() : false"))); i++) await sleep(500)
@@ -1300,6 +1310,7 @@ const builtins: Record<string, Builtin> = {
         draft: `/undo ${UNDO_CONFIRM}`,
       }
     await b.undo(current.id, turn.id)
+    showFiles(site)
     // The note it was says so in the list, until /redo.
     for (const s of sites.values()) {
       const row = s.review.rows().find((r) => s.review.note(r.id)?.message === turn.id && s.review.note(r.id)?.session === current.id && r.status === "done")
@@ -1312,6 +1323,7 @@ const builtins: Record<string, Builtin> = {
     const now = await b.session(current.id)
     if (!now?.undone) throw new Error("Nothing to redo.")
     await b.redo(current.id)
+    showFiles(site)
     for (const s of sites.values()) {
       let touched = false
       for (const r of s.review.rows()) if (r.takenBack === "undone" && s.review.note(r.id)?.session === current.id) touched = s.review.mark(r.id, { takenBack: undefined }) || touched
@@ -1515,10 +1527,12 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     let how: "undone" | "asked"
     if (last?.id === note.message) {
       await b.undo(note.session, note.message)
+      showFiles(s)
       how = "undone"
     } else {
       const diff = await b.diff(note.session, note.message).catch(() => [] as FileChange[])
       await b.prompt(note.session, { text: takeBackPrompt(note.n, note.text, diff) })
+      reversing.add(note.session)
       how = "asked"
     }
     s.review.mark(id, { takenBack: how, accepted: undefined })
@@ -1561,6 +1575,7 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     const after = (await b.transcript(cp.session)).items.filter((i) => i.kind === "user" && !i.pending && i.time > cp.time)
     if (!after.length) throw new Error("Nothing has been said since this checkpoint.")
     await b.undo(cp.session, after[0]!.id)
+    showFiles(site)
     const gone = new Set(after.map((i) => i.id))
     for (const s of sites.values()) {
       let touched = false
