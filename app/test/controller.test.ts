@@ -1152,6 +1152,83 @@ test("/rename, /fork and /new: the name goes to the server, a fork becomes the s
   }
 })
 
+test("the context: its count follows the agent's steps, its limit the model, and a summary empties it", async () => {
+  const fake = await fakeOpenCode()
+  const model = (providerID: string, id: string, limit?: object) => ({ providerID, id, name: id, capabilities: { input: ["text"] }, variants: [], enabled: true, status: "active", ...(limit ? { limit } : {}) })
+  fake.server.route("GET", "/api/model", {
+    json: { data: [model("anthropic", "sonnet", { context: 200000, output: 32000 }), model("anthropic", "wide", { context: 1000000, input: 400000, output: 0 }), model("openai", "gpt", { context: 400000, output: 0 }), model("anthropic", "bare")] },
+  })
+  fake.server.route("POST", /^\/api\/session\/[^/]+\/model$/, (req) => {
+    const session = fake.w.sessions.get(req.path.split("/")[3] ?? "")
+    if (session) session.model = (req.body as { model: unknown }).model
+    return {}
+  })
+  const usage = (input: number, output: number, read: number, write = 0, reasoning = 0) => ({ input, output, reasoning, cache: { read, write } })
+  // A model is saved, so the app does not stop to ask which of the four to start with.
+  const h = await boot({ server: fake, settings: { version: 1, defaultModel: { providerID: "anthropic", id: "sonnet" } } })
+  try {
+    const s = await h.ready()
+    const context = () => h.snap().context
+    const step = (id: string, tokens: object, type = "session.step.ended") => {
+      h.emit("session.step.started", s, { assistantMessageID: id, agent: "build", model: { id: "sonnet", providerID: "anthropic" }, started: 1 })
+      h.emit(type, s, type === "session.step.ended" ? { assistantMessageID: id, finish: "stop", cost: 0, tokens } : { assistantMessageID: id, error: { type: "provider.error", message: "overloaded" }, tokens })
+    }
+    await h.cmd("setModel", { providerID: "anthropic", id: "sonnet" })
+    assert.equal(context(), undefined, "nothing has been counted yet")
+
+    // Everything the step read and wrote, against the model's window.
+    step("msg_1", usage(2000, 1000, 120000, 500, 500))
+    await until(() => !!context())
+    assert.deepEqual(context(), { used: 124000, limit: 200000 })
+    // A step that failed is not counted: the server does not measure by it either.
+    step("msg_2", usage(1, 1, 190000), "session.step.failed")
+    await until(() => h.chat().some((e) => e.type === "item" && e.item.id === "msg_2" && e.item.kind === "assistant" && e.item.done))
+    assert.deepEqual(context(), { used: 124000, limit: 200000 })
+
+    // Another model of the same provider: the same count against its window, the smaller of
+    // its two limits. A model without limits: the count alone. Another provider's: nothing.
+    await h.cmd("setModel", { providerID: "anthropic", id: "wide" })
+    assert.deepEqual(context(), { used: 124000, limit: 400000 })
+    await h.cmd("setModel", { providerID: "anthropic", id: "bare" })
+    assert.deepEqual(context(), { used: 124000 })
+    await h.cmd("setModel", { providerID: "openai", id: "gpt" })
+    assert.equal(context(), undefined, "tokens counted by another provider's model")
+    await h.cmd("setModel", { providerID: "anthropic", id: "sonnet" })
+    assert.deepEqual(context(), { used: 124000, limit: 200000 })
+
+    // Compacting, from the meter or as /compact, is one request; once the summary is written
+    // nothing says what is left until the next step counts it.
+    h.server.route("POST", `/api/session/${s}/compact`, { json: { data: { id: "msg_c", type: "compaction", payload: {}, delivery: "steer" } } })
+    await h.cmd("runCommand", "compact", "")
+    assert.equal(requestsTo(h, "/compact").length, 1)
+    h.emit("session.compaction.started", s, { reason: "manual", inputID: "msg_c" })
+    await sleep(30)
+    assert.deepEqual(context(), { used: 124000, limit: 200000 }, "still full while the summary is being written")
+    h.emit("session.compaction.ended", s, { reason: "manual", text: "So far." })
+    await until(() => !context())
+    step("msg_3", usage(20, 300, 9000, 680))
+    await until(() => !!context())
+    assert.deepEqual(context(), { used: 10000, limit: 200000 })
+
+    // Read back (here after an undo), the conversation gives the same: the last finished step
+    // since the last summary.
+    const said = (id: string, tokens: object) => ({ id, type: "assistant", time: { created: 1, completed: 2 }, model: { id: "sonnet", providerID: "anthropic" }, content: [], tokens })
+    h.server.route("GET", `/api/session/${s}/message`, {
+      json: { data: [said("msg_1", usage(2000, 1000, 120000, 500, 500)), { id: "msg_c", type: "compaction", status: "completed", reason: "manual", summary: "So far.", time: { created: 3 } }, said("msg_3", usage(20, 300, 9000, 680)), said("msg_4", usage(5, 95, 170000, 900))], cursor: {} },
+    })
+    h.emit("session.revert.cleared", s)
+    await until(() => context()?.used === 171000)
+    assert.deepEqual(context(), { used: 171000, limit: 200000 })
+
+    // Another conversation starts with nothing counted.
+    await h.cmd("newSession")
+    await until(() => !!h.snap().session && h.snap().session!.id !== s)
+    assert.equal(context(), undefined)
+  } finally {
+    await h.close()
+  }
+})
+
 test("an older server without the events for summaries: the app still connects, and /compact shows the summary once it is written", async () => {
   const fake = await fakeOpenCode()
   fake.server.unknownEvents = /^session\.(compaction|revert)\./

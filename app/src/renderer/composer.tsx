@@ -8,6 +8,7 @@ import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, type 
 import type { Mention, MentionOption, ModelInfo, PromptFile, SendOptions, SlashCommand } from "../shared/types"
 import { Icon, type IconName } from "./icons"
 import { SuggestMenu, type MenuItem } from "./menu"
+import { ContextMeter } from "./meter"
 import { act, chat, followUp, keys, mac, message, b42, setNotice, state } from "./store"
 
 // ── a line of news under the box ────────────────────────────────────────────────────────────────
@@ -656,6 +657,7 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
             }}
           />
           <Pickers />
+          <ContextMeter />
           {/* While the agent works and there is nothing to send, Send gives its place to Stop. */}
           <Show
             when={!(busy() && !text().trim() && !images().length)}

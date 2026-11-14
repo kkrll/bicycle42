@@ -38,6 +38,7 @@
   /* Status colours dark (or light) enough to be read as text. */
   --ink-bad: color-mix(in srgb, var(--status-failed) 55%, var(--foreground));
   --ink-good: color-mix(in srgb, var(--status-done) 55%, var(--foreground));
+  --ink-warn: color-mix(in srgb, var(--status-working) 55%, var(--foreground));
 
   --rule: var(--background-07);
   --surface: color-mix(in srgb, var(--background-07) 32%, var(--background));

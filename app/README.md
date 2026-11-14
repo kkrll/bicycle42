@@ -173,6 +173,17 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   A summary (asked for with `/compact`, or written by the server when the context fills) arrives
   as `session.compaction.*` events and shows as a folded step in the conversation; "nothing to
   compact yet" is a line there too. It moves no note: notes follow their own message ids.
+  How full the context is comes from the server's own counts (`AppState.context`). "Used" is
+  everything the agent's last finished step read and wrote: `tokens.input + cache.read +
+  cache.write + output + reasoning` of the newest assistant message that has counts and no
+  error (`GET …/message`, and `session.step.ended` as it happens). The limit is the model's
+  window, `limit.input` or `limit.context` of `GET /api/model`, the smaller when it has both.
+  That is the sum and the window the server itself uses to decide when to summarise, which it
+  does at the window less a reserve (15% unless configured). After a summary nothing is known
+  until the next step ends, and a count made by another provider's model is not used, as on the
+  server. The window shows it in the message box's bottom row (`renderer/meter.tsx`, arithmetic
+  in `renderer/context.ts`): nothing under half, a percentage from there, the warning colour
+  from 80%, and behind it one confirmed action, Compact, which is `runCommand("compact")`.
   `/undo` first says what it would take back and waits for Enter, because the server takes back
   **everything from that message on**, the agent's file changes included (files only where the
   folder is a git repository). What is undone stays out of the conversation until `/redo`, and

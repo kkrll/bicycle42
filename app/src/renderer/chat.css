@@ -648,6 +648,78 @@
   flex: none;
 }
 
+/* ── the context meter, after the pickers ─────────────────────────────────────────────────── */
+
+.meter {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: var(--radius);
+  font-size: var(--text-control);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.meter:hover,
+.meter[aria-expanded="true"] {
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.meter.warn,
+.meter.warn:hover {
+  color: var(--ink-warn);
+}
+
+/* Over the box's bottom row, at its right end, where the meter is. */
+.meter-pop {
+  position: absolute;
+  right: -1px;
+  bottom: calc(100% + 8px);
+  z-index: 3;
+  width: min(320px, calc(100% + 2px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px var(--gutter) var(--gutter);
+  border: 1px solid var(--background-05);
+  border-radius: 8px;
+  background: var(--background);
+  animation: fadeIn var(--duration-exit) var(--ease-entrance);
+}
+
+.meter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--text-control);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.meter-full {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.meter-acts {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.meter-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
 /* Narrow: the words stay, shorter ("Med", "Build"); the full sentence is in the tooltip. */
 @container composer (width < 370px) {
   .pick-prefix,

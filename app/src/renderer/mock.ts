@@ -4,6 +4,7 @@
 //
 //   ?mock=connect | empty | folder | fresh | review | busy | permission | question |
 //         noconversation | nocommands | offline | pageerror | stress | stress-code
+//   &context=0.62 fills the conversation's context that far, for the meter in the message box
 //
 // It behaves enough like main to click through: commands change the state, sending a message
 // streams a reply, and the "page" is a painted box placed by setPageBounds exactly as the native
@@ -377,9 +378,9 @@ function base(): AppState {
       { id: "s-4", title: "Dark mode contrast", updated: now - 12 * 24 * HOUR, busy: false, directory: DIRECTORY },
     ],
     models: [
-      { providerID: "anthropic", id: "sonnet-4-5", name: "Sonnet 4.5", images: true, variants: ["low", "medium", "high"] },
-      { providerID: "anthropic", id: "haiku-4-5", name: "Haiku 4.5", images: true, variants: [] },
-      { providerID: "openai", id: "gpt-5", name: "GPT-5", images: true, variants: ["minimal", "high"] },
+      { providerID: "anthropic", id: "sonnet-4-5", name: "Sonnet 4.5", images: true, variants: ["low", "medium", "high"], context: 200_000 },
+      { providerID: "anthropic", id: "haiku-4-5", name: "Haiku 4.5", images: true, variants: [], context: 200_000 },
+      { providerID: "openai", id: "gpt-5", name: "GPT-5", images: true, variants: ["minimal", "high"], context: 400_000 },
       { providerID: "local", id: "qwen-coder", name: "Qwen Coder 32B", images: false, variants: [] },
     ],
     agents: [
@@ -540,6 +541,9 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     stream(reply)
   }
 
+  // ?context=0.62: the open conversation's context is that full, of the model's 200k window.
+  const full = Number(params.get("context"))
+  if (full > 0) state.context = { used: Math.round(full * 200_000), limit: 200_000 }
   switch (scenario) {
     case "connect":
       Object.assign(state, { ...base(), connection: { status: "unconfigured" }, site: null, session: null, sessions: [] })
@@ -869,7 +873,12 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       if (name === "compact") {
         const item = { kind: "assistant" as const, id: `sum-${++serial}`, time: Date.now(), summary: "manual" as const }
         emit({ type: "item", session: sid(), item: { ...item, parts: [], done: false } })
-        setTimeout(() => emit({ type: "item", session: sid(), item: { ...item, parts: [{ kind: "text", key: "text:0", text: SUMMARY }], done: true } }), 700)
+        setTimeout(() => {
+          emit({ type: "item", session: sid(), item: { ...item, parts: [{ kind: "text", key: "text:0", text: SUMMARY }], done: true } })
+          // Nothing has counted what the summary left: the meter goes until the next step.
+          delete state.context
+          push()
+        }, 700)
         return
       }
       if (name === "undo")
