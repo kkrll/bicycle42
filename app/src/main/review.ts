@@ -73,7 +73,9 @@ export type Review = {
   sessions(): string[]
   /** Takes a note off the list, whatever its state. */
   remove(id: string): void
-  clearFinished(): void
+  /** Takes the notes that are done off the list. Failed and stopped ones stay: they can still be
+   *  retried. */
+  clearDone(): void
   note(id: string): Note | undefined
   rows(): NoteRow[]
   /** What the reviewer, or the app, says of a note beside its status: which pictures it has,
@@ -575,8 +577,8 @@ export function createReview(saved?: unknown): Review {
       notes = notes.filter((n) => n.id !== id)
     },
 
-    clearFinished() {
-      notes = notes.filter((n) => !finished(n))
+    clearDone() {
+      notes = notes.filter((n) => n.status !== "done")
     },
 
     note: find,

@@ -1464,7 +1464,7 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
   clearNotes() {
     if (!site) return
     const before = site.review.rows().map((r) => r.id)
-    site.review.clearFinished()
+    site.review.clearDone()
     const left = new Set(site.review.rows().map((r) => r.id))
     for (const id of before) if (!left.has(id)) noteShots.drop(id)
     changed(site)

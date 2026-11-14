@@ -335,6 +335,7 @@ export type Commands = {
   /** The brush on or off. On, it turns review on and goes to notes mode. */
   toggleBrush(): void
   toggleAutoReload(): void
+  /** Takes the notes that are done off the list. A failed or stopped one stays, with its Retry. */
   clearNotes(): void
   retryNote(id: string): void
   /** Takes a note off the list, whatever its state. The agent is not told. */

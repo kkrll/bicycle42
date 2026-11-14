@@ -192,7 +192,7 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
           </button>
         </Show>
         <Show when={counts().done}>
-          <button class="text-btn" title="Take finished notes off the list" onClick={() => act("clearNotes")}>
+          <button class="text-btn" title="Take the notes that are done off the list" onClick={() => act("clearNotes")}>
             Clear done
           </button>
         </Show>
