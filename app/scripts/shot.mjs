@@ -26,6 +26,9 @@ const append = (text) =>
 const key = (k, extra = {}) =>
   `document.querySelector(".composer textarea").dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(k)}, bubbles: true, cancelable: true, ...${JSON.stringify(extra)} }))`
 const pause = (ms) => `new Promise((r) => setTimeout(r, ${ms}))`
+// The list is grouped and the done group starts folded, so a note is found by its number.
+const openNote = (n) =>
+  `document.querySelector('.note-group-name[aria-expanded="false"]')?.click(); [...document.querySelectorAll(".note .badge")].find((b) => b.textContent.trim() === "${n}").closest(".note-main").click()`
 /** Pastes a drawn picture into the message box, the way a clipboard image arrives. */
 const pastePicture = `(async () => {
   const c = document.createElement("canvas"); c.width = 640; c.height = 400
@@ -86,7 +89,7 @@ const SHOTS = [
   {
     name: "note-detail",
     mock: "review",
-    run: [click(".note:nth-of-type(3) .note-main"), pause(300), click(".note-diff-btn")],
+    run: [openNote(3), pause(300), click(".note-diff-btn")],
     wait: 500,
   },
   // A note of another conversation names it at the end of its status line. Then Take back's
@@ -99,7 +102,7 @@ const SHOTS = [
       `window.__mock.state.review.notes[2].session = "s-3"; 0`,
       click("[data-action=draw]"),
       click("[data-action=draw]"),
-      click(".note:nth-of-type(3) .note-main"),
+      openNote(3),
     ],
     wait: 400,
     report: `document.querySelector(".note-where").textContent`,
@@ -107,14 +110,14 @@ const SHOTS = [
   {
     name: "note-take-back",
     mock: "review",
-    run: [click(".note:nth-of-type(3) .note-main"), pause(300), click(".note-undo")],
+    run: [openNote(3), pause(300), click(".note-undo")],
     wait: 400,
     report: `document.querySelector(".note-ask").textContent`,
   },
   {
     name: "note-take-back-exact",
     mock: "long",
-    run: [click(".note:nth-of-type(10) .note-main"), pause(300), click(".note-undo")],
+    run: [openNote(10), pause(300), click(".note-undo")],
     wait: 400,
     report: `document.querySelector(".note-ask").textContent`,
   },
@@ -326,7 +329,7 @@ const SHOTS = [
     mock: "busy",
     run: [click('.note:has(.badge[data-status="queued"]) .note-main')],
     wait: 400,
-    report: `[document.querySelectorAll(".user.pending").length, document.querySelector(".note-wait").textContent]`,
+    report: `[document.querySelectorAll(".user.pending").length, document.querySelector(".note-view .note-status").textContent]`,
   },
   {
     name: "cancel",
@@ -346,6 +349,8 @@ const SHOTS = [
     name: "tool-failed",
     mock: "review",
     run: [
+      `document.querySelectorAll('.turn-head[aria-expanded="false"]').forEach((b) => b.click())`,
+      pause(100),
       `[...document.querySelectorAll(".tool")].find((t) => t.textContent.includes("lint")).scrollIntoView({ block: "center" })`,
     ],
     wait: 300,
