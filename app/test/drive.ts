@@ -83,6 +83,7 @@ function serveHarness(): Promise<http.Server> {
 async function main() {
   if (!steps.length || steps[0] === "help") {
     console.log(USAGE)
+    app.exit(0)
     return
   }
   const harness = await serveHarness()
