@@ -1,0 +1,32 @@
+[
+  {
+    "type": "cycle",
+    "from": "app/src/renderer/note-detail.tsx",
+    "to": "app/src/renderer/panel.tsx",
+    "unresolvedTo": "./panel",
+    "dependencyTypes": [
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "app/src/renderer/panel.tsx",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "app/src/renderer/note-detail.tsx",
+        "dependencyTypes": [
+          "local",
+          "import"
+        ]
+      }
+    ]
+  }
+]

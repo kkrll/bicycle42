@@ -9,7 +9,8 @@
     "check:full": "node scripts/check.mjs --full",
     "format": "oxfmt app overlay scripts",
     "lint": "oxlint",
-    "baseline": "node scripts/ratchet.mjs --update"
+    "baseline": "node scripts/ratchet.mjs --update",
+    "deps": "depcruise app/src app/test app/scripts overlay/src overlay/protocol.ts overlay/prompt.js overlay/scripts overlay/test overlay/bench --ignore-known .baseline/deps.json --output-type err"
   },
   "devDependencies": {
     "dependency-cruiser": "^18.7.2",
@@ -20,6 +21,7 @@
     "oxlint": "1.93.0",
     "oxlint-tsgolint": "7.0.2007",
     "pixelmatch": "^8.0.0",
-    "pngjs": "^7.0.0"
+    "pngjs": "^7.0.0",
+    "typescript": "~5.9.0"
   }
 }
