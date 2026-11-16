@@ -7,9 +7,9 @@ const BIN = path.join(ROOT, "node_modules", ".bin")
 
 const usage = `node scripts/check.mjs [--changed] [--full] [--base <ref>]
 
-  The gates, run in parallel. Hooks, the Stop hook and CI all call this.
+  The gates, run in parallel (the two browser suites one after the other). Hooks, the Stop hook and CI all call this.
   Fast (default): format, lint and knip against .baseline/, dependency rules, repo hygiene,
-  typecheck, app unit tests.
+  typecheck, the window's styles against the design system, app unit tests.
   --full     also the overlay's browser tests and the app's whole suite with e2e.
   --changed  only the packages this branch and the working tree touch (against --base,
              default origin/main). Root config touches both; the overlay touches the app.`
@@ -62,15 +62,17 @@ const gates = [
 ]
 if (pkgs.has("app")) {
   gates.push({ name: "app typecheck", cmd: "bun", args: ["run", "--silent", "typecheck"], cwd: "app" })
+  gates.push({ name: "app design", cmd: "bun", args: ["run", "--silent", "check:design"], cwd: "app" })
   gates.push(
     full
-      ? { name: "app tests + e2e", cmd: "bun", args: ["run", "--silent", "test"], cwd: "app" }
+      ? { name: "app tests + e2e", cmd: "bun", args: ["run", "--silent", "test"], cwd: "app", browser: true }
       : { name: "app unit tests", cmd: "bun", args: ["run", "--silent", "test:unit"], cwd: "app" },
   )
 }
 if (pkgs.has("overlay")) {
   gates.push({ name: "overlay typecheck", cmd: "bun", args: ["run", "--silent", "check"], cwd: "overlay" })
-  if (full) gates.push({ name: "overlay tests", cmd: "bun", args: ["run", "--silent", "test"], cwd: "overlay" })
+  if (full)
+    gates.push({ name: "overlay tests", cmd: "bun", args: ["run", "--silent", "test"], cwd: "overlay", browser: true })
 }
 
 function run(gate) {
@@ -85,7 +87,14 @@ function run(gate) {
   })
 }
 
-const results = await Promise.all(gates.map(run))
+// The browser suites take turns: the overlay's timing tests fail while the app's e2e loads the machine.
+async function inTurn(list) {
+  const done = []
+  for (const gate of list) done.push(await run(gate))
+  return done
+}
+const settled = await Promise.all([...gates.filter((g) => !g.browser).map(run), inTurn(gates.filter((g) => g.browser))])
+const results = gates.map((g) => settled.flat().find((r) => r.gate === g))
 for (const r of results) console.log(`${r.ok ? "ok  " : "FAIL"} ${r.gate.name}  ${(r.ms / 1000).toFixed(1)}s`)
 const failed = results.filter((r) => !r.ok)
 for (const r of failed) {

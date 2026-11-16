@@ -66,6 +66,30 @@ module.exports = {
       to: { path: "^overlay/", pathNot: "^overlay/(protocol\\.ts|prompt\\.js|overlay\\.js|scripts/build\\.mjs)$" },
     },
     {
+      name: "lookup-stands-alone",
+      severity: "error",
+      comment: `component.js ships alone in overlay-lookup.js, among the page's own scripts: it imports nothing (${guide("overlay")}).`,
+      from: { path: "^overlay/src/component\\.js$" },
+      to: {},
+    },
+    {
+      name: "a-mode-is-seen-through-its-api",
+      severity: "error",
+      comment: `Outside a mode's folder, the overlay imports only that mode's api.js (overlay/README.md, Source).`,
+      from: { path: "^overlay/src/[^/]+$" },
+      to: { path: "^overlay/src/(notes|canvas|motion)/", pathNot: "^overlay/src/(notes|canvas|motion)/api\\.js$" },
+    },
+    {
+      name: "a-mode-sees-another-through-its-api",
+      severity: "error",
+      comment: `One mode imports another mode's api.js only (overlay/README.md, Source).`,
+      from: { path: "^overlay/src/(notes|canvas|motion)/" },
+      to: {
+        path: "^overlay/src/(notes|canvas|motion)/",
+        pathNot: "^overlay/src/($1/|(notes|canvas|motion)/api\\.js$)",
+      },
+    },
+    {
       name: "no-circular",
       severity: "error",
       comment: `A cycle in the app means two modules are one, or one is in the wrong place. The overlay's modules meet in mount.js and state.js, so it is left out (${guide("overlay")}).`,
