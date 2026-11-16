@@ -246,6 +246,71 @@ test("Stop: the working note fails with a way forward, queued ones stay queued, 
   }
 })
 
+test("Stop from the app empties both queues: the notes waiting in the app and what waits on the server stop, and nothing goes on after a reconnect", async () => {
+  const h = await boot()
+  try {
+    const s = await h.ready()
+    const interrupts: string[] = []
+    h.server.route("POST", /\/interrupt$/, (req) => {
+      interrupts.push(req.path)
+      h.agent.isStopped(s)
+      return { json: { interrupted: true } }
+    })
+    h.server.route("DELETE", /\/inbox\//, (req) => {
+      const item = decodeURIComponent(req.path.split("/").at(-1)!)
+      h.w.inbox.set(s, (h.w.inbox.get(s) ?? []).filter((x) => x !== item))
+      h.emit("session.inbox.cancelled", s, { inboxID: item })
+      return {}
+    })
+    const [, b] = [h.note("a"), h.note("b"), h.note("c")]
+    await until(() => h.notes() === "1:queued 2:queued 3:queued" && h.w.prompts.length === 1)
+    const m1 = h.w.prompts[0]!.id
+    h.agent.starts(s)
+    h.agent.picksUp(s, m1)
+    await until(() => h.notes() === "1:working 2:queued 3:queued" && h.snap().session?.busy === true)
+    // A message typed while it works waits on the server, not in the app.
+    await h.cmd("send", "and this too", [], { delivery: "queue" })
+    assert.equal(h.w.prompts.length, 2)
+    assert.equal(h.w.inbox.get(s)?.length, 1)
+
+    await h.cmd("stop")
+    assert.equal(interrupts.length, 1)
+    await until(() => h.notes() === "1:failed 2:failed 3:failed")
+    assert.deepEqual(h.snap().review.notes.map((n) => !!n.stopped), [true, true, true], "each is stopped, with Retry")
+    assert.deepEqual(h.w.inbox.get(s), [], "the typed message is out of the server's queue")
+    assert.equal(h.snap().session?.busy, false)
+
+    // A reconnect (or a restart) used to pump the notes left waiting: the agent went on by itself.
+    h.server.drop()
+    await until(() => h.server.streams() === 1, 8000)
+    await sleep(150)
+    assert.equal(h.w.prompts.length, 2, "nothing goes by itself")
+    assert.equal(h.notes(), "1:failed 2:failed 3:failed")
+
+    await h.cmd("retryNote", b)
+    await until(() => h.w.prompts.length === 3)
+    assert.equal(h.notes(), "1:failed 2:queued 3:failed", "Retry sends the one asked for, and only it")
+  } finally {
+    await h.close()
+  }
+})
+
+test("Stop when the server has nothing running: the busy shown was out of date, and is put right", async () => {
+  const h = await boot()
+  try {
+    const s = await h.ready()
+    h.server.route("POST", /\/interrupt$/, { json: { interrupted: false } })
+    h.agent.starts(s)
+    await until(() => h.snap().session?.busy === true)
+    // The run ended without the stream saying so.
+    ;(h.w.sessions.get(s) as { time: Record<string, number> }).time.idle = 1e9
+    await h.cmd("stop")
+    assert.equal(h.snap().session?.busy, false)
+  } finally {
+    await h.close()
+  }
+})
+
 test("the conversation is deleted while notes are in flight: they fail, and the site gets a new one", async () => {
   const h = await boot()
   try {

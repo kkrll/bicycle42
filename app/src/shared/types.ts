@@ -435,6 +435,9 @@ export type Commands = {
   /** Takes a note that is still waiting for its turn out of its conversation's queue, whichever
    *  conversation that is. The note stays on the list as stopped, with Retry. */
   cancelNote(id: string): void
+  /** Stops the open conversation: the run under way, and everything waiting to go into it after
+   *  that run (its notes stay on the list as stopped, with Retry). Nothing goes on by itself
+   *  later, after a reconnect or a restart either. */
   stop(): void
   newSession(): void
   openSession(id: string): void
@@ -586,7 +589,9 @@ export type Backend = {
   cancelQueued(session: string, id: string): Promise<void>
   /** Ids of sent messages the agent has not picked up yet, oldest first. */
   waiting(session: string): Promise<string[]>
-  stop(session: string): Promise<void>
+  /** Ends the run under way. False when the server had none running (the app's "busy" was out
+   *  of date). What is queued stays queued and goes with the next message sent. */
+  stop(session: string): Promise<boolean>
   /** The shell commands still running in a folder: a dev server the agent started, a watcher,
    *  a long test run. Those that have ended are not among them. */
   running(directory: string): Promise<RunningCommand[]>
