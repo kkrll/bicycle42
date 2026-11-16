@@ -8,7 +8,7 @@
 //   node_modules/.bin/electron --ozone-platform=headless --disable-gpu dist/test/app.e2e.cjs
 //
 // Exits 0 when every check passes.
-import { app, type BrowserWindow } from "electron"
+import { app, type BrowserWindow, type WebContents, type WebPreferences } from "electron"
 import fs from "node:fs"
 import http from "node:http"
 import os from "node:os"
@@ -216,6 +216,31 @@ async function main() {
   check(
     "the window has the bridge and no Node",
     (await ui("typeof window.b42.invoke === 'function' && typeof window.require === 'undefined'")) === true,
+  )
+  for (const [name, contents] of [
+    ["the app window", win.webContents],
+    ["the page view", page.view.webContents],
+  ] as const) {
+    // getLastWebPreferences is in Electron's API but not in its typings
+    const prefs = (contents as WebContents & { getLastWebPreferences(): WebPreferences | null }).getLastWebPreferences()
+    check(
+      `${name} is isolated and sandboxed, with no Node and web security on`,
+      prefs?.contextIsolation === true &&
+        prefs.sandbox === true &&
+        prefs.nodeIntegration === false &&
+        !prefs.nodeIntegrationInSubFrames &&
+        !prefs.nodeIntegrationInWorker &&
+        prefs.webSecurity !== false &&
+        !prefs.allowRunningInsecureContent &&
+        !prefs.webviewTag,
+      JSON.stringify(prefs),
+    )
+  }
+  check("the app window does not navigate away", win.webContents.listenerCount("will-navigate") > 0)
+  check(
+    "window.open opens no window, from the app or the page",
+    (await ui(`window.open("about:blank") === null`)) === true &&
+      (await page.view.webContents.executeJavaScript(`window.open("about:blank") === null`)) === true,
   )
   await until(() => page.view.getVisible() && page.view.getBounds().width > 100)
   const b = page.view.getBounds()
