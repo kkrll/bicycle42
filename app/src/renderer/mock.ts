@@ -1105,7 +1105,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
           delete state.context
           push()
         }, 700)
-        return
+        return undefined
       }
       if (name === "undo")
         return args === "yes"
@@ -1127,6 +1127,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       }
       if (name === "fork") return { say: "This is a copy. The original is still in the list of conversations." }
       deliver(`/${name}${args ? ` ${args}` : ""}`, images, options, COMMAND_REPLY[name] ?? "Done.")
+      return undefined
     },
     async mentions(query) {
       await new Promise((r) => setTimeout(r, 60))

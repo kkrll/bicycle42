@@ -56,7 +56,7 @@
   "app/src/renderer/markdown.tsx\ttypescript(no-unsafe-type-assertion)": 4,
   "app/src/renderer/meter.tsx\ttypescript(no-unsafe-type-assertion)": 1,
   "app/src/renderer/mock.ts\teslint(no-unused-expressions)": 3,
-  "app/src/renderer/mock.ts\ttypescript(consistent-return)": 6,
+  "app/src/renderer/mock.ts\ttypescript(consistent-return)": 2,
   "app/src/renderer/mock.ts\ttypescript(no-unsafe-type-assertion)": 1,
   "app/src/renderer/panel.tsx\teslint(no-unused-vars)": 1,
   "app/src/renderer/panel.tsx\tsolid(reactivity)": 3,
