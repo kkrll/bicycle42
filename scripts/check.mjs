@@ -8,8 +8,8 @@ const BIN = path.join(ROOT, "node_modules", ".bin")
 const usage = `node scripts/check.mjs [--changed] [--full] [--base <ref>]
 
   The gates, run in parallel. Hooks, the Stop hook and CI all call this.
-  Fast (default): format, lint and knip against .baseline/, dependency rules, typecheck,
-  app unit tests.
+  Fast (default): format, lint and knip against .baseline/, dependency rules, repo hygiene,
+  typecheck, app unit tests.
   --full     also the overlay's browser tests and the app's whole suite with e2e.
   --changed  only the packages this branch and the working tree touch (against --base,
              default origin/main). Root config touches both; the overlay touches the app.`
@@ -58,6 +58,7 @@ const gates = [
   { name: "lint", cmd: "node", args: ["scripts/ratchet.mjs", "oxlint"] },
   { name: "knip", cmd: "node", args: ["scripts/ratchet.mjs", "knip"] },
   { name: "deps", cmd: "bun", args: ["run", "--silent", "deps"] },
+  { name: "hygiene", cmd: "node", args: ["scripts/hygiene.mjs"] },
 ]
 if (pkgs.has("app")) {
   gates.push({ name: "app typecheck", cmd: "bun", args: ["run", "--silent", "typecheck"], cwd: "app" })

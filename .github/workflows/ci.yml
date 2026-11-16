@@ -1,0 +1,79 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      visual-baselines:
+        description: Upload this run's Linux shots as new baselines
+        type: boolean
+        default: false
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CHROMIUM: /usr/bin/google-chrome
+  LEFTHOOK: 0
+
+jobs:
+  gates:
+    name: format, lint, knip, deps, hygiene, types, unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: node scripts/check.mjs
+
+  tests:
+    name: overlay tests, app tests and e2e
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: overlay tests
+        working-directory: overlay
+        run: bun run test
+      - name: app tests and e2e
+        working-directory: app
+        run: xvfb-run --auto-servernum bun run test
+
+  visual:
+    name: visual diff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: take the shots
+        working-directory: app
+        run: |
+          node scripts/build.mjs
+          SHOT_DIR="$RUNNER_TEMP/shots" xvfb-run --auto-servernum node_modules/.bin/electron --ozone-platform=headless --disable-gpu scripts/shot.mjs
+      - name: compare
+        id: compare
+        run: |
+          if [ ! -d app/test/visual/linux ]; then
+            echo "::warning::No Linux baselines yet. Run this workflow by hand with visual-baselines, then commit the artifact to app/test/visual/linux/."
+            exit 0
+          fi
+          node scripts/visual.mjs "$RUNNER_TEMP/shots" --diff "$RUNNER_TEMP/diff"
+      - name: upload diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-diff
+          path: |
+            ${{ runner.temp }}/diff
+            ${{ runner.temp }}/shots
+      - name: upload baselines
+        if: inputs.visual-baselines
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-baselines-linux
+          path: ${{ runner.temp }}/shots/*.png
