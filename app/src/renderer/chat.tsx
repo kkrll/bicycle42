@@ -5,6 +5,7 @@ import { createStore } from "solid-js/store"
 import type {
   Answer,
   ChatAssistant,
+  ChatItem,
   ChatPart,
   ChatUser,
   Commands,
@@ -383,6 +384,136 @@ function Assistant(props: { item: ChatAssistant }) {
         </div>
       </Show>
       <Show when={props.item.done && !props.item.summary && props.item.parts.at(-1)?.kind === "text" && words()}>
+        <div class="msg-tools">
+          <CopyButton text={words} label="Copy this reply" />
+        </div>
+      </Show>
+    </div>
+  )
+}
+
+/** "15s", "2m 5s", "1h 3m". */
+function took(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ${s % 60}s`
+  return `${Math.floor(m / 60)}h ${m % 60}m`
+}
+
+/** "3 commands, 2 reads, 1 edit": what a turn's tools did, by kind (the icons' kinds). */
+function toolCounts(parts: ChatPart[]): string {
+  const counts = new Map<string, number>()
+  for (const p of parts) if (p.kind === "tool") counts.set(toolIcon(p.name), (counts.get(toolIcon(p.name)) ?? 0) + 1)
+  const words: [string, string, string][] = [
+    ["terminal", "command", "commands"],
+    ["file", "read", "reads"],
+    ["pencil", "edit", "edits"],
+    ["search", "search", "searches"],
+    ["globe", "fetch", "fetches"],
+  ]
+  const out = words.flatMap(([kind, one, many]) => {
+    const n = counts.get(kind) ?? 0
+    counts.delete(kind)
+    return n ? [`${n} ${n === 1 ? one : many}`] : []
+  })
+  const rest = [...counts.values()].reduce((a, b) => a + b, 0)
+  if (rest) out.push(`${rest} other ${rest === 1 ? "step" : "steps"}`)
+  return out.join(", ")
+}
+
+/** Ticks once a second while something is live; one clock for every turn that shows it. */
+const [now, setNow] = createSignal(Date.now())
+let ticking = 0
+let tick: ReturnType<typeof setInterval> | undefined
+function useClock(on: () => boolean) {
+  createEffect(() => {
+    if (!on()) return
+    if (!ticking++) (setNow(Date.now()), (tick = setInterval(() => setNow(Date.now()), 1000)))
+    onCleanup(() => void (--ticking || clearInterval(tick)))
+  })
+}
+
+/** One turn of the agent: the steps it took between two things said (one assistant item per
+ *  step). What it did on the way (tools, thoughts, words between steps) folds into one line,
+ *  "Worked for 15s"; the reply it ended with stays out. While it works, the fold is open and
+ *  says so; when it is done it closes, unless the reader opened or closed it. */
+function Turn(props: { items: ChatAssistant[]; last: boolean }) {
+  // The turn's parts, in order. The store's own objects: rows are kept as parts are added.
+  const parts = createMemo(() => props.items.flatMap((it) => it.parts))
+  // The reply: the text the turn ends with. While it works, the newest words are the reply until
+  // a tool comes after them.
+  const cut = createMemo(() => {
+    const all = parts()
+    let k = all.length
+    while (k > 0 && all[k - 1]!.kind === "text") k--
+    return k
+  })
+  const steps = () => parts().slice(0, cut())
+  const reply = () => parts().slice(cut())
+  const end = () => props.items[props.items.length - 1]!
+  const live = () => !end().done || (props.last && !!state.session?.busy)
+  const failed = () => props.items.some((it) => it.error)
+  useClock(live)
+  const elapsed = () => {
+    const last = end()
+    const until = live() ? now() : (last.ended ?? last.time)
+    return until - props.items[0]!.time
+  }
+  const [chosen, setChosen] = createSignal<boolean | null>(null)
+  const open = () => chosen() ?? (live() || failed())
+  const counts = createMemo(() => toolCounts(steps()))
+  const words = () =>
+    reply()
+      .map((p) => (p.kind === "text" ? p.text.trim() : ""))
+      .filter(Boolean)
+      .join("\n\n")
+  const lastPart = () => parts()[parts().length - 1]
+  return (
+    <div class="msg assistant turn" data-item={props.items[0]!.id}>
+      <Show when={steps().length}>
+        <button
+          class="turn-head"
+          aria-expanded={open()}
+          onClick={(e) => {
+            setChosen(!open())
+            // The transcript keeps its place when the reader opens something (it listens for
+            // the toggle of a <details>); this is one too.
+            e.currentTarget.dispatchEvent(new Event("toggle"))
+          }}
+        >
+          {/* No spinner of its own: the line under the transcript already says it works, and on what. */}
+          <span class="turn-took">{live() ? `Working for ${took(elapsed())}` : elapsed() >= 1000 ? `Worked for ${took(elapsed())}` : "Worked"}</span>
+          <Show when={counts()}>
+            <span class="turn-counts">{counts()}</span>
+          </Show>
+          <Icon name="right" class="caret" />
+        </button>
+        <Show when={open()}>
+          <div class="turn-steps">
+            <For each={steps()}>
+              {(part) => (
+                <Switch>
+                  <Match when={part.kind === "text" && part}>{(p) => <Markdown text={p().text} streaming={false} />}</Match>
+                  {/* A part has no end of its own: a thought is still going while nothing has come after it. */}
+                  <Match when={part.kind === "reasoning" && part}>{(p) => <Thinking text={p().text} live={live() && lastPart() === p()} />}</Match>
+                  <Match when={part.kind === "tool" && part}>{(p) => <Tool part={p()} quiet={!failed()} />}</Match>
+                </Switch>
+              )}
+            </For>
+          </div>
+        </Show>
+      </Show>
+      <For each={reply()}>{(part) => <Markdown text={part.kind === "text" ? part.text : ""} streaming={live()} />}</For>
+      <For each={props.items.filter((it) => it.error)}>
+        {(it) => (
+          <div class="msg-error">
+            <Icon name="alert" />
+            <span>{it.error}</span>
+          </div>
+        )}
+      </For>
+      <Show when={!live() && words()}>
         <div class="msg-tools">
           <CopyButton text={words} label="Copy this reply" />
         </div>
@@ -1203,6 +1334,29 @@ export function Chat(props: {
     return [...chat.items.filter((item) => !(item.kind === "user" && item.pending)), ...waiting.filter((item) => !(item.kind === "user" && item.note && listed.has(item.note.n)))]
   })
 
+  /** The transcript as rows: a run of assistant items (the steps of one turn) is one row, under
+   *  its first item; anything else is a row of its own. Rows are the store's own objects, so a
+   *  new step or message adds a row and keeps the others. */
+  const rows = createMemo(() => {
+    const out: ChatItem[] = []
+    const turns = new Map<string, ChatAssistant[]>()
+    let run: ChatAssistant[] | undefined
+    let last: string | undefined
+    for (const item of ordered()) {
+      if (item.kind === "assistant" && !item.summary) {
+        if (run) run.push(item)
+        else (run = [item]), turns.set(item.id, run), out.push(item), (last = item.id)
+        continue
+      }
+      run = undefined
+      out.push(item)
+    }
+    return { out, turns, last }
+  })
+  /** A turn's steps, as one array as long as they are the same steps: its row is not redrawn. */
+  const stepsOf = (lead: ChatAssistant) =>
+    createMemo(() => rows().turns.get(lead.id) ?? [lead], undefined, { equals: (a, b) => a.length === b.length && a.every((x, i) => x === b[i]) })
+
   /** The reader opened or closed something in the transcript. The growth that follows is theirs,
    *  not the agent's: following it would scroll what they just opened out of view. */
   const readerActed = () => {
@@ -1326,11 +1480,17 @@ export function Chat(props: {
             <Show when={chat.items.length === 0 && state.session}>
               <Empty />
             </Show>
-            <For each={ordered()}>
+            <For each={rows().out}>
               {(item) => (
                 <Switch>
                   <Match when={item.kind === "user" && item}>{(i) => <User item={i()} />}</Match>
-                  <Match when={item.kind === "assistant" && item}>{(i) => <Assistant item={i()} />}</Match>
+                  <Match when={item.kind === "assistant" && item.summary && item}>{(i) => <Assistant item={i()} />}</Match>
+                  <Match when={item.kind === "assistant" && item}>
+                    {(i) => {
+                      const steps = stepsOf(i())
+                      return <Turn items={steps()} last={rows().last === i().id} />
+                    }}
+                  </Match>
                   <Match when={item.kind === "marker" && item}>
                     {(i) => (
                       <Show

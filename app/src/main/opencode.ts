@@ -259,6 +259,7 @@ function assistantItem(id: string, time: number, m: Raw, dir: string | undefined
     time,
     parts,
     done: num(rec(m.time).completed) !== undefined,
+    ended: num(rec(m.time).completed),
     error: str(rec(m.error).message),
   })
 }
@@ -679,7 +680,7 @@ export function createEventMapper(emit: (event: BackendEvent) => void, warn: War
           return void gaps.add(session)
         }
         const error = type === "session.step.failed" ? str(rec(d.error).message) : undefined
-        const item: ChatAssistant = defined({ kind: "assistant", id, time: step.time, parts: step.parts, done: true, error })
+        const item: ChatAssistant = defined({ kind: "assistant", id, time: step.time, parts: step.parts, done: true, ended: time, error })
         const used = error === undefined && type === "session.step.ended" ? contextUsed(d.tokens) : undefined
         if (used) emit({ type: "context", session, context: defined({ used, providerID: step.provider }) })
         return chat({ type: "item", session, item })

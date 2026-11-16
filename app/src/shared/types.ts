@@ -74,6 +74,8 @@ export type ChatAssistant = {
   parts: ChatPart[]
   /** False while the step is still running. */
   done: boolean
+  /** When the step ended (ms), once it has and the server said when. */
+  ended?: number
   error?: string
   /** Not a reply: the server's summary of the conversation so far, written to free up context
    *  ("manual" when asked for with /compact, "auto" when the context filled up). Its one text
