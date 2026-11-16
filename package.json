@@ -10,7 +10,8 @@
     "format": "oxfmt app overlay scripts",
     "lint": "oxlint",
     "baseline": "node scripts/ratchet.mjs --update",
-    "deps": "depcruise app/src app/test app/scripts overlay/src overlay/protocol.ts overlay/prompt.js overlay/scripts overlay/test overlay/bench --ignore-known .baseline/deps.json --output-type err"
+    "deps": "depcruise app/src app/test app/scripts overlay/src overlay/protocol.ts overlay/prompt.js overlay/scripts overlay/test overlay/bench --ignore-known .baseline/deps.json --output-type err",
+    "visual": "node scripts/visual.mjs"
   },
   "devDependencies": {
     "dependency-cruiser": "^18.7.2",
