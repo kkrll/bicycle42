@@ -1,0 +1,16 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/main/index.ts",
+    "src/preload.ts",
+    "src/page-preload.ts",
+    "src/renderer/main.tsx",
+    "scripts/*.mjs",
+    "test/*.test.ts",
+    "test/*.e2e.ts",
+    "test/browser/*.ts"
+  ],
+  "project": ["src/**", "test/**", "scripts/**"],
+  "ignoreDependencies": ["@fontsource-variable/geist", "@fontsource-variable/jetbrains-mono", "b42"],
+  "ignoreBinaries": ["sips", "iconutil"]
+}
