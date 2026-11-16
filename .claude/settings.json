@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(bun run check)",
+      "Bash(bun run check:*)",
+      "Bash(bun run deps)",
+      "Bash(bun run lint)",
+      "Bash(bun run format)",
+      "Bash(bun run visual)",
+      "Bash(bun run visual *)",
+      "Bash(bun run baseline)",
+      "Bash(node scripts/check.mjs *)",
+      "Bash(node scripts/ratchet.mjs *)",
+      "Bash(node scripts/visual.mjs *)",
+      "Bash(node scripts/hygiene.mjs)",
+      "Bash(node scripts/build.mjs *)",
+      "Bash(bun run test)",
+      "Bash(bun run test:unit)",
+      "Bash(bun run typecheck)",
+      "Bash(bun run check:design)",
+      "Bash(bun run build)",
+      "Bash(node app/scripts/drive.mjs *)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/claude-hook.mjs\" post-edit",
+            "timeout": 30,
+            "statusMessage": "format and lint"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/claude-hook.mjs\" stop",
+            "timeout": 180,
+            "statusMessage": "bun run check --changed"
+          }
+        ]
+      }
+    ]
+  }
+}
