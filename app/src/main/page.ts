@@ -7,7 +7,9 @@
 // globals or its way back to the app, window.__review, which sends over IPC. No debugger is
 // attached, so the page's console and the rest of its runtime events never reach this process.
 // This file knows nothing about notes: it hands the overlay's messages to the controller and
-// offers load / capture / send.
+// offers load / capture / send. `Page` is what the controller has of it: what a page under review
+// does, with no word of Electron in it. What is made of Electron (the view) is on `PageView`,
+// which the shell that makes the page keeps; every script run in the page is in this file.
 import { WebContentsView, type BrowserWindow, type IpcMainEvent, type NativeImage } from "electron"
 import type { HostMessage, PageMessage } from "../../../overlay/protocol"
 import type { Rect } from "../shared/types"
@@ -20,7 +22,6 @@ export type PageState = { url: string; loading: boolean; error?: string; canGoBa
 export type { PageMessage }
 
 export type Page = {
-  readonly view: WebContentsView
   state(): PageState
   /** "" shows the empty placeholder. Adds http:// when there is no scheme. */
   load(url: string): void
@@ -35,19 +36,23 @@ export type Page = {
   capture(): Promise<Frame>
   /** Reloads once the reviewer isn't mid-note (overlay busy() is false). No-op when the page hot-reloads itself. */
   reloadWhenIdle(): void
-  /** Runs a script in the page, among the page's own scripts, and resolves its value; rejects never (resolves undefined on error). */
-  evaluate(js: string): Promise<unknown>
-  /** The same in the overlay's world, where window.__b42 is. Undefined when the page has no overlay.
-   *  While the page is loading it waits for the load to end. */
-  overlay(js: string): Promise<unknown>
+  /** Whether the reviewer is mid-note there (the overlay's busy()). False when the page has no
+   *  overlay, or is gone. While the page is loading it waits for the load to end. */
+  busy(): Promise<boolean>
   /** The page draws at its full rate, hidden or not, until the function returned is called
    *  (each once; holds may overlap). For a picture, and for what the overlay does on its way to
    *  one: it hides its card two frames before a note is sent. Otherwise a page in a hidden or
    *  minimised window is throttled like a background tab. */
   holdFrames(): () => void
   focus(): void
+  /** The browser's developer tools for the page, in a window of their own. */
+  openDevTools(): void
   dispose(): void
 }
+
+/** The page with the view it is made of: for whoever made it (the Electron shell, the tests that
+ *  drive a real one), not for the controller. */
+export type PageView = Page & { readonly view: WebContentsView }
 
 type Options = {
   /** The path of page-preload.cjs: the overlay, and the lookup that runs among the page's own scripts. */
@@ -79,7 +84,7 @@ const HMR_PROBE = `!!(window.$RefreshReg$ || window.$RefreshHelpers$ || window._
 const BUSY = "!!(window.__b42 && window.__b42.busy && window.__b42.busy())"
 /** The script world the overlay and window.__review live in, apart from the page's own: the one
  *  Electron runs a preload in when contextIsolation is on. */
-const WORLD = 999
+export const WORLD = 999
 /** overlay → main, and main → overlay (page-preload.ts has the same two). */
 const FROM_OVERLAY = "b42:overlay-says"
 const TO_OVERLAY = "b42:host-says"
@@ -101,7 +106,7 @@ const frameOf = (image: NativeImage): Frame => ({
 /** The placeholder and the blank first page are ours, not the reviewer's: no overlay, no URL to show. */
 const internal = (url: string) => /^(data|about):/.test(url)
 
-export async function createPage(window: BrowserWindow, opts: Options): Promise<Page> {
+export async function createPage(window: BrowserWindow, opts: Options): Promise<PageView> {
   const { log } = opts
   // The pane the window draws around the page has a 10 px radius and a 1 px border.
   const PAGE_RADIUS = 9
@@ -352,13 +357,13 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     } catch {}
   }
 
-  /** Runs in the overlay's world of the top frame. Undefined when there is none, or on an error. */
-  async function overlay(js: string): Promise<unknown> {
-    if (gone()) return undefined
+  /** Asked in the overlay's world of the top frame. False when there is none, or on an error. */
+  async function busy(): Promise<boolean> {
+    if (gone()) return false
     try {
-      return await wc.executeJavaScriptInIsolatedWorld(WORLD, [{ code: js }])
+      return (await wc.executeJavaScriptInIsolatedWorld(WORLD, [{ code: BUSY }])) === true
     } catch {
-      return undefined // a script error, or the document left while we asked
+      return false // the document left while we asked
     }
   }
 
@@ -379,9 +384,9 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     const from = url
     const tryNow = async () => {
       if (gone() || url !== from) return // the reviewer went elsewhere: nothing stale to refresh
-      const busy = await overlay(BUSY)
+      const midNote = await busy()
       if (gone() || url !== from) return
-      if (busy) reloadTimer = setTimeout(() => void tryNow(), BUSY_RETRY)
+      if (midNote) reloadTimer = setTimeout(() => void tryNow(), BUSY_RETRY)
       else reload()
     }
     reloadTimer = setTimeout(() => void tryNow(), RELOAD_DELAY)
@@ -402,10 +407,11 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     send,
     capture: async () => frameOf(await wc.capturePage()),
     reloadWhenIdle,
-    evaluate: (js) => (gone() ? Promise.resolve(undefined) : wc.executeJavaScript(js, false).catch(() => undefined)),
-    overlay,
+    busy,
     holdFrames,
     focus: () => void (gone() || wc.focus()),
+    // The overlay is the page's preload, not a debugger's: open or closed, the tools leave it be.
+    openDevTools: () => void (gone() || wc.openDevTools({ mode: "detach" })),
     dispose() {
       disposed = true
       clearTimeout(reloadTimer)

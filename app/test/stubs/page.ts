@@ -27,8 +27,7 @@ export function fakeShot(name: string, width = 800, height = 600): Frame {
 export async function createPage(_window: unknown, opts: Options): Promise<Page> {
   let url = ""
   const state = (): PageState => ({ url, loading: false, canGoBack: false, canGoForward: false, hmr: false })
-  const page = {
-    view: { webContents: {} },
+  const page: Page = {
     state,
     load(next: string) {
       url = next
@@ -47,13 +46,13 @@ export async function createPage(_window: unknown, opts: Options): Promise<Page>
     // No pixels here: the controller sends the note without a screenshot, unless the test gives one.
     capture: () => (pageStub.capture ? Promise.resolve(pageStub.capture()) : Promise.reject(new Error("no screenshots in this test"))),
     reloadWhenIdle: () => void pageStub.sent.push({ type: "RELOAD" }),
-    evaluate: async () => undefined,
     // The overlay is never mid-note here.
-    overlay: async () => false,
+    busy: async () => false,
     holdFrames: () => () => {},
     focus() {},
+    openDevTools() {},
     dispose() {},
-  } as unknown as Page
+  }
   pageStub.message = opts.onMessage
   pageStub.sent.length = 0
   pageStub.capture = undefined

@@ -18,7 +18,7 @@ import http from "node:http"
 import os from "node:os"
 import path from "node:path"
 import type { AppState, FileChange } from "../src/shared/types"
-import type { Page } from "../src/main/page"
+import { WORLD, type PageView } from "../src/main/page"
 import { readLocal } from "../src/main/local"
 
 /** Free on this server, reads pictures, and makes a one-line CSS change reliably. */
@@ -79,7 +79,7 @@ const CSS = `body {
 }
 `
 
-type Hook = { window(): BrowserWindow | undefined; page(): Page | undefined; snapshot(): AppState }
+type Hook = { window(): BrowserWindow | undefined; page(): PageView | undefined; snapshot(): AppState }
 
 async function main() {
   const local = readLocal()
@@ -197,7 +197,7 @@ async function main() {
     dbg.attach("1.3") // the test's own, for input: the page has none
     const shadow = "document.querySelector('b42-review')?.shadowRoot"
     /** The layer is in the page, answering, and not hidden. */
-    const overlayOn = async () => (await page.overlay("!!window.__b42")) === true && (await js(`(() => { const el = document.querySelector("b42-review"); return !!el && getComputedStyle(el).visibility !== "hidden" })()`)) === true
+    const overlayOn = async () => (await wc.executeJavaScriptInIsolatedWorld(WORLD, [{ code: "!!window.__b42" }]).catch(() => false)) === true && (await js(`(() => { const el = document.querySelector("b42-review"); return !!el && getComputedStyle(el).visibility !== "hidden" })()`)) === true
     await until(overlayOn, 15_000)
     await dbg.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true })
     const mouse = (type: string, x: number, y: number, extra = {}) =>

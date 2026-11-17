@@ -1044,7 +1044,7 @@ async function afterPicture(s: Site, id: string) {
   const frames = p.holdFrames()
   try {
     await sleep(AFTER_WAIT)
-    for (let i = 0; i < AFTER_TRIES && here() && (p.state().loading || (await p.overlay("window.__b42 ? window.__b42.busy() : false"))); i++) await sleep(500)
+    for (let i = 0; i < AFTER_TRIES && here() && (p.state().loading || (await p.busy())); i++) await sleep(500)
     if (!here() || p.state().loading) return
     await sleep(AFTER_SETTLE)
     const v = shot.viewport
@@ -2210,8 +2210,7 @@ function menu() {
           { role: "togglefullscreen" },
           { type: "separator" },
           { label: "Developer Tools: App", accelerator: "Alt+CmdOrCtrl+I", click: () => window?.webContents.openDevTools({ mode: "detach" }) },
-          // The overlay is the page's preload, not a debugger's: open or closed, the tools leave it be.
-          { label: "Developer Tools: Page", accelerator: "Alt+CmdOrCtrl+J", click: () => page?.view.webContents.openDevTools({ mode: "detach" }) },
+          { label: "Developer Tools: Page", accelerator: "Alt+CmdOrCtrl+J", click: () => page?.openDevTools() },
         ],
       },
       { role: "windowMenu" },
