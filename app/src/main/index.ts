@@ -1655,6 +1655,10 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
   },
   setPageBounds(bounds) {
     page?.setBounds(bounds)
+    // Kept for the next start, when the page is laid out before the window can say where it is
+    // (createWindow). Hidden (null) is no place to come back to.
+    const at = bounds && { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
+    if (at && JSON.stringify(at) !== JSON.stringify(store.settings().pageBounds)) store.update((s) => void (s.pageBounds = at))
   },
 
   toggleReview() {
@@ -2245,8 +2249,17 @@ async function createWindow() {
     },
     log,
   })
-  await win.loadFile(path.join(__dirname, "renderer/index.html"))
+  // The page starts loading with the window, not after it: by the time the window can show it,
+  // it is there. Until the window says where the page is (setPageBounds) it stays hidden, since
+  // the window may open on a dialog or with a panel of another width; it is only given the size
+  // it last had (settings.pageBounds), so it is laid out once. What its loading sends to the
+  // window before that can listen, the window asks for when it does ("b42:state", "b42:chat").
+  const last = store.settings().pageBounds
+  // (From disk: only a rectangle if it has the four numbers of one.)
+  if (last && [last.x, last.y, last.width, last.height].every((n) => typeof n === "number" && Number.isFinite(n)) && last.width >= 1 && last.height >= 1) page.setBounds(last)
+  page.setBounds(null)
   page.load(store.settings().lastUrl ?? "")
+  await win.loadFile(path.join(__dirname, "renderer/index.html"))
 }
 
 ipcMain.handle("b42:state", () => snapshot())

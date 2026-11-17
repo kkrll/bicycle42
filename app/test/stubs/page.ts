@@ -14,6 +14,8 @@ export const pageStub = {
   /** Set by a test that has the page answer a script (its width, where it is scrolled). */
   evaluate: undefined as ((js: string) => unknown) | undefined,
   page: undefined as Page | undefined,
+  /** Where the view was put and what it was told to load, in order: ["bounds", rect or null], ["load", url]. */
+  calls: [] as [string, unknown][],
 }
 ;(globalThis as Record<string, unknown>).__pageStub = pageStub
 
@@ -30,13 +32,14 @@ export async function createPage(_window: unknown, opts: Options): Promise<Page>
     view: { webContents: {} },
     state,
     load(next: string) {
+      pageStub.calls.push(["load", next])
       url = next
       opts.onChange()
     },
     reload() {},
     back() {},
     forward() {},
-    setBounds() {},
+    setBounds: (bounds: unknown) => void pageStub.calls.push(["bounds", bounds]),
     send: (msg: { type: string }) => void pageStub.sent.push(msg),
     // No pixels here: the controller sends the note without a screenshot, unless the test gives one.
     capture: () => (pageStub.capture ? Promise.resolve(pageStub.capture()) : Promise.reject(new Error("no screenshots in this test"))),
@@ -50,6 +53,7 @@ export async function createPage(_window: unknown, opts: Options): Promise<Page>
   } as unknown as Page
   pageStub.message = opts.onMessage
   pageStub.sent.length = 0
+  pageStub.calls.length = 0
   pageStub.capture = undefined
   pageStub.evaluate = undefined
   pageStub.page = page

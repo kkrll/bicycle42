@@ -19,8 +19,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const gone: FakeReply = { status: 404, json: { _tag: "SessionNotFoundError", message: "Session not found" } }
 
 type Stubs = {
-  electron: { handlers: Record<string, (e: unknown, ...a: unknown[]) => unknown>; sent: [string, unknown][]; dialogs: unknown[]; protocols: Record<string, (request: { url: string }) => Promise<Response> | Response> }
-  page: { message(msg: unknown): void; sent: { type: string; [k: string]: unknown }[]; capture?: () => unknown; evaluate?: (js: string) => unknown; page?: { load(url: string): void } }
+  electron: { handlers: Record<string, (e: unknown, ...a: unknown[]) => unknown>; sent: [string, unknown][]; dialogs: unknown[]; protocols: Record<string, (request: { url: string }) => Promise<Response> | Response>; pageWhenLoaded?: unknown[] }
+  page: { message(msg: unknown): void; sent: { type: string; [k: string]: unknown }[]; capture?: () => unknown; evaluate?: (js: string) => unknown; page?: { load(url: string): void }; calls: [string, unknown][] }
 }
 
 type World = {
@@ -803,6 +803,43 @@ test("a prompt of the app's own holds a note like a typed one; a summary that fi
     await until(() => h.w.prompts.length === before + 3)
   } finally {
     await h.close()
+  }
+})
+
+test("the page starts loading with the window: laid out where it last was, and hidden until the window says where it is", async () => {
+  const at = { x: 12, y: 60, width: 900, height: 700 }
+  const h = await boot({ settings: { ...savedSite(), pageBounds: at } })
+  const saved = () => JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")).pageBounds as unknown
+  try {
+    await until(() => !!h.electron.pageWhenLoaded)
+    // Before the window had loaded: its place of last time, out of sight, and the last address.
+    assert.deepEqual(h.electron.pageWhenLoaded, [["bounds", at], ["bounds", null], ["load", `${SITE}/`]])
+    // What was sent to the window before it could listen is there for it to ask for.
+    assert.equal(((await h.electron.handlers["b42:state"]!(null)) as AppState).page.url, `${SITE}/`)
+    // The window's own word shows the page, and is where the next start begins.
+    const now = { x: 12, y: 60, width: 640, height: 700 }
+    await h.cmd("setPageBounds", now)
+    assert.deepEqual(h.page.calls.at(-1), ["bounds", now])
+    await until(() => JSON.stringify(saved()) === JSON.stringify(now))
+    // A dialog over the page hides it; that is no place to come back to.
+    await h.cmd("setPageBounds", null)
+    assert.deepEqual(h.page.calls.at(-1), ["bounds", null])
+    await sleep(400)
+    assert.deepEqual(saved(), now)
+  } finally {
+    await h.close()
+  }
+})
+
+test("a first start, or a place on disk that is no rectangle: the page still loads with the window, hidden until it is placed", async () => {
+  for (const pageBounds of [undefined, { x: 0, y: 0, width: 0, height: 700 }, "wide"]) {
+    const h = await boot({ settings: { ...savedSite(), ...(pageBounds === undefined ? {} : { pageBounds }) } })
+    try {
+      await until(() => !!h.electron.pageWhenLoaded)
+      assert.deepEqual(h.electron.pageWhenLoaded, [["bounds", null], ["load", `${SITE}/`]])
+    } finally {
+      await h.close()
+    }
   }
 })
 

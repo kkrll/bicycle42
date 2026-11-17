@@ -9,6 +9,8 @@ export const stub = {
   dialogs: [] as unknown[],
   /** `protocol.handle` handlers, by scheme. */
   protocols: {} as Record<string, (request: { url: string }) => Promise<Response> | Response>,
+  /** What the page had been asked (the page stub's `calls`) by the time the window's own load ended. */
+  pageWhenLoaded: undefined as unknown[] | undefined,
 }
 ;(globalThis as Record<string, unknown>).__electronStub = stub
 
@@ -25,7 +27,11 @@ export class BrowserWindow {
   isDestroyed() {
     return false
   }
-  async loadFile() {}
+  // The window takes a moment to load, as the real one does.
+  async loadFile() {
+    await new Promise((r) => setTimeout(r, 0))
+    stub.pageWhenLoaded = [...((globalThis as { __pageStub?: { calls: unknown[] } }).__pageStub?.calls ?? [])]
+  }
   isMinimized() {
     return false
   }
