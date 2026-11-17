@@ -48,7 +48,7 @@
 
   --radius: 6px;
   --bar: 40px;
-  --gutter: 12px;
+  --gutter: 4px;
 }
 
 /* A lighter, neutral paper for the light theme. (The design system's default is a warm beige,
@@ -1018,24 +1018,36 @@ details[open] > summary > .caret {
   color: var(--foreground);
 }
 
-/* The handle lives wholly inside the panel's edge: anything over the page would be under it. */
+/* The handle fills the 8px gap between the page pane and the panel, taking no room of its own:
+   the page's margin is the gap. It stays off the page itself: anything over the page would be
+   under it. */
 .resizer {
   flex: none;
-  width: 9px;
-  margin-right: -8px;
+  width: 8px;
+  margin-left: -8px;
   z-index: 1;
-  /* No line of its own: the page pane's border is the edge between page and panel. The handle
-     shows when it is pointed at, dragged or focused. */
-  border-left: 2px solid transparent;
+  /* No line of its own: the page pane's border is the edge between page and panel. The handle,
+     a 2px line down the middle of the gap, shows when it is pointed at, dragged or focused. */
+  position: relative;
   cursor: col-resize;
   touch-action: none;
-  transition: border-color var(--duration-micro) var(--ease-micro);
 }
 
-.resizer:hover,
-.resizer.active,
+.resizer::after {
+  content: "";
+  position: absolute;
+  inset: 0 3px;
+  background: transparent;
+  transition: background-color var(--duration-micro) var(--ease-micro);
+}
+
+.resizer:hover::after,
+.resizer.active::after,
+.resizer:focus-visible::after {
+  background: var(--accent);
+}
+
 .resizer:focus-visible {
-  border-left: 2px solid var(--accent);
   outline: none;
 }
 
@@ -1266,15 +1278,24 @@ details[open] > summary > .caret {
   }
 }
 
-/* Above the conversation: the server is unreachable, or no conversation would open. */
+/* Above the conversation: the server is unreachable, or no conversation would open. A card inset
+   like the composer's box: the page pane's margin is the gap on the left, 8px on the right and
+   under it. */
 .banner {
   flex: none;
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 10px var(--gutter);
-  border-bottom: 1px solid var(--rule);
-  background: var(--surface);
+  margin: 0 8px 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--background-05);
+  border-radius: 8px;
+  background: var(--background-07);
+}
+
+/* Under the notes, not at the panel's top: room above it too. */
+.banner:not(:first-child) {
+  margin-top: 8px;
 }
 
 .banner > .icon {
@@ -2555,13 +2576,15 @@ details[open] > summary > .caret {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 8px var(--gutter);
+  /* No left padding: the page pane's 8px margin is already the gap on that side. */
+  padding: 8px 8px 8px 0;
 }
 
 .composer-box {
   border: 1px solid var(--background-05);
   border-radius: 8px;
   transition: border-color var(--duration-micro) var(--ease-micro);
+  background: var(--background-07);
 }
 
 .composer-box:focus-within {
@@ -2571,9 +2594,9 @@ details[open] > summary > .caret {
 .composer textarea {
   display: block;
   width: 100%;
-  /* One line when empty; grows with its text to twelve, then scrolls. No script involved. */
+  /* Two lines when empty; grows with its text to twelve, then scrolls. No script involved. */
   field-sizing: content;
-  min-height: calc(1lh + 16px);
+  min-height: calc(2lh + 16px);
   max-height: calc(12lh + 16px);
   padding: 9px 10px 7px;
   border: 0;
