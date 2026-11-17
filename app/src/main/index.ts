@@ -119,8 +119,16 @@ async function createWindow() {
     log,
   })
   core.attach(page)
-  await win.loadFile(path.join(__dirname, "renderer/index.html"))
+  // The page starts loading with the window, not after it: by the time the window can show it,
+  // it is there. Until the window says where the page is (setPageBounds) it stays hidden, since
+  // the window may open on a dialog or with a panel of another width; it is only given the size
+  // it last had, so it is laid out once. What its loading sends to the window before that can
+  // listen, the window asks for when it does ("b42:state", "b42:chat").
+  const last = core.lastPageBounds()
+  if (last) page.setBounds(last)
+  page.setBounds(null)
   page.load(core.lastUrl())
+  await win.loadFile(path.join(__dirname, "renderer/index.html"))
 }
 
 // The window's bridge (preload.ts): its state, the open conversation, its commands.

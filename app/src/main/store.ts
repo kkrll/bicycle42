@@ -11,7 +11,7 @@
 // as it is, and what would have gone into it stays in memory for this run.
 import fs from "node:fs"
 import path from "node:path"
-import type { Checkpoint, ModelRef } from "../shared/types"
+import type { Checkpoint, ModelRef, Rect } from "../shared/types"
 import { REVIEW_VERSION } from "./review"
 
 /** `pinned`: the conversations kept at the top of the site's list, by id. */
@@ -44,6 +44,9 @@ export type Settings = {
   /** The repo opened in the app: the server folder a site opened for the first time works in. */
   folder?: string
   defaultModel?: ModelRef
+  /** Where the window last had the page (CSS px): what the page is laid out to at the next
+   *  start, while the window is still loading and can't say. The window's, whatever the server. */
+  pageBounds?: Rect
   /** Key: the site's origin. */
   /** `url` and `seen`: the page last open on the site and when, to come back to with its project. */
   sites: Sites

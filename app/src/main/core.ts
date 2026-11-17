@@ -48,6 +48,7 @@ import type {
   Question,
   SendOptions,
   ProjectInfo,
+  Rect,
   RepoChange,
   RunningCommand,
   ServerInfo,
@@ -103,6 +104,9 @@ export type Core = {
   detach(): void
   /** The address the page was last at ("" for none): what the shell loads first. */
   lastUrl(): string
+  /** Where the window last put the page, if a rectangle was kept: the shell lays the page out
+   *  there while it loads, hidden, before the window can say where it goes. */
+  lastPageBounds(): Rect | undefined
   /** Once the window and the page are there: connects to the saved server, and says what the
    *  person has to know first. */
   start(): void
@@ -1739,6 +1743,10 @@ export function createCore(host: Host): Core {
     },
     setPageBounds(bounds) {
       page?.setBounds(bounds)
+      // Kept for the next start, when the page is laid out before the window can say where it is
+      // (lastPageBounds). Hidden (null) is no place to come back to.
+      const at = bounds && { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
+      if (at && JSON.stringify(at) !== JSON.stringify(store.settings().pageBounds)) store.update((s) => void (s.pageBounds = at))
     },
 
     toggleReview() {
@@ -2274,6 +2282,12 @@ export function createCore(host: Host): Core {
     attach: (p) => void (page = p),
     detach: () => void (page = undefined),
     lastUrl: () => store.settings().lastUrl ?? "",
+    lastPageBounds() {
+      // From disk: only a rectangle if it has the four numbers of one.
+      const b = store.settings().pageBounds
+      const ok = !!b && typeof b === "object" && [b.x, b.y, b.width, b.height].every((n) => typeof n === "number" && Number.isFinite(n)) && b.width >= 1 && b.height >= 1
+      return ok ? { x: b.x, y: b.y, width: b.width, height: b.height } : undefined
+    },
     start() {
       void reconnectSaved()
       if (store.readOnly)

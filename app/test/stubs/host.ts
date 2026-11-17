@@ -19,13 +19,15 @@ export type TestShell = {
     sent: { type: string; [k: string]: unknown }[]
     /** Set by a test that wants screenshots: returns the next picture. */
     capture?: () => Frame
+    /** [what, value] for each call the controller or the shell made on the page: "bounds" and "load". */
+    calls: [string, unknown][]
     /** Set by a test whose page has an overlay that answers "frame": the window it says it has. */
     viewport?: { w: number; h: number; dpr: number; scrollX: number; scrollY: number }
   }
 }
 
-/** Starts a controller on `dataDir` the way the shell does: the page made and loaded where it
- *  was last, then `start`. */
+/** Starts a controller on `dataDir` the way the shell does: the page made, laid out where it was
+ *  last and hidden, loaded at the address it was last at, then `start`. */
 export function testShell(dataDir: string): TestShell {
   const sent: TestShell["sent"] = []
   const dialogs: unknown[] = []
@@ -43,17 +45,19 @@ export function testShell(dataDir: string): TestShell {
     load: (next) => page.load(next),
     message: (msg) => core.pageEvents.onMessage(msg as PageMessage),
     sent: [],
+    calls: [],
   }
   const page: Page = {
     state,
     load(next) {
+      stub.calls.push(["load", next])
       url = next
       core.pageEvents.onChange()
     },
     reload() {},
     back() {},
     forward() {},
-    setBounds() {},
+    setBounds: (bounds) => void stub.calls.push(["bounds", bounds]),
     send(msg) {
       stub.sent.push(msg)
       // The overlay answers a "frame" a moment later, as it does two frames on.
@@ -71,6 +75,9 @@ export function testShell(dataDir: string): TestShell {
     dispose() {},
   }
   core.attach(page)
+  const last = core.lastPageBounds()
+  if (last) page.setBounds(last)
+  page.setBounds(null)
   page.load(core.lastUrl())
   core.start()
   return { core, sent, dialogs, page: stub }

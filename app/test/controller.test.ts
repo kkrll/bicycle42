@@ -794,6 +794,43 @@ test("a prompt of the app's own holds a note like a typed one; a summary that fi
   }
 })
 
+test("the page is laid out where the window last put it, hidden, before it loads; the window's word is kept for the next start", async () => {
+  const at = { x: 12, y: 60, width: 900, height: 700 }
+  const h = await boot({ settings: { ...savedSite(), pageBounds: at } })
+  const saved = () => JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")).pageBounds as unknown
+  try {
+    // As the shell starts it (stubs/host.ts, like index.ts): its place of last time, out of sight, the last address.
+    assert.deepEqual(h.core.lastPageBounds(), at)
+    assert.deepEqual(h.page.calls.slice(0, 3), [["bounds", at], ["bounds", null], ["load", `${SITE}/`]])
+    // What was sent to the window before it could listen is there for it to ask for.
+    assert.equal(h.snap().page.url, `${SITE}/`)
+    // The window's own word shows the page, and is where the next start begins.
+    const now = { x: 12, y: 60, width: 640, height: 700 }
+    await h.cmd("setPageBounds", now)
+    assert.deepEqual(h.page.calls.at(-1), ["bounds", now])
+    await until(() => JSON.stringify(saved()) === JSON.stringify(now))
+    // A dialog over the page hides it; that is no place to come back to.
+    await h.cmd("setPageBounds", null)
+    assert.deepEqual(h.page.calls.at(-1), ["bounds", null])
+    await sleep(400)
+    assert.deepEqual(saved(), now)
+  } finally {
+    await h.close()
+  }
+})
+
+test("a first start, or a place on disk that is no rectangle: the page still loads hidden, with no place of last time", async () => {
+  for (const pageBounds of [undefined, { x: 0, y: 0, width: 0, height: 700 }, { x: 0, y: 0, width: Infinity, height: 700 }, "wide"]) {
+    const h = await boot({ settings: { ...savedSite(), ...(pageBounds === undefined ? {} : { pageBounds }) } })
+    try {
+      assert.equal(h.core.lastPageBounds(), undefined)
+      assert.deepEqual(h.page.calls.slice(0, 2), [["bounds", null], ["load", `${SITE}/`]])
+    } finally {
+      await h.close()
+    }
+  }
+})
+
 test("relaunch with a note that was waiting in the app: it is sent, pictures and all, from what was kept on disk", async () => {
   const fake = await fakeOpenCode()
   fake.w.sessions.set("ses_live", { id: "ses_live", location: { directory: "/repo" }, title: "t", time: { created: 1, updated: 2, busy: 3, idle: 4 } })
