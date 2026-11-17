@@ -60,6 +60,7 @@ import { createOutbox, type Outgoing } from "./outbox"
 import { createShots } from "./shots"
 import { createPictures, SCHEME } from "./pictures"
 import { createStore, type SavedServer } from "./store"
+import { bundleOf, createUpdater } from "./update"
 
 type Level = "info" | "warn" | "error"
 const log = (level: Level, msg: string, data?: unknown) =>
@@ -92,6 +93,19 @@ const chatPictures = createPictures({
   },
 })
 protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } }])
+
+const RELEASES = "https://github.com/kkrll/bicycle42/releases"
+const updater =
+  app.isPackaged && process.platform === "darwin"
+    ? createUpdater({
+        current: app.getVersion(),
+        manifestUrl: process.env.BICYCLE42_UPDATE_URL || `${RELEASES}/latest/download/latest.json`,
+        bundle: bundleOf(process.execPath),
+        dir: path.join(app.getPath("userData"), "updates"),
+        log,
+        onChange: () => push(),
+      })
+    : undefined
 
 // ── secrets ─────────────────────────────────────────────────────────────────────────────────────
 // The server password is stored through the OS keychain when there is one. Without (a Linux box
@@ -228,6 +242,7 @@ function snapshot(): AppState {
     permissions: [...permissions.values()],
     questions: [...questions.values()],
     ...(contextShown() ? { context: contextShown() } : {}),
+    ...(updater?.state() ? { update: updater.state() } : {}),
   }
 }
 
@@ -2153,6 +2168,11 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     // The server confirms with an event; don't leave the card up if that event is missed.
     if (permissions.delete(id)) push()
   },
+  async installUpdate() {
+    if (updater?.state()?.status !== "ready") return void shell.openExternal(`${RELEASES}/latest`)
+    await updater.install()
+    app.quit()
+  },
   async answerQuestion(id, answer) {
     await need().answerQuestion(pendingSession(questions, id), id, answer)
     if (questions.delete(id)) push()
@@ -2170,7 +2190,25 @@ function menu() {
   // No "Reload" item: ⌘R belongs to the page under review, not to the app window.
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
-      ...(mac ? [{ role: "appMenu" as const }] : []),
+      ...(mac
+        ? [
+            {
+              label: app.name,
+              submenu: [
+                { role: "about" as const },
+                ...(updater ? [{ label: "Check for Updates…", click: () => void checkForUpdates(true) }] : []),
+                { type: "separator" as const },
+                { role: "services" as const },
+                { type: "separator" as const },
+                { role: "hide" as const },
+                { role: "hideOthers" as const },
+                { role: "unhide" as const },
+                { type: "separator" as const },
+                { role: "quit" as const },
+              ],
+            },
+          ]
+        : []),
       { role: "editMenu" },
       {
         label: "View",
@@ -2185,6 +2223,18 @@ function menu() {
       { role: "windowMenu" },
     ]),
   )
+}
+
+async function checkForUpdates(asked: boolean) {
+  if (!updater) return
+  try {
+    const found = await updater.check()
+    if (asked && !found && window)
+      void dialog.showMessageBox(window, { message: "bicycle 42 is up to date", detail: `Version ${app.getVersion()} is the latest.` })
+  } catch (err) {
+    log("warn", "update check", say(err))
+    if (asked && window) void dialog.showMessageBox(window, { type: "warning", message: "Couldn't check for updates", detail: say(err) })
+  }
 }
 
 /** The app icon, copied beside the bundle by scripts/build.mjs. Absent in a build without assets. */
@@ -2277,6 +2327,7 @@ else {
   // (3 s at most), so a note made just before it is still sent after the restart.
   let written = false
   app.on("before-quit", (event?: Electron.Event) => {
+    updater?.dispose()
     unlisten?.()
     settleChanges()
     store.flush()
@@ -2295,6 +2346,7 @@ else {
     if (appIcon && process.platform === "darwin") app.dock?.setIcon(appIcon)
     await createWindow()
     void reconnectSaved()
+    void checkForUpdates(false)
     if (store.readOnly && window)
       void dialog.showMessageBox(window, {
         type: "warning",
