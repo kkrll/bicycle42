@@ -259,6 +259,7 @@ function assistantItem(id: string, time: number, m: Raw, dir: string | undefined
     time,
     parts,
     done: num(rec(m.time).completed) !== undefined,
+    ended: num(rec(m.time).completed),
     error: str(rec(m.error).message),
   })
 }
@@ -679,7 +680,7 @@ export function createEventMapper(emit: (event: BackendEvent) => void, warn: War
           return void gaps.add(session)
         }
         const error = type === "session.step.failed" ? str(rec(d.error).message) : undefined
-        const item: ChatAssistant = defined({ kind: "assistant", id, time: step.time, parts: step.parts, done: true, error })
+        const item: ChatAssistant = defined({ kind: "assistant", id, time: step.time, parts: step.parts, done: true, ended: time, error })
         const used = error === undefined && type === "session.step.ended" ? contextUsed(d.tokens) : undefined
         if (used) emit({ type: "context", session, context: defined({ used, providerID: step.provider }) })
         return chat({ type: "item", session, item })
@@ -1333,12 +1334,14 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
       return list(await data("GET", `${sessionPath(id)}/inbox`)).flatMap((raw) => (rec(raw).type === "user" ? (str(rec(raw).id) ?? []) : []))
     },
 
-    // Seen on 2.2.6: this ends the run in progress and nothing else. Messages still queued stay
-    // in the inbox, untouched and without any event, and the session goes idle with them in it
-    // (20 s watched). They are delivered when the next prompt arrives, ahead of it: any POST to
-    // /prompt wakes the queue, even a repeat of an id the server already has.
+    // Seen on 2.2.6 and 2.2.7: this ends the run in progress and nothing else (a subagent's run
+    // ends with it). Messages still queued stay in the inbox, untouched and without any event,
+    // and the session goes idle with them in it. They are delivered when the next prompt
+    // arrives, ahead of it: any POST to /prompt wakes the queue, even a repeat of an id the
+    // server already has. Answers { interrupted: false } when nothing was running; a server
+    // that says nothing is taken to have stopped it.
     async stop(id) {
-      await api("POST", `${sessionPath(id)}/interrupt`)
+      return rec(await api("POST", `${sessionPath(id)}/interrupt`)).interrupted !== false
     },
 
     async running(directory) {

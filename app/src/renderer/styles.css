@@ -2046,6 +2046,57 @@ kbd {
   background: var(--surface-strong);
 }
 
+/* A turn: what the agent did on the way folds into one line over its reply. */
+.turn-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 8px 6px;
+  margin: 0 -8px;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  line-height: var(--text-ui--line-height);
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+
+.turn-head:hover,
+.turn-head:focus-visible {
+  color: var(--foreground);
+}
+
+.turn-took {
+  flex: none;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.turn-counts {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* (It turns when open with every other caret: `[aria-expanded="true"] > .caret`.) */
+.turn-head > .caret {
+  flex: none;
+}
+
+/* The steps, opened: the same rows as before, one list under the line. */
+.turn-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: -4px;
+}
+
 /* Tool calls and thinking: one quiet line each, opened on demand. */
 .tool-row,
 .thinking > summary {

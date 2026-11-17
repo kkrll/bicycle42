@@ -66,6 +66,9 @@ export type Review = {
   release(id: string): Note | undefined
   /** A held note is taken out of the queue: it stays on the list, stopped. True when it was held. */
   cancel(id: string): boolean
+  /** Every held note of a lane is taken out of the queue (Stop): stopped, with Retry. True when
+   *  one was. */
+  cancelHeld(lane: NoteRow["lane"]): boolean
   /** `session` accepted it; `message` is the id later inbox events carry. */
   sent(id: string, message: string, session: string): void
   failed(id: string, error: string): void
@@ -527,6 +530,16 @@ export function createReview(saved?: unknown): Review {
       if (!note?.held || note.status !== "queued") return false
       delete note.held
       return move(note, "failed", ERR.cancelled)
+    },
+
+    cancelHeld(lane) {
+      let touched = false
+      for (const n of notes) {
+        if (n.lane !== lane || !n.held || n.status !== "queued") continue
+        delete n.held
+        touched = move(n, "failed", ERR.cancelled) || touched
+      }
+      return touched
     },
 
     sent(id, message, session) {

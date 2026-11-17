@@ -844,8 +844,9 @@ function onBackend(e: BackendEvent) {
         e.type === "inbox" ? s.review.inbox(e.session, e.id, e.status) : s.review.run(e.session, e.status, e.error)
       if (e.type === "run" && e.status !== "started" && s === site) void refreshRepo()
       if (e.type === "run" && e.status !== "started" && reversing.delete(e.session)) showFiles(s)
-      // The conversation is free: the next waiting note goes. Not after a stop or an error, which
-      // leave the rest waiting until something is sent again, as the server's own queue does.
+      // The conversation is free: the next waiting note goes. Not after an error, which leaves
+      // the rest waiting until something is sent again, as the server's own queue does. (Stop
+      // from the app takes the rest out of both queues first; see `commands.stop`.)
       if ((e.type === "run" && e.status === "succeeded") || (e.type === "inbox" && e.status === "cancelled")) pumpSite(s)
       if (!touched) return
       changed(s)
@@ -2027,7 +2028,28 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     await need().cancelQueued(note.session, note.message)
   },
   async stop() {
-    await need().stop(needSession().id)
+    const b = need()
+    const id = needSession().id
+    // Stop is for what is queued too, not only the run under way. Left in a queue, the rest went
+    // on by itself later: the app's own queue (the notes waiting for their turn) is pumped again
+    // on every reconnect and restart, and any prompt wakes the server's.
+    // The app's first: the end of the run, or a cancel below, pumps the lane again.
+    const origin = owners.get(id)
+    const s = origin ? sites.get(origin) : undefined
+    const saved = origin ? siteSettings(origin) : undefined
+    const lane: Lane | undefined = saved?.session === id ? "main" : saved?.bg === id ? "bg" : undefined
+    if (s && lane && s.review.cancelHeld(lane)) changed(s)
+    // Then the run: interrupting first leaves the server's queue parked, so nothing in it is
+    // delivered while it is emptied.
+    const stopped = await b.stop(id)
+    const queued = await b.waiting(id)
+    // A cancelled note stays on the list as stopped, with Retry (its inbox event moves it).
+    await Promise.all(queued.map((item) => b.cancelQueued(id, item)))
+    if (stopped) return
+    // Nothing was running: the busy shown was out of date. What the server says now is.
+    forgetBusy(id)
+    const now = await b.session(id)
+    if (now && session?.id === id) (session = { ...session, busy: now.busy }), push()
   },
   async newSession() {
     const s = site

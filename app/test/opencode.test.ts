@@ -404,6 +404,7 @@ test("messageId: the server's own format, in sending order", () => {
 
 test("mapper: a delta carries only the appended text, and the step's end carries the whole step", () => {
   const big = "x".repeat(50_000)
+  let end: ReturnType<typeof ev> | undefined
   const { out, items } = replay([
     ev("session.step.started", { assistantMessageID: "msg_a1", started: 77 }),
     ev("session.reasoning.started", { assistantMessageID: "msg_a1", ordinal: 0 }),
@@ -413,14 +414,14 @@ test("mapper: a delta carries only the appended text, and the step's end carries
     ev("session.text.delta", { assistantMessageID: "msg_a1", ordinal: 0, delta: big }),
     ev("session.text.delta", { assistantMessageID: "msg_a1", ordinal: 0, delta: "Hel" }),
     ev("session.text.delta", { assistantMessageID: "msg_a1", ordinal: 0, delta: "lo" }),
-    ev("session.step.failed", { assistantMessageID: "msg_a1", error: { type: "api", message: "overloaded" } }),
+    (end = ev("session.step.failed", { assistantMessageID: "msg_a1", error: { type: "api", message: "overloaded" } })),
   ])
   const chat = out.map((e) => (e.type === "chat" ? e.event : undefined))
   assert.deepEqual(chat.slice(-3, -1), [
     { type: "delta", session: S, item: "msg_a1", key: "text:0", text: "Hel" },
     { type: "delta", session: S, item: "msg_a1", key: "text:0", text: "lo" },
   ])
-  const expected = { kind: "assistant", id: "msg_a1", time: 77, parts: [{ kind: "reasoning", key: "reasoning:0", text: "hm" }, { kind: "text", key: "text:0", text: big + "Hello" }], done: true, error: "overloaded" }
+  const expected = { kind: "assistant", id: "msg_a1", time: 77, parts: [{ kind: "reasoning", key: "reasoning:0", text: "hm" }, { kind: "text", key: "text:0", text: big + "Hello" }], done: true, ended: end!.created, error: "overloaded" }
   assert.deepEqual(chat.at(-1), { type: "item", session: S, item: expected })
   assert.deepEqual(items, [expected])
 })

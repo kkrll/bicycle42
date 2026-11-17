@@ -2,25 +2,26 @@ import { S } from "../state.js";
 import { adopt, BOOST } from "../page.js";
 import { C } from "./state.js";
 import { shieldEl } from "./mount.js";
+import { setRoom } from "../room.js";
 
 // ── the page's cursor, and a drag's live rule ───────────────────────────────────────────────
 // In canvas mode the page's cursor is the plain arrow, by one rule that never changes (changing a
 // rule that matches every element restyles the whole document). The arrows over a handle or a
 // gap come from the layer's own elements; during a drag a shield over the viewport carries the
-// cursor. The second rule gives the page room to scroll its last part out from under the dock.
+// cursor. The page is laid out as if the window ended where the dock begins (room.js).
 export const dock = () => (C.collapsed ? 30 : C.ph);
 export function syncUi() {
-  if (!(C.on && S.enabled)) {
+  const on = C.on && S.enabled;
+  setRoom("canvas", on ? dock() : 0);
+  if (!on) {
     if (C.ui) adopt(C.ui, false);
     return;
   }
   if (!C.ui) {
     C.ui = new CSSStyleSheet();
-    C.ui.replaceSync("html[data-b42-review], html[data-b42-review] * { cursor: default !important; } html[data-b42-review] { padding-bottom: 0px !important; }");
+    C.ui.replaceSync("html[data-b42-review], html[data-b42-review] * { cursor: default !important; }");
   }
   adopt(C.ui, true);
-  const room = `${dock()}px`;
-  if (room !== C.room) C.ui.cssRules[1].style.setProperty("padding-bottom", (C.room = room), "important");
 }
 
 /** The caret cursor over text being edited in place: a rule for that element only. */

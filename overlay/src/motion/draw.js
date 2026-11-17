@@ -3,7 +3,8 @@
 
 import { isMac, S } from "../state.js";
 import { icon } from "../ui.js";
-import { adopt, rectOf } from "../page.js";
+import { rectOf } from "../page.js";
+import { setRoom } from "../room.js";
 import * as Notes from "../notes/api.js";
 import * as Canvas from "../canvas/api.js";
 import { apply, curve, DOCK_H, esc, frames, KIND_TITLE, kindIcon, M, MAJOR, mi, mq, name, openDirty, openKf, openUse, r1, RATE_TEXT, readOnly, scan, secs } from "./model.js";
@@ -59,17 +60,9 @@ export function resume() {
   } catch {}
   if (was && modeOn() === "notes" && !S.card && !Notes.hasDraft()) setMode("motion");
 }
-/** Room for the dock: the page can scroll its last part out from under it. */
+/** Room for the dock: the page is laid out as if the window ended where the dock begins (room.js). */
 export function syncUi() {
-  if (!(M.on && S.enabled)) {
-    if (M.ui) adopt(M.ui, false);
-    return;
-  }
-  if (!M.ui) {
-    M.ui = new CSSStyleSheet();
-    M.ui.replaceSync(`html[data-b42-review] { padding-bottom: ${DOCK_H}px !important; }`);
-  }
-  adopt(M.ui, true);
+  setRoom("motion", M.on && S.enabled ? DOCK_H : 0);
 }
 /** What no stylesheet and no animation object accounts for: an inline style rewritten many
  *  times a second. It cannot be edited here, but the list can say it is there. */
