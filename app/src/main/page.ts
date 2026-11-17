@@ -62,7 +62,7 @@ type Options = {
   log(level: "info" | "warn" | "error", msg: string, data?: unknown): void
 }
 
-const PAGE_EVENTS = new Set(["ready", "toggle", "mode", "draft", "note", "pins-placement", "pin", "edits-shown"])
+const PAGE_EVENTS = new Set(["ready", "toggle", "mode", "draft", "note", "pins-placement", "pin", "edits-shown", "frame-shown"])
 /** After a note finishes, give the dev server a moment to write and rebuild before reloading. */
 const RELOAD_DELAY = 400
 const BUSY_RETRY = 700

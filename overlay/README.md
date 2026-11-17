@@ -27,6 +27,7 @@ src/sent.js         the pins' tooltip; a note from any mode sent, and the host's
 src/mode.js         which mode is on, the one switch between them, the host's switch, the brush
 src/input.js        the page's pointer and keys: what every mode shares, then the mode that is on
 src/render.js       one frame at a time: each mode's part, the outlines, the pins
+src/picture.js      for the host's own picture: the layer out of it and the page scrolled, then back; a pin brought into view
 src/room.js         the room under a dock: the page laid out as if the window ended where the dock begins
 src/mount.js        the layer's elements and its shadow root, the host's API (window.__b42); the build starts here
 src/styles.css      the layer's styles, imported as text

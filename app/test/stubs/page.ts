@@ -12,8 +12,8 @@ export const pageStub = {
   sent: [] as { type: string; [k: string]: unknown }[],
   /** Set by a test that wants screenshots: returns the next picture (see `fakeShot`). */
   capture: undefined as (() => Frame) | undefined,
-  /** Set by a test that has the page answer a script (its width, where it is scrolled). */
-  evaluate: undefined as ((js: string) => unknown) | undefined,
+  /** Set by a test whose page has an overlay that answers "frame": the window it says it has. */
+  viewport: undefined as { w: number; h: number; dpr: number; scrollX: number; scrollY: number } | undefined,
   page: undefined as Page | undefined,
 }
 ;(globalThis as Record<string, unknown>).__pageStub = pageStub
@@ -38,11 +38,16 @@ export async function createPage(_window: unknown, opts: Options): Promise<Page>
     back() {},
     forward() {},
     setBounds() {},
-    send: (msg: { type: string }) => void pageStub.sent.push(msg),
+    send(msg: { type: string; id?: string }) {
+      pageStub.sent.push(msg)
+      // The overlay answers a "frame" a moment later, as it does two frames on.
+      const viewport = pageStub.viewport
+      if (msg.type === "frame" && viewport) setImmediate(() => opts.onMessage({ type: "frame-shown", id: msg.id!, viewport }))
+    },
     // No pixels here: the controller sends the note without a screenshot, unless the test gives one.
     capture: () => (pageStub.capture ? Promise.resolve(pageStub.capture()) : Promise.reject(new Error("no screenshots in this test"))),
     reloadWhenIdle: () => void pageStub.sent.push({ type: "RELOAD" }),
-    evaluate: async (js: string) => pageStub.evaluate?.(js),
+    evaluate: async () => undefined,
     // The overlay is never mid-note here.
     overlay: async () => false,
     holdFrames: () => () => {},
@@ -52,7 +57,7 @@ export async function createPage(_window: unknown, opts: Options): Promise<Page>
   pageStub.message = opts.onMessage
   pageStub.sent.length = 0
   pageStub.capture = undefined
-  pageStub.evaluate = undefined
+  pageStub.viewport = undefined
   pageStub.page = page
   return page
 }

@@ -1013,6 +1013,8 @@ const reversing = new Set<string>()
 // pictured again: the page is put where it was scrolled then, the layer is hidden for the two
 // frames it takes, and the page goes back to where the reviewer has it. Only on the page the
 // note was made on, at the width it was made at, and never while a note is being written.
+// The overlay does the hiding and the scrolling, asked with "frame": main writes nothing into
+// the page.
 
 /** After a note is done: the dev server's rebuild and the reload that follows (page.ts waits 400 ms). */
 const AFTER_WAIT = 1200
@@ -1046,19 +1048,16 @@ async function afterPicture(s: Site, id: string) {
     if (!here() || p.state().loading) return
     await sleep(AFTER_SETTLE)
     const v = shot.viewport
-    if (!here() || (await p.evaluate("innerWidth")) !== v.w) return
-    const was = await p.evaluate(
-      `(() => { const s = document.createElement("style"); s.id = "b42-after"; s.textContent = "b42-review{visibility:hidden!important}"; document.documentElement.append(s);` +
-        ` const was = [scrollX, scrollY]; scrollTo({ left: ${Number(v.scrollX)}, top: ${Number(v.scrollY)}, behavior: "instant" });` +
-        ` return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(was)))) })()`,
-    )
-    let frame: Frame
+    if (!here() || (await pageFrame(p)) !== v.w) return
+    let frame: Frame | undefined
     try {
-      frame = await p.capture()
+      // Without an answer nothing says the layer is hidden and the page in place: no picture then.
+      if ((await pageFrame(p, { hold: true, scroll: [Number(v.scrollX), Number(v.scrollY)] })) !== undefined) frame = await p.capture()
     } finally {
-      const back = Array.isArray(was) ? `scrollTo({ left: ${Number(was[0])}, top: ${Number(was[1])}, behavior: "instant" });` : ""
-      await p.evaluate(`(() => { document.getElementById("b42-after")?.remove(); ${back} })()`)
+      // Given back in any case: the overlay may have done it and only its answer was lost.
+      void pageFrame(p, { hold: false })
     }
+    if (!frame) return
     // The page has its scroll back while the picture is cut: only the area is kept.
     const file = await notePicture(frame, { bounds: shot.bounds, viewport: v }, s.review.note(id)?.n ?? 0)
     if ((await noteShots.save(id, "after", file.uri)) && s.review.mark(id, { pictures: "both" })) changed(s)
@@ -1209,6 +1208,14 @@ function onPage(msg: PageMessage) {
       editsShown.delete(key)
       return
     }
+    case "frame-shown": {
+      // The overlay did what a "frame" asked and drew it (see pageFrame). Its width is the page's to say.
+      const id = String(msg.id)
+      const w = (msg.viewport as { w?: unknown } | undefined)?.w
+      framesShown.get(id)?.(typeof w === "number" && Number.isFinite(w) ? w : undefined)
+      framesShown.delete(id)
+      return
+    }
     case "note": {
       // The page can call the binding with anything; only a well-formed note goes further.
       const note = pageNote(msg.note)
@@ -1313,6 +1320,31 @@ async function beforePicture(id: string): Promise<Frame | undefined> {
   if (hidden) await showEdits(id, true)
   else from.send({ type: "edits", id, show: true })
   return shot
+}
+
+/** How long the overlay gets to answer a "frame". It does two frames after it did what was
+ *  asked; a page that is reloading, or one without the overlay, never does. */
+const FRAME_SHOWN_MS = 1000
+/** Who waits for which "frame-shown", by the id it was asked with. */
+const framesShown = new Map<string, (width: number | undefined) => void>()
+let frameAsked = 0
+
+/** Asks the overlay on `p` for a frame (`HostMessage` "frame": the layer and the scroll held
+ *  for a picture, given back, or left alone). Resolves with the page's width in CSS px once the
+ *  overlay has drawn it, undefined when it did not answer in time. */
+function pageFrame(p: Page, ask: { hold?: boolean; scroll?: [number, number] } = {}): Promise<number | undefined> {
+  const id = `f${++frameAsked}`
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      framesShown.delete(id)
+      resolve(undefined)
+    }, FRAME_SHOWN_MS)
+    framesShown.set(id, (width) => {
+      clearTimeout(timer)
+      resolve(width)
+    })
+    p.send({ type: "frame", id, ...ask })
+  })
 }
 
 /** A note that is ready to go waits its turn, and goes at once when its lane is free. */
@@ -1812,8 +1844,8 @@ const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => Retu
     await startsRun(id, () => need().prompt(id, { text: commitPrompt(clean) }))
   },
   showNote(id) {
-    const at = site?.review.note(id)?.anchor.at
-    if (at) void page?.evaluate(`window.scrollTo({ top: Math.max(0, ${Number(at[1])} - innerHeight / 3), behavior: "smooth" })`)
+    // The overlay knows where the note's pin is (its element, else where the note was made).
+    if (typeof id === "string" && site?.review.note(id)) page?.send({ type: "show", id })
   },
 
   async connect(server) {

@@ -575,6 +575,60 @@ test("a pin whose element is gone is looked for less and less often on a page th
   await page.close();
 });
 
+test("the host's own picture: \"frame\" takes the layer out and scrolls the page, gives both back, and always answers; \"show\" brings a pin into view", async () => {
+  const { page, f } = await open();
+  await f.evaluate(() => {
+    // A page long enough to scroll, with something far down it.
+    const far = document.createElement("p");
+    far.id = "far";
+    far.textContent = "Far down the page";
+    far.style.marginTop = "3000px";
+    far.style.marginBottom = "2000px";
+    document.body.append(far);
+    const real = window.__review;
+    window.__framed = [];
+    window.__review = (s) => {
+      const m = JSON.parse(s);
+      if (m.type === "frame-shown") window.__framed.push(m);
+      real(s);
+    };
+    window.scrollTo(0, 40);
+  });
+  const state = () => f.evaluate(() => ({ y: Math.round(window.scrollY), layer: getComputedStyle(document.querySelector("b42-review")).visibility }));
+  const ask = async (msg) => {
+    const n = await f.evaluate((m) => (window.__b42.receive(m), window.__framed.length), msg);
+    await f.waitForFunction((k) => window.__framed.length > k, n);
+    return f.evaluate(() => window.__framed.at(-1));
+  };
+  // Asked for nothing: the answer alone, with the window as it is.
+  const plain = await ask({ type: "frame", id: "f1" });
+  assert.equal(plain.id, "f1");
+  assert.deepEqual([plain.viewport.w, plain.viewport.scrollY], [await f.evaluate(() => window.innerWidth), 40]);
+  assert.deepEqual(await state(), { y: 40, layer: "visible" });
+  // Held: no layer, the page where the host wants it.
+  const held = await ask({ type: "frame", id: "f2", hold: true, scroll: [0, 500] });
+  assert.equal(held.viewport.scrollY, 500);
+  assert.deepEqual(await state(), { y: 500, layer: "hidden" });
+  // Given back: both as they were.
+  await ask({ type: "frame", id: "f3", hold: false });
+  assert.deepEqual(await state(), { y: 40, layer: "visible" });
+  // A host that never gives it back: the layer does by itself.
+  await ask({ type: "frame", id: "f4", hold: true, scroll: [0, 300] });
+  assert.deepEqual(await state(), { y: 300, layer: "hidden" });
+  await f.waitForFunction(() => getComputedStyle(document.querySelector("b42-review")).visibility === "visible" && Math.round(window.scrollY) === 40, null, { timeout: 7000 });
+
+  // A pin's element is where "show" goes, a third of the window down; a pin with no place moves nothing.
+  await f.evaluate(() => window.__b42.receive({ type: "pins", pins: [{ id: "p-far", n: 1, status: "done", selector: "#far", at: [0, 100] }, { id: "p-none", n: 2, status: "done" }] }));
+  await f.evaluate(() => window.__b42.receive({ type: "show", id: "p-none" }));
+  await f.evaluate(() => window.__b42.receive({ type: "show", id: "p-unknown" }));
+  await frames(f, 4);
+  assert.equal((await state()).y, 40);
+  await f.evaluate(() => window.__b42.receive({ type: "show", id: "p-far" }));
+  const want = await f.evaluate(() => Math.round(document.querySelector("#far").getBoundingClientRect().top + window.scrollY - window.innerHeight / 3));
+  await f.waitForFunction((y) => Math.abs(window.scrollY - y) <= 1, want, { timeout: 5000 });
+  await page.close();
+});
+
 test("an area selects what is inside it on a page of more than 10,000 elements", async () => {
   const { page, f } = await open();
   await f.evaluate(() => {

@@ -20,7 +20,7 @@ const gone: FakeReply = { status: 404, json: { _tag: "SessionNotFoundError", mes
 
 type Stubs = {
   electron: { handlers: Record<string, (e: unknown, ...a: unknown[]) => unknown>; sent: [string, unknown][]; dialogs: unknown[]; protocols: Record<string, (request: { url: string }) => Promise<Response> | Response> }
-  page: { message(msg: unknown): void; sent: { type: string; [k: string]: unknown }[]; capture?: () => unknown; evaluate?: (js: string) => unknown; page?: { load(url: string): void } }
+  page: { message(msg: unknown): void; sent: { type: string; [k: string]: unknown }[]; capture?: () => unknown; viewport?: { w: number; h: number; dpr: number; scrollX: number; scrollY: number }; page?: { load(url: string): void } }
 }
 
 type World = {
@@ -1992,7 +1992,7 @@ test("the newest note is taken back exactly and a checkpoint is returned to: the
   try {
     const s = await h.ready()
     h.page.capture = () => shot("p")
-    h.page.evaluate = (js) => (js === "innerWidth" ? 800 : [0, 0])
+    h.page.viewport = { w: 800, h: 600, dpr: 1, scrollX: 0, scrollY: 0 }
     const finish = async (text: string) => {
       const id = h.note(text)
       const n = h.w.prompts.length
@@ -2015,7 +2015,16 @@ test("the newest note is taken back exactly and a checkpoint is returned to: the
     // A finished note is pictured again a moment later.
     const a = await finish("a")
     assert.equal(row(a).pictures, "before")
+    h.page.sent.length = 0
     await until(() => row(a).pictures === "both", 6000)
+    // For that picture the overlay is asked, by message: how wide the page is, then to take
+    // the layer out and put the page where the note was made, then to give both back.
+    const frames = h.page.sent.filter((m) => m.type === "frame").map(({ id: _, type: __, ...ask }) => ask)
+    assert.deepEqual(frames, [{}, { hold: true, scroll: [0, 0] }, { hold: false }])
+    // A note is shown on the page by its pin, which the overlay finds; an unknown one is not asked for.
+    await h.cmd("showNote", a)
+    await h.cmd("showNote", "nope")
+    assert.deepEqual(h.page.sent.filter((m) => m.type === "show"), [{ type: "show", id: a }])
 
     await h.cmd("addCheckpoint", "after a")
     const cp = h.chat().flatMap((e) => (e.type === "item" && e.item.kind === "marker" && e.item.checkpoint ? [e.item.checkpoint] : []))[0]!

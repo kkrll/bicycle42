@@ -374,6 +374,29 @@ async function main() {
     await sleep(150)
     check("clicking a pin tells the app which note, and selects nothing", count("pin") === pinsBefore + 1 && messages.filter((m) => m.type === "pin").at(-1)?.id === "pin-a" && (await js(`${shadow}.querySelector('.card').hidden`)) === true)
   }
+
+  // ── the host's own picture, and a note shown: asked by message, nothing written into the page ──
+  {
+    const framed = async (ask: { hold?: boolean; scroll?: [number, number] }) => {
+      const had = count("frame-shown")
+      page.send({ type: "frame", id: `f${had}`, ...ask })
+      await until(() => count("frame-shown") > had, 2000)
+      const reply = messages.filter((m) => m.type === "frame-shown").at(-1)
+      return count("frame-shown") === had + 1 && reply?.id === `f${had}` ? reply.viewport : undefined
+    }
+    const layer = () => js(`getComputedStyle(document.querySelector("b42-review")).visibility + "|" + Math.round(scrollY)`)
+    await js(`(() => { const d = document.createElement("div"); d.id = "b42-tall"; d.style.height = "3000px"; document.body.append(d); scrollTo(0, 20) })()`)
+    const plain = await framed({})
+    check('"frame" is answered with the window as it is, and changes nothing', plain?.w === 1000 && plain.scrollY === 20 && (await layer()) === "visible|20", JSON.stringify(plain))
+    const held = await framed({ hold: true, scroll: [0, 400] })
+    check("held, the layer is out of the picture and the page is where the host put it", held?.scrollY === 400 && (await layer()) === "hidden|400", `${JSON.stringify(held)} ${await layer()}`)
+    await framed({ hold: false })
+    check("given back, the layer is drawn and the page is where the reviewer had it", (await layer()) === "visible|20", String(await layer()))
+    page.send({ type: "show", id: "pin-a" })
+    const want = (await js(`Math.round(Math.max(0, document.querySelector("#cta").getBoundingClientRect().top + scrollY - innerHeight / 3))`)) as number
+    check('"show" brings the pin\'s element a third of the window down', (await until(() => js(`Math.abs(scrollY - ${want}) <= 1`), 3000)) === true, `${await js("scrollY")} for ${want}`)
+    await js(`(() => { document.getElementById("b42-tall").remove(); scrollTo(0, 0) })()`)
+  }
   page.send({ type: "pins", pins: [] })
 
   // ── templates: "/" in the note card ────────────────────────────────────────────────────────
