@@ -1,6 +1,6 @@
-// The controller's unhappy paths (src/main/index.ts), in plain Node: the real controller, review,
-// store and backend client, with Electron and the page view stubbed (test/stubs) and a fake
-// server that keeps a little state. Each test loads a fresh controller with its own profile.
+// The controller's unhappy paths (src/main/core.ts), in plain Node: the real controller, review,
+// store and backend client, in a shell that is not Electron (test/stubs/host.ts) and with a fake
+// server that keeps a little state. Each test makes a fresh controller with its own profile.
 //
 // These are the sequences a review found note status lying in: a lost reply, Stop, a deleted
 // conversation, a new conversation with work in flight, a relaunch, a server that is down at
@@ -11,17 +11,13 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { test } from "node:test"
-import type { AppState, ChatEvent } from "../src/shared/types"
+import type { ChatEvent } from "../src/shared/types"
 import { start, until, type FakeReply, type FakeServer } from "./fake-server"
+import { testShell } from "./stubs/host"
 
 const SITE = "http://site.test"
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const gone: FakeReply = { status: 404, json: { _tag: "SessionNotFoundError", message: "Session not found" } }
-
-type Stubs = {
-  electron: { handlers: Record<string, (e: unknown, ...a: unknown[]) => unknown>; sent: [string, unknown][]; dialogs: unknown[]; protocols: Record<string, (request: { url: string }) => Promise<Response> | Response> }
-  page: { message(msg: unknown): void; sent: { type: string; [k: string]: unknown }[]; capture?: () => unknown; viewport?: { w: number; h: number; dpr: number; scrollX: number; scrollY: number }; page?: { load(url: string): void } }
-}
 
 type World = {
   sessions: Map<string, Record<string, unknown>>
@@ -119,21 +115,13 @@ async function boot(opts: { settings?: unknown; reviews?: Record<string, unknown
     fs.writeFileSync(path.join(dir, "reviews", `${encodeURIComponent(origin)}.json`), JSON.stringify(review))
   }
   const { server, w } = opts.server ?? (await fakeOpenCode())
-  process.env.BICYCLE42_DATA = dir
-  process.env.BICYCLE42_TEST = "1"
   const quiet = { log: console.log, warn: console.warn, error: console.error }
   if (!process.env.V) console.log = console.warn = console.error = () => {}
-  const built = path.join(__dirname, "controller.cjs")
-  delete require.cache[built]
-  require(built)
-  const g = globalThis as unknown as { __electronStub: Stubs["electron"]; __pageStub: Stubs["page"]; __b42Test: { snapshot(): AppState } }
-  const electron = g.__electronStub
-  await until(() => !!g.__pageStub.page && !!electron.handlers["b42:command"])
-  const page = g.__pageStub
-  const hook = g.__b42Test
+  const shell = testShell(dir)
+  const { core, page } = shell
 
-  const cmd = (name: string, ...args: unknown[]) => electron.handlers["b42:command"]!(null, name, args) as Promise<unknown>
-  const snap = () => hook.snapshot()
+  const cmd = (name: string, ...args: unknown[]) => core.invoke(name, args)
+  const snap = () => core.snapshot()
   const notes = () => snap().review.notes.map((n) => `${n.n}:${n.status}`).join(" ")
   let k = 0
   const note = (text: string, id = `n${++k}`) => {
@@ -169,12 +157,12 @@ async function boot(opts: { settings?: unknown; reviews?: Record<string, unknown
     },
   }
   return {
-    dir, server, w, cmd, snap, notes, note, emit, agent, electron, page,
-    chat: () => electron.sent.filter((x) => x[0] === "b42:chat").map((x) => x[1] as ChatEvent),
+    dir, server, w, cmd, snap, notes, note, emit, agent, shell, core, page,
+    chat: () => shell.sent.filter((x) => x[0] === "chat").map((x) => x[1] as ChatEvent),
     /** Connect, open the site, pick its folder; resolves once a conversation is open. */
     async ready() {
       await cmd("connect", { url: server.url, password: server.password })
-      page.page!.load(`${SITE}/`)
+      page.load(`${SITE}/`)
       await cmd("setDirectory", "/repo")
       await until(() => !!snap().session && server.streams() === 1)
       await sleep(30)
@@ -401,7 +389,7 @@ test("the repo comes before the site: its conversation opens with no page, and t
     assert.deepEqual([h.snap().site, h.w.creates], [{ origin: "", directory: "/repo" }, 1])
 
     // The site opens: it works in the repo without being asked, in the same conversation.
-    h.page.page!.load(`${SITE}/`)
+    h.page.load(`${SITE}/`)
     await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
     assert.deepEqual([h.snap().site, h.snap().session!.id, h.w.creates], [{ origin: SITE, directory: "/repo" }, first, 1])
     h.note("a note")
@@ -409,7 +397,7 @@ test("the repo comes before the site: its conversation opens with no page, and t
     assert.equal(h.w.prompts[0]!.session, first)
 
     // Another site, later: the same repo, a conversation of its own.
-    h.page.page!.load("http://other.test/")
+    h.page.load("http://other.test/")
     await until(() => h.snap().site?.origin === "http://other.test" && !!h.snap().session)
     assert.deepEqual([h.snap().site!.directory, h.snap().session!.id !== first, h.w.creates], ["/repo", true, 2])
   } finally {
@@ -422,7 +410,7 @@ test("openProject: another repo opens with no page and a conversation of its own
   try {
     await h.cmd("connect", { url: h.server.url, password: h.server.password })
     await h.cmd("setDirectory", "/repo")
-    h.page.page!.load(`${SITE}/pricing`)
+    h.page.load(`${SITE}/pricing`)
     await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
     const first = h.snap().session!.id
     h.note("a note")
@@ -464,7 +452,7 @@ test("servers are remembered: a second one starts clean, and going back needs no
   try {
     await h.cmd("connect", { url: h.server.url, password: h.server.password })
     await h.cmd("setDirectory", "/repo")
-    h.page.page!.load(`${SITE}/pricing`)
+    h.page.load(`${SITE}/pricing`)
     await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
     const first = h.snap().session!.id
     h.note("a note")
@@ -476,7 +464,7 @@ test("servers are remembered: a second one starts clean, and going back needs no
     await until(() => h.snap().connection.status === "online" && (h.snap().connection as { url: string }).url === second.server.url)
     assert.deepEqual([h.snap().site, h.snap().page.url, h.snap().session, h.snap().serverName], [null, "", null, "fake-box"])
     await h.cmd("setDirectory", "/elsewhere")
-    h.page.page!.load(`${SITE}/pricing`)
+    h.page.load(`${SITE}/pricing`)
     await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
     assert.deepEqual([h.snap().site!.directory, h.snap().review.notes.length], ["/elsewhere", 0])
 
@@ -638,7 +626,7 @@ test("a note fired while the site's conversation is still opening does not creat
   const h = await boot()
   try {
     await h.cmd("connect", { url: h.server.url, password: h.server.password })
-    h.page.page!.load(`${SITE}/`)
+    h.page.load(`${SITE}/`)
     const opening = h.cmd("setDirectory", "/repo") // not awaited: the reviewer is fast
     h.note("first")
     await opening
@@ -869,7 +857,7 @@ test("settings from a newer version are left alone, and the user is told", async
   const future = { version: 2, shape: "unknown to this build" }
   const h = await boot({ settings: future })
   try {
-    await until(() => h.electron.dialogs.length === 1)
+    await until(() => h.shell.dialogs.length === 1)
     await h.cmd("connect", { url: h.server.url, password: h.server.password })
     await sleep(400) // longer than the store's debounce
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")), future)
@@ -1011,7 +999,7 @@ const canvasNote = (id: string, extra: Record<string, unknown> = {}) => ({
 })
 type Sent = { text: string; files?: { name: string; uri: string }[] }
 const jpegOf = (f: { uri: string }) => Buffer.from(f.uri.split(",")[1]!, "base64").toString()
-/** A picture stand-in whose JPEG is its name (test/stubs/page.ts has the same for other tests). */
+/** A picture stand-in whose JPEG is its name (every crop and resize of it is still "it"). */
 const shot = (name: string) => {
   const s = { getSize: () => ({ width: 800, height: 600 }), crop: () => s, resize: () => s, toJPEG: () => Buffer.from(name) }
   return s
@@ -2064,14 +2052,14 @@ test("the conversation's pictures reach the window as b42-img addresses, served 
       { id: "msg_typed", type: "user", time: { created: 2 }, text: "and this", files: [{ mime: "image/png", name: "p.png", data: Buffer.from("pasted").toString("base64") }] },
     ]
     h.server.route("GET", `/api/session/${s}/message`, { json: { data: messages, cursor: {} } })
-    h.electron.sent.length = 0
-    await h.electron.handlers["b42:chat"]!(null)
+    h.shell.sent.length = 0
+    h.core.chat()
     await until(() => h.chat().some((e) => e.type === "reset"))
     const reset = h.chat().find((e) => e.type === "reset") as Extract<ChatEvent, { type: "reset" }>
     assert.equal(JSON.stringify(reset).includes(";base64,"), false, "no picture travels in the reset")
     const images = reset.items.flatMap((i) => (i.kind === "user" ? i.images : []))
     assert.deepEqual(images.map((i) => i.src), [`b42-img://pic/${s}/${sent.id}/0`, `b42-img://pic/${s}/${sent.id}/1`, `b42-img://pic/${s}/msg_typed/0`])
-    const serve = (url: string) => Promise.resolve(h.electron.protocols["b42-img"]!({ url }))
+    const serve = (url: string) => h.core.picture(url)
     const got = await serve(images[0]!.src)
     assert.equal(got.status, 200)
     assert.equal(got.headers.get("content-type"), "image/jpeg")

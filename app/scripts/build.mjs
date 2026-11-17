@@ -61,28 +61,6 @@ if (flags.has("--tests")) {
     entries.push({ entryPoints: tests.map((f) => `test/${f}`), outdir: "dist/test", outExtension: { ".js": ".cjs" } })
 }
 
-// The controller with Electron and the page view swapped for stubs, so its recovery paths can be
-// tested in plain Node (test/controller.test.ts loads a fresh copy per test).
-const controller = flags.has("--tests")
-  ? {
-      ...node,
-      entryPoints: ["src/main/index.ts"],
-      outfile: "dist/test/controller.cjs",
-      external: [],
-      plugins: [
-        {
-          name: "stubs",
-          setup(b) {
-            b.onResolve({ filter: /^electron$/ }, () => ({ path: path.join(root, "test/stubs/electron.ts") }))
-            b.onResolve({ filter: /^\.\/page$/ }, (args) =>
-              args.importer.endsWith("src/main/index.ts") ? { path: path.join(root, "test/stubs/page.ts") } : undefined,
-            )
-          },
-        },
-      ],
-    }
-  : undefined
-
 fs.mkdirSync(dist, { recursive: true })
 // The app icon, for the window and the macOS dock. The app runs without it.
 const icon = path.join(root, "../assets/icon.png")
@@ -119,5 +97,5 @@ if (watch) {
   })
   console.log("watching…")
 } else {
-  await Promise.all([...entries.map((e) => build({ ...node, ...e })), ...(controller ? [build(controller)] : []), viteBuild(renderer)])
+  await Promise.all([...entries.map((e) => build({ ...node, ...e })), viteBuild(renderer)])
 }
