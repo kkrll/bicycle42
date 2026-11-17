@@ -197,7 +197,7 @@ async function main() {
   const row = review.add(note)!
   const shot = await page.capture()
   const size = shot.getSize()
-  check("capture() returns the page", !shot.isEmpty() && size.width >= 1000 && size.height >= 700, `${size.width}×${size.height}`)
+  check("capture() returns the page", size.width >= 1000 && size.height >= 700, `${size.width}×${size.height}`)
   const files = await noteImages(shot, note, row.n)
   check("two JPEGs: area crop + viewport thumbnail", files.length === 2 && files.every((f) => f.uri.startsWith("data:image/jpeg;base64,")), files.map((f) => f.name).join(", "))
   const bytes = files.map((f) => Buffer.from(f.uri.split(",")[1] ?? "", "base64"))
@@ -574,7 +574,7 @@ async function main() {
     const pics = await noteImages(after, cn, 5, before)
     pics.forEach((f) => fs.writeFileSync(path.join(out, `canvas-${f.name}`), Buffer.from(f.uri.split(",")[1] ?? "", "base64")))
     check("three pictures: the area before, the area after, the viewport", same(pics.map((f) => f.name), ["note-5-before-area.jpg", "note-5-after-area.jpg", "note-5-viewport.jpg"]), pics.map((f) => f.name).join(", "))
-    check("the before and after pictures differ", pics[0]!.uri !== pics[1]!.uri && !before.toBitmap().equals(after.toBitmap()))
+    check("the before and after pictures differ", pics[0]!.uri !== pics[1]!.uri && !before.toJPEG(80).equals(after.toJPEG(80)))
     const prompt = notePrompt(cn, 5, { images: 2, before: true })
     check(
       "the prompt says it in words: the typed CSS fenced, the computed change, the removal",

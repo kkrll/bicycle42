@@ -14,7 +14,7 @@
 // One site (a page origin) maps to one folder on the server, picked once, and to one open
 // conversation there, plus a second "background" one for alt+Enter notes. A note remembers the
 // conversation it was sent to, so switching conversations never moves an older note's status.
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, protocol, safeStorage, shell, type NativeImage } from "electron"
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, protocol, safeStorage, shell } from "electron"
 import fs from "node:fs"
 import path from "node:path"
 import { notePrompt, noteWords, TEMPLATES } from "../../../overlay/prompt.js"
@@ -50,7 +50,7 @@ import type {
   Shortcut,
   SlashCommand,
 } from "../shared/types"
-import { noteImages, notePicture } from "./images"
+import { noteImages, notePicture, type Frame } from "./images"
 import { readLocal } from "./local"
 import { isPlaceholder, placeholderTitle, titleFrom } from "./naming"
 import { createOpenCode, type OpenCode } from "./opencode"
@@ -1052,7 +1052,7 @@ async function afterPicture(s: Site, id: string) {
         ` const was = [scrollX, scrollY]; scrollTo({ left: ${Number(v.scrollX)}, top: ${Number(v.scrollY)}, behavior: "instant" });` +
         ` return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(was)))) })()`,
     )
-    let frame: NativeImage
+    let frame: Frame
     try {
       frame = await p.capture()
     } finally {
@@ -1237,7 +1237,7 @@ async function onNote(s: Site, pn: PageNote) {
   if (!note) return log("warn", "the page sent a note twice; the second is ignored", pn.id)
   changed(s)
   let files: PromptFile[] = []
-  let before: NativeImage | undefined
+  let before: Frame | undefined
   const pasted = pn.images ?? []
   // The page draws while its pictures are taken, in a hidden window too (the overlay's answers come a frame or two later).
   const frames = page?.holdFrames()
@@ -1296,10 +1296,10 @@ function showEdits(id: string, show: boolean): Promise<boolean> {
 /** The page as it was before a canvas note's edits: they are switched off for one picture, then
  *  on again, whatever happens in between. Undefined when the overlay did not answer or the
  *  capture failed: the note then goes with the picture from after the edits only. */
-async function beforePicture(id: string): Promise<NativeImage | undefined> {
+async function beforePicture(id: string): Promise<Frame | undefined> {
   const from = page
   if (!from) return
-  let shot: NativeImage | undefined
+  let shot: Frame | undefined
   const hidden = await showEdits(id, false)
   try {
     if (hidden) shot = await from.capture()

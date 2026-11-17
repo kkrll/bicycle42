@@ -6,7 +6,6 @@
 // to 1200 wide, 10 ms to 600, against 1–6 ms to encode the result. So each frame is scaled
 // down once at most, a smaller picture is made from a larger one already made, and the work
 // yields to the event loop between steps: no single stall is longer than one of them.
-import type { NativeImage } from "electron"
 import type { PromptFile } from "../shared/types"
 import type { PageNote } from "./review"
 
@@ -18,6 +17,17 @@ const THUMB_MAX = 600
 
 type Size = { width: number; height: number }
 type Rect = Size & { x: number; y: number }
+/** One picture of the page, in device pixels, and the four things done to it here. Whoever
+ *  takes the picture makes one (page.ts, from the view's capture); nothing here knows how. */
+export type Frame = {
+  getSize(): Size
+  /** The part of it inside `rect`. */
+  crop(rect: Rect): Frame
+  /** The whole of it at another size, scaled well rather than fast. */
+  resize(to: Size): Frame
+  /** `quality`: 0 to 100. */
+  toJPEG(quality: number): Buffer
+}
 /** What a note says about where it was made. */
 export type Where = Pick<PageNote, "bounds" | "viewport">
 
@@ -32,13 +42,13 @@ function fitted(s: Size, max: number): Size {
 
 const same = (a: Size, b: Size) => a.width === b.width && a.height === b.height
 
-async function scale(i: NativeImage, to: Size): Promise<NativeImage> {
+async function scale(i: Frame, to: Size): Promise<Frame> {
   if (same(i.getSize(), to)) return i
   await tick()
-  return i.resize({ width: to.width, height: to.height, quality: "good" })
+  return i.resize({ width: to.width, height: to.height })
 }
 
-async function jpeg(i: NativeImage): Promise<string> {
+async function jpeg(i: Frame): Promise<string> {
   await tick()
   return `data:image/jpeg;base64,${i.toJPEG(80).toString("base64")}`
 }
@@ -72,7 +82,7 @@ export function areaOf(size: Size, note: Where): Rect | undefined {
  *  only the way there differs. The thumbnail comes from the viewport picture when there is one,
  *  and an area that has to be scaled down anyway may be cut from the frame scaled once to the
  *  area's scale, which the thumbnail then comes from too: whichever moves fewer pixels. */
-async function cut(frame: NativeImage, area: Rect | undefined, thumb: boolean): Promise<{ main: NativeImage; thumb?: NativeImage }> {
+async function cut(frame: Frame, area: Rect | undefined, thumb: boolean): Promise<{ main: Frame; thumb?: Frame }> {
   const full = frame.getSize()
   const thumbSize = fitted(full, THUMB_MAX)
   if (!area) {
@@ -101,7 +111,7 @@ async function cut(frame: NativeImage, area: Rect | undefined, thumb: boolean): 
 /** `shot` is the page as captured right after the note was submitted; `n` is the note's number.
  *  `before`, for a canvas note, is the same viewport with the reviewer's edits switched off: it
  *  goes first, cut the same way as the picture after it, and both say which they are by name. */
-export async function noteImages(shot: NativeImage, note: Where, n: number, before?: NativeImage): Promise<PromptFile[]> {
+export async function noteImages(shot: Frame, note: Where, n: number, before?: Frame): Promise<PromptFile[]> {
   const area = areaOf(shot.getSize(), note)
   // No selection, or a crop covering most of the viewport: one viewport image at crop resolution.
   if (!area) {
@@ -122,7 +132,7 @@ export async function noteImages(shot: NativeImage, note: Where, n: number, befo
 
 /** The first of a note's pictures alone (the area, or the whole viewport): the picture of the
  *  same place once the agent is done. No thumbnail is made for it. */
-export async function notePicture(shot: NativeImage, note: Where, n: number): Promise<PromptFile> {
+export async function notePicture(shot: Frame, note: Where, n: number): Promise<PromptFile> {
   const area = areaOf(shot.getSize(), note)
   const { main } = await cut(shot, area, false)
   return { uri: await jpeg(main), name: area ? `note-${n}-area.jpg` : `note-${n}.jpg` }

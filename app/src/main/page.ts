@@ -11,6 +11,7 @@
 import { WebContentsView, type BrowserWindow, type IpcMainEvent, type NativeImage } from "electron"
 import type { HostMessage, PageMessage } from "../../../overlay/protocol"
 import type { Rect } from "../shared/types"
+import type { Frame } from "./images"
 
 export type PageState = { url: string; loading: boolean; error?: string; canGoBack: boolean; canGoForward: boolean; hmr: boolean }
 
@@ -30,7 +31,8 @@ export type Page = {
   setBounds(bounds: Rect | null): void
   /** host → overlay (window.__b42.receive). */
   send(msg: HostMessage): void
-  capture(): Promise<NativeImage>
+  /** A picture of the page as it is drawn now, in device pixels. */
+  capture(): Promise<Frame>
   /** Reloads once the reviewer isn't mid-note (overlay busy() is false). No-op when the page hot-reloads itself. */
   reloadWhenIdle(): void
   /** Runs a script in the page, among the page's own scripts, and resolves its value; rejects never (resolves undefined on error). */
@@ -87,6 +89,14 @@ html{height:100%;background:#f1eadf;color:#0a0a0a;font:14px/1.5 system-ui,sans-s
 body{height:100%;margin:0;display:grid;place-items:center}
 @media (prefers-color-scheme:dark){html{background:#0a0a0a;color:#f1eadf}}
 </style><p>Type your dev URL above.</p>`
+
+/** A capture as images.ts takes it: what it does to one, and none of the rest of a NativeImage. */
+const frameOf = (image: NativeImage): Frame => ({
+  getSize: () => image.getSize(),
+  crop: (rect) => frameOf(image.crop(rect)),
+  resize: (to) => frameOf(image.resize({ width: to.width, height: to.height, quality: "good" })),
+  toJPEG: (quality) => image.toJPEG(quality),
+})
 
 /** The placeholder and the blank first page are ours, not the reviewer's: no overlay, no URL to show. */
 const internal = (url: string) => /^(data|about):/.test(url)
@@ -390,7 +400,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       view.setVisible(true)
     },
     send,
-    capture: () => wc.capturePage(),
+    capture: async () => frameOf(await wc.capturePage()),
     reloadWhenIdle,
     evaluate: (js) => (gone() ? Promise.resolve(undefined) : wc.executeJavaScript(js, false).catch(() => undefined)),
     overlay,
