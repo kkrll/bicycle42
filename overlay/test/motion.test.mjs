@@ -377,3 +377,36 @@ test("the property and easing fields list their values in the dock's own list: â
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("the dock gives the page its room: what is fixed to the window's bottom goes up above it, what is fixed to the top stays", async () => {
+  const { page, f, errors } = await open({ motion: false });
+  await f.evaluate(() => {
+    const add = (id, css) => document.body.insertAdjacentHTML("beforeend", `<div id="${id}" style="position:fixed;${css}">${id}</div>`);
+    add("fx-bar", "left:0;right:0;bottom:0;height:40px");
+    add("fx-chat", "right:16px;bottom:24px;width:40px;height:40px;transition:bottom 0.2s");
+    add("fx-head", "left:0;right:0;top:0;height:30px");
+  });
+  const where = () => f.evaluate(() => Object.fromEntries(["fx-bar", "fx-chat", "fx-head"].map((id) => [id, Math.round(innerHeight - document.getElementById(id).getBoundingClientRect().bottom)])));
+  const pad = () => f.evaluate(() => getComputedStyle(document.documentElement).paddingBottom);
+  const before = await where();
+  const head = before["fx-head"]; // the window's height less the header's
+  assert.deepEqual(before, { "fx-bar": 0, "fx-chat": 24, "fx-head": head });
+  await motionOn(f);
+  await frames(f, 3);
+  await f.waitForFunction(() => getComputedStyle(document.getElementById("fx-chat")).bottom === "384px");
+  assert.deepEqual(await where(), { "fx-bar": 360, "fx-chat": 384, "fx-head": head });
+  assert.equal(await pad(), "360px");
+  // a box that comes later is lifted too, and the lifted ones are not lifted twice
+  await f.evaluate(() => document.body.insertAdjacentHTML("beforeend", `<div id="fx-late" style="position:fixed;bottom:8px;left:0;height:10px">late</div>`));
+  await f.waitForFunction(() => getComputedStyle(document.getElementById("fx-late")).bottom === "368px");
+  await frames(f, 3);
+  assert.deepEqual(await where(), { "fx-bar": 360, "fx-chat": 384, "fx-head": head });
+  // the dock closed: everything is where the page put it
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "notes" }));
+  await frames(f, 3);
+  await f.waitForFunction(() => getComputedStyle(document.getElementById("fx-chat")).bottom === "24px");
+  assert.deepEqual(await where(), before);
+  assert.equal(await pad(), "0px");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
