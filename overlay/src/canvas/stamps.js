@@ -59,8 +59,12 @@ export function elOf(rs) {
   let el = C.found.get(rs);
   const id = stampOf(rs);
   if (el && el.isConnected) {
-    // (Taken off when nothing named it any more; an undo, or a refused note, names it again.)
-    if (id && el.getAttribute(STAMP) !== id) el.setAttribute(STAMP, id);
+    // (Taken off when nothing named it any more; an undo, or a refused note, names it again.
+    // The selection's key goes with it, or Element styles reads the path's empty entry.)
+    if (id && el.getAttribute(STAMP) !== id) {
+      el.setAttribute(STAMP, id);
+      if (el === C.sel) C.selRs = rs;
+    }
     return el;
   }
   el = q(rs);
@@ -69,6 +73,7 @@ export function elOf(rs) {
     const at = p && q(p.path);
     if (at && at !== hostEl && at.localName === p.tag && !at.hasAttribute(STAMP)) {
       at.setAttribute(STAMP, id);
+      if (at === C.sel) C.selRs = rs;
       el = at;
     }
   }

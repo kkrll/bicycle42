@@ -1332,6 +1332,36 @@ test("↑ ↓ step the number at the caret: its unit kept, the page following, a
   await page.close();
 });
 
+test("undo and redo of an element's first style edit: Element styles shows the edit again, and typing goes on in it", async () => {
+  const { page, f, errors } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  await page.waitForTimeout(250);
+  const css = () => field(f, "css").inputValue();
+  const colour = () => f.evaluate((s) => getComputedStyle(document.querySelector(s)).color, SECOND);
+  const before = await colour();
+  await field(f, "css").fill("color: rgb(255, 0, 0);");
+  await page.waitForTimeout(800); // the pause that makes it an undo step
+  await settle(f);
+  assert.equal(await colour(), "rgb(255, 0, 0)");
+  await page.keyboard.press(`${MOD}+z`);
+  await settle(f);
+  assert.deepEqual([await css(), await colour()], ["", before], "undo takes it off");
+  await page.keyboard.press(`${MOD}+Shift+z`);
+  await settle(f);
+  assert.deepEqual([await css(), await colour()], ["color: rgb(255, 0, 0);", "rgb(255, 0, 0)"], "redo shows it in Element styles again");
+  // and what is typed now is the same edit, not a second one for the same element
+  await field(f, "css").fill("color: rgb(0, 0, 255);");
+  await page.waitForTimeout(800);
+  await settle(f);
+  assert.equal(await colour(), "rgb(0, 0, 255)");
+  assert.equal(await ui(f, (r) => r.querySelector(".count").textContent), "1 edit");
+  await page.keyboard.press(`${MOD}+z`);
+  await settle(f);
+  assert.deepEqual([await css(), await colour()], ["color: rgb(255, 0, 0);", "rgb(255, 0, 0)"]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("a drag on a computed row's name scrubs its number: one undo step, Esc puts it back, a click still copies", async () => {
   const { page, f, errors } = await open();
   await clickAt(page, f, SECOND, 100, 80);
