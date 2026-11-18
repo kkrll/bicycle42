@@ -9,6 +9,7 @@ import { endEdit } from "./text.js";
 import { setPop } from "./bar.js";
 import { treeKey } from "./tree.js";
 import { setValue, unmarkValue } from "./inspector.js";
+import { suggestKey } from "./suggest.js";
 import { clsEl, insp, treeEl } from "./mount.js";
 import { setMode } from "../mode.js";
 import { block } from "../input.js";
@@ -29,6 +30,7 @@ export function cvKey(e) {
     } else e.stopImmediatePropagation(); // typing: the page's handlers never see it
     return;
   }
+  if (suggestKey(e, f)) return;
   const val = f && f.classList.contains("cval") ? f : null; // a computed value being edited
   const tab = f && f.classList.contains("tab") ? f : null;
   if (e.key === "Escape") {
