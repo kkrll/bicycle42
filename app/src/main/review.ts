@@ -194,6 +194,7 @@ function edit(raw: unknown): Edit | undefined {
   if (component) out.component = component
   if (index(raw.repeated) && raw.repeated > 1) out.repeated = raw.repeated
   if (index(raw.copyOf)) out.copyOf = raw.copyOf // (checked against the note's edits in pageEdits)
+  else if (typeof raw.inCopy === "string") out.inCopy = line(raw.inCopy, MAX_NAME) ?? ""
   if (kind === "style") {
     const css = typedCss(raw.css, MAX_EDIT_CSS)
     // Text that is there but can't be used (too long) makes the edit unusable: its changes

@@ -138,8 +138,8 @@ them.
 | drag a padding or margin band | Change that side (`shift`: the opposite side too). A side without any shows a short bar to grab |
 | hold `mod` while dragging | No snapping |
 | double-click text | Edit it in place |
-| `Delete` | Hide the selection (a copy made in this batch is taken out) |
-| `mod+D` | Duplicate the selection: a copy right after it, selected, to edit like any element. The note asks the agent for the copy, and edits made in it say so |
+| `Delete` | Hide the selection (a copy made in this batch is taken out, with the copies made of it) |
+| `mod+D` | Duplicate the selection: a copy right after it (without its ids), selected, to edit like any element. The note asks the agent for the copy, and edits made in it say so |
 | `↑` / `↓` in a computed value | Step the number at the caret by 1, as in DevTools (`shift`: 10, `alt`: 0.1, `mod`: 100); on a keyword (`center`), the property's keyword before / after it. `Tab` / `shift+Tab` go from one computed value to the next |
 | double-click a number or keyword in the style boxes, then `↑` `↓` | The same in Element styles and Global, for what is selected (it stays selected, so the next press goes on). With a caret alone the arrows move it from line to line, as in any text box |
 | drag a computed value's name | Change its number, 1 a pixel (`shift`: 10, `alt`: 0.1); `Esc` puts it back. A click copies the line into Element styles |

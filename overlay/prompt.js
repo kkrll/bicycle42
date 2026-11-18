@@ -350,6 +350,7 @@ export function notePrompt(note, n, opts = {}) {
       if (e.component) where.push(`<${oneLine(e.component)}>`);
       if (e.repeated > 1) where.push(`one of ${e.repeated} alike`);
       if (Number.isInteger(e.copyOf) && e.copyOf !== i && note.edits[e.copyOf]?.kind === "duplicate") where.push(`in the copy made by edit ${e.copyOf + 1}`);
+      else if (typeof e.inCopy === "string") where.push(e.inCopy ? `in the copy of ${quote(e.inCopy)} an earlier note asked for` : "in a copy an earlier note asked for");
       const at = `[${where.join(", ")}]`;
       if (e.kind !== "style") return void lines.push(`${i + 1}. ${editWords(e)} ${at}`);
       // The CSS as typed, then what it came to, property by property.

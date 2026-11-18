@@ -732,7 +732,7 @@ async function main() {
       await key("Enter", "Enter", 13, "\r")
       await sleep(200)
       // A computed row: its value is a keyword, and the arrows go through the property's keywords.
-      const row = `[...${shadow}.querySelectorAll(".crow")].find((r) => r.firstChild.textContent === "align-items").lastChild`
+      const row = `[...${shadow}.querySelectorAll(".crow")].find((r) => r.firstChild.textContent === "align-items").querySelector(".cval")`
       await js(`${row}.scrollIntoView({ block: "nearest" })`)
       await clickPt(centre(await boxOf(row)))
       const was = (await js(`${row}.value`)) as string
@@ -798,9 +798,9 @@ async function main() {
         await dbg.sendCommand("Input.dispatchKeyEvent", { type: "keyUp", key: "z", code: "KeyZ", windowsVirtualKeyCode: 90, modifiers })
         await sleep(200)
       }
-      await until(async () => !!(await js(`${rowOf("width")}?.lastChild.value`)), 2000)
+      await until(async () => !!(await js(`${rowOf("width")}?.querySelector(".cval").value`)), 2000)
       const w0 = await widthNow()
-      await clickPt(centre(await boxOf(`${rowOf("width")}.lastChild`)))
+      await clickPt(centre(await boxOf(`${rowOf("width")}.querySelector(".cval")`)))
       await arrowUp()
       check("↑ in a computed value steps its number by 1, and the page follows", (await cssBox()) === `width: ${w0 + 1}px;` && (await widthNow()) === w0 + 1, `${await cssBox()} / ${await widthNow()} from ${w0}`)
       await arrowUp(8)

@@ -42,9 +42,14 @@ export function syncCopies() {
     if (!src || !src.parentElement || src === hostEl) continue;
     if (!node) {
       node = src.cloneNode(true);
+      const id = /^\[data-b42e="([a-z0-9]+)"\]$/.exec(rs)[1];
       for (const x of node.querySelectorAll(`[${STAMP}]`)) x.removeAttribute(STAMP);
+      // (Ids are the source's: two of one would make #id name both, and its edits land on the
+      // copy too. Radios keep a group of their own, or a checked one unchecks the source's.)
+      for (const x of [node, ...node.querySelectorAll("[id]")]) x.removeAttribute("id");
+      for (const x of node.querySelectorAll("input[type=radio][name]")) x.setAttribute("name", `${x.getAttribute("name")}~${id}`);
       node.removeAttribute("contenteditable");
-      node.setAttribute(STAMP, /^\[data-b42e="([a-z0-9]+)"\]$/.exec(rs)[1]);
+      node.setAttribute(STAMP, id);
       C.copies.set(rs, node);
       mine.add(node);
     }
@@ -81,16 +86,37 @@ export function duplicateSel() {
   if (node && node.isConnected) select(node);
 }
 
+/** Take out of the unsent batch what is in the given copies: the edits made in them, and the
+ *  copies made of them or of something in them (and so on). For a copy deleted, and for one that
+ *  goes with its note: left in, such an edit would be found again by a place that is no more.
+ *  How many edits went. */
+export function dropInside(rss) {
+  const B = C.draft.B, gone = new Set(rss);
+  const nodes = () => [...gone].map((r) => C.copies.get(r)).filter(Boolean);
+  const inside = (x) => {
+    if (!x) return false;
+    if (gone.has(x)) return true;
+    const el = elOf(x) || C.found.get(x); // (in a copy that is out with its batch: still in it)
+    return !!el && nodes().some((n) => n.contains(el));
+  };
+  for (let more = true; more; ) {
+    more = false;
+    for (const o of B.ops)
+      if (o.kind === "duplicate" && !gone.has(o.copy) && inside(o.rs)) {
+        gone.add(o.copy);
+        more = true;
+      }
+  }
+  const n0 = B.ops.length + Object.keys(B.els).length;
+  B.ops = B.ops.filter((o) => !(o.kind === "duplicate" && gone.has(o.copy)) && !inside(o.rs) && !inside(o.parent && o.parent.rs));
+  for (const k in B.els) if (inside(k)) delete B.els[k];
+  if (C.sel && nodes().some((n) => n.contains(C.sel))) select(null);
+  return n0 - B.ops.length - Object.keys(B.els).length;
+}
+
 /** Delete on a copy this batch made, or × on its row: the copy goes, with what was edited in it. */
 export function dropCopy(rs) {
-  const B = C.draft.B, node = C.copies.get(rs);
-  const inside = (x) => {
-    const el = x && elOf(x);
-    return !!el && !!node && node.contains(el);
-  };
-  B.ops = B.ops.filter((o) => !(o.kind === "duplicate" && o.copy === rs) && !inside(o.rs));
-  for (const k in B.els) if (inside(k)) delete B.els[k];
-  if (C.sel && node && node.contains(C.sel)) select(null);
+  dropInside([rs]);
   commit();
   syncFields(true);
 }

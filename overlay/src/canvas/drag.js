@@ -20,6 +20,7 @@ import { root } from "../mount.js";
 // pointermove only records where the pointer is. The frame does the work: it measures once when
 // the drag starts (sizes, siblings), then each frame computes one value and writes it once.
 export function cvDown(e, z) {
+  if (z && z.t === "page") z = null; // (the page's, under a band: see zoneOf)
   hush();
   if (C.pop) setPop(C.pop);
   const f = root.activeElement;
@@ -46,7 +47,7 @@ export function cvMove(e) {
     C.px = e.clientX;
     C.py = e.clientY;
     C.moved = true;
-    C.zone = z;
+    C.zone = z && z.t === "page" ? null : z;
     return;
   }
   block(e);
@@ -181,7 +182,7 @@ function startMove(d, el) {
   let items = flow(P);
   if (layout === "block") {
     const st = stackOf(P);
-    if (!st) return flash("It sits among text or side-by-side boxes: it can't be reordered there");
+    if (!st) return flash("It sits among text, side-by-side boxes or graphics: it can't be reordered there");
     const inStack = new Set(st.map((s) => s.el));
     items = items.filter((it) => inStack.has(it.el));
   }

@@ -100,6 +100,7 @@ export function stackOf(P) {
     const cs = getComputedStyle(el);
     if (cs.display === "none" || cs.display === "contents" || cs.position === "absolute" || cs.position === "fixed" || cs.float !== "none") continue;
     if (/^(inline|table-|ruby)/.test(cs.display)) return null;
+    if (typeof (/** @type {any} */ (el).offsetTop) !== "number") return null; // (an <svg> has no offsetTop to place it by)
     out.push({ el, top: /** @type {HTMLElement} */ (el).offsetTop, h: /** @type {HTMLElement} */ (el).offsetHeight });
   }
   for (let i = 1; i < out.length; i++) if (out[i].top < out[i - 1].top + out[i - 1].h - 0.5) return null;
@@ -148,12 +149,38 @@ export function applyAll() {
   };
   let dirty = syncCopies(), watchClass = false, watchDom = false;
   const named = new Set();
-  // A copy shows its source's style edits (listed in the source's rule); its own are in a rule
-  // of twice the weight, so they win over those.
-  const mirror = new Map();
+  // A copy shows the style edits of what it copies: its root in the copy's own rule (its own edits
+  // are in a rule of twice the weight, so they win), a descendant at the same place in the copy
+  // (in a :where(), of no weight: an edit made there wins), and so on down a copy of a copy.
+  const dups = [];
   for (const b of [...C.sent, C.draft])
-    if (!C.hide.has(b.id)) for (const op of b.B.ops) if (op.kind === "duplicate") (mirror.get(op.rs) || mirror.set(op.rs, []).get(op.rs)).push(op.copy);
-  const ruleSel = (rs) => [(C.copyRs.has(rs) ? rs + rs : rs) + BOOST, ...(mirror.get(rs) || []).map((c) => c + BOOST)].join(", ");
+    if (!C.hide.has(b.id))
+      for (const op of b.B.ops)
+        if (op.kind === "duplicate") {
+          const src = elOf(op.rs), node = C.copies.get(op.copy);
+          if (src && node && node.isConnected) dups.push({ src, node, rs: op.copy });
+        }
+  const imagesOf = (rs) => {
+    const el = dups.length && elOf(rs);
+    if (!el) return [];
+    const out = [], seen = new Set([el]), todo = [el];
+    while (todo.length) {
+      const x = todo.shift();
+      for (const d of dups) {
+        if (!d.src.contains(x)) continue;
+        const ix = [];
+        for (let y = x; y !== d.src; y = y.parentElement) ix.unshift([...y.parentElement.children].indexOf(y) + 1);
+        let img = d.node;
+        for (const i of ix) img = img && img.children[i - 1];
+        if (!img || seen.has(img)) continue;
+        seen.add(img);
+        todo.push(img);
+        out.push(ix.length ? `:where(${d.rs} > ${ix.map((i) => `:nth-child(${i})`).join(" > ")})` : d.rs);
+      }
+    }
+    return out;
+  };
+  const ruleSel = (rs) => [(C.copyRs.has(rs) ? rs + rs : rs) + BOOST, ...imagesOf(rs).map((c) => c + BOOST)].join(", ");
   for (const b of [...C.sent, C.draft]) {
     const off = C.hide.has(b.id);
     const ok = b.ok || (b.ok = {}); // per element (and "" for the stylesheet): the last complete text
@@ -207,7 +234,7 @@ export function applyAll() {
   // Reorder: `order` on the children from the first one that moves; worked out again only when
   // the parent's children or its moves changed (this runs on every re-render of the page).
   const order = [];
-  C.blockMoves = false;
+  const stacked = [];
   for (const [prs, ops] of groups) {
     const P = elOf(prs);
     if (!P) continue;
@@ -215,7 +242,7 @@ export function applyAll() {
     // In block flow the rules are offsets, so where the children are is part of what they say.
     const stack = /flex|grid/.test(getComputedStyle(P).display) ? null : stackOf(P) || [];
     const sig = ops.map((o) => `${o.rs}>${o.before ? o.before.rs : ""}`).join("|") + (stack ? `@${stack.map((s) => `${s.top},${s.h}`).join(" ")}` : "");
-    if (stack) C.blockMoves = true;
+    if (stack) for (const x of stack) stacked.push(x.el);
     let c = C.orders.get(prs);
     let same = !!c && c.P === P && c.sig === sig && c.kids.length === all.length;
     for (let i = 0; same && i < all.length; i++) same = c.kids[i] === all[i];
@@ -243,6 +270,7 @@ export function applyAll() {
   }
   for (const k of C.orders.keys()) if (!groups.has(k)) C.orders.delete(k);
   if (setRules(C.moves, "gen", order)) dirty = true;
+  watchSizes(stacked);
   // What has to be written into the DOM: first put back what is no longer wanted, then write.
   for (const [el, st] of C.applied) {
     const w = want.get(el);
@@ -298,8 +326,18 @@ export function applyAll() {
   kick();
 }
 
-// A block reorder's offsets are in pixels: when the window's width changes, so may the heights.
-addEventListener("resize", () => C.blockMoves && applyAll());
+// A block reorder's offsets are in pixels: worked out again when a box of the stack changes size
+// (the window's width, an image that loads, a font, a <details> that opens; none is a mutation).
+let sizes = null, sized = [], fresh = false;
+function watchSizes(els) {
+  if (els.length === sized.length && els.every((x, i) => x === sized[i])) return;
+  sized = els;
+  if (sizes) sizes.disconnect();
+  if (!els.length) return;
+  fresh = true; // (an observer says each size once when it starts: that is no change)
+  sizes = sizes || new ResizeObserver(() => (fresh ? (fresh = false) : applyAll()));
+  for (const x of els) sizes.observe(x);
+}
 
 /** Re-apply after the page changes under us. Only observed while a batch needs it: class and
  *  text edits (the DOM was written) and reorders (the rules go by child position). */

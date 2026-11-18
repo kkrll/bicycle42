@@ -9,6 +9,7 @@ import { hostEl } from "../mount.js";
  *  where, not which: when the page adds a sibling before the element, its path is another one. */
 function pathSel(el) {
   const parts = [];
+  const ours = copyNodes(); // (the copies are not counted: a path says where in the page's own tree)
   for (let cur = el; cur && cur.nodeType === 1; cur = cur.parentElement) {
     if (cur === document.body || cur === document.documentElement) {
       parts.unshift(cur.localName);
@@ -19,11 +20,48 @@ function pathSel(el) {
       break;
     }
     let seg = CSS.escape(cur.localName);
-    const same = cur.parentElement ? [...cur.parentElement.children].filter((c) => c.tagName === cur.tagName) : [];
+    const same = cur.parentElement ? [...cur.parentElement.children].filter((c) => c.tagName === cur.tagName && (c === cur || !ours.has(c))) : [];
     if (same.length > 1) seg += `:nth-of-type(${same.indexOf(cur) + 1})`;
     parts.unshift(seg);
   }
   return parts.join(" > ");
+}
+
+const copyNodes = () => new Set(C.copies.values());
+
+/** Where an element is, to be found by when its stamp is lost: its path, or, inside a copy, the
+ *  copy's stamp and the child indices down from it (`[data-b42e="…"] >> 0 2`): the page's tree
+ *  has no such place, so a path there would name whatever is where the copy was once it goes.
+ *  "" for a copy itself, which is found by its stamp only (see copies.js). */
+function placeOf(el) {
+  let cp = null;
+  for (const [rs, n] of C.copies) if (n.contains(el) && (!cp || cp[1].contains(n))) cp = [rs, n];
+  if (!cp) return pathSel(el);
+  if (cp[1] === el) return "";
+  const ix = [];
+  for (let x = el; x !== cp[1]; x = x.parentElement) ix.unshift([...x.parentElement.children].indexOf(x));
+  return `${cp[0]} >> ${ix.join(" ")}`;
+}
+
+/** The element at a place placeOf wrote: copies are not counted, as there. */
+function atPlace(place) {
+  const m = /^(\[data-b42e="[a-z0-9]+"\]) >> ([\d ]+)$/.exec(place);
+  if (m) {
+    let x = C.copies.get(m[1]);
+    if (!x || !x.isConnected) return null;
+    for (const i of m[2].split(" ")) x = x && x.children[+i];
+    return x || null;
+  }
+  const ours = copyNodes();
+  if (!ours.size) return q(place);
+  const segs = place.split(" > ");
+  let x = segs[0] === "body" ? document.body : segs[0] === "html" ? document.documentElement : q(segs[0]);
+  for (const seg of segs.slice(1)) {
+    if (!x) return null;
+    const [, tag, n] = /^(.*?)(?::nth-of-type\((\d+)\))?$/.exec(seg);
+    x = [...x.children].filter((c) => !ours.has(c) && CSS.escape(c.localName) === tag)[(Number(n) || 1) - 1];
+  }
+  return x || null;
 }
 
 // An element with an edit is stamped (an attribute: like the class and text edits a write to
@@ -45,13 +83,13 @@ export const stableSel = (el) => (el.hasAttribute(STAMP) ? stampSel(el.getAttrib
 
 /** The same for an element that is being edited: it gets its stamp now. */
 export function stamp(el) {
-  const path = pathSel(el);
   if (!el.hasAttribute(STAMP)) {
-    if (el === document.body || el === document.documentElement || (el.id && path === `#${CSS.escape(el.id)}`)) return path;
+    if (el === document.body || el === document.documentElement || (el.id && unique(`#${CSS.escape(el.id)}`))) return pathSel(el);
     el.setAttribute(STAMP, freshStamp());
   }
   const rs = stampSel(el.getAttribute(STAMP));
-  C.paths.set(rs, { path, tag: el.localName });
+  const path = placeOf(el);
+  if (path) C.paths.set(rs, { path, tag: el.localName });
   C.found.set(rs, el);
   if (el === C.sel) C.selRs = rs;
   return rs;
@@ -76,7 +114,7 @@ export function elOf(rs) {
   // (a copy is never found by where it was: in its place now may be the element it copies)
   if (!el && id && !C.copyRs.has(rs)) {
     const p = C.paths.get(rs);
-    const at = p && q(p.path);
+    const at = p && atPlace(p.path);
     if (at && at !== hostEl && at.localName === p.tag && !at.hasAttribute(STAMP)) {
       at.setAttribute(STAMP, id);
       if (at === C.sel) C.selRs = rs;
@@ -96,8 +134,8 @@ function readPaths() {
   let changed = false;
   for (const [rs, el] of C.found) {
     if (!stampOf(rs) || !el.isConnected) continue;
-    const path = pathSel(el), p = C.paths.get(rs);
-    if (p && p.path === path) continue;
+    const path = placeOf(el), p = C.paths.get(rs);
+    if (!path || (p && p.path === path)) continue;
     C.paths.set(rs, { path, tag: el.localName });
     changed = true;
   }
