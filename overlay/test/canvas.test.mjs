@@ -452,6 +452,34 @@ test("padding and margin: their bands are dragged like a gap, written into eleme
   await page.close();
 });
 
+test("padding: a child laid over the selection's padding (a badge in its corner) is the page's to click, not the band's", async () => {
+  const { page, f, errors } = await open();
+  await f.evaluate((s) => {
+    const a = document.querySelector(s);
+    a.style.position = "relative";
+    a.insertAdjacentHTML("beforeend", '<span id="badge" style="position:absolute;top:3px;right:3px;width:40px;height:10px;background:gold"></span>');
+  }, SECOND);
+  await clickAt(page, f, SECOND, 100, 80);
+  const g = await box(f, "#badge");
+  await page.mouse.move(g.x + 20, g.y + 5);
+  await page.mouse.move(g.x + 21, g.y + 5);
+  await settle(f);
+  assert.equal(await ui(f, (r) => r.querySelector(".band").hidden), true);
+  await page.mouse.click(g.x + 20, g.y + 5);
+  await settle(f);
+  assert.doesNotMatch(await ui(f, (r) => r.querySelector(".ipath").textContent), /^Card/);
+  assert.equal(await f.evaluate(() => document.querySelector("#badge").hasAttribute("data-b42e")), false);
+  // beside it, the padding is still the band's
+  const b = await box(f, SECOND);
+  await clickAt(page, f, SECOND, 100, 80);
+  await page.mouse.move(b.x + 60, b.y + 9);
+  await page.mouse.move(b.x + 61, b.y + 9);
+  await settle(f);
+  assert.equal(await ui(f, (r) => r.querySelector(".band").className), "band pad");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("duplicate: mod+D puts a copy right after the selection and selects it; edits in it say so; undo, a re-render and Delete; Reset leaves the page as it began", async () => {
   const { page, f, errors } = await open();
   const start = await pageState(f);
@@ -515,6 +543,128 @@ test("duplicate: mod+D puts a copy right after the selection and selects it; edi
   await settle(p2.f);
   assert.deepEqual(await pageState(p2.f), start);
   await p2.page.close();
+});
+
+test("duplicate, a chain: a copy of a copy shows the source's edits, its descendants' too; deleting the first copy takes the second with what was edited in it, and no other card changes", async () => {
+  const { page, f, errors } = await open();
+  const names = () => f.evaluate(() => [...document.querySelectorAll("#plans h3")].map((h) => h.textContent).join(" "));
+  await clickAt(page, f, `${SECOND} h3`);
+  await field(f, "css").fill("color: rgb(0, 0, 255);");
+  await settle(f);
+  await clickAt(page, f, SECOND, 100, 80);
+  await field(f, "css").fill("border-top-color: rgb(0, 128, 0);");
+  await settle(f);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press(`${MOD}+KeyD`);
+  await settle(f);
+  await page.keyboard.press(`${MOD}+KeyD`);
+  await settle(f);
+  assert.equal(await names(), "Free Pro Pro Pro Scale");
+  for (const i of [2, 3, 4]) {
+    assert.equal(await style(f, `#plans article:nth-of-type(${i})`, "border-top-color"), "rgb(0, 128, 0)", `card ${i}`);
+    assert.equal(await style(f, `#plans article:nth-of-type(${i}) h3`, "color"), "rgb(0, 0, 255)", `heading ${i}`);
+  }
+  // the second copy (selected) gets an outline; then the first copy goes
+  await field(f, "css").fill("outline: 3px solid rgb(255, 0, 0);");
+  await settle(f);
+  await page.keyboard.press("Escape");
+  await clickAt(page, f, "#plans article:nth-of-type(3)", 100, 80);
+  await page.keyboard.press("Delete");
+  await settle(f);
+  assert.equal(await names(), "Free Pro Scale");
+  assert.deepEqual(await f.evaluate(() => [...document.querySelectorAll("#plans article")].map((a) => getComputedStyle(a).outlineStyle + (a.hasAttribute("data-b42e") ? "*" : ""))), ["none", "none*", "none"]);
+  assert.equal(await ui(f, (r) => r.querySelector(".count .cn").textContent), "2 edits");
+  const n = await send(page);
+  assert.deepEqual(n.edits.map((e) => [e.kind, e.tag]), [["style", "h3"], ["style", "article"]]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("duplicate: a copy has no id (the source's edits and its own stay apart); an edit in a copy an earlier note asked for says so, and goes with the copy when that note is done", async () => {
+  const { page, f, errors } = await open({ delay: 60000 });
+  await clickAt(page, f, "#cta");
+  await field(f, "css").fill("background-color: rgb(255, 0, 0);");
+  await settle(f);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press(`${MOD}+KeyD`);
+  await settle(f);
+  const copy = "header button:nth-of-type(2)";
+  assert.equal(await f.evaluate((s) => document.querySelector(s).id, copy), "");
+  await field(f, "css").fill("background-color: rgb(0, 0, 255);");
+  await settle(f);
+  assert.equal(await style(f, "#cta", "background-color"), "rgb(255, 0, 0)");
+  assert.equal(await style(f, copy, "background-color"), "rgb(0, 0, 255)");
+  await page.keyboard.press("Escape");
+  const n1 = await send(page);
+  assert.deepEqual(n1.edits.map((e) => [e.kind, e.copyOf]), [["style", undefined], ["style", 2], ["duplicate", undefined]]);
+  assert.deepEqual(n1.targets.map((t) => t.selector), ["#cta"]);
+  // the next batch: an edit in that copy
+  await clickAt(page, f, copy);
+  await field(f, "css").fill("color: rgb(0, 255, 0);");
+  await settle(f);
+  await page.keyboard.press("Escape");
+  await clickAt(page, f, "#title");
+  await field(f, "css").fill("letter-spacing: 2px;");
+  await settle(f);
+  await page.keyboard.press("Escape");
+  const n2 = await send(page, 2);
+  assert.match(n2.edits[0].inCopy, /Start free trial/);
+  assert.equal(n2.edits[1].inCopy, undefined);
+  // a third batch edits the copy, then the first note is done: that edit goes with the copy
+  await clickAt(page, f, copy);
+  await field(f, "css").fill("opacity: 0.5;");
+  await settle(f);
+  await page.keyboard.press("Escape");
+  await f.evaluate((id) => window.__b42.receive({ type: "pins", pins: [{ id, n: 1, status: "done", selector: "#cta" }] }), n1.id);
+  await settle(f);
+  assert.equal(await f.evaluate(() => document.querySelectorAll("header button").length), 1);
+  assert.equal(await ui(f, (r) => r.querySelector(".count .cn").textContent), "No edits");
+  assert.equal(await style(f, "#cta", "opacity"), "1");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("duplicate: two in one draft come back in their places after a reload", async () => {
+  const { page, f } = await open();
+  const names = (fr) => fr.evaluate(() => [...document.querySelectorAll("#plans h3")].map((h) => h.textContent).join(" "));
+  await clickAt(page, f, SECOND, 100, 80);
+  await page.keyboard.press(`${MOD}+KeyD`);
+  await settle(f);
+  await clickAt(page, f, "#plans article:nth-of-type(1)", 100, 80);
+  await page.keyboard.press(`${MOD}+KeyD`);
+  await settle(f);
+  assert.equal(await names(f), "Free Free Pro Pro Scale");
+  await page.waitForFunction(() => window.__harness.draft?.edits?.ops.length === 2);
+  await page.click("#reload");
+  await page.waitForTimeout(150);
+  const f2 = await pageFrame(page);
+  await f2.waitForFunction(() => document.querySelectorAll("#plans article").length === 5);
+  assert.equal(await names(f2), "Free Free Pro Pro Scale");
+  await page.close();
+});
+
+test("move in block flow: the shifts follow a box that grows; a stack with a graphic in it is refused", async () => {
+  const { page, f, errors } = await open();
+  const s1 = await box(f, "#stack p:nth-of-type(1)"), s3 = await box(f, "#stack p:nth-of-type(3)");
+  await drag(page, f, s1.x + 30, s1.y + 15, s3.x + 30, s3.y + s3.height + 4);
+  const rows = () => f.evaluate(() => [...document.querySelectorAll("#stack p")].map((p) => { const r = p.getBoundingClientRect(); return [p.textContent, Math.round(r.top), Math.round(r.bottom)]; }).sort((a, b) => a[1] - b[1]));
+  const apart = (rs) => rs.every((r, i) => i === 0 || r[1] >= rs[i - 1][2] - 1);
+  assert.ok(apart(await rows()));
+  await f.evaluate(() => (document.querySelector("#stack p:nth-of-type(2)").style.height = "140px"));
+  await frames(f, 4);
+  const now = await rows();
+  assert.deepEqual(now.map((r) => r[0]).join(" "), "Review Ship Annotate Repeat");
+  assert.ok(apart(now), JSON.stringify(now));
+  await page.keyboard.press(`${MOD}+KeyZ`);
+  await settle(f);
+  await f.evaluate(() => document.querySelector("#stack").insertAdjacentHTML("afterbegin", '<svg style="display:block" width="20" height="20"></svg>'));
+  await frames(f);
+  const p1 = await box(f, "#stack p:nth-of-type(1)"), p3 = await box(f, "#stack p:nth-of-type(3)");
+  await drag(page, f, p1.x + 30, p1.y + 15, p3.x + 30, p3.y + p3.height + 4);
+  assert.match(await ui(f, (r) => r.querySelector(".bmsg").textContent), /graphics/);
+  assert.equal(await ui(f, (r) => r.querySelector(".count .cn").textContent), "No edits");
+  assert.deepEqual(errors, []);
+  await page.close();
 });
 
 test("move: dragging a card reorders it in its flex row with an insertion line; the DOM order is untouched", async () => {
@@ -581,7 +731,7 @@ test("move: in block flow the stack is shown in its new order (shifted, the DOM 
   await clickAt(page, f, "#open-dialog");
   const b = await box(f, "#open-dialog");
   await drag(page, f, b.x + b.width / 2, b.y + b.height / 2, b.x + b.width / 2, b.y + 80);
-  assert.match(await ui(f, (r) => r.querySelector(".bmsg").textContent), /among text or side-by-side/);
+  assert.match(await ui(f, (r) => r.querySelector(".bmsg").textContent), /among text, side-by-side/);
   const n = await send(page);
   const e = n.edits[0];
   assert.deepEqual([n.edits.length, e.kind, e.fromIndex, e.toIndex, e.parent.selector, e.parent.layout, e.before.label], [1, "move", 0, 2, "#stack", "block", "Text · Repeat"]);
@@ -1034,7 +1184,7 @@ test("U3 a refusal never outlives the next thing done; in notes mode unsent canv
   await clickAt(page, f, "#open-dialog");
   const s1 = await box(f, "#open-dialog");
   await drag(page, f, s1.x + s1.width / 2, s1.y + s1.height / 2, s1.x + s1.width / 2, s1.y + 60);
-  assert.match((await msg())[0], /among text or side-by-side/);
+  assert.match((await msg())[0], /among text, side-by-side/);
   await field(f, "css").fill("color: red;");
   await settle(f);
   assert.equal(await ui(f, (r) => r.querySelector(".bmsg").hidden), true);

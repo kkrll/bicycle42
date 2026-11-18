@@ -851,6 +851,11 @@ test("pageEdits: a duplicate names what it copies; copyOf points at a duplicate 
   for (const copyOf of [0, 1, 9, -1, 1.5, "0"])
     assert.equal(pageEdits([DUP, { ...TEXT, copyOf }])[1]?.copyOf, copyOf === 0 ? 0 : undefined, String(copyOf))
   assert.equal(pageEdits([TEXT, { ...TEXT, copyOf: 0 }])[1]?.copyOf, undefined)
+  // in a copy an earlier note asked for: what it copies, one line; copyOf wins over it
+  assert.equal(pageEdits([{ ...TEXT, inCopy: "Card · Pro" }])[0]?.inCopy, "Card · Pro")
+  assert.equal(pageEdits([{ ...TEXT, inCopy: "Card\u0007" }])[0]?.inCopy, "")
+  assert.equal(pageEdits([{ ...TEXT, inCopy: 3 }])[0]?.inCopy, undefined)
+  assert.deepEqual(pageEdits([DUP, { ...TEXT, copyOf: 0, inCopy: "x" }]).map((e) => [e.copyOf, e.inCopy]), [[undefined, undefined], [0, undefined]])
 })
 
 test("pageEdits: a change keeps the page's variables it was set with, names only, four at most", () => {

@@ -1,4 +1,4 @@
-import { rectOf } from "../page.js";
+import { pick, rectOf } from "../page.js";
 import { C, num } from "./state.js";
 import { meta, stableSel } from "./stamps.js";
 import { commit } from "./batch.js";
@@ -138,9 +138,11 @@ export function boxBand(z) {
   const b = SIDES.map((x) => num(cs[`border${cap(x)}Width`]));
   if (z.box === "mar")
     return [{ x: r.x, y: r.y - v, w: r.w, h: v }, { x: r.x + r.w, y: r.y, w: v, h: r.h }, { x: r.x, y: r.y + r.h, w: r.w, h: v }, { x: r.x - v, y: r.y, w: v, h: r.h }][z.side];
-  const iw = r.w - b[1] - b[3], ih = r.h - b[0] - b[2];
-  return [{ x: r.x + b[3], y: r.y + b[0], w: iw, h: v }, { x: r.x + r.w - b[1] - v, y: r.y + b[0], w: v, h: ih },
-    { x: r.x + b[3], y: r.y + r.h - b[2] - v, w: iw, h: v }, { x: r.x + b[3], y: r.y + b[0], w: v, h: ih }][z.side];
+  // (left and right between the top and bottom ones, as boxZones has them)
+  const pt = num(cs.paddingTop), pb = num(cs.paddingBottom);
+  const iw = r.w - b[1] - b[3], ih = Math.max(0, r.h - b[0] - b[2] - pt - pb);
+  return [{ x: r.x + b[3], y: r.y + b[0], w: iw, h: v }, { x: r.x + r.w - b[1] - v, y: r.y + b[0] + pt, w: v, h: ih },
+    { x: r.x + b[3], y: r.y + r.h - b[2] - v, w: iw, h: v }, { x: r.x + b[3], y: r.y + b[0] + pt, w: v, h: ih }][z.side];
 }
 
 /** Lay out what the pointer can grab around the selection: corners, edges, the gaps. They are
@@ -184,7 +186,18 @@ export function layoutHit(g, r) {
     if (zs[i]._c !== cur) zs[i].style.cursor = zs[i]._c = cur;
   });
 }
-export const zoneOf = (e) => (C.sel && e.composedPath()[0]._z) || null;
+const PAGE = { t: "page" };
+/** What the pointer is on of the selection's: a handle, an edge, a band. A child laid over the
+ *  padding (a badge in a corner) is the page's: { t: "page" }, a click there selects it. */
+export const zoneOf = (e) => {
+  const z = C.sel && e.composedPath()[0]._z;
+  if (!z) return null;
+  if (z.box === "pad") {
+    const under = pick(e.clientX, e.clientY);
+    if (under && under !== z.el && z.el.contains(under)) return PAGE;
+  }
+  return z;
+};
 export const cursorOf = (z) =>
   !z || z.t === "body" ? "default"
   : z.t === "space" ? (z.axis === "x" ? "col-resize" : "row-resize")

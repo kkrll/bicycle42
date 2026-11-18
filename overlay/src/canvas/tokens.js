@@ -91,6 +91,7 @@ const KIND = {
   color: /colou?r|text|fg|ink|brand|primary|accent/i,
   "background-color": /colou?r|bg|background|surface|brand|primary|accent/i,
 };
+const LOCAL = /\d(?:em|ex|ch|lh|ic|cap)\b|currentcolor|light-dark\(|\dcq(?:[whib]|min|max)\b/i;
 const PLAIN = /^[+-]?(\d+\.?\d*|\.\d+)$/;
 const family = (v) => v.replace(/["']/g, "").replace(/\s*,\s*/g, ",").trim().toLowerCase();
 const byName = (a, b) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
@@ -100,6 +101,9 @@ const byName = (a, b) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
  *  are the names that would do as well, for the tooltip. */
 export function tokenMatch(prop, computed, toks, host) {
   const kind = KIND[prop];
+  // (Sizes and colours are resolved on the layer's hidden element: one that depends on the element
+  // it is used on, 1.5em or currentColor, would be the layer's there, not the page's.)
+  toks = toks.filter((t) => !LOCAL.test(t.value));
   if (!kind || !toks.length) return null;
   const v = computed.trim();
   let parts, same;

@@ -69,6 +69,8 @@ export type Edit = {
   /** The element is in a copy that the "duplicate" edit at this index (0-based, in the same
    *  note) made: it is not in the code yet. A duplicate edit names the element it copies. */
   copyOf?: number
+  /** The element is in a copy that an earlier note asked for: the label of what it copies. */
+  inCopy?: string
 }
 
 /** One animation, changed in motion mode (or only talked about, for a transition or a script's

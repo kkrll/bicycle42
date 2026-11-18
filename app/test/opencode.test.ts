@@ -1425,6 +1425,9 @@ test("canvas notes: a duplicate asks for a copy right after its element; edits m
   assert.ok(lines.includes('4. Styled "Card · Pro" with this CSS, for that element only: [article, in the copy made by edit 1]'))
   assert.equal(editWords(edits[0]), 'Duplicated "Card · Pro": add a copy of it right after it.')
   assert.equal(editsSummary(edits), '4 canvas edits: duplicated "Card · Pro", reworded "Heading · Pro", removed "P", styled "Card · Pro"')
+  // in a copy an earlier note asked for
+  const later = notePrompt({ ...canvasBase, text: "", edits: [{ kind: "hide", selector: "p", tag: "p", label: "P", inCopy: "Card · Pro" }] }, 2, {}).split("\n")
+  assert.ok(later.includes('1. Removed "P". [p, in the copy of "Card · Pro" an earlier note asked for]'))
 })
 
 test("canvas notes: typed CSS cannot close its own fence, and a note of rules alone is a note", async () => {

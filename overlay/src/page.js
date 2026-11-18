@@ -1,5 +1,5 @@
 import { componentOf } from "./component.js";
-import { hostEl } from "./mount.js";
+import { hostEl, root } from "./mount.js";
 
 // ── geometry helpers ────────────────────────────────────────────────────────────────────────
 export const vp = () => ({
@@ -233,7 +233,9 @@ export const plainLabel = (el, max = 32) => {
 
 // ── picking ─────────────────────────────────────────────────────────────────────────────────
 export function pick(x, y) {
-  const el = document.elementFromPoint(x, y);
+  let el = document.elementFromPoint(x, y);
+  // (A band or handle of the canvas selection is the layer's, laid over the page: under it is the page.)
+  if (el === hostEl && /** @type {any} */ (root?.elementFromPoint(x, y))?._z) el = document.elementsFromPoint(x, y).find((n) => n !== hostEl) || null;
   if (!el || el === hostEl || el === document.documentElement || el === document.body) return null;
   return el;
 }

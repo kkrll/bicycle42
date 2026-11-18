@@ -7,7 +7,7 @@ import { topProps, varsIn } from "./css.js";
 import { applyAll } from "./apply.js";
 import { commit, countEdits } from "./batch.js";
 import { select } from "./select.js";
-import { copyAround } from "./copies.js";
+import { copyAround, dropInside } from "./copies.js";
 import { drawBar, flash, setPop } from "./bar.js";
 import { syncFields } from "./inspector.js";
 import { cnote } from "./mount.js";
@@ -103,12 +103,16 @@ export function submitCanvas(background) {
       });
     edits.push(out);
   }
-  // An edit made in a copy says which "duplicate" made it: in the code that element is still to come.
+  // An edit made in a copy says which "duplicate" made it: in the code that element is still to
+  // come. A copy an earlier note asked for is named by what it copies.
   const dupAt = new Map(who.flatMap((w, i) => (w.op && w.op.kind === "duplicate" ? [[w.op.copy, i]] : [])));
+  const earlier = new Map(C.sent.flatMap((b) => b.B.ops.filter((o) => o.kind === "duplicate").map((o) => [o.copy, o.label])));
   edits.forEach((x, i) => {
     const el = elOf(who[i].rs);
-    const at = el ? dupAt.get(copyAround(el)) : undefined;
+    const c = el ? copyAround(el) : "";
+    const at = dupAt.get(c);
     if (at !== undefined && at !== i) x.copyOf = at;
+    else if (earlier.has(c)) x.inCopy = earlier.get(c) || "";
   });
   const seen = [...before.rects, ...after.rects].filter((r) => r.w > 0 && r.h > 0);
   const bounds = union(seen);
@@ -119,7 +123,8 @@ export function submitCanvas(background) {
     title: document.title,
     viewport: vp(),
     // Described as they are now, but under the selector they had before this batch's class edits.
-    targets: els.map((el) => {
+    // (Not those in a copy: there is no such element in the code, and their edits say so.)
+    targets: els.filter((el) => !copyAround(el)).map((el) => {
       const rs = stableSel(el);
       const known = B.els[rs] || B.ops.find((o) => o.rs === rs);
       return { ...describe(el), ...(known ? { selector: sel(known) } : {}) };
@@ -195,13 +200,18 @@ export function finish() {
 
 /** A sent batch is a preview until the agent is finished with its note. */
 export function dropFinished() {
-  let changed = false;
+  let changed = false, lost = 0;
   C.sent = C.sent.filter((b) => {
     const p = S.pins.find((x) => x.id === b.id);
     if (p) b.seen = b.n = p.n || true;
     const over = p ? p.status === "done" || p.status === "failed" || p.status === "stopped" : b.seen;
     if (!over) return true;
     changed = true;
+    // Its copies go with it: what the unsent batch did in them goes too (the agent's copy, if it
+    // made one, is another element).
+    const dups = b.B.ops.filter((o) => o.kind === "duplicate").map((o) => o.copy);
+    const dropped = dups.length ? dropInside(dups) : 0;
+    lost += dropped;
     C.hide.delete(b.id);
     for (const k of ["gen", "free"]) if (b[k]) adopt(b[k], false);
     // Done: the agent's own change is (or is about to be) in the page, so the class and text we
@@ -213,6 +223,7 @@ export function dropFinished() {
     // Say what just happened to the preview, for a few seconds, where the reviewer is looking.
     const name = typeof b.n === "number" ? `Note ${b.n}` : "Note";
     C.done = !p ? `${name} removed · preview removed` : p.status === "done" ? `${name} done · preview removed` : `${name} ${p.status} · edits put back`;
+    if (dropped) C.done += ` · ${dropped === 1 ? "an edit" : `${dropped} edits`} made in its copy dropped`;
     clearTimeout(C.doneTimer);
     C.doneTimer = setTimeout(() => {
       C.done = "";
@@ -220,7 +231,10 @@ export function dropFinished() {
     }, 4000);
     return false;
   });
-  if (changed) applyAll();
+  if (lost) {
+    commit();
+    syncFields(true);
+  } else if (changed) applyAll();
   drawBar();
 }
 

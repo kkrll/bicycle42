@@ -250,7 +250,8 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
 
 What the agent gets: the edits as a numbered list with each element's selector and the window
 width they were made at. A moved, reworded, removed or duplicated element is a sentence
-(`Removed "Badge · New".`); an edit made inside a copy says `in the copy made by edit 2`; a styled one is the CSS as typed, in a fenced block, followed by the
+(`Removed "Badge · New".`); an edit made inside a copy says `in the copy made by edit 2` (or, in one an earlier note asked
+for, `in the copy of "Card · Pro" an earlier note asked for`); a styled one is the CSS as typed, in a fenced block, followed by the
 computed value of each property before and after (`gap: 16px → 32px`); a class change is
 `class "a b" → "a b c"`; the batch's new rules follow, fenced, with the request to put them where
 the project keeps its styles. With them go two pictures of the same area, **before** and **after**
