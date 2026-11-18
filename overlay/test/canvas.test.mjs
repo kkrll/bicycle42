@@ -1225,6 +1225,7 @@ test("↑ ↓ step the number at the caret: its unit kept, the page following, a
   }, prop);
   const area = (cls) => ui(f, (r, c) => { const x = r.querySelector(`.${c}`); return { value: x.value, sel: x.value.slice(x.selectionStart, x.selectionEnd), at: x.selectionStart }; }, cls);
   const caret = (cls, at) => ui(f, (r, [c, i]) => r.querySelector(`.${c}`).setSelectionRange(i, i), [cls, at]);
+  const pick = (cls, a, b) => ui(f, (r, [c, i, j]) => r.querySelector(`.${c}`).setSelectionRange(i, j), [cls, a, b]);
   const pad = () => f.evaluate((s) => getComputedStyle(document.querySelector(s)).padding, SECOND);
   // a computed row: the number at the caret, live
   await val("padding").fill("8px 12px"); // (the caret is at the end)
@@ -1282,36 +1283,49 @@ test("↑ ↓ step the number at the caret: its unit kept, the page following, a
   assert.equal(await field(f, "css").inputValue(), "padding: 9px 12px;\ndisplay: block;\nwidth: 0px;");
   await page.keyboard.press("Escape");
 
-  // Element styles: only a number of a declaration's value
+  // Element styles: the arrows move the caret from line to line, as in any text box; they step
+  // only a number that is selected (a double click), and only one of a declaration's value
   const text = "margin: 4px 8px;\ncolor: #102030;";
   await field(f, "css").fill(text);
   await page.waitForTimeout(800);
-  await caret("css", 9);
+  await caret("css", 9); // in "4px": a caret alone
+  await page.keyboard.press("ArrowDown");
+  const down = await area("css");
+  assert.deepEqual([down.value, down.sel, down.at > 17], [text, "", true], "the caret went a line down and nothing changed");
+  await page.keyboard.press("ArrowUp");
+  assert.deepEqual([(await area("css")).value, (await area("css")).at < 17], [text, true]);
+  await pick("css", 8, 11); // "4px" selected
   await page.keyboard.press("ArrowUp");
   await page.keyboard.press("Shift+ArrowUp");
   assert.deepEqual(await area("css"), { value: "margin: 15px 8px;\ncolor: #102030;", sel: "15px", at: 8 });
   await settle(f);
   assert.equal(await f.evaluate((s) => getComputedStyle(document.querySelector(s)).margin, SECOND), "15px 8px");
-  await caret("css", 28); // in the colour: the arrow moves the caret, as it would
+  await pick("css", 26, 32); // the colour's digits, selected: still no number
   await page.keyboard.press("ArrowUp");
   const up = await area("css");
   assert.deepEqual([up.value, up.at < 17], ["margin: 15px 8px;\ncolor: #102030;", true]);
-  await caret("css", 3); // in the property's name
+  await pick("css", 0, 6); // the property's name
   await page.keyboard.press("ArrowDown");
   assert.deepEqual([(await area("css")).value, (await area("css")).at > 17], ["margin: 15px 8px;\ncolor: #102030;", true]);
+  await pick("css", 8, 16); // two numbers: the keys are the field's
+  await page.keyboard.press("ArrowDown");
+  assert.equal((await area("css")).value, "margin: 15px 8px;\ncolor: #102030;");
   await page.waitForTimeout(800);
   await page.keyboard.press(`${MOD}+z`);
   assert.equal(await field(f, "css").inputValue(), text, "the two presses were one step");
 
   // the stylesheet: a rule's values, never its selector
   await field(f, "free").fill("h2 { margin: 4px }");
-  await caret("free", 1);
+  await pick("free", 1, 2);
   await page.keyboard.press("ArrowUp");
   assert.equal((await area("free")).value, "h2 { margin: 4px }");
   await caret("free", 14);
   await page.keyboard.press("ArrowUp");
+  assert.equal((await area("free")).value, "h2 { margin: 4px }", "a caret alone steps nothing");
+  await pick("free", 13, 14); // a part of "4px": the whole number
+  await page.keyboard.press("ArrowUp");
   await settle(f);
-  assert.equal((await area("free")).value, "h2 { margin: 5px }");
+  assert.deepEqual([(await area("free")).value, (await area("free")).sel], ["h2 { margin: 5px }", "5px"]);
   assert.equal(await f.evaluate(() => getComputedStyle(document.querySelector("h2")).marginTop), "5px");
   assert.equal(await f.evaluate(() => window.pageKeys), 0, "the page saw none of the keys");
   assert.deepEqual(errors, []);

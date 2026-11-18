@@ -71,7 +71,28 @@ async function open() {
   const focus = () => ui((r) => r.activeElement?.className ?? "");
   const style = (sel, prop) => f.evaluate(([s, p]) => getComputedStyle(document.querySelector(s)).getPropertyValue(p), [sel, prop]);
   const row = (prop) => f.locator("b42-review .crow", { has: f.locator(".cp", { hasText: new RegExp(`^${prop}$`) }) }).locator(".cval");
-  return { page, f, errors, ui, settle, press, type, list, value, focus, style, row };
+  /** What is selected in a text area, and where it starts. */
+  const sel = (cls) => ui((r, c) => { const x = r.querySelector(`.${c}`); return { text: x.value.slice(x.selectionStart, x.selectionEnd), at: x.selectionStart }; }, cls);
+  const pick = (cls, a, b = a) => ui((r, [c, i, j]) => r.querySelector(`.${c}`).setSelectionRange(i, j), [cls, a, b]);
+  /** A real double click on the letter at `offset` of a text area (found in the layer under it that mirrors its text). */
+  const dbl = async (cls, offset) => {
+    const at = await ui((r, [c, o]) => {
+      const walk = document.createTreeWalker(r.querySelector(`.${c}`).previousElementSibling, NodeFilter.SHOW_TEXT);
+      for (let n, left = o; (n = walk.nextNode()); left -= n.nodeValue.length) {
+        if (left >= n.nodeValue.length) continue;
+        const g = document.createRange();
+        g.setStart(n, left);
+        g.setEnd(n, left + 1);
+        const b = g.getBoundingClientRect();
+        return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+      }
+      return null;
+    }, [cls, offset]);
+    const frame = await page.locator("#page").boundingBox();
+    await page.mouse.dblclick(frame.x + at.x, frame.y + at.y);
+    await settle();
+  };
+  return { page, f, errors, ui, settle, press, type, list, value, focus, style, row, sel, pick, dbl };
 }
 
 test("element styles: names as a name is typed, then the property's values; Tab and Enter accept", async () => {
@@ -180,23 +201,83 @@ test("the highlighted value shows on the page; Escape puts back what was typed; 
   await page.close();
 });
 
-test("with the list closed, ↑/↓ on a keyword goes through the property's keywords; not on a number", async () => {
-  const { page, f, errors, ui, press, type, list, value, style } = await open();
+test("the style boxes: ↑/↓ are the caret's; they step or cycle only a number or a keyword that is selected", async () => {
+  const { page, f, errors, press, type, list, value, style, settle, sel, pick, dbl } = await open();
   await f.locator("b42-review .css").click();
-  await type("width: 120px;\nalign-items: center;\ncolor: #f00");
-  await press("ArrowUp"); // "#f00" is no keyword: the caret moves as ever, a line up
-  assert.equal(await ui((r) => r.querySelector(".css").selectionStart), 25);
-  await ui((r) => r.querySelector(".css").setSelectionRange(30, 30)); // in "center"
+  const text = "display: flex;\ngap: 12px;\nalign-items: center;\nmargin: -4px auto";
+  await type(text);
+  await settle(800); // the typing is a step of its own
+  assert.equal(await value("css"), text);
+
+  // A caret alone, in a keyword: ↓ goes to the next line, and the next, and changes nothing.
+  await pick("css", text.indexOf("flex") + 2);
   await press("ArrowDown");
-  assert.equal(await value("css"), "width: 120px;\nalign-items: start;\ncolor: #f00");
-  assert.equal(await style("#plans", "align-items"), "start");
-  assert.equal(await list(), null);
-  await press("ArrowUp", "ArrowUp");
-  assert.equal(await value("css"), "width: 120px;\nalign-items: baseline;\ncolor: #f00");
-  // On a number the key is not the suggestions': it goes on to the number stepping (keys.js), which takes it.
-  await ui((r) => r.querySelector(".css").setSelectionRange(9, 9));
+  let at = (await sel("css")).at;
+  assert.ok(at > text.indexOf("gap") && at <= text.indexOf("align-items") - 1, `the caret is in the second line (${at})`);
+  await press("ArrowDown", "ArrowDown");
+  assert.ok((await sel("css")).at > text.indexOf("margin"), "…then in the last");
+  assert.equal(await value("css"), text, "nothing changed");
+  assert.equal(await style("#plans", "display"), "flex");
+  // …and in a number.
+  await pick("css", text.indexOf("12px") + 1);
   await press("ArrowUp");
-  assert.equal(await value("css"), "width: 121px;\nalign-items: baseline;\ncolor: #f00");
+  assert.deepEqual([await value("css"), (await sel("css")).at < text.indexOf("gap")], [text, true]);
+  // With shift the arrows select, as they do in any text box.
+  await pick("css", text.indexOf("flex") + 2);
+  await press("Shift+ArrowDown");
+  assert.deepEqual([await value("css"), (await sel("css")).text.includes("\n")], [text, true]);
+
+  // A double click on a number, then ↑ ↑: stepped twice, still selected, the page following; one undo step.
+  await dbl("css", text.indexOf("12px") + 1);
+  assert.equal((await sel("css")).text, "12px");
+  await press("ArrowUp");
+  assert.deepEqual([(await sel("css")).text, await style("#plans", "gap")], ["13px", "13px"]);
+  await press("ArrowUp");
+  assert.equal(await value("css"), text.replace("12px", "14px"));
+  assert.deepEqual(await sel("css"), { text: "14px", at: text.indexOf("12px") });
+  assert.equal(await style("#plans", "column-gap"), "14px");
+  await settle(800);
+  await press(`${MOD}+z`);
+  assert.equal(await value("css"), text, "the two presses were one step");
+  assert.equal(await style("#plans", "column-gap"), "12px");
+  // A part of a number selected (a double click takes "4px" of "-4px") is the whole of it; the modifiers are DevTools'.
+  await pick("css", text.indexOf("-4px") + 1, text.indexOf("-4px") + 4);
+  await press("ArrowUp");
+  assert.equal((await sel("css")).text, "-3px");
+  await press("Shift+ArrowDown");
+  assert.equal((await sel("css")).text, "-13px");
+  assert.equal(await value("css"), text.replace("-4px", "-13px"));
+
+  // A double click on a keyword, then ↓: the property's next keyword, selected in its turn.
+  await dbl("css", text.indexOf("center") + 2);
+  assert.equal((await sel("css")).text, "center");
+  await press("ArrowDown");
+  assert.deepEqual([(await sel("css")).text, await style("#plans", "align-items"), await list()], ["start", "start", null]);
+  await press("ArrowDown");
+  assert.equal((await sel("css")).text, "end");
+  await press("ArrowUp", "ArrowUp", "ArrowUp");
+  assert.equal((await sel("css")).text, "baseline");
+  let now = text.replace("-4px", "-13px").replace("center", "baseline");
+  assert.equal(await value("css"), now);
+  // Beside another token a CSS-wide keyword is no value: `-13px auto` never becomes `-13px revert`.
+  await pick("css", now.indexOf("auto"), now.indexOf("auto") + 4);
+  await press("ArrowUp");
+  assert.deepEqual([await value("css"), (await sel("css")).text], [now, "auto"]);
+  await press("ArrowDown");
+  assert.equal(await value("css"), now);
+  // …alone it has them, around the end of the list.
+  await pick("css", now.indexOf("baseline"), now.indexOf("baseline") + 8);
+  await press("ArrowUp", "ArrowUp", "ArrowUp");
+  assert.equal((await sel("css")).text, "revert");
+  await press("ArrowDown", "ArrowDown", "ArrowDown");
+  assert.deepEqual([await value("css"), (await sel("css")).text], [now, "baseline"]);
+  // More than one token selected, or a name: the keys are the field's.
+  await pick("css", now.indexOf("-13px"), now.length);
+  await press("ArrowUp");
+  assert.equal(await value("css"), now);
+  await pick("css", now.indexOf("align"), now.indexOf("align") + 5);
+  await press("ArrowDown");
+  assert.equal(await value("css"), now);
   assert.equal(await list(), null);
   assert.deepEqual(errors, []);
   await page.close();

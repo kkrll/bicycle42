@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CSS_PROPS } from "../src/canvas/css-data.js";
-import { caretContext, COLOURS, isNumber, matches, propNames, step, valueContext, valuesOf, wants, WIDE } from "../src/canvas/suggest-model.js";
+import { alone, caretContext, COLOURS, isNumber, matches, propNames, step, valueContext, valuesAt, valuesOf, wants, WIDE } from "../src/canvas/suggest-model.js";
 
 /** The context at `|` in `src`. */
 const at = (src, sheet = false) => {
@@ -190,6 +190,28 @@ test("the named colours, wherever a colour goes: after the property's own keywor
   const names = (p, v) => v !== "#f00";
   assert.ok(!valuesOf("font-family", CSS_PROPS, names).includes("red"));
   assert.ok(!valuesOf("align-items", CSS_PROPS, all).includes("red"));
+});
+
+test("the CSS-wide keywords stand alone: not offered beside another token", () => {
+  const ctx = (src) => [src.replace("|", ""), at(src)];
+  assert.equal(alone(...ctx("margin: au|to")), true);
+  assert.equal(alone(...ctx("margin: au|to;\ncolor: red")), true);
+  assert.equal(alone(...ctx("margin: au|to\ncolor: red")), true);
+  assert.equal(alone(...ctx("margin: auto| !important;")), true);
+  assert.equal(alone(...ctx(".a { margin: au|to }")), true);
+  assert.equal(alone(...ctx("margin: 0 au|to")), false);
+  assert.equal(alone(...ctx("margin: au|to 0")), false);
+  assert.equal(alone(...ctx("transition: al|l 1s,\n  color 2s")), false);
+  assert.equal(alone("auto", valueContext("margin", "auto", 2)), true);
+  assert.equal(alone("0 auto", valueContext("margin", "0 auto", 6)), false);
+  const margin = valuesOf("margin", CSS_PROPS, (p, v) => v !== "none" && all(p, v));
+  assert.deepEqual(margin, ["auto", ...WIDE]);
+  assert.deepEqual(valuesAt(margin, ...ctx("margin: au|to")), margin);
+  assert.deepEqual(valuesAt(margin, ...ctx("margin: 0 au|to")), ["auto"]);
+  // ↑/↓ on the `auto` of `0 auto` has nowhere to go: never `0 revert`, never `0 inherit`.
+  assert.equal(step(valuesAt(margin, ...ctx("margin: 0 au|to")), "auto", -1), "auto");
+  assert.equal(step(valuesAt(margin, ...ctx("margin: 0 au|to")), "auto", 1), "auto");
+  assert.equal(step(valuesAt(margin, ...ctx("margin: au|to")), "auto", -1), "revert");
 });
 
 test("stepping through a property's keywords", () => {

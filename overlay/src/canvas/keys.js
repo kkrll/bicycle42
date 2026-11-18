@@ -77,8 +77,10 @@ export function cvKey(e) {
     return;
   }
   if ((area || val) && (e.key === "ArrowUp" || e.key === "ArrowDown") && !e.isComposing) {
-    // ↑/↓ step the number at the caret, as in DevTools: 1; shift 10; alt 0.1; mod 100. Where there
-    // is none, a text area's caret moves as it would; a computed value does nothing (Tab moves on).
+    // ↑/↓ step a number, as in DevTools: 1; shift 10; alt 0.1; mod 100. In a computed value the
+    // one at the caret (where there is none the key does nothing: Tab moves on). In a text area
+    // only one that is selected: with a caret alone, or more selected, the arrows are the field's
+    // own (the caret moves a line, shift selects).
     const by = stepSize({ shift: e.shiftKey, alt: e.altKey, mod: mod(e) }) * (e.key === "ArrowUp" ? 1 : -1);
     if (stepNumber(f, by) || val) return void block(e);
   }

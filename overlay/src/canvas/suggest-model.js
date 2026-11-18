@@ -175,6 +175,18 @@ export function valuesOf(prop, props, supports) {
   return out;
 }
 
+/** Whether the token of `ctx` (a value's, in `text`) is all of its value: `auto`, not the
+ *  `auto` of `0 auto`. Only then can a CSS-wide keyword stand in its place (`margin: 0 revert`
+ *  is nothing). `!important` is not part of the value. */
+export function alone(text, ctx) {
+  if (!ctx.first) return false;
+  const rest = /^[^;}\n]*/.exec(text.slice(ctx.e))[0];
+  return !rest.replace(/!\s*important\s*$/i, "").trim();
+}
+
+/** `values` as they can be offered at `ctx`: without the CSS-wide ones beside other tokens. */
+export const valuesAt = (values, text, ctx) => (alone(text, ctx) ? values : values.filter((v) => !WIDE.includes(v)));
+
 /** The keyword after (dir 1) or before (dir -1) `cur` in `values`, around the ends; null when
  *  `cur` is not one of them. */
 export function step(values, cur, dir) {

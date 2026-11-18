@@ -138,11 +138,11 @@ them.
 | hold `mod` while dragging | No snapping |
 | double-click text | Edit it in place |
 | `Delete` | Hide the selection |
-| `↑` / `↓` on a number in the inspector | Step it by 1, as in DevTools (`shift`: 10, `alt`: 0.1, `mod`: 100), in a computed value and in both style boxes. `Tab` / `shift+Tab` go from one computed value to the next |
+| `↑` / `↓` in a computed value | Step the number at the caret by 1, as in DevTools (`shift`: 10, `alt`: 0.1, `mod`: 100); on a keyword (`center`), the property's keyword before / after it. `Tab` / `shift+Tab` go from one computed value to the next |
+| double-click a number or keyword in the style boxes, then `↑` `↓` | The same in Element styles and Global, for what is selected (it stays selected, so the next press goes on). With a caret alone the arrows move it from line to line, as in any text box |
 | drag a computed value's name | Change its number, 1 a pixel (`shift`: 10, `alt`: 0.1); `Esc` puts it back. A click copies the line into Element styles |
 | typing CSS in the inspector | A list of property names, then of the property's values (`ctrl+Space` opens it too) |
 | `↑` `↓` in that list, then `Enter`, `Tab` or a click | Show each value on the page / take it; `Esc` closes the list and puts back what was typed |
-| `↑` `↓` on a keyword (`center`) | The property's keyword before / after it |
 | `mod+Z` / `mod+shift+Z` | Undo / redo |
 | `Enter` (`mod+Enter` in a text box), or **Send** | Send all the edits as one note |
 

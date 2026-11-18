@@ -271,13 +271,28 @@ export function liveValue(field, value, held) {
   follow(held);
 }
 
-/** ↑/↓ in a field: the number at the caret moves by `delta`, its unit kept. In the text areas
- *  only a number of a declaration's value; in a computed row the value's first number when the
- *  caret is on none. False when there is no number to step. */
+/** What is selected in a text area, less the spaces around it (a double click takes the space
+ *  after a word with it on some systems): [start, end], the same twice when nothing is. */
+export function picked(area) {
+  const text = area.value;
+  let a = area.selectionStart, b = area.selectionEnd;
+  while (a < b && /\s/.test(text[a])) a++;
+  while (b > a && /\s/.test(text[b - 1])) b--;
+  return [a, b];
+}
+
+/** ↑/↓ in a field: a number moves by `delta`, its unit kept. In a computed row (one line: the
+ *  arrows have nothing else to do) the number at the caret, or the value's first when the caret
+ *  is on none. In the text areas the arrows move the caret between lines, so only a number that
+ *  is selected, all of it or a part (a double click), and only one of a declaration's value; the
+ *  new number is selected in its place, so the next press goes on from it. False when there is
+ *  no number to step: the key is the field's. */
 export function stepNumber(field, delta) {
   const area = field === cssEl || field === freeEl;
   const text = field.value;
-  const t = numberAt(text, field.selectionStart, { to: field.selectionEnd, context: field === freeEl ? "sheet" : area ? "css" : "value", first: !area });
+  const [a, b] = area ? picked(field) : [field.selectionStart, field.selectionEnd];
+  if (area && a === b) return false;
+  const t = numberAt(text, a, { to: b, context: field === freeEl ? "sheet" : area ? "css" : "value", first: !area });
   if (!t) return false;
   const next = step(t, delta);
   if (area) {

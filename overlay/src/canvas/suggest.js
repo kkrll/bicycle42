@@ -1,12 +1,12 @@
 import { line } from "../page.js";
 import { C, clean, MAX_CSS } from "./state.js";
 import { CSS_PROPS } from "./css-data.js";
-import { caretContext, isNumber, matches, propNames, step, valueContext, valuesOf, wants, WIDE } from "./suggest-model.js";
+import { caretContext, isNumber, matches, propNames, step, valueContext, valuesAt, valuesOf, wants, WIDE } from "./suggest-model.js";
 import { entry } from "./stamps.js";
 import { setDecl, supports } from "./css.js";
 import { applyAll } from "./apply.js";
 import { commit } from "./batch.js";
-import { setValue, syncFields, typed, unmarkValue } from "./inspector.js";
+import { picked, readValue, setValue, syncFields, typed, unmarkValue } from "./inspector.js";
 
 // ── the inspector's suggestions ─────────────────────────────────────────────────────────────
 // As Chrome's Styles pane has them: property names while a name is typed, the property's
@@ -84,7 +84,7 @@ function show(f, asked) {
   const ctx = contextOf(f);
   if (!wants(ctx, asked)) return close();
   // (A name is asked of the browser as css.js's problems() asks it: what is offered is never flagged.)
-  const all = ctx.kind === "name" ? (names ||= propNames(CSS_PROPS).filter((n) => supports(n, "initial"))) : valuesFor(ctx.prop);
+  const all = ctx.kind === "name" ? (names ||= propNames(CSS_PROPS).filter((n) => supports(n, "initial"))) : valuesAt(valuesFor(ctx.prop), f.value, ctx);
   const items = matches(all, ctx.word);
   // (The one thing it could offer is what is typed already: Enter is then the field's own.)
   if (!items.length || (!asked && items.length === 1 && items[0] === ctx.word)) return close();
@@ -278,23 +278,37 @@ function accept(i) {
   }
 }
 
-/** ↑/↓ on a keyword with the list closed: the property's keyword before or after it, live. */
+/** ↑/↓ on a keyword with the list closed: the property's keyword before or after it, live.
+ *  In a computed row the keyword the caret is in. In a text box, where the arrows move the
+ *  caret from line to line, only a keyword that is selected (all of it or a part: a double
+ *  click); the new one is selected in its place, so the next press goes on from it. */
 function cycle(f, dir) {
-  const ctx = contextOf(f);
+  const area = !isVal(f);
+  let ctx;
+  if (area) {
+    const [a, b] = picked(f);
+    if (a === b) return false;
+    ctx = caretContext(f.value, b, f === freeEl);
+    if (ctx.kind !== "value" || a < ctx.s || b > ctx.e) return false; // (more than one token: the keys are the field's)
+  } else ctx = contextOf(f);
   if (ctx.kind !== "value") return false;
   const token = f.value.slice(ctx.s, ctx.e);
   if (!token || isNumber(token)) return false;
-  const next = step(valuesFor(ctx.prop), token, dir);
+  // (Beside other tokens the CSS-wide keywords are no value: `margin: 0 auto` never becomes `0 revert`.)
+  const next = step(valuesAt(valuesFor(ctx.prop), f.value, ctx), token, dir);
   if (!next) return false;
-  put(f, ctx.s, ctx.e, next);
+  if (area) {
+    f.setRangeText(next, ctx.s, ctx.e, "select");
+    typed(f);
+  } else put(f, ctx.s, ctx.e, next);
   stepIn(700); // a run of presses is one step
   return true;
 }
 
 // ── keys ────────────────────────────────────────────────────────────────────────────────────
 /** A key in an inspector field, before keys.js does anything with it. True when it was taken
- *  (and stopped): the list's keys while it is open; ctrl+space; ↑/↓ on a keyword. False for
- *  everything else, ↑/↓ on a number among it (keys.js steps those). */
+ *  (and stopped): the list's keys while it is open; ctrl+space; ↑/↓ on a keyword (in a text box:
+ *  on a selected one). False for everything else, ↑/↓ on a number among it (keys.js steps those). */
 export function suggestKey(e, field) {
   if (!ours(field) || e.isComposing) return false;
   const k = e.key, plain = !e.ctrlKey && !e.metaKey && !e.altKey;

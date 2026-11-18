@@ -810,7 +810,11 @@ async function main() {
       check("a burst of presses is one undo step", (await cssBox()) === "" && (await widthNow()) === w0, `${JSON.stringify(await cssBox())} / ${await widthNow()}`)
       await typeIn("css", "padding: 20px") // (the caret is at the end, touching the number)
       await arrowUp()
-      check("↑ in Element styles steps the number at the caret", (await cssBox()) === "padding: 21px" && (await css(SECOND, "padding-left")) === "21px", `${await cssBox()} / ${await css(SECOND, "padding-left")}`)
+      check("↑ in Element styles with a caret alone is the caret's: nothing is stepped", (await cssBox()) === "padding: 20px" && (await css(SECOND, "padding-left")) === "20px", `${await cssBox()} / ${await css(SECOND, "padding-left")}`)
+      await js(`${part("css")}.setSelectionRange(9, 13)`) // the number selected, as a double click on it leaves it
+      await arrowUp()
+      const picked = (await js(`(() => { const a = ${part("css")}; return a.value.slice(a.selectionStart, a.selectionEnd) })()`)) as string
+      check("↑ on a number selected in Element styles steps it, and it stays selected", (await cssBox()) === "padding: 21px" && (await css(SECOND, "padding-left")) === "21px" && picked === "21px", `${await cssBox()} / ${await css(SECOND, "padding-left")} / ${picked}`)
       await sleep(800)
       const name = await boxOf(`${rowOf("width")}.firstChild`)
       const grab = { x: Math.round(name.x + 30), y: Math.round(name.y + name.height / 2) }
