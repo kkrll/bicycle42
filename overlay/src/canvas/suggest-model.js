@@ -11,7 +11,9 @@ export const WIDE = ["inherit", "initial", "unset", "revert"];
 const GROUP = /^@(media|supports|layer|container|scope|starting-style|document)\b/i;
 const KEYFRAMES = /^@(-webkit-)?keyframes\b/i;
 const DESCRIPTORS = /^@(font-face|property|counter-style|page|font-palette-values|view-transition|position-try)\b/i;
+/** @type {ReturnType<typeof caretContext>} */
 const NONE = Object.freeze({ kind: "none" });
+/** @type {ReturnType<typeof caretContext>} */
 const SELECTOR = Object.freeze({ kind: "selector" });
 const WORD = /[\w.%#-]/; // what a value's token is made of: a keyword, a number with its unit, a hex colour
 
@@ -93,7 +95,8 @@ export function caretContext(text, caret, sheet) {
   return { kind: "value", prop, word: text.slice(s, caret).toLowerCase(), s, e, first: !text.slice(colon + 1, s).trim() };
 }
 
-/** The same for a field that holds one property's value and nothing else (a computed row). */
+/** The same for a field that holds one property's value and nothing else (a computed row).
+ *  @returns {ReturnType<typeof caretContext>} */
 export function valueContext(prop, text, caret) {
   const lead = `${prop}:`;
   const c = caretContext(lead + text, caret + lead.length, false);
