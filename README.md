@@ -138,6 +138,9 @@ them.
 | hold `mod` while dragging | No snapping |
 | double-click text | Edit it in place |
 | `Delete` | Hide the selection |
+| typing CSS in the inspector | A list of property names, then of the property's values (`ctrl+Space` opens it too) |
+| `↑` `↓` in that list, then `Enter`, `Tab` or a click | Show each value on the page / take it; `Esc` closes the list and puts back what was typed |
+| `↑` `↓` on a keyword (`center`) | The property's keyword before / after it |
 | `mod+Z` / `mod+shift+Z` | Undo / redo |
 | `Enter` (`mod+Enter` in a text box), or **Send** | Send all the edits as one note |
 
