@@ -1214,7 +1214,218 @@ test("tree: after a far-down element is selected from the page, the pane is full
   await page.close();
 });
 
-test("computed values are fields: a typed value goes into element styles; invalid is marked, Esc reverts, arrows move", async () => {
+test("↑ ↓ step the number at the caret: its unit kept, the page following, a burst one undo step", async () => {
+  const { page, f, errors } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  await page.waitForTimeout(250);
+  const val = (prop) => f.locator("b42-review .crow", { has: f.locator(".cp", { hasText: new RegExp(`^${prop}$`) }) }).locator(".cval");
+  const row = (prop) => ui(f, (r, p) => {
+    const x = [...r.querySelectorAll(".crow")].find((c) => c.firstChild.textContent === p).lastChild;
+    return { value: x.value, sel: x.value.slice(x.selectionStart, x.selectionEnd), bad: x.classList.contains("bad"), focus: r.activeElement === x };
+  }, prop);
+  const area = (cls) => ui(f, (r, c) => { const x = r.querySelector(`.${c}`); return { value: x.value, sel: x.value.slice(x.selectionStart, x.selectionEnd), at: x.selectionStart }; }, cls);
+  const caret = (cls, at) => ui(f, (r, [c, i]) => r.querySelector(`.${c}`).setSelectionRange(i, i), [cls, at]);
+  const pick = (cls, a, b) => ui(f, (r, [c, i, j]) => r.querySelector(`.${c}`).setSelectionRange(i, j), [cls, a, b]);
+  const pad = () => f.evaluate((s) => getComputedStyle(document.querySelector(s)).padding, SECOND);
+  // a computed row: the number at the caret, live
+  await val("padding").fill("8px 12px"); // (the caret is at the end)
+  await page.keyboard.press("ArrowUp");
+  assert.deepEqual(await row("padding"), { value: "8px 13px", sel: "13px", bad: false, focus: true });
+  await settle(f);
+  assert.equal(await pad(), "8px 13px", "the page follows without Enter");
+  assert.equal(await field(f, "css").inputValue(), "padding: 8px 13px;");
+  await page.keyboard.press("Home");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  assert.equal((await row("padding")).value, "6px 13px");
+  await page.keyboard.press("Shift+ArrowUp");
+  await page.keyboard.press("Alt+ArrowUp");
+  assert.equal((await row("padding")).value, "16.1px 13px");
+  await page.keyboard.press(`${MOD}+ArrowUp`);
+  assert.deepEqual(await row("padding"), { value: "116.1px 13px", sel: "116.1px", bad: false, focus: true });
+  await settle(f);
+  assert.equal(await pad(), "116.1px 13px");
+  // …and the whole burst is one undo step
+  await page.waitForTimeout(800);
+  await page.keyboard.press(`${MOD}+z`);
+  await settle(f);
+  assert.deepEqual([await field(f, "css").inputValue(), await pad()], ["", "16px"]);
+  assert.deepEqual(await row("padding"), { value: "16px", sel: "16px", bad: false, focus: true }, "the field shows what the page has again");
+  await page.keyboard.press(`${MOD}+Shift+z`);
+  await settle(f);
+  assert.deepEqual([await pad(), (await row("padding")).value], ["116.1px 13px", "116.1px 13px"]);
+  await page.keyboard.press(`${MOD}+z`);
+  await page.keyboard.press("Tab"); // leaving the field writes nothing back
+  await settle(f);
+  assert.deepEqual([await field(f, "css").inputValue(), await pad()], ["", "16px"]);
+  // the whole value selected (as Tab leaves it), or the caret on no number: the first number
+  await val("padding").fill("8px 12px");
+  await val("padding").selectText();
+  await page.keyboard.press("ArrowUp");
+  assert.deepEqual(await row("padding"), { value: "9px 12px", sel: "9px", bad: false, focus: true });
+  // a keyword: ↑ ↓ go to the property's keyword before and after it (suggest.js), so up then down is
+  // where it started (left declared, as DevTools leaves it); a colour's digits are not a number
+  await val("display").click();
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowDown");
+  assert.deepEqual([(await row("display")).value, (await row("display")).focus], ["block", true]);
+  const colour = (await row("color")).value;
+  await val("color").click();
+  await page.keyboard.press("ArrowUp");
+  assert.deepEqual([(await row("color")).value, (await row("color")).focus], [colour, true]);
+  // a step the browser will not take is marked and not written; the next one back is
+  await val("width").fill("0px");
+  await page.keyboard.press("ArrowDown");
+  assert.deepEqual(await row("width"), { value: "-1px", sel: "-1px", bad: true, focus: true });
+  await page.keyboard.press("ArrowUp");
+  assert.deepEqual(await row("width"), { value: "0px", sel: "0px", bad: false, focus: true });
+  await settle(f);
+  assert.equal(await field(f, "css").inputValue(), "padding: 9px 12px;\ndisplay: block;\nwidth: 0px;");
+  await page.keyboard.press("Escape");
+
+  // Element styles: the arrows move the caret from line to line, as in any text box; they step
+  // only a number that is selected (a double click), and only one of a declaration's value
+  const text = "margin: 4px 8px;\ncolor: #102030;";
+  await field(f, "css").fill(text);
+  await page.waitForTimeout(800);
+  await caret("css", 9); // in "4px": a caret alone
+  await page.keyboard.press("ArrowDown");
+  const down = await area("css");
+  assert.deepEqual([down.value, down.sel, down.at > 17], [text, "", true], "the caret went a line down and nothing changed");
+  await page.keyboard.press("ArrowUp");
+  assert.deepEqual([(await area("css")).value, (await area("css")).at < 17], [text, true]);
+  await pick("css", 8, 11); // "4px" selected
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("Shift+ArrowUp");
+  assert.deepEqual(await area("css"), { value: "margin: 15px 8px;\ncolor: #102030;", sel: "15px", at: 8 });
+  await settle(f);
+  assert.equal(await f.evaluate((s) => getComputedStyle(document.querySelector(s)).margin, SECOND), "15px 8px");
+  await pick("css", 26, 32); // the colour's digits, selected: still no number
+  await page.keyboard.press("ArrowUp");
+  const up = await area("css");
+  assert.deepEqual([up.value, up.at < 17], ["margin: 15px 8px;\ncolor: #102030;", true]);
+  await pick("css", 0, 6); // the property's name
+  await page.keyboard.press("ArrowDown");
+  assert.deepEqual([(await area("css")).value, (await area("css")).at > 17], ["margin: 15px 8px;\ncolor: #102030;", true]);
+  await pick("css", 8, 16); // two numbers: the keys are the field's
+  await page.keyboard.press("ArrowDown");
+  assert.equal((await area("css")).value, "margin: 15px 8px;\ncolor: #102030;");
+  await page.waitForTimeout(800);
+  await page.keyboard.press(`${MOD}+z`);
+  assert.equal(await field(f, "css").inputValue(), text, "the two presses were one step");
+
+  // the stylesheet: a rule's values, never its selector
+  await field(f, "free").fill("h2 { margin: 4px }");
+  await pick("free", 1, 2);
+  await page.keyboard.press("ArrowUp");
+  assert.equal((await area("free")).value, "h2 { margin: 4px }");
+  await caret("free", 14);
+  await page.keyboard.press("ArrowUp");
+  assert.equal((await area("free")).value, "h2 { margin: 4px }", "a caret alone steps nothing");
+  await pick("free", 13, 14); // a part of "4px": the whole number
+  await page.keyboard.press("ArrowUp");
+  await settle(f);
+  assert.deepEqual([(await area("free")).value, (await area("free")).sel], ["h2 { margin: 5px }", "5px"]);
+  assert.equal(await f.evaluate(() => getComputedStyle(document.querySelector("h2")).marginTop), "5px");
+  assert.equal(await f.evaluate(() => window.pageKeys), 0, "the page saw none of the keys");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("a drag on a computed row's name scrubs its number: one undo step, Esc puts it back, a click still copies", async () => {
+  const { page, f, errors } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  await page.waitForTimeout(250);
+  const name = (prop) => f.locator("b42-review .crow .cp", { hasText: new RegExp(`^${prop}$`) });
+  const at = async (prop) => { const b = await name(prop).boundingBox(); return { x: Math.round(b.x + 30), y: Math.round(b.y + b.height / 2) }; };
+  const value = (prop) => ui(f, (r, p) => [...r.querySelectorAll(".crow")].find((c) => c.firstChild.textContent === p).lastChild.value, prop);
+  const width = async () => (await box(f, SECOND)).width;
+  const w = await at("width");
+  // one unit a pixel, live; the cursor says so wherever the pointer goes
+  await page.mouse.move(w.x, w.y);
+  await page.mouse.down();
+  await page.mouse.move(w.x + 2, w.y);
+  await frames(f);
+  assert.equal(await field(f, "css").inputValue(), "", "under three pixels nothing moves");
+  await page.mouse.move(w.x + 20, w.y + 40, { steps: 5 });
+  await settle(f);
+  assert.deepEqual([await field(f, "css").inputValue(), await width()], ["width: 220px;", 220]);
+  assert.equal(await name("width").evaluate((b) => getComputedStyle(b).cursor), "ew-resize");
+  // shift: ten a pixel; alt: a tenth
+  await page.keyboard.down("Shift");
+  await page.mouse.move(w.x + 23, w.y, { steps: 3 });
+  await page.keyboard.up("Shift");
+  await page.keyboard.down("Alt");
+  await page.mouse.move(w.x + 18, w.y, { steps: 5 });
+  await page.keyboard.up("Alt");
+  await settle(f);
+  assert.equal(await field(f, "css").inputValue(), "width: 249.5px;");
+  await page.mouse.move(w.x - 30, w.y, { steps: 4 });
+  await page.waitForTimeout(800); // a pause in the drag does not end the step
+  await page.mouse.move(w.x - 40, w.y, { steps: 2 });
+  await page.mouse.up();
+  await settle(f);
+  assert.deepEqual([await field(f, "css").inputValue(), await width()], ["width: 191.5px;", 191.5], "the click that ends the drag copies nothing");
+  assert.equal(await name("width").evaluate((b) => getComputedStyle(b).cursor), "pointer");
+  await page.waitForTimeout(250);
+  assert.equal(await value("width"), "191.5px");
+  // the drag was one step
+  await page.keyboard.press(`${MOD}+z`);
+  await settle(f);
+  assert.deepEqual([await field(f, "css").inputValue(), await width()], ["", 200]);
+  // Esc during a drag: the value from before it, and no step
+  await page.mouse.move(w.x, w.y);
+  await page.mouse.down();
+  await page.mouse.move(w.x + 30, w.y, { steps: 5 });
+  await settle(f);
+  assert.equal(await width(), 230);
+  await page.keyboard.press("Escape");
+  await settle(f);
+  assert.deepEqual([await field(f, "css").inputValue(), await width(), await value("width")], ["", 200, "200px"]);
+  await page.mouse.move(w.x + 60, w.y, { steps: 3 });
+  await page.mouse.up();
+  await settle(f);
+  assert.deepEqual([await field(f, "css").inputValue(), await width()], ["", 200], "the drag is over");
+  assert.equal(await ui(f, (r) => r.querySelector(".insp").hidden), false, "Esc ended the drag and nothing else");
+  assert.equal(await ui(f, (r) => r.querySelector(".undo").disabled), true, "and it left no step");
+  // a value typed in the row and dragged at once: the drag starts from it, not from what the
+  // row last read from the page (it reads every 150 ms at best)
+  await f.locator("b42-review .crow", { has: f.locator(".cp", { hasText: /^width$/ }) }).locator(".cval").fill("240px");
+  await page.mouse.move(w.x, w.y);
+  await page.mouse.down();
+  await page.mouse.move(w.x + 10, w.y, { steps: 2 });
+  await page.mouse.up();
+  await settle(f);
+  assert.deepEqual([await field(f, "css").inputValue(), await width()], ["width: 250px;", 250]);
+  // …and so does one on a row whose value had no number until it was typed
+  const ls = await at("letter-spacing");
+  assert.equal(await value("letter-spacing"), "normal");
+  await f.locator("b42-review .crow", { has: f.locator(".cp", { hasText: /^letter-spacing$/ }) }).locator(".cval").fill("2px");
+  await page.mouse.move(ls.x, ls.y);
+  await page.mouse.down();
+  await page.mouse.move(ls.x + 5, ls.y, { steps: 2 });
+  await page.mouse.up();
+  await settle(f);
+  assert.equal(await field(f, "css").inputValue(), "width: 250px;\nletter-spacing: 7px;");
+  await ui(f, (r) => r.querySelector(".reset").click());
+  await settle(f);
+  assert.deepEqual([await field(f, "css").inputValue(), await width()], ["", 200]);
+  // a click without moving copies the line, as before; so does one on a value with no number
+  await page.mouse.click(w.x, w.y);
+  await settle(f);
+  assert.equal(await field(f, "css").inputValue(), "width: 200px;");
+  const d = await at("display");
+  await page.mouse.move(d.x, d.y);
+  await page.mouse.down();
+  await page.mouse.move(d.x + 20, d.y, { steps: 4 });
+  await page.mouse.up();
+  await settle(f);
+  assert.equal(await field(f, "css").inputValue(), "width: 200px;\ndisplay: block;");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("computed values are fields: a typed value goes into element styles; invalid is marked, Esc reverts, arrows step", async () => {
   const { page, f } = await open();
   await clickAt(page, f, SECOND, 100, 80);
   await page.waitForTimeout(250);
@@ -1247,14 +1458,11 @@ test("computed values are fields: a typed value goes into element styles; invali
   assert.equal(await field(f, "css").inputValue(), "width: 300px;");
   await page.keyboard.press("Escape");
   assert.deepEqual(await row("width"), { value: "300px", bad: false, title: "300px", mine: true, focus: false });
-  // ↓ ↑ move between the rows; alt+↑ nudges a number (shift: by 10)
+  // ↑ ↓ step the number (shift: by 10) and stay in the row: Tab is what moves between rows
   await val("width").click();
-  await page.keyboard.press("ArrowDown");
-  assert.equal((await row("height")).focus, true);
   await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("Shift+ArrowUp");
   assert.equal((await row("width")).focus, true);
-  await page.keyboard.press("Alt+ArrowUp");
-  await page.keyboard.press("Alt+Shift+ArrowUp");
   await settle(f);
   assert.equal(await field(f, "css").inputValue(), "width: 311px;");
   // a second property is appended; the name still copies the line as it is

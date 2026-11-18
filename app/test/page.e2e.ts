@@ -686,6 +686,64 @@ async function main() {
     await until(async () => (await css("#grid .tile", "border-radius")) === "8px", 2000)
     page.send({ type: "pins", pins: [] })
 
+    // ── the inspector's suggestions: names, values, the live preview, a computed row ──────────
+    {
+      type List = { items: string[]; on: string } | null
+      const sug = () => js(`(() => { const l = ${part("sug")}; return l.hidden || l.style.visibility === "hidden" ? null : { items: [...l.children].map((c) => c.textContent), on: l.querySelector(".on")?.textContent ?? "" } })()`) as Promise<List>
+      const field = (cls: string) => js(`${part(cls)}.value`) as Promise<string>
+      /** Letters as key presses: typing, as the list sees it. */
+      const letters = async (text: string) => {
+        for (const c of text) await key(c, `Key${c.toUpperCase()}`, c.toUpperCase().charCodeAt(0), c)
+        await sleep(200)
+      }
+      const press = async (k: string, vk: number, times = 1) => {
+        for (let i = 0; i < times; i++) await key(k, k, vk)
+        await sleep(200)
+      }
+      const plans = await pageBox("#plans")
+      await clickPt({ x: plans.x + plans.width - 6, y: plans.y + 6 }) // the row itself, not a card
+      await clickPt(centre(await boxOf(part("t-el")))) // (the stylesheet was typed in last: back to the element's side)
+      await clickPt(centre(await boxOf(part("css"))))
+      await letters("al")
+      const names = await sug()
+      check("typing al in Element styles offers align-items first", names?.items[0] === "align-items" && names.on === "align-items", JSON.stringify(names?.items.slice(0, 4)))
+      const inside = (await js(`(() => { const b = ${part("sug")}.getBoundingClientRect(), a = ${part("css")}.getBoundingClientRect(); return b.width > 0 && b.left >= 0 && b.top >= 0 && b.right <= innerWidth && b.bottom <= innerHeight && (b.top >= a.top || b.bottom <= a.bottom) && ${shadow}.elementFromPoint(b.left + 20, b.top + 10)?.closest(".sug") === ${part("sug")} })()`)) as boolean
+      check("…in a list of the layer's own, whole and on top, by the text", inside)
+      await snap("overlay-canvas-suggest")
+      await press("Tab", 9)
+      const values = await sug()
+      check("Tab takes it with its colon, keeps the focus and opens its values", (await field("css")) === "align-items: " && (await js(`${shadow}.activeElement === ${part("css")}`)) === true && values?.items[0] === "normal" && !!values.items.includes("center"), JSON.stringify([await field("css"), values?.items.slice(0, 4)]))
+      await letters("c")
+      check("…and c offers center", (await sug())?.on === "center", JSON.stringify(await sug()))
+      had = count("note")
+      await key("Enter", "Enter", 13, "\r")
+      await sleep(200)
+      check("Enter writes it and the page follows: no new line, nothing sent", (await field("css")) === "align-items: center" && (await css("#plans", "align-items")) === "center" && (await sug()) === null && count("note") === had, JSON.stringify([await field("css"), await css("#plans", "align-items")]))
+      await press("Backspace", 8, 6)
+      await letters("s")
+      const some = await sug()
+      await press("ArrowDown", 40)
+      const shown2 = (await sug())?.on ?? ""
+      check("↓ shows the next value on the page while the list is open", !!some && shown2 === some.items[1] && shown2 !== "" && (await field("css")) === `align-items: ${shown2}` && (await css("#plans", "align-items")) === shown2, JSON.stringify([some?.items.slice(0, 3), shown2, await field("css"), await css("#plans", "align-items")]))
+      await press("Escape", 27)
+      check("Esc closes the list and puts back what was typed, in the field still", (await sug()) === null && (await field("css")) === "align-items: s" && (await css("#plans", "align-items")) === "normal" && (await js(`${shadow}.activeElement === ${part("css")}`)) === true, JSON.stringify([await field("css"), await css("#plans", "align-items")]))
+      await press("Backspace", 8)
+      await letters("c")
+      await key("Enter", "Enter", 13, "\r")
+      await sleep(200)
+      // A computed row: its value is a keyword, and the arrows go through the property's keywords.
+      const row = `[...${shadow}.querySelectorAll(".crow")].find((r) => r.firstChild.textContent === "align-items").lastChild`
+      await js(`${row}.scrollIntoView({ block: "nearest" })`)
+      await clickPt(centre(await boxOf(row)))
+      const was = (await js(`${row}.value`)) as string
+      await press("ArrowDown", 40)
+      check("in a computed row ↓ with the list closed goes from center to start, live", was === "center" && (await js(`${row}.value`)) === "start" && (await css("#plans", "align-items")) === "start" && (await field("css")) === "align-items: start" && (await sug()) === null, JSON.stringify([was, await js(`${row}.value`), await css("#plans", "align-items"), await field("css")]))
+      await press("Escape", 27) // out of the row
+      await clickPt(centre(await boxOf(part("reset"))))
+      check("…and Reset leaves the page as it was", (await until(async () => (await css("#plans", "align-items")) === "normal", 2000)) === true && (await field("css")) === "")
+      await clickPt(centre(await pageBox(SECOND))) // the selection as the next part found it before
+    }
+
     // ── a move and a text edit; the draft brings them back after a reload ─────────────────────
     const order = () => js(`[...document.querySelectorAll("#plans article")].sort((a, b) => a.getBoundingClientRect().x - b.getBoundingClientRect().x).map((a) => a.querySelector("h3").textContent).join()`) as Promise<string>
     const [c1, c3] = [await pageBox("#plans article:nth-of-type(1)"), await pageBox("#plans article:nth-of-type(3)")]
@@ -723,6 +781,54 @@ async function main() {
     page.send({ type: "pins", pins: [{ id: moved2!.id, n: 9, status: "failed", selector: "#title" }] })
     check("a failed note puts the order and the text back", (await until(async () => (await order()) === "Free,Pro,Scale" && (await js("document.querySelector('#title').textContent")) === "Simple pricing", 2000)) === true)
     page.send({ type: "pins", pins: [] })
+    // ── numbers: ↑ steps the one at the caret, a drag on a computed row's name scrubs it ──────
+    {
+      await clickPt(centre(await pageBox(SECOND)))
+      const rowOf = (prop: string) => `[...${shadow}.querySelectorAll('.crow')].find((c) => c.firstChild.textContent === ${JSON.stringify(prop)})`
+      const cssBox = () => js(`${part("css")}.value`) as Promise<string>
+      const widthNow = async () => Math.round((await pageBox(SECOND)).width * 10) / 10
+      const arrowUp = async (modifiers = 0) => {
+        await dbg.sendCommand("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowUp", code: "ArrowUp", windowsVirtualKeyCode: 38, modifiers })
+        await dbg.sendCommand("Input.dispatchKeyEvent", { type: "keyUp", key: "ArrowUp", code: "ArrowUp", windowsVirtualKeyCode: 38, modifiers })
+        await sleep(150)
+      }
+      const modZ = async () => {
+        const modifiers = mod === "meta" ? 4 : 2
+        await dbg.sendCommand("Input.dispatchKeyEvent", { type: "keyDown", key: "z", code: "KeyZ", windowsVirtualKeyCode: 90, modifiers })
+        await dbg.sendCommand("Input.dispatchKeyEvent", { type: "keyUp", key: "z", code: "KeyZ", windowsVirtualKeyCode: 90, modifiers })
+        await sleep(200)
+      }
+      await until(async () => !!(await js(`${rowOf("width")}?.lastChild.value`)), 2000)
+      const w0 = await widthNow()
+      await clickPt(centre(await boxOf(`${rowOf("width")}.lastChild`)))
+      await arrowUp()
+      check("↑ in a computed value steps its number by 1, and the page follows", (await cssBox()) === `width: ${w0 + 1}px;` && (await widthNow()) === w0 + 1, `${await cssBox()} / ${await widthNow()} from ${w0}`)
+      await arrowUp(8)
+      check("shift+↑ steps by 10", (await cssBox()) === `width: ${w0 + 11}px;` && (await widthNow()) === w0 + 11, `${await cssBox()} / ${await widthNow()}`)
+      await sleep(800) // the burst becomes one edit after a pause
+      await modZ()
+      check("a burst of presses is one undo step", (await cssBox()) === "" && (await widthNow()) === w0, `${JSON.stringify(await cssBox())} / ${await widthNow()}`)
+      await typeIn("css", "padding: 20px") // (the caret is at the end, touching the number)
+      await arrowUp()
+      check("↑ in Element styles with a caret alone is the caret's: nothing is stepped", (await cssBox()) === "padding: 20px" && (await css(SECOND, "padding-left")) === "20px", `${await cssBox()} / ${await css(SECOND, "padding-left")}`)
+      await js(`${part("css")}.setSelectionRange(9, 13)`) // the number selected, as a double click on it leaves it
+      await arrowUp()
+      const picked = (await js(`(() => { const a = ${part("css")}; return a.value.slice(a.selectionStart, a.selectionEnd) })()`)) as string
+      check("↑ on a number selected in Element styles steps it, and it stays selected", (await cssBox()) === "padding: 21px" && (await css(SECOND, "padding-left")) === "21px" && picked === "21px", `${await cssBox()} / ${await css(SECOND, "padding-left")} / ${picked}`)
+      await sleep(800)
+      const name = await boxOf(`${rowOf("width")}.firstChild`)
+      const grab = { x: Math.round(name.x + 30), y: Math.round(name.y + name.height / 2) }
+      const w1 = await widthNow()
+      await drag(grab, { x: grab.x + 24, y: grab.y })
+      check("a drag on a computed row's name scrubs its number, 1 a pixel", (await cssBox()) === `padding: 21px;\nwidth: ${w1 + 24}px;` && (await widthNow()) === w1 + 24, `${JSON.stringify(await cssBox())} / ${await widthNow()} from ${w1}`)
+      await modZ()
+      check("…and the drag is one undo step", (await cssBox()) === "padding: 21px" && (await widthNow()) === w1, `${JSON.stringify(await cssBox())} / ${await widthNow()}`)
+      await clickPt(grab)
+      check("a click on the name without moving still copies the line", (await cssBox()) === `padding: 21px;\nwidth: ${w1}px;`, JSON.stringify(await cssBox()))
+      await clickPt(centre(await boxOf(part("reset"))))
+      check("(Reset takes these edits away again)", (await cssBox()) === "" && (await css(SECOND, "padding-left")) === "16px", JSON.stringify(await cssBox()))
+    }
+
     // ── the bar's Send button: a real click sends the batch; the mode is the host's to switch ──
     check("the layer says which mode it is in, for the host's switch", same(messages.filter((m) => m.type === "mode").at(-1), { type: "mode", mode: "canvas", brush: false }), JSON.stringify(messages.filter((m) => m.type === "mode").at(-1)))
     await clickPt(centre(await pageBox(SECOND)))

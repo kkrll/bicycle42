@@ -291,6 +291,18 @@ textarea::placeholder { color: #9ca3af; }
   .p-el .c-in .ed { flex: 1; min-height: 60px; }
   .p-el .c-in .ed textarea { height: 100%; max-height: none; field-sizing: fixed; }
 }
+/* The inspector's suggestions: property names and a property's keywords, under the caret. Not
+   inside the inspector, which would cut the list off at its edge (and whose body is a container:
+   a fixed box in it would be placed by it): a box of the layer's own, moved to its place.
+   Eight rows show, the rest scrolls; the highlighted row is in the accent colour. */
+.sug { position: fixed; left: 0; top: 0; z-index: 3; box-sizing: border-box; min-width: 150px; max-width: min(360px, calc(100vw - 8px)); max-height: 168px; overflow: hidden auto;
+  padding: 4px; border-radius: 8px; pointer-events: auto; background: #232325; color: #d4d4d4; scrollbar-width: thin; overscroll-behavior: contain;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.12); font: 12px/20px ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace; }
+.sug[hidden] { display: none; }
+.sg { display: flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
+.sg:hover { background: rgba(255, 255, 255, 0.08); }
+.sg.on { background: #fffaa0; color: #171717; }
+.sg i { flex: none; width: 10px; height: 10px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(128, 128, 128, 0.6); }
 /* motion mode: on the page, the open element (the accent), its corners while it plays, the
    elements of the list row under the pointer, a ring that goes out to find a small one */
 /* (its corners are the outline's four strips, each a 10 px corner) */
