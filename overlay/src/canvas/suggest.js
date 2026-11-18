@@ -35,6 +35,7 @@ const L = {
   live: false, // an item is being shown on the page in place of what was typed
   typed: "", caret: 0, // what was typed there, and where the caret was: Escape puts them back
   css: "", // (a computed row) the element's styles before the first item was shown
+  was: "", // (a computed row) the value the row had then
   raf: 0,
 };
 
@@ -119,7 +120,7 @@ function draw() {
     listEl.style.visibility = "hidden"; // until it is placed, in the next frame
     listEl.hidden = false;
   }
-  L.field.setAttribute("aria-expanded", "true");
+  if (isVal(L.field)) L.field.setAttribute("aria-expanded", "true"); // (a combobox; a text area is none, and has no such state)
   L.field.setAttribute("aria-activedescendant", `b42-sg-${L.on}`);
   place();
 }
@@ -197,7 +198,7 @@ function close() {
   L.field = null;
   listEl.hidden = true;
   listEl.replaceChildren();
-  f.setAttribute("aria-expanded", "false");
+  if (isVal(f)) f.setAttribute("aria-expanded", "false");
   f.removeAttribute("aria-activedescendant");
   if (L.live) stepIn(700); // what was shown stays: an edit like one typed
   L.live = false;
@@ -233,8 +234,14 @@ function preview(v) {
     L.typed = f.value.slice(L.s, L.e);
     L.caret = f.selectionEnd;
     L.css = (isVal(f) && C.draft.B.els[C.selRs]?.css) || "";
+    L.was = isVal(f) ? f.parentElement._v || "" : "";
   }
-  put(f, L.s, L.e, v);
+  if (isVal(f)) {
+    // A row's own value, come to on the way through the list, is not a change: nothing is declared for it.
+    f.setRangeText(v, L.s, L.e, "end");
+    if (line(clean(f.value)) === L.was) restore();
+    else writeValue(f);
+  } else put(f, L.s, L.e, v);
   L.e = L.s + v.length;
   stepIn(HELD);
 }
@@ -247,12 +254,17 @@ function revert() {
   f.setRangeText(L.typed, L.s, L.e, "end");
   f.setSelectionRange(L.caret, L.caret);
   if (!isVal(f)) typed(f);
-  else if (C.sel) {
-    entry(C.sel).css = L.css;
-    applyAll();
-    syncFields();
-  }
+  else restore();
   stepIn(700); // (nothing changed since the last step: none is made)
+}
+
+/** (A computed row.) The element's styles as they were before the list showed anything. */
+function restore() {
+  if (!C.sel) return;
+  entry(C.sel).css = L.css;
+  unmarkValue(L.field.parentElement);
+  applyAll();
+  syncFields();
 }
 
 function accept(i) {
@@ -270,8 +282,9 @@ function accept(i) {
   close();
   f.setRangeText(item, s, e, "end");
   if (isVal(f)) {
+    readValue(f.parentElement); // (what the page has now: shown already, setValue finds nothing new to write)
     setValue(f);
-    commit(); // (shown already, setValue finds nothing new to write: the step is closed here)
+    commit(); // (…and the step is closed here)
   } else {
     typed(f);
     commit();
@@ -315,16 +328,22 @@ export function suggestKey(e, field) {
   const arrow = k === "ArrowDown" ? 1 : k === "ArrowUp" ? -1 : 0;
   if (L.field && L.field !== field) close();
   if (L.field) {
-    if (arrow && plain) {
+    if (arrow && plain && !e.shiftKey) {
       highlight(L.on + arrow);
       return take(e);
     }
-    if ((k === "PageDown" || k === "PageUp") && plain) {
+    if ((k === "PageDown" || k === "PageUp") && plain && !e.shiftKey) {
       const to = L.on + (k === "PageDown" ? ROWS : -ROWS);
       highlight(Math.max(0, Math.min(L.items.length - 1, to)));
       return take(e);
     }
     if ((k === "Enter" || k === "Tab") && plain && !e.shiftKey) {
+      // In a text box, Enter after a whole keyword that longer ones start with (`flex`, with
+      // `inline-flex` under it) is the new line it is everywhere else: there is nothing to take.
+      if (k === "Enter" && !isVal(field) && L.kind === "value" && !L.live && L.on === 0 && field.value.slice(L.s, L.e).toLowerCase() === L.items[0]) {
+        close();
+        return false;
+      }
       accept(L.on);
       return take(e);
     }
@@ -335,8 +354,9 @@ export function suggestKey(e, field) {
     }
     // The caret is about to move, or the key is the field's own (mod+Enter sends): the list
     // goes, what it showed stays.
-    // (With mod: undo and the like change the text under the list. A modifier alone is no key yet.)
-    if ((!plain && !/^(Control|Meta|Alt|Shift)$/.test(k)) || /^(Enter|Tab|ArrowLeft|ArrowRight|Home|End|PageUp|PageDown)$/.test(k)) close();
+    // (With mod: undo and the like change the text under the list. A modifier alone is no key yet.
+    // ↑/↓ get here with shift, which selects: the highlight is moved by the plain ones only.)
+    if ((!plain && !/^(Control|Meta|Alt|Shift)$/.test(k)) || /^(Enter|Tab|Arrow(Left|Right|Up|Down)|Home|End|PageUp|PageDown)$/.test(k)) close();
     return false;
   }
   if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && (e.code === "Space" || k === " ")) {
@@ -379,9 +399,15 @@ export function attachSuggest(els) {
   listEl = root.querySelector(".sug");
   const mark = (f) => {
     if (f.hasAttribute("aria-autocomplete")) return;
+    // A computed value is a combobox, open or not. A text area cannot be one (aria-expanded
+    // means nothing on it): it says that a list may pop up, which one, and the item in it.
+    // (The list and the fields are in the one shadow root, so the ids are found.)
     f.setAttribute("aria-autocomplete", "list");
-    f.setAttribute("aria-controls", "b42-sug");
-    f.setAttribute("aria-expanded", "false");
+    f.setAttribute("aria-controls", listEl.id);
+    if (isVal(f)) {
+      f.setAttribute("role", "combobox");
+      f.setAttribute("aria-expanded", "false");
+    } else f.setAttribute("aria-haspopup", "listbox");
   };
   for (const a of [cssEl, freeEl]) {
     mark(a);

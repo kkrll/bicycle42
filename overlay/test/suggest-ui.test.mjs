@@ -110,10 +110,12 @@ test("element styles: names as a name is typed, then the property's values; Tab 
     const l = r.querySelector(".sug"), b = l.getBoundingClientRect(), t = r.querySelector(".css");
     const top = r.elementFromPoint(b.x + 20, b.y + 10);
     return { parent: l.parentNode === r, top: !!top && l.contains(top), role: l.getAttribute("role"), opt: l.firstChild.getAttribute("role"), sel: l.firstChild.getAttribute("aria-selected"),
-      auto: t.getAttribute("aria-autocomplete"), exp: t.getAttribute("aria-expanded"), act: t.getAttribute("aria-activedescendant"), id: l.firstChild.id, owns: t.getAttribute("aria-controls") === l.id,
+      auto: t.getAttribute("aria-autocomplete"), exp: t.getAttribute("aria-expanded"), pop: t.getAttribute("aria-haspopup"), tRole: t.getAttribute("role"), act: t.getAttribute("aria-activedescendant"), id: l.firstChild.id, owns: t.getAttribute("aria-controls") === l.id,
       inView: b.x >= 0 && b.y >= 0 && b.right <= innerWidth && b.bottom <= innerHeight };
   });
-  assert.deepEqual(a, { parent: true, top: true, role: "listbox", opt: "option", sel: "true", auto: "list", exp: "true", act: a.id, id: "b42-sg-0", owns: true, inView: true });
+  // (A text area is no combobox and has no aria-expanded: it says a list pops up, which, and the item in it.)
+  assert.deepEqual(a, { parent: true, top: true, role: "listbox", opt: "option", sel: "true", auto: "list", exp: null, pop: "listbox", tRole: null, act: a.id, id: "b42-sg-0", owns: true, inView: true });
+  assert.equal(await ui((r) => r.querySelectorAll("#b42-sug").length + r.querySelectorAll("#b42-sg-0").length), 2, "the ids are the one shadow root's, once each");
 
   await press("Tab");
   assert.equal(await value("css"), "align-items: ", "Tab takes the name and adds the colon, not two spaces");
@@ -130,7 +132,7 @@ test("element styles: names as a name is typed, then the property's values; Tab 
   assert.equal(await value("css"), "align-items: center", "Enter takes the value: no new line");
   assert.equal(await list(), null);
   assert.equal(await style("#plans", "align-items"), "center");
-  assert.equal(await ui((r) => r.querySelector(".css").getAttribute("aria-expanded")), "false");
+  assert.deepEqual(await ui((r) => [r.querySelector(".css").getAttribute("aria-activedescendant"), r.querySelector(".css").getAttribute("aria-expanded")]), [null, null]);
 
   // Typing on: the list follows, and closes when nothing matches.
   await type(";\nzz");
@@ -283,6 +285,43 @@ test("the style boxes: ↑/↓ are the caret's; they step or cycle only a number
   await page.close();
 });
 
+test("Enter after a whole keyword is a new line, though longer keywords start with it; shift+↓ is not the list's", async () => {
+  const { page, f, errors, ui, press, type, list, value, style } = await open();
+  await f.locator("b42-review .css").click();
+  await type("display: flex");
+  assert.deepEqual([(await list()).on, (await list()).items.includes("inline-flex")], ["flex", true], "the list is open, on what is typed");
+  await press("Enter");
+  assert.equal(await list(), null);
+  await type("gap: 4px");
+  assert.equal(await value("css"), "display: flex\ngap: 4px", "two lines");
+  // The highlight moved: Enter takes what it is on, as before.
+  await type(";\ndisplay: flex");
+  await press("ArrowDown", "Enter");
+  assert.equal(await value("css"), "display: flex\ngap: 4px;\ndisplay: inline-flex");
+  assert.equal(await style("#plans", "display"), "inline-flex");
+  // A name is taken with its colon, whole or not.
+  await type(";\ngap");
+  assert.equal((await list()).on, "gap");
+  await press("Enter");
+  assert.equal(await value("css"), "display: flex\ngap: 4px;\ndisplay: inline-flex;\ngap: ");
+  // shift+↓ selects: the list closes, its highlight goes nowhere and nothing is shown on the page.
+  await type("0;\nalign-items: st");
+  const before = await value("css");
+  assert.equal((await list()).on, "stretch");
+  await press("Shift+ArrowDown");
+  assert.equal(await list(), null);
+  assert.deepEqual([await value("css"), await style("#plans", "align-items")], [before, "normal"]);
+  await page.keyboard.press("Control+Space");
+  await press();
+  assert.equal((await list()).on, "stretch");
+  await press("Shift+ArrowUp");
+  assert.equal(await list(), null);
+  assert.equal(await value("css"), before);
+  assert.ok((await ui((r) => r.querySelector(".css").selectionEnd - r.querySelector(".css").selectionStart)) > 0, "shift+↑ selected a line");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("names are properties this browser takes: no descriptors, nothing it would flag as unknown", async () => {
   const { page, f, errors, press, type, list } = await open();
   await f.locator("b42-review .css").click();
@@ -326,6 +365,37 @@ test("the named colours are offered wherever a colour goes, with their swatch", 
   await page.close();
 });
 
+test("a computed row: coming back to the row's own value in the list declares nothing, with Enter or with Escape", async () => {
+  const { page, errors, ui, press, type, list, value, focus, style, row } = await open();
+  const ai = row("align-items");
+  await ai.click();
+  assert.deepEqual(await ui((r) => [r.activeElement.getAttribute("role"), r.activeElement.getAttribute("aria-expanded"), r.activeElement.getAttribute("aria-controls"), r.activeElement.getAttribute("aria-haspopup")]), ["combobox", "false", "b42-sug", null]);
+  await press(`${MOD}+a`);
+  await type("n");
+  assert.deepEqual((await list()).items.slice(0, 2), ["normal", "baseline"]);
+  await press("ArrowDown");
+  assert.deepEqual([await ai.inputValue(), await value("css"), await style("#plans", "align-items")], ["baseline", "align-items: baseline;", "baseline"]);
+  await press("ArrowUp"); // back on "normal": what the row had
+  assert.deepEqual([await ai.inputValue(), await value("css"), await style("#plans", "align-items")], ["normal", "", "normal"], "no `align-items: normal;` for a value it has anyway");
+  await press("Enter");
+  assert.deepEqual([await list(), await ai.inputValue(), await value("css"), await focus()], [null, "normal", "", "cval"]);
+  assert.equal(await ui((r) => r.querySelector(".undo").disabled), true, "and no undo step");
+  // The same way round, ended with Escape.
+  await press(`${MOD}+a`);
+  await type("n");
+  await press("ArrowDown", "ArrowDown", "ArrowUp", "ArrowUp");
+  assert.deepEqual([(await list()).on, await value("css")], ["normal", ""]);
+  await press("ArrowDown", "Escape");
+  assert.deepEqual([await list(), await ai.inputValue(), await value("css"), await style("#plans", "align-items")], [null, "n", "", "normal"]);
+  assert.equal(await ui((r) => r.querySelector(".undo").disabled), true);
+  // A value that is another one is written, as before.
+  await page.keyboard.press("Control+Space");
+  await press("ArrowDown", "Enter");
+  assert.deepEqual([await ai.inputValue(), await value("css")], ["baseline", "align-items: baseline;"]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("a computed row: values only, under the field; ↑/↓ cycles; Enter writes as the row does", async () => {
   const { page, errors, ui, press, type, list, value, focus, style, row, settle } = await open();
   const ai = row("align-items");
@@ -353,9 +423,9 @@ test("a computed row: values only, under the field; ↑/↓ cycles; Enter writes
   assert.deepEqual(l.items.slice(0, 2), ["end", "stretch"]);
   const at = await ui((r) => {
     const b = r.activeElement.getBoundingClientRect(), s = r.querySelector(".sug").getBoundingClientRect();
-    return { under: s.top >= b.bottom || s.bottom <= b.top, near: Math.abs(s.left - b.left) < 16, exp: r.activeElement.getAttribute("aria-expanded"), act: r.activeElement.getAttribute("aria-activedescendant") };
+    return { under: s.top >= b.bottom || s.bottom <= b.top, near: Math.abs(s.left - b.left) < 16, role: r.activeElement.getAttribute("role"), exp: r.activeElement.getAttribute("aria-expanded"), act: r.activeElement.getAttribute("aria-activedescendant") };
   });
-  assert.deepEqual(at, { under: true, near: true, exp: "true", act: "b42-sg-0" });
+  assert.deepEqual(at, { under: true, near: true, role: "combobox", exp: "true", act: "b42-sg-0" });
   await press("ArrowDown");
   assert.equal(await ai.inputValue(), "stretch");
   assert.equal(await style("#plans", "align-items"), "stretch", "the highlighted value shows on the page");
