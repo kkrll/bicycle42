@@ -14,7 +14,7 @@ import http from "node:http"
 import os from "node:os"
 import path from "node:path"
 import type { AppState } from "../src/shared/types"
-import type { Page } from "../src/main/page"
+import type { PageView } from "../src/main/page"
 import { start, type FakeRequest } from "./fake-server"
 
 const overlayDir = path.join(__dirname, "../../../overlay")
@@ -46,7 +46,7 @@ function serveSite(): Promise<http.Server> {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)))
 }
 
-type Hook = { window(): BrowserWindow | undefined; page(): Page | undefined; snapshot(): AppState }
+type Hook = { window(): BrowserWindow | undefined; page(): PageView | undefined; snapshot(): AppState }
 
 async function main() {
   const siteServer = await serveSite()

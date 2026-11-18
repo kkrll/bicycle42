@@ -1,4 +1,4 @@
-// A note's pictures (src/main/images.ts), with a stand-in for Electron's NativeImage that
+// A note's pictures (src/main/images.ts), with a stand-in for a captured frame that
 // remembers which part of the original frame each picture shows and what each step cost.
 //
 // The pictures must be what they were when each was cropped and scaled from the full frame on
@@ -6,8 +6,7 @@
 // rounding of one scaled pixel). Only the way there changed.
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import type { NativeImage } from "electron"
-import { noteImages, notePicture, type Where } from "../src/main/images"
+import { noteImages, notePicture, type Frame, type Where } from "../src/main/images"
 
 type Region = { x: number; y: number; w: number; h: number }
 type Shown = { width: number; height: number; region: Region }
@@ -41,7 +40,7 @@ class Fake {
 }
 
 const frame = (width: number, height: number, log: string[], name = "shot") =>
-  new Fake(width, height, { x: 0, y: 0, w: width, h: height }, log, name) as unknown as NativeImage
+  new Fake(width, height, { x: 0, y: 0, w: width, h: height }, log, name) as Frame
 const shown = (uri: string): Shown => JSON.parse(Buffer.from(uri.slice("data:image/jpeg;base64,".length), "base64").toString())
 
 /** The pictures as the app made them before: every one cropped, then scaled, from the frame. */

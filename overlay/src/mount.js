@@ -3,6 +3,7 @@ import { vp } from "./page.js";
 import { restoreDraft } from "./draft.js";
 import * as Notes from "./notes/api.js";
 import { finishCapture, refuseCapture } from "./sent.js";
+import { hostFrame, showPin } from "./picture.js";
 import * as Canvas from "./canvas/api.js";
 import * as Motion from "./motion/api.js";
 import { hostMode, retellMode } from "./mode.js";
@@ -162,6 +163,12 @@ window.__b42 = {
         break;
       case "edits":
         Canvas.showEdits(msg);
+        break;
+      case "frame":
+        hostFrame(msg);
+        break;
+      case "show":
+        showPin(msg.id);
         break;
     }
   },

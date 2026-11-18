@@ -187,6 +187,8 @@ export type PageMessage =
   | { type: "pin"; id: string }
   /** Reply to "edits", two frames after the page changed; id and show are echoed as received. */
   | { type: "edits-shown"; id: string; show: boolean }
+  /** Reply to "frame", two frames after it was done: the window as it is then; id as received. */
+  | { type: "frame-shown"; id: string; viewport: Viewport }
 
 /** host → page: window.__b42.receive(msg), the message or its JSON. */
 export type HostMessage =
@@ -205,6 +207,15 @@ export type HostMessage =
    *  classes, text, order, its stylesheet. While any batch is hidden the layer's own chrome is
    *  hidden too, as during a capture. */
   | { type: "edits"; id: string; show: boolean }
+  /** For a picture the host takes by itself (a note's place once the agent is done), and for
+   *  asking how wide the window is. hold: true takes the layer out of the picture and, with
+   *  `scroll`, puts the document there (CSS px, at once); hold: false gives both back as they
+   *  were, and so do 5 s without it. With neither, nothing changes. Always answered with
+   *  "frame-shown". */
+  | { type: "frame"; id: string; hold?: boolean; scroll?: [number, number] }
+  /** Bring the pin `id` into view: where its element is now (else where the note was made), a
+   *  third of the window down, scrolled smoothly. Nothing happens for a pin with no place. */
+  | { type: "show"; id: string }
 
 /** What the overlay puts on the page's window (in its own script world, when the host gives it one). */
 export type OverlayApi = {

@@ -50,12 +50,13 @@ node scripts/build.mjs && node_modules/.bin/electron --ozone-platform=headless -
 ```
 src/shared/types.ts     the contract: AppState, ChatEvent, Commands, Backend. Read this first.
 ../overlay/protocol.ts  the page's side of it: the overlay's messages and a note's shape, shared with the overlay
-src/main/index.ts       controller: owns AppState, wires the four parts below
+src/main/core.ts        controller: owns AppState, wires the parts below; createCore(host), with nothing of Electron in it
+src/main/index.ts       the Electron shell around it: window, menu, keychain, the bridge's IPC, start and quit
 src/main/page.ts        the page: a WebContentsView with the overlay as its preload, in its own script world
 src/page-preload.ts     the overlay's way into the page and back to main (IPC), built with the overlay inside
 src/main/review.ts      a site's notes and their status rules (pure, no Electron)
 src/main/outbox.ts      what each unfinished note sends (prompt, pictures), on disk until it is done
-src/main/images.ts      screenshot → area crop + viewport thumbnail, each frame scaled once, yielding between steps
+src/main/images.ts      a captured Frame → area crop + viewport thumbnail, each frame scaled once, yielding between steps
 src/main/queue.ts       one file operation at a time per key (outbox, shots)
 src/main/opencode.ts    the backend: fetch + one SSE stream → BackendEvents (no Electron)
 src/main/pictures.ts    the conversation's pictures by address (b42-img:), served to the window by main
@@ -67,8 +68,24 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
 
 - **Main owns everything durable.** The page hot-reloads under you and the window is a view of
   `AppState`; neither can lose a note. The window never sees the password or a raw server payload.
+- **The controller is a core without a window.** `createCore(host)` in `core.ts` holds all of
+  the app's state in one call and imports nothing of Electron. What it needs of the shell it
+  runs in is `Host`: the data folder, the keychain (`secrets`), `emit` to the window's three
+  streams (state, chat, note), a `dialog`, a `log`. The shell makes the page and hands it over
+  (`attach`); `Page` is what a page under review does (load, send, capture, busy, …) with no
+  view, no script text and no Electron type in it, and a capture is a `Frame` (`images.ts`:
+  size, crop, resize, JPEG), which `page.ts` makes from the view's. What the shell gets back is
+  `Core`: the window's `commands` (and `invoke` by name), `snapshot`, `chat`, `picture`,
+  `pageEvents`, `start`, `dispose`. `index.ts` is the Electron shell; the controller tests are
+  another, in plain Node (`test/stubs/host.ts`), with no module swapped at build time.
+- **Main writes no script into the page.** What it wants of the page it asks the overlay for,
+  by message (`../overlay/protocol.ts`): `frame` for a note's picture once the agent is done
+  (the layer out of the picture, the page scrolled to where the note was made, both given back,
+  each step answered with `frame-shown` two frames later), `show` to bring a note's pin into
+  view. The two scripts that are run there (is the page hot-reloading itself, is the reviewer
+  mid-note) are `page.ts`'s own.
 - **The repo comes before the site.** `settings.folder` is the repo that is open; a site seen for
-  the first time works in it (`adopt` in `index.ts`). With a repo and no page, the app is at a
+  the first time works in it (`adopt` in `core.ts`). With a repo and no page, the app is at a
   place of its own (`HOME`) that has a conversation like any site, so the agent can be asked to
   get the site running (`startSite`): the prompt says whether app and server share a computer
   and asks for a last line `SITE: <address>`, which is opened when the run ends and no page
@@ -82,7 +99,7 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
 - **Every server connected to is kept** (`servers` in `settings.json`, passwords encrypted as
   before), and each has its own repo, pages, conversations and default model: a folder or a
   conversation of one server means nothing on another. The one in use has these in the
-  settings' own fields; the others carry theirs in `space` (`enter` in `index.ts` swaps them).
+  settings' own fields; the others carry theirs in `space` (`enter` in `core.ts` swaps them).
   Notes files of every server but the first have its id before the site's origin, so the same
   address on two machines is two sites.
 - **A project is a folder.** `openProject` makes it the open repo and loads the site visited
@@ -162,11 +179,11 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   the page builds the element anew (or reloads) is it found by where the old one last was.
 - **One note is one turn.** The server makes a turn of everything that reaches a conversation
   while it is busy, and a turn is what it can show the changes of and take back. So the app
-  sends a lane's notes one at a time (`enqueue`, `pump` in `index.ts`): a note made while
+  sends a lane's notes one at a time (`enqueue`, `pump` in `core.ts`): a note made while
   another is with the agent, or while a typed message runs, is held in the app (`held` in
   `review.ts`: "queued", with no conversation) and goes when that run ends. A stop or an
   agent's error leaves the rest waiting until something is sent again. Whether a conversation
-  is busy is what the event stream last said of its runs (`busy` in `index.ts`); the server is
+  is busy is what the event stream last said of its runs (`busy` in `core.ts`); the server is
   asked only when the stream has said nothing since it connected, reconnected or had a gap, and
   a message typed in the chat counts as a run from the moment it is sent. What a held note sends
   is on disk (`outbox.ts`), so it is still sent after a restart; a note goes only once that
@@ -191,7 +208,7 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   together; the server dialog's "Default model" changes only the default.
 - **The backend is one interface** (`Backend` in `types.ts`). OpenCode implements it; an ACP
   backend could later without touching the rest.
-- **The app's own slash commands live in main** (`BUILTINS` in `index.ts`). The window asks
+- **The app's own slash commands live in main** (`BUILTINS` in `core.ts`). The window asks
   `commands()` for the list (the app's first, then the server's for the site's folder; a
   built-in wins over a server command of the same name) and sends every `/name` through
   `runCommand`, which either does it here or passes it to the server. Each is one `Backend` call:
