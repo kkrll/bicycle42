@@ -1262,7 +1262,8 @@ test("↑ ↓ step the number at the caret: its unit kept, the page following, a
   await val("padding").selectText();
   await page.keyboard.press("ArrowUp");
   assert.deepEqual(await row("padding"), { value: "9px 12px", sel: "9px", bad: false, focus: true });
-  // no number: nothing happens, and the row keeps the focus; a colour's digits are not a number
+  // a keyword: ↑ ↓ go to the property's keyword before and after it (suggest.js), so up then down is
+  // where it started (left declared, as DevTools leaves it); a colour's digits are not a number
   await val("display").click();
   await page.keyboard.press("ArrowUp");
   await page.keyboard.press("ArrowDown");
@@ -1278,7 +1279,7 @@ test("↑ ↓ step the number at the caret: its unit kept, the page following, a
   await page.keyboard.press("ArrowUp");
   assert.deepEqual(await row("width"), { value: "0px", sel: "0px", bad: false, focus: true });
   await settle(f);
-  assert.equal(await field(f, "css").inputValue(), "padding: 9px 12px;\nwidth: 0px;");
+  assert.equal(await field(f, "css").inputValue(), "padding: 9px 12px;\ndisplay: block;\nwidth: 0px;");
   await page.keyboard.press("Escape");
 
   // Element styles: only a number of a declaration's value

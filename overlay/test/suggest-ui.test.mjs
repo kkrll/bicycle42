@@ -192,11 +192,11 @@ test("with the list closed, ↑/↓ on a keyword goes through the property's key
   assert.equal(await list(), null);
   await press("ArrowUp", "ArrowUp");
   assert.equal(await value("css"), "width: 120px;\nalign-items: baseline;\ncolor: red");
-  // On the number the key is not the suggestions': here it is still the caret's (it goes up, to the text's start).
+  // On a number the key is not the suggestions': it goes on to the number stepping (keys.js), which takes it.
   await ui((r) => r.querySelector(".css").setSelectionRange(9, 9));
   await press("ArrowUp");
-  assert.equal(await value("css"), "width: 120px;\nalign-items: baseline;\ncolor: red");
-  assert.equal(await ui((r) => r.querySelector(".css").selectionStart), 0);
+  assert.equal(await value("css"), "width: 121px;\nalign-items: baseline;\ncolor: red");
+  assert.equal(await list(), null);
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -252,13 +252,14 @@ test("a computed row: values only, under the field; ↑/↓ cycles; Enter writes
   assert.equal(await ai.inputValue(), "normal");
   assert.equal(await focus(), "");
 
-  // A number is not the suggestions': the key goes on to the rows' own handling.
+  // A number is not the suggestions': the key goes on to the number stepping (keys.js), which writes it.
   const w = row("width");
   await w.click();
   const before = await w.inputValue();
-  await press("ArrowDown");
-  assert.equal(await value("css"), "");
   assert.ok(/px$/.test(before));
+  await press("ArrowDown");
+  assert.equal(await value("css"), `width: ${parseFloat(before) - 1}px;`);
+  assert.equal(await list(), null);
   assert.deepEqual(errors, []);
   await page.close();
 });
