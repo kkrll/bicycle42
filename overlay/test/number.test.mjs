@@ -188,3 +188,12 @@ test("stepSize: 1; shift 10; alt 0.1; ctrl or ⌘ 100", () => {
   assert.equal(stepSize({ mod: true }), 100);
   assert.equal(stepSize({ mod: true, shift: true }), 100);
 });
+
+test("a comment before a declaration does not hide its value (review: DeepSeek 1)", () => {
+  const a = "/* c */ margin: 4px";
+  assert.deepEqual(numberAt(a, 16, { context: "css", to: 19 }), { start: 16, end: 19, value: 4, unit: "px", dp: 0 });
+  const b = "margin: 1px; /* c */ padding: 2px";
+  assert.deepEqual(numberAt(b, 30, { context: "css", to: 33 }), { start: 30, end: 33, value: 2, unit: "px", dp: 0 });
+  // …and a number inside the comment is still not a number
+  assert.equal(numberAt("/* 4px */ margin: 0", 4, { context: "css" }), null);
+});

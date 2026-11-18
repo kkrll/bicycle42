@@ -107,6 +107,17 @@ export function caretContext(text, caret, sheet) {
   if (/^[&.#:>+~*[@]/.test(head)) return SELECTOR;
   for (let i = caret; i < text.length; i++) {
     const ch = text[i];
+    // (A `{` in a comment or a string after the caret opens nothing.)
+    if (ch === "/" && text[i + 1] === "*") {
+      const j = text.indexOf("*/", i + 2);
+      if (j < 0) break;
+      i = j + 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      for (i++; i < text.length && text[i] !== ch && text[i] !== "\n"; i++) if (text[i] === "\\") i++;
+      continue;
+    }
     if (ch === "{") return SELECTOR;
     if (ch === ";" || ch === "}" || ch === "\n") break;
   }

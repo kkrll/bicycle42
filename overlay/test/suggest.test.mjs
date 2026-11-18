@@ -224,3 +224,11 @@ test("stepping through a property's keywords", () => {
   assert.equal(step(v, "12px", 1), null);
   assert.equal(step([], "center", 1), null);
 });
+
+test("a { in a comment or a string after the caret opens nothing (review: DeepSeek 2)", () => {
+  assert.deepEqual([at("align-items: st| /* { */").kind, at("align-items: st| /* { */").word], ["value", "st"]);
+  assert.equal(at('content: |"a { b"').kind, "value");
+  assert.equal(at('font-family: st|, "a { b"').kind, "value");
+  // a real one still makes it a rule's head
+  assert.equal(at("li:hover| {").kind, "selector");
+});

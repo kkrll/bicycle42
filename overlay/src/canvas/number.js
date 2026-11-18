@@ -101,6 +101,7 @@ function valueAt(text, caret, sheet) {
       const j = text.indexOf("*/", i + 2);
       const close = j < 0 ? text.length : j + 2;
       if (caret > i && caret < close) return null; // in the comment
+      if (!text.slice(start, i).trim()) start = close; // a comment before the declaration is not part of it
       i = close - 1;
       continue;
     }
