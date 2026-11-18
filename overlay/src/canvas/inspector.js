@@ -202,6 +202,13 @@ export const unmarkValue = (row) => {
   row.lastChild.title = row._v || "";
 };
 
+/** A computed row's value as the page has it now, read and kept (drawComputed reads it too,
+ *  but not more often than every 150 ms: too late for what follows a key or a press at once). */
+export function readValue(row) {
+  if (C.sel && C.sel.isConnected && row._p) row._v = pretty(getComputedStyle(C.sel).getPropertyValue(row._p));
+  return row._v || "";
+}
+
 /** After an undo or a redo with a computed value in hand: the field shows what the page has
  *  now, not the text that was just taken back (leaving the field would write it again). */
 export function freshValue(field) {
@@ -209,7 +216,7 @@ export function freshValue(field) {
   if (!C.sel || !C.sel.isConnected || !row._p) return;
   row._bad = false;
   field.classList.remove("bad");
-  field.value = field.title = row._v = pretty(getComputedStyle(C.sel).getPropertyValue(row._p));
+  field.value = field.title = readValue(row);
   field.select();
 }
 

@@ -1,7 +1,7 @@
 import { C } from "./state.js";
 import { commit } from "./batch.js";
 import { applyAll } from "./apply.js";
-import { liveValue, syncFields, unmarkValue } from "./inspector.js";
+import { liveValue, readValue, syncFields, unmarkValue } from "./inspector.js";
 import { numberAt, step } from "./number.js";
 
 // ── scrubbing: a drag on a computed row's name changes the value's number ───────────────────
@@ -18,7 +18,9 @@ export function scrubbable(btn) {
   btn.addEventListener("pointerdown", (e) => {
     btn._scrubbed = false;
     const row = btn.parentElement;
-    if (e.button !== 0 || !C.sel || !firstNumber(row._v)) return; // (no number: nothing to scrub)
+    // (Whether the value has a number is asked when the drag begins: a value just typed in the
+    // row is written by this press, after this event.)
+    if (e.button !== 0 || !C.sel) return;
     btn.setPointerCapture(e.pointerId);
     D = { btn, row, id: e.pointerId, x: e.clientX, last: e.clientX, acc: 0, on: false, text: "", token: null };
   });
@@ -28,9 +30,11 @@ export function scrubbable(btn) {
     if (!d.on) {
       if (Math.abs(e.clientX - d.x) < SLOP) return;
       if (C.typeTimer) commit(); // what was typed before is a step of its own
-      d.text = d.row._v; // (read now: the press may have blurred a field, which wrote its value)
+      // Read from the page now: the press may have blurred a field, which wrote its value, and
+      // what the row keeps is read every 150 ms at best (40px typed, dragged at once, started from the old 16px).
+      d.text = readValue(d.row);
       d.token = firstNumber(d.text);
-      if (!d.token || !C.sel) return void end();
+      if (!d.token || !C.sel) return void end(); // (no number: nothing to scrub, and the click copies the line)
       d.on = true;
       btn.style.cursor = "ew-resize"; // the pointer is captured, so this is the cursor wherever it goes
     }

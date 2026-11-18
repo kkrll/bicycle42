@@ -1374,6 +1374,28 @@ test("a drag on a computed row's name scrubs its number: one undo step, Esc puts
   assert.deepEqual([await field(f, "css").inputValue(), await width()], ["", 200], "the drag is over");
   assert.equal(await ui(f, (r) => r.querySelector(".insp").hidden), false, "Esc ended the drag and nothing else");
   assert.equal(await ui(f, (r) => r.querySelector(".undo").disabled), true, "and it left no step");
+  // a value typed in the row and dragged at once: the drag starts from it, not from what the
+  // row last read from the page (it reads every 150 ms at best)
+  await f.locator("b42-review .crow", { has: f.locator(".cp", { hasText: /^width$/ }) }).locator(".cval").fill("240px");
+  await page.mouse.move(w.x, w.y);
+  await page.mouse.down();
+  await page.mouse.move(w.x + 10, w.y, { steps: 2 });
+  await page.mouse.up();
+  await settle(f);
+  assert.deepEqual([await field(f, "css").inputValue(), await width()], ["width: 250px;", 250]);
+  // …and so does one on a row whose value had no number until it was typed
+  const ls = await at("letter-spacing");
+  assert.equal(await value("letter-spacing"), "normal");
+  await f.locator("b42-review .crow", { has: f.locator(".cp", { hasText: /^letter-spacing$/ }) }).locator(".cval").fill("2px");
+  await page.mouse.move(ls.x, ls.y);
+  await page.mouse.down();
+  await page.mouse.move(ls.x + 5, ls.y, { steps: 2 });
+  await page.mouse.up();
+  await settle(f);
+  assert.equal(await field(f, "css").inputValue(), "width: 250px;\nletter-spacing: 7px;");
+  await ui(f, (r) => r.querySelector(".reset").click());
+  await settle(f);
+  assert.deepEqual([await field(f, "css").inputValue(), await width()], ["", 200]);
   // a click without moving copies the line, as before; so does one on a value with no number
   await page.mouse.click(w.x, w.y);
   await settle(f);
