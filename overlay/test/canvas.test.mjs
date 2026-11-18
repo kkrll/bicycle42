@@ -370,6 +370,25 @@ test("gap: dragging the space between flex items writes gap on the parent", asyn
   await page.close();
 });
 
+test("a style edit set with the page's variables says which: the note's change names them", async () => {
+  const { page, f, errors } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  await page.waitForTimeout(250);
+  await field(f, "css").fill("padding: var(--space-2) var(--space-4);\ncolor: var(--brand);\nmargin: 0;\nborder-color: var(--nope, red);");
+  await page.keyboard.press(`${MOD}+Enter`);
+  await waitNotes(page, 1);
+  const [n] = await sentNotes(page);
+  assert.deepEqual(n.edits[0].changes, [
+    { prop: "padding", from: "16px", to: "8px 16px", tokens: ["--space-2", "--space-4"] },
+    { prop: "color", from: "rgb(28, 28, 30)", to: "rgb(42, 109, 244)", tokens: ["--brand"] },
+    { prop: "margin", from: "0px", to: "0px" },
+    // (one the page does not have is still what was typed: the agent sees it, with its fallback, in the CSS)
+    { prop: "border-color", from: "rgb(216, 216, 210)", to: "rgb(255, 0, 0)", tokens: ["--nope"] },
+  ]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("move: dragging a card reorders it in its flex row with an insertion line; the DOM order is untouched", async () => {
   const { page, f } = await open();
   const b3 = await box(f, "#plans article:nth-of-type(3)");
@@ -1328,6 +1347,36 @@ test("↑ ↓ step the number at the caret: its unit kept, the page following, a
   assert.deepEqual([(await area("free")).value, (await area("free")).sel], ["h2 { margin: 5px }", "5px"]);
   assert.equal(await f.evaluate(() => getComputedStyle(document.querySelector("h2")).marginTop), "5px");
   assert.equal(await f.evaluate(() => window.pageKeys), 0, "the page saw none of the keys");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("undo and redo of an element's first style edit: Element styles shows the edit again, and typing goes on in it", async () => {
+  const { page, f, errors } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  await page.waitForTimeout(250);
+  const css = () => field(f, "css").inputValue();
+  const colour = () => f.evaluate((s) => getComputedStyle(document.querySelector(s)).color, SECOND);
+  const before = await colour();
+  await field(f, "css").fill("color: rgb(255, 0, 0);");
+  await page.waitForTimeout(800); // the pause that makes it an undo step
+  await settle(f);
+  assert.equal(await colour(), "rgb(255, 0, 0)");
+  await page.keyboard.press(`${MOD}+z`);
+  await settle(f);
+  assert.deepEqual([await css(), await colour()], ["", before], "undo takes it off");
+  await page.keyboard.press(`${MOD}+Shift+z`);
+  await settle(f);
+  assert.deepEqual([await css(), await colour()], ["color: rgb(255, 0, 0);", "rgb(255, 0, 0)"], "redo shows it in Element styles again");
+  // and what is typed now is the same edit, not a second one for the same element
+  await field(f, "css").fill("color: rgb(0, 0, 255);");
+  await page.waitForTimeout(800);
+  await settle(f);
+  assert.equal(await colour(), "rgb(0, 0, 255)");
+  assert.equal(await ui(f, (r) => r.querySelector(".count").textContent), "1 edit");
+  await page.keyboard.press(`${MOD}+z`);
+  await settle(f);
+  assert.deepEqual([await css(), await colour()], ["color: rgb(255, 0, 0);", "rgb(255, 0, 0)"]);
   assert.deepEqual(errors, []);
   await page.close();
 });

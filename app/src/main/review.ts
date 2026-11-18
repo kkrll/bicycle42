@@ -202,7 +202,9 @@ function edit(raw: unknown): Edit | undefined {
     for (const c of Array.isArray(raw.changes) ? raw.changes.slice(0, MAX_CHANGES) : []) {
       if (!isObj(c) || typeof c.prop !== "string" || !(CSS_PROP.test(c.prop) || CUSTOM_PROP.test(c.prop))) continue
       const [was, now] = [line(c.from, MAX_COMPUTED), line(c.to, MAX_COMPUTED)]
-      if (was !== undefined && now !== undefined) changes.push({ prop: c.prop, from: was, to: now })
+      // The page's variables the value was set with: names only, four at most.
+      const tokens = Array.isArray(c.tokens) ? [...new Set(c.tokens.slice(0, 4).filter((t): t is string => typeof t === "string" && CUSTOM_PROP.test(t)))] : []
+      if (was !== undefined && now !== undefined) changes.push({ prop: c.prop, from: was, to: now, ...(tokens.length ? { tokens } : {}) })
     }
     if (css === undefined && !changes.length) return
     if (css !== undefined) out.css = css
