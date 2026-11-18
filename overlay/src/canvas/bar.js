@@ -108,6 +108,8 @@ const HELP = () => {
     ["Delete", "hide the selection"],
     ["↑ ↓ on a number in the inspector", `step it · ${sh.replace("+", "")} 10, ${alt.replace("+", "")} 0.1, ${m.replace("+", "")} 100`],
     ["drag a computed value's name", "change its number"],
+    ["↑ ↓ on a keyword in the inspector", "the property's keyword before, after"],
+    ["typing CSS · ctrl Space", "suggestions · ↑ ↓ show on the page, ↵ take, esc put back"],
     [`${m}Z · ${m}${sh}Z`, "undo · redo"],
     ["↵", `send · ${m}↵ from the inspector's fields`],
     ["esc", "leave the field, deselect, back to annotate"],

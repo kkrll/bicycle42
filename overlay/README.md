@@ -47,6 +47,9 @@ src/globals.d.ts    what the type check cannot read from the .js files
   gives the overlay a script world of its own adds among the page's scripts (`buildLookup()`).
 - **Function names are kept** (esbuild's `keepNames`) where one scope would rename them: the
   benchmark counts the overlay's frames by the name of the function asked for.
+- **`src/canvas/css-data.js` is generated** by `scripts/css-data.mjs` (Chrome's CSS properties, their
+  keyword values and popularity, from Blink and DevTools; licences in `css-data.NOTICE`). Re-run it
+  after an Electron upgrade, with the Chromium tag and DevTools branch at the top of the script updated.
 
 ![harness](docs/harness.png)
 

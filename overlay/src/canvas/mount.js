@@ -11,6 +11,7 @@ import { syncUi } from "./cursor.js";
 import { drawBar, setPop } from "./bar.js";
 import { T, toggleRow } from "./tree.js";
 import { drawTabs, setPanel, setValue, syncFields, typed, unmarkValue } from "./inspector.js";
+import { attachSuggest } from "./suggest.js";
 import { setMode } from "../mode.js";
 import { isOurs } from "../input.js";
 import { kick } from "../render.js";
@@ -52,7 +53,8 @@ export const HTML = `<div class="cv" hidden><div class="band" hidden></div>
         <button type="button" class="act ib undo" aria-label="Undo" title="Undo (${isMac ? "⌘" : "ctrl+"}Z)" hidden>${icon("undo")}</button><button type="button" class="act ib redo" aria-label="Redo" title="Redo (${isMac ? "⌘⇧" : "ctrl+shift+"}Z)" hidden>${icon("redo")}</button><button type="button" class="act reset" title="Remove every unsent edit (undoable)" hidden>Reset</button>
         <button type="button" class="bsend" hidden>Send</button></div>
       <input class="cnote" type="text" spellcheck="false" autocomplete="off" placeholder="Add a note…" hidden><span class="bmsg" hidden></span></div>
-    <div class="corner" hidden><div class="pop" hidden></div><button type="button" class="help" title="Keys and gestures" aria-label="Keys and gestures">${icon("help")}</button></div>`;
+    <div class="corner" hidden><div class="pop" hidden></div><button type="button" class="help" title="Keys and gestures" aria-label="Keys and gestures">${icon("help")}</button></div>
+    <div class="sug" id="b42-sug" role="listbox" hidden></div>`;
 
 export let corner, bar, insp, cv, cnote, treeEl, trows, tspace, clsEl, cssEl, freeEl, compEl, ipath, bandEl, ghostEl, insEl, labEl, dimEl, handles, edges, hitEl, gzEl, shieldEl;
 
@@ -122,6 +124,7 @@ export function mountCanvas() {
     syncFields(true);
     cssEl.focus({ preventScroll: true });
   });
+  attachSuggest({ cssEl, freeEl, compEl }); // (after the fields' own listeners: it reads what they have made of the typing)
 
   treeEl.addEventListener("scroll", () => {
     T.scroll = treeEl.scrollTop;

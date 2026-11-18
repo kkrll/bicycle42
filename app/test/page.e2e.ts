@@ -686,6 +686,64 @@ async function main() {
     await until(async () => (await css("#grid .tile", "border-radius")) === "8px", 2000)
     page.send({ type: "pins", pins: [] })
 
+    // ── the inspector's suggestions: names, values, the live preview, a computed row ──────────
+    {
+      type List = { items: string[]; on: string } | null
+      const sug = () => js(`(() => { const l = ${part("sug")}; return l.hidden || l.style.visibility === "hidden" ? null : { items: [...l.children].map((c) => c.textContent), on: l.querySelector(".on")?.textContent ?? "" } })()`) as Promise<List>
+      const field = (cls: string) => js(`${part(cls)}.value`) as Promise<string>
+      /** Letters as key presses: typing, as the list sees it. */
+      const letters = async (text: string) => {
+        for (const c of text) await key(c, `Key${c.toUpperCase()}`, c.toUpperCase().charCodeAt(0), c)
+        await sleep(200)
+      }
+      const press = async (k: string, vk: number, times = 1) => {
+        for (let i = 0; i < times; i++) await key(k, k, vk)
+        await sleep(200)
+      }
+      const plans = await pageBox("#plans")
+      await clickPt({ x: plans.x + plans.width - 6, y: plans.y + 6 }) // the row itself, not a card
+      await clickPt(centre(await boxOf(part("t-el")))) // (the stylesheet was typed in last: back to the element's side)
+      await clickPt(centre(await boxOf(part("css"))))
+      await letters("al")
+      const names = await sug()
+      check("typing al in Element styles offers align-items first", names?.items[0] === "align-items" && names.on === "align-items", JSON.stringify(names?.items.slice(0, 4)))
+      const inside = (await js(`(() => { const b = ${part("sug")}.getBoundingClientRect(), a = ${part("css")}.getBoundingClientRect(); return b.width > 0 && b.left >= 0 && b.top >= 0 && b.right <= innerWidth && b.bottom <= innerHeight && (b.top >= a.top || b.bottom <= a.bottom) && ${shadow}.elementFromPoint(b.left + 20, b.top + 10)?.closest(".sug") === ${part("sug")} })()`)) as boolean
+      check("…in a list of the layer's own, whole and on top, by the text", inside)
+      await snap("overlay-canvas-suggest")
+      await press("Tab", 9)
+      const values = await sug()
+      check("Tab takes it with its colon, keeps the focus and opens its values", (await field("css")) === "align-items: " && (await js(`${shadow}.activeElement === ${part("css")}`)) === true && values?.items[0] === "normal" && !!values.items.includes("center"), JSON.stringify([await field("css"), values?.items.slice(0, 4)]))
+      await letters("c")
+      check("…and c offers center", (await sug())?.on === "center", JSON.stringify(await sug()))
+      had = count("note")
+      await key("Enter", "Enter", 13, "\r")
+      await sleep(200)
+      check("Enter writes it and the page follows: no new line, nothing sent", (await field("css")) === "align-items: center" && (await css("#plans", "align-items")) === "center" && (await sug()) === null && count("note") === had, JSON.stringify([await field("css"), await css("#plans", "align-items")]))
+      await press("Backspace", 8, 6)
+      await letters("s")
+      const some = await sug()
+      await press("ArrowDown", 40)
+      const shown2 = (await sug())?.on ?? ""
+      check("↓ shows the next value on the page while the list is open", !!some && shown2 === some.items[1] && shown2 !== "" && (await field("css")) === `align-items: ${shown2}` && (await css("#plans", "align-items")) === shown2, JSON.stringify([some?.items.slice(0, 3), shown2, await field("css"), await css("#plans", "align-items")]))
+      await press("Escape", 27)
+      check("Esc closes the list and puts back what was typed, in the field still", (await sug()) === null && (await field("css")) === "align-items: s" && (await css("#plans", "align-items")) === "normal" && (await js(`${shadow}.activeElement === ${part("css")}`)) === true, JSON.stringify([await field("css"), await css("#plans", "align-items")]))
+      await press("Backspace", 8)
+      await letters("c")
+      await key("Enter", "Enter", 13, "\r")
+      await sleep(200)
+      // A computed row: its value is a keyword, and the arrows go through the property's keywords.
+      const row = `[...${shadow}.querySelectorAll(".crow")].find((r) => r.firstChild.textContent === "align-items").lastChild`
+      await js(`${row}.scrollIntoView({ block: "nearest" })`)
+      await clickPt(centre(await boxOf(row)))
+      const was = (await js(`${row}.value`)) as string
+      await press("ArrowDown", 40)
+      check("in a computed row ↓ with the list closed goes from center to start, live", was === "center" && (await js(`${row}.value`)) === "start" && (await css("#plans", "align-items")) === "start" && (await field("css")) === "align-items: start" && (await sug()) === null, JSON.stringify([was, await js(`${row}.value`), await css("#plans", "align-items"), await field("css")]))
+      await press("Escape", 27) // out of the row
+      await clickPt(centre(await boxOf(part("reset"))))
+      check("…and Reset leaves the page as it was", (await until(async () => (await css("#plans", "align-items")) === "normal", 2000)) === true && (await field("css")) === "")
+      await clickPt(centre(await pageBox(SECOND))) // the selection as the next part found it before
+    }
+
     // ── a move and a text edit; the draft brings them back after a reload ─────────────────────
     const order = () => js(`[...document.querySelectorAll("#plans article")].sort((a, b) => a.getBoundingClientRect().x - b.getBoundingClientRect().x).map((a) => a.querySelector("h3").textContent).join()`) as Promise<string>
     const [c1, c3] = [await pageBox("#plans article:nth-of-type(1)"), await pageBox("#plans article:nth-of-type(3)")]

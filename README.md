@@ -140,6 +140,9 @@ them.
 | `Delete` | Hide the selection |
 | `↑` / `↓` on a number in the inspector | Step it by 1, as in DevTools (`shift`: 10, `alt`: 0.1, `mod`: 100), in a computed value and in both style boxes. `Tab` / `shift+Tab` go from one computed value to the next |
 | drag a computed value's name | Change its number, 1 a pixel (`shift`: 10, `alt`: 0.1); `Esc` puts it back. A click copies the line into Element styles |
+| typing CSS in the inspector | A list of property names, then of the property's values (`ctrl+Space` opens it too) |
+| `↑` `↓` in that list, then `Enter`, `Tab` or a click | Show each value on the page / take it; `Esc` closes the list and puts back what was typed |
+| `↑` `↓` on a keyword (`center`) | The property's keyword before / after it |
 | `mod+Z` / `mod+shift+Z` | Undo / redo |
 | `Enter` (`mod+Enter` in a text box), or **Send** | Send all the edits as one note |
 
