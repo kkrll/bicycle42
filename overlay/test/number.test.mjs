@@ -18,7 +18,7 @@ const stepped = (marked, delta, opts) => {
 };
 
 test("a number keeps its unit", () => {
-  assert.deepEqual(numberAt("12px", 1), { start: 0, end: 4, value: 12, unit: "px" });
+  assert.deepEqual(numberAt("12px", 1), { start: 0, end: 4, value: 12, unit: "px", dp: 0 });
   assert.equal(stepped("1|2px", 1), "13px");
   assert.equal(stepped("1.5|rem", 0.1), "1.6rem");
   assert.equal(stepped("50|%", -10), "40%");
@@ -37,14 +37,35 @@ test("negatives, bare decimals, and through zero", () => {
   assert.equal(stepped("+4|px", 1), "5px");
 });
 
-test("rounding: at most two decimals, no trailing zeros, no float noise", () => {
+test("rounding: two decimals, or as many as the number was written with; no trailing zeros, no float noise", () => {
   assert.equal(stepped("0.1|", 0.2), "0.3");
   assert.equal(stepped("1.1|px", 0.1), "1.2px");
   assert.equal(stepped("0.7|", 0.1), "0.8");
-  assert.equal(stepped("1.239|px", 0), "1.24px");
-  assert.equal(stepped("1.999|px", 0.1), "2.1px");
+  assert.equal(stepped("1.239|px", 0), "1.239px");
+  assert.equal(stepped("1.999|px", 0.1), "2.099px");
+  assert.equal(stepped("1.999|px", 0.001), "2px");
+  assert.equal(stepped("0.333333|", 1), "1.333333", "its own precision is kept");
+  assert.equal(stepped("0.001|s", 1), "1.001s");
+  assert.equal(stepped("0.001|s", -0.001), "0s");
+  assert.equal(stepped(".125|em", 0.1), "0.225em");
+  assert.equal(stepped("1.50|", 0.1), "1.6");
+  assert.equal(stepped("10|", 10), "20", "a whole number keeps its zeros");
+  assert.equal(stepped("100|px", 100), "200px");
+  assert.equal(stepped("-0.004|", 0.004), "0", "no -0");
+  assert.equal(stepped("-0.4|", 0.398), "0", "no -0 from rounding either");
   assert.equal(stepped("1.9|", 0.1), "2");
   assert.equal(stepped("17.6|px", -0.1), "17.5px");
+});
+
+test("a number with an exponent is not stepped", () => {
+  assert.equal(at("1|e3"), null);
+  assert.equal(at("1e|3"), null);
+  assert.equal(at("1e3|"), null);
+  assert.equal(at("1.5|e2px"), null);
+  assert.equal(at("1.5e2p|x"), null);
+  assert.equal(at("2E-3|s"), null);
+  assert.equal(at("width: 1e|3px;", { context: "css" }), null);
+  assert.deepEqual(numbers("1e3 4px 1.5e2px 2e+1 1em 3ex").map((t) => `${t.value}${t.unit}`), ["4px", "1em", "3ex"]);
 });
 
 test("the caret: inside the token or touching either edge, not a space away", () => {
@@ -118,6 +139,11 @@ test("element styles: only in a declaration's value", () => {
   assert.equal(at("width: /* 1|0px */ 12px;", css), null);
   assert.equal(at("width: /* 10px */ 1|2px;", css), "12px");
   assert.equal(at("transition: opacity 1s,\n  transform 2|s;", css), "2s", "a value over two lines");
+  assert.equal(at("transition: opacity 1s,\n  transform 2s,\n  color 3|s;", css), "3s");
+  assert.equal(at("grid-template-columns:\n  1|fr 2fr;", css), "1fr", "…after the colon");
+  assert.equal(at("background: linear-gradient(\n  9|0deg,\n  red 10%\n);", css), "90deg", "…inside brackets");
+  assert.equal(at("background: linear-gradient(\n  90deg,\n  red 1|0%\n);", css), "10%");
+  assert.equal(at("color: red\n1|2px", css), null, "a line after a finished one is no value (suggest-model.js agrees)");
   assert.equal(at("&:nth-child(2|) { width: 12px; }", css), null, "a nested selector");
   assert.equal(at("& > h|2 { width: 12px; }", css), null);
   assert.equal(at("&:nth-child(2) { width: 1|2px; }", css), "12px");
@@ -139,6 +165,18 @@ test("the stylesheet: in a rule's declarations, never in a selector or outside a
   assert.equal(at("@media (min-width: 60|0px) {\n  .a { width: 12px }\n}", sheet), null);
   assert.equal(at("@media (min-width: 600px) {\n  .a { width: 1|2px }\n}", sheet), "12px");
   assert.equal(at("@media (min-width: 600px) {\n  .col-1|2 { width: 12px }\n}", sheet), null);
+  // Inside a conditional rule a selector is expected, with its `{` or (still being typed) without.
+  assert.equal(at("@media x {\n  li:nth-child(2|)", sheet), null);
+  assert.equal(at("@media x {\n  li:nth-child(2|) { width: 12px }\n}", sheet), null);
+  assert.equal(at("@media x { @supports (gap: 1px) {\n  li:nth-child(2|)", sheet), null);
+  assert.equal(at("@media x {\n  width: 1|2px", sheet), null, "no rule there yet");
+  assert.equal(at("@media x { .a { } li:nth-child(2|)", sheet), null);
+  assert.equal(at("@media x { .a { width: 1|2px", sheet), "12px");
+  assert.equal(at("/* c */ @media x { .a { width: 1|2px", sheet), "12px");
+  assert.equal(at("@keyframes spin { 5|0% { width: 12px } }", sheet), null);
+  assert.equal(at("@keyframes spin { 50% { width: 1|2px } }", sheet), "12px");
+  assert.equal(at("@page { margin: 1|cm }", sheet), "1cm", "descriptors have numbers too");
+  assert.equal(at("@media (min-width: 600px) { width: 1|2px; }", { context: "css" }), "12px", "in Element styles a conditional rule holds declarations");
   assert.equal(at("/* .a { width: 1|2px } */", sheet), null);
   assert.equal(at(".a { color: #12|3 }", sheet), null);
 });

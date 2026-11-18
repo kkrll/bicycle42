@@ -68,6 +68,21 @@ test("element styles nest rules: their heads are selectors, their bodies declara
   assert.equal(kind("color: re|\n&:hover { }"), "value");
 });
 
+test("a declaration without its semicolon: the next line is a new one, as number.js has it", () => {
+  assert.deepEqual(at("color: red\nal|"), { kind: "name", word: "al", s: 11, e: 13, colon: false });
+  assert.deepEqual(at("color: red\n  al|ign-items: center"), { kind: "name", word: "al", s: 13, e: 24, colon: true });
+  const v = at("color: red\nwidth: a|");
+  assert.deepEqual([v.kind, v.prop, v.word, v.first], ["value", "width", "a", true]);
+  assert.equal(at(".a { color: red\n  al|", true).kind, "name");
+  // A value goes on over a line only after a comma, the colon or an open bracket.
+  assert.deepEqual([at("transition: color 1s,\n  op|").kind, at("transition: color 1s,\n  op|").prop], ["value", "transition"]);
+  assert.deepEqual([at("transition: color 1s,\n  opacity 2s,\n  tr|").prop, at("transition: color 1s,\n  opacity 2s,\n  tr|").first], ["transition", false]);
+  assert.deepEqual([at("color:\n  re|").kind, at("color:\n  re|").prop, at("color:\n  re|").first], ["value", "color", true]);
+  assert.equal(kind("color: red\ntwo words|"), "none");
+  assert.equal(kind("color: red\n&:hov|"), "selector");
+  assert.equal(kind("color: red\nsp|an { }"), "selector");
+});
+
 test("a stylesheet: never inside a selector", () => {
   assert.equal(kind("al|", true), "selector");
   assert.equal(kind(".card:hov|", true), "selector");

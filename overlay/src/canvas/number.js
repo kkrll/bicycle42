@@ -4,12 +4,31 @@
 
 /** Functions whose numbers are a colour's channels (left alone), or not numbers at all. */
 const OPAQUE = /^(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix|device-cmyk|url)$/i;
-const NUM = /(?:\d+(?:\.\d+)?|\.\d+)/y;
+const NUM = /(?:\d+(?:\.(\d+))?|\.(\d+))/y;
+const EXP = /e[+-]?\d+/iy; // `1e3`: a number, but which of its digits a step means is anyone's guess
 const UNIT = /(?:%|[a-z]+)/iy;
 const IDENT = /-?(?:[a-z_]|[^\x00-\x7f]|-(?=[-a-z_]))[\w-]*/iy;
 
-/** The numbers of a value, in order: [{ start, end, value, unit }]. Not the digits of a colour
- *  (`#a0b0c0`, `rgb(…)`), of a name (`h1`, `--step-2`), of a string, a url or a comment. */
+// What a `{` opens, by the words before it. A conditional rule holds what its parent holds;
+// @keyframes holds rule heads (its selectors); descriptors are not properties.
+const GROUP = /^@(media|supports|layer|container|scope|starting-style|document)\b/i;
+const KEYFRAMES = /^@(-webkit-)?keyframes\b/i;
+const DESCRIPTORS = /^@(font-face|property|counter-style|page|font-palette-values|view-transition|position-try)\b/i;
+/** What the `{` after `head` opens, inside a block that holds `top`: "rules" (what comes next is
+ *  a selector), "decls" (declarations, and nested rules) or "raw" (an at-rule's descriptors). */
+export const opens = (head, top) =>
+  top === "raw" || DESCRIPTORS.test(head) ? "raw" : KEYFRAMES.test(head) ? "rules" : GROUP.test(head) ? top : "decls";
+
+/** A line that starts a declaration: `name:`. */
+export const NAME = /^\s*(?:--[\w-]*|[a-z-]+)\s*:/i;
+/** Whether the line under `above` goes on with its value (`transition: a 1s,⏎ b 2s`): only after
+ *  a comma, the colon or an open bracket. Any other line is a declaration of its own, also when
+ *  the one above it has no `;` yet. (suggest-model.js reads typed CSS by the same rule.) */
+export const continues = (above) => /[,:(]\s*$/.test(above);
+
+/** The numbers of a value, in order: [{ start, end, value, unit, dp }] (dp: the decimals it is
+ *  written with). Not the digits of a colour (`#a0b0c0`, `rgb(…)`), of a name (`h1`, `--step-2`),
+ *  of a string, a url or a comment; and not a number with an exponent (`1e3`, `1.5e2px`). */
 export function numbers(text, from = 0, to = text.length) {
   const out = [];
   for (let i = from; i < to; ) {
@@ -39,11 +58,17 @@ export function numbers(text, from = 0, to = text.length) {
         continue;
       }
       let end = NUM.lastIndex;
+      EXP.lastIndex = end;
+      if (EXP.exec(text)) {
+        UNIT.lastIndex = EXP.lastIndex;
+        i = UNIT.exec(text) ? UNIT.lastIndex : EXP.lastIndex;
+        continue;
+      }
       UNIT.lastIndex = end;
       const u = UNIT.exec(text);
       const unit = u && UNIT.lastIndex <= to ? u[0] : "";
       end += unit.length;
-      out.push({ start: i, end, value: Number(text.slice(i, end - unit.length)), unit });
+      out.push({ start: i, end, value: Number(text.slice(i, end - unit.length)), unit, dp: (m[1] || m[2] || "").length });
       i = end;
     }
   }
@@ -66,9 +91,10 @@ function closing(text, i, to) {
 /** The part of typed CSS around `caret` that is a declaration's value: [from, to), or null in a
  *  selector, a property name, an at-rule's head, a comment, or (in a stylesheet) outside a rule.
  *  A value ends at `;`, `}` or the end of its line; a line that does not start with `name:`
- *  continues the declaration above it (`transition: a 1s,⏎ b 2s`). */
+ *  continues the declaration above it where that ends with a comma (`transition: a 1s,⏎ b 2s`). */
 function valueAt(text, caret, sheet) {
-  let depth = 0, start = 0, paren = 0, end = -1, last = "";
+  const stack = [sheet ? "rules" : "decls"]; // what the blocks around the caret hold
+  let start = 0, paren = 0, end = -1, last = "";
   for (let i = 0; i <= text.length; i++) {
     const ch = text[i];
     if (ch === "/" && text[i + 1] === "*") {
@@ -90,24 +116,26 @@ function valueAt(text, caret, sheet) {
       last = ch;
       break;
     }
+    if (ch === "{") stack.push(opens(text.slice(start, i).replace(/\/\*[\s\S]*?\*\//g, "").trim(), stack[stack.length - 1]));
+    else if (ch === "}" && stack.length > 1) stack.pop();
     start = i + 1;
-    if (ch === "{") depth++;
-    else if (ch === "}") depth = Math.max(0, depth - 1);
   }
-  if (end < 0 || last === "{" || (sheet && depth === 0)) return null;
-  const NAME = /^\s*(?:--[\w-]*|[a-z-]+)\s*:/i;
+  // (Where a rule's head is expected, `li:nth-child(2)` is a selector, with its `{` or without.)
+  if (end < 0 || last === "{" || stack[stack.length - 1] === "rules") return null;
   // The caret's line, inside the segment.
   const ls = Math.max(start, text.lastIndexOf("\n", caret - 1) + 1);
   const nl = text.indexOf("\n", caret);
   const le = nl < 0 || nl > end ? end : nl;
   const own = NAME.exec(text.slice(ls, le));
   if (own) return caret >= ls + own[0].length ? [ls + own[0].length, le] : null;
-  // A line of its own with no name: a value only when the lines above it, back to the last one
-  // that has a name, belong to a declaration.
+  // A line of its own with no name: a value only when it goes on from the lines above it, back
+  // to one that has a name.
   for (let s = ls; s > start; ) {
     const e = s - 1;
     s = Math.max(start, text.lastIndexOf("\n", e - 1) + 1);
-    if (NAME.test(text.slice(s, e))) return [ls, le];
+    const above = text.slice(s, e);
+    if (!continues(above)) return null;
+    if (NAME.test(above)) return [ls, le];
   }
   return null;
 }
@@ -129,10 +157,12 @@ export function numberAt(text, caret, { context = "value", to = caret, first = f
   return hit || (first && all[0]) || null;
 }
 
-/** The token moved by `delta`, as text: its unit kept, at most two decimals, no trailing zeros. */
+/** The token moved by `delta`, as text: its unit kept, two decimals at most or as many as it
+ *  was written with (`0.333333` + 1 is `1.333333`, `0.001s` + 1 is `1.001s`), no trailing zeros. */
 export function step(token, delta) {
-  const n = Math.round((token.value + delta) * 100) / 100;
-  return `${n === 0 ? 0 : n}${token.unit}`; // (no "-0")
+  const s = (token.value + delta).toFixed(Math.min(Math.max(2, token.dp || 0), 12));
+  const n = s.includes(".") ? s.replace(/\.?0+$/, "") : s;
+  return `${Number(n) === 0 ? "0" : n}${token.unit}`; // (no "-0")
 }
 
 /** How far one press of ↑ goes: 1; shift 10; alt 0.1; ctrl or ⌘ 100. */

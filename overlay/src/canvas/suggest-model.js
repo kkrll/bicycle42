@@ -3,14 +3,11 @@
 // complete), which names and keywords match what is typed, and in what order. No DOM here:
 // suggest.js draws the list and writes the field; test/suggest.test.mjs runs this in node.
 
+import { continues, NAME, opens } from "./number.js";
+
 /** The keywords every property takes. */
 export const WIDE = ["inherit", "initial", "unset", "revert"];
 
-// What a `{` opens, by the words before it. A conditional rule holds what its parent holds;
-// @keyframes holds rule heads (its selectors); descriptors are not properties.
-const GROUP = /^@(media|supports|layer|container|scope|starting-style|document)\b/i;
-const KEYFRAMES = /^@(-webkit-)?keyframes\b/i;
-const DESCRIPTORS = /^@(font-face|property|counter-style|page|font-palette-values|view-transition|position-try)\b/i;
 /** @type {ReturnType<typeof caretContext>} */
 const NONE = Object.freeze({ kind: "none" });
 /** @type {ReturnType<typeof caretContext>} */
@@ -57,7 +54,7 @@ export function caretContext(text, caret, sheet) {
       colon = -1;
     } else if (ch === "{") {
       const head = text.slice(start, i).trim(), top = stack[stack.length - 1];
-      stack.push(top === "raw" || DESCRIPTORS.test(head) ? "raw" : KEYFRAMES.test(head) ? "rules" : GROUP.test(head) ? top : "decls");
+      stack.push(opens(head, top));
       start = i + 1;
       colon = -1;
     } else if (ch === "}") {
@@ -69,6 +66,20 @@ export function caretContext(text, caret, sheet) {
   const top = stack[stack.length - 1];
   if (paren || top === "raw") return NONE;
   if (top === "rules") return SELECTOR;
+  // The declaration starts on the last line that begins with `name:`, as number.js has it: a
+  // line without one goes on with the value above only after a comma, the colon or a bracket;
+  // otherwise it is a new declaration, also when the one above has no `;` yet (`color: red⏎al`).
+  for (let s = Math.max(start, text.lastIndexOf("\n", caret - 1) + 1), e = caret; s > start; ) {
+    const own = NAME.exec(text.slice(s, e));
+    const pe = s - 1, ps = Math.max(start, text.lastIndexOf("\n", pe - 1) + 1);
+    if (own || !continues(text.slice(ps, pe))) {
+      start = s;
+      colon = own ? s + own[0].length - 1 : -1;
+      break;
+    }
+    e = pe;
+    s = ps;
+  }
   while (start < caret && /\s/.test(text[start])) start++;
   const head = text.slice(start, caret);
   // A nested rule's head: it starts as no property does, or a `{` follows on its line.
