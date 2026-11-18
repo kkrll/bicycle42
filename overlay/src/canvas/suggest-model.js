@@ -8,6 +8,27 @@ import { continues, NAME, opens } from "./number.js";
 /** The keywords every property takes. */
 export const WIDE = ["inherit", "initial", "unset", "revert"];
 
+/** CSS's named colours, all 148, and `transparent`: Chrome's list of a property's keywords has
+ *  none of them (`color` has `currentcolor` only), so they are offered wherever a colour goes. */
+export const COLOURS = `
+  aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet
+  brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan
+  darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen
+  darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey
+  darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite
+  forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew
+  hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue
+  lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon
+  lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime
+  limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple
+  mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue
+  mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid
+  palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum
+  powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen
+  seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal
+  thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen
+  transparent`.trim().split(/\s+/);
+
 /** @type {ReturnType<typeof caretContext>} */
 const NONE = Object.freeze({ kind: "none" });
 /** @type {ReturnType<typeof caretContext>} */
@@ -140,10 +161,17 @@ export const propNames = (props) =>
   Object.keys(props).sort((a, b) => props[b].w - props[a].w || (a < b ? -1 : a > b ? 1 : 0));
 
 /** The keywords offered for a property: its own as listed, `auto` and `none` where it takes
- *  them, the CSS-wide ones; all of them asked of `supports(prop, keyword)`. */
+ *  them, the named colours where it takes a colour, the CSS-wide ones; all of them asked of
+ *  `supports(prop, keyword)`. (A colour: `red` and `#f00` both. `red` alone is also a font's
+ *  name, an animation's, a grid area's.) */
 export function valuesOf(prop, props, supports) {
   const out = [];
-  for (const v of [...(props[prop]?.v ?? []), "auto", "none", ...WIDE]) if (!out.includes(v) && supports(prop, v)) out.push(v);
+  const add = (v) => {
+    if (!out.includes(v) && supports(prop, v)) out.push(v);
+  };
+  for (const v of [...(props[prop]?.v ?? []), "auto", "none"]) add(v);
+  if (supports(prop, "red") && supports(prop, "#f00")) for (const c of COLOURS) if (!out.includes(c)) out.push(c);
+  WIDE.forEach(add);
   return out;
 }
 

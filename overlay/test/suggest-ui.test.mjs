@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { serve } from "../scripts/serve.mjs";
+import { COLOURS } from "../src/canvas/suggest-model.js";
 
 const CANDIDATES = [
   process.env.CHROMIUM,
@@ -182,20 +183,20 @@ test("the highlighted value shows on the page; Escape puts back what was typed; 
 test("with the list closed, ↑/↓ on a keyword goes through the property's keywords; not on a number", async () => {
   const { page, f, errors, ui, press, type, list, value, style } = await open();
   await f.locator("b42-review .css").click();
-  await type("width: 120px;\nalign-items: center;\ncolor: red");
-  await press("ArrowUp"); // "red" is not a keyword of Chrome's list: the caret moves as ever, a line up
-  assert.equal(await ui((r) => r.querySelector(".css").selectionStart), 24);
+  await type("width: 120px;\nalign-items: center;\ncolor: #f00");
+  await press("ArrowUp"); // "#f00" is no keyword: the caret moves as ever, a line up
+  assert.equal(await ui((r) => r.querySelector(".css").selectionStart), 25);
   await ui((r) => r.querySelector(".css").setSelectionRange(30, 30)); // in "center"
   await press("ArrowDown");
-  assert.equal(await value("css"), "width: 120px;\nalign-items: start;\ncolor: red");
+  assert.equal(await value("css"), "width: 120px;\nalign-items: start;\ncolor: #f00");
   assert.equal(await style("#plans", "align-items"), "start");
   assert.equal(await list(), null);
   await press("ArrowUp", "ArrowUp");
-  assert.equal(await value("css"), "width: 120px;\nalign-items: baseline;\ncolor: red");
+  assert.equal(await value("css"), "width: 120px;\nalign-items: baseline;\ncolor: #f00");
   // On a number the key is not the suggestions': it goes on to the number stepping (keys.js), which takes it.
   await ui((r) => r.querySelector(".css").setSelectionRange(9, 9));
   await press("ArrowUp");
-  assert.equal(await value("css"), "width: 121px;\nalign-items: baseline;\ncolor: red");
+  assert.equal(await value("css"), "width: 121px;\nalign-items: baseline;\ncolor: #f00");
   assert.equal(await list(), null);
   assert.deepEqual(errors, []);
   await page.close();
@@ -214,6 +215,32 @@ test("names are properties this browser takes: no descriptors, nothing it would 
   assert.deepEqual(await f.evaluate((names) => names.filter((n) => !CSS.supports(n, "initial")), all), [], "none of them would be flagged as unknown");
   for (const d of ["src", "syntax", "inherits", "unicode-range", "system", "pad", "range", "fallback", "font-display", "origin-trial-test-property"]) assert.ok(!all.includes(d), d);
   assert.ok(all.includes("scrollbar-color") && all.includes("align-items") && all.includes("font-family"));
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("the named colours are offered wherever a colour goes, with their swatch", async () => {
+  const { page, f, errors, ui, press, type, list, value, style } = await open();
+  await f.locator("b42-review .css").click();
+  await type("color: re");
+  let l = await list();
+  assert.deepEqual(l.items.slice(0, 3), ["rebeccapurple", "red", "revert"]);
+  const swatch = () => ui((r) => Object.fromEntries([...r.querySelectorAll(".sug .sg")].slice(0, 3).map((g) => [g.textContent, g.firstElementChild ? g.firstElementChild.style.background : null])));
+  assert.deepEqual(await swatch(), { rebeccapurple: "rebeccapurple", red: "red", revert: null });
+  await press("ArrowDown");
+  assert.equal(await style("#plans", "color"), "rgb(255, 0, 0)", "shown on the page");
+  await press("Enter");
+  assert.equal(await value("css"), "color: red");
+  assert.deepEqual(await f.evaluate((cs) => cs.filter((c) => !CSS.supports("color", c)), COLOURS), [], "every colour of the list is one");
+  // After a property's own keywords; and in a shorthand that takes a colour.
+  await type(";\nbackground-color: ");
+  l = await list();
+  assert.ok(l.items.indexOf("currentcolor") < l.items.indexOf("aliceblue") && l.items.indexOf("yellowgreen") < l.items.indexOf("transparent") && l.items.indexOf("transparent") < l.items.indexOf("inherit"), l.items.slice(0, 6).join());
+  await type("transparent;\nborder: 1px solid tom");
+  assert.deepEqual((await list()).items, ["tomato"]);
+  // Not where `red` would be a name (a font's): no colours there.
+  await type("ato;\nfont-family: re");
+  assert.ok(!(await list())?.items.includes("red"), JSON.stringify((await list())?.items.slice(0, 5)));
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -298,7 +325,9 @@ test("the stylesheet: nothing in a selector; a click on an item takes it and kee
   assert.equal(await value("free"), ".card:hover { display: grid");
   assert.equal(await list(), null);
   await type("; }\n.card { color: bl");
-  assert.equal((await list()).on, "black");
+  assert.deepEqual((await list()).items.slice(0, 3), ["black", "blanchedalmond", "blue"], "the property's own keyword first, then the named colours");
+  await type("ac");
+  assert.deepEqual((await list()).items, ["black"]);
   await press("ArrowDown"); // one item: it is shown
   await type(" }");
   assert.equal(await value("free"), ".card:hover { display: grid; }\n.card { color: black }");

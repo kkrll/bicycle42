@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CSS_PROPS } from "../src/canvas/css-data.js";
-import { caretContext, isNumber, matches, propNames, step, valueContext, valuesOf, wants, WIDE } from "../src/canvas/suggest-model.js";
+import { caretContext, COLOURS, isNumber, matches, propNames, step, valueContext, valuesOf, wants, WIDE } from "../src/canvas/suggest-model.js";
 
 /** The context at `|` in `src`. */
 const at = (src, sheet = false) => {
@@ -11,7 +11,8 @@ const at = (src, sheet = false) => {
   return caretContext(src.replace("|", ""), caret, sheet);
 };
 const kind = (src, sheet) => at(src, sheet).kind;
-const all = () => true;
+/** A browser that takes every keyword, and a colour where one goes. */
+const all = (p, v) => (v !== "red" && v !== "#f00") || /color|^background$|^border$/.test(p);
 
 test("element styles: a name before the colon, a value after it", () => {
   assert.deepEqual(at("al|"), { kind: "name", word: "al", s: 0, e: 2, colon: false });
@@ -157,17 +158,38 @@ test("property names: by weight, then by the alphabet", () => {
 
 test("a property's values: its own as given, auto and none where taken, the CSS-wide ones", () => {
   const props = { "align-items": { v: ["normal", "center", "start"], w: 1 }, display: { v: ["block", "none"], w: 1 }, gap: { v: [], w: 0 } };
-  const takes = (p, v) => !(p === "align-items" && (v === "auto" || v === "none")) && !(p === "gap" && v === "none");
+  const takes = (p, v) => all(p, v) && !(p === "align-items" && (v === "auto" || v === "none")) && !(p === "gap" && v === "none");
   assert.deepEqual(valuesOf("align-items", props, takes), ["normal", "center", "start", ...WIDE]);
   assert.deepEqual(valuesOf("display", props, all), ["block", "none", "auto", ...WIDE]); // none is listed once, where the data has it
   assert.deepEqual(valuesOf("gap", props, takes), ["auto", ...WIDE]);
   assert.deepEqual(valuesOf("not-there", props, all), ["auto", "none", ...WIDE]);
   assert.deepEqual(valuesOf("not-there", props, () => false), []);
   // What the browser does not take is left out, wherever it came from.
-  assert.deepEqual(valuesOf("align-items", props, (p, v) => v !== "center" && v !== "revert" && v !== "auto" && v !== "none"), ["normal", "start", "inherit", "initial", "unset"]);
+  assert.deepEqual(valuesOf("align-items", props, (p, v) => all(p, v) && v !== "center" && v !== "revert" && v !== "auto" && v !== "none"), ["normal", "start", "inherit", "initial", "unset"]);
   const real = valuesOf("align-items", CSS_PROPS, all);
   assert.ok(real.indexOf("center") < real.indexOf("start") && real.indexOf("start") < real.indexOf("inherit"), real.join());
   assert.equal(matches(real, "c")[0], "center");
+});
+
+test("the named colours, wherever a colour goes: after the property's own keywords, before the CSS-wide ones", () => {
+  assert.equal(COLOURS.length, 149);
+  assert.equal(new Set(COLOURS).size, 149);
+  for (const c of ["red", "rebeccapurple", "gray", "grey", "aliceblue", "yellowgreen", "transparent"]) assert.ok(COLOURS.includes(c), c);
+  assert.ok(COLOURS.every((c) => /^[a-z]+$/.test(c)));
+  const color = valuesOf("color", CSS_PROPS, all);
+  assert.deepEqual(color.slice(0, 2), ["currentcolor", "black"], "its own first");
+  assert.deepEqual(color.slice(-4), WIDE);
+  assert.equal(color.filter((v) => v === "black").length, 1);
+  assert.equal(color.length, new Set([...CSS_PROPS.color.v, ...COLOURS, ...WIDE, "auto", "none"]).size);
+  assert.deepEqual(matches(color, "re").slice(0, 3), ["rebeccapurple", "red", "revert"]);
+  assert.deepEqual(matches(color, "red"), ["red", "darkred", "indianred", "mediumvioletred", "orangered", "palevioletred"]);
+  // A shorthand that takes a colour has them after its own.
+  const border = valuesOf("border", CSS_PROPS, all);
+  assert.ok(border.includes("tomato") && border.indexOf("solid") < border.indexOf("aliceblue"), border.slice(0, 20).join());
+  // Not where `red` is only a name (a font's, an animation's): there `#f00` is nothing.
+  const names = (p, v) => v !== "#f00";
+  assert.ok(!valuesOf("font-family", CSS_PROPS, names).includes("red"));
+  assert.ok(!valuesOf("align-items", CSS_PROPS, all).includes("red"));
 });
 
 test("stepping through a property's keywords", () => {
