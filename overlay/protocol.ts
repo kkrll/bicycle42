@@ -39,7 +39,7 @@ export type Target = {
  *  are the older, one-property form of the same and are still read. The overlay sends "style",
  *  "class", "move", "text" and "hide". */
 export type Edit = {
-  kind: "move" | "resize" | "gap" | "padding" | "margin" | "text" | "hide" | "style" | "class"
+  kind: "move" | "resize" | "gap" | "padding" | "margin" | "text" | "hide" | "style" | "class" | "duplicate"
   /** The edited element (for gap: the parent whose gap changed). */
   selector: string
   tag: string
@@ -66,6 +66,9 @@ export type Edit = {
   before?: { selector: string; label: string } | null
   /** How many siblings look like the same component. More than 1 means "repeated". */
   repeated?: number
+  /** The element is in a copy that the "duplicate" edit at this index (0-based, in the same
+   *  note) made: it is not in the code yet. A duplicate edit names the element it copies. */
+  copyOf?: number
 }
 
 /** One animation, changed in motion mode (or only talked about, for a transition or a script's

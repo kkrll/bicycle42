@@ -10,6 +10,7 @@ import { drawBar, drawPop, flash, hush } from "./bar.js";
 import { reveal, T } from "./tree.js";
 import { numberAt, step } from "./number.js";
 import { scrubbable } from "./scrub.js";
+import { tokenMatch, tokensOf } from "./tokens.js";
 import { clsEl, compEl, cssEl, freeEl, insp, ipath } from "./mount.js";
 import { kick, pool } from "../render.js";
 import { domVersion, root } from "../mount.js";
@@ -174,14 +175,25 @@ export function drawComputed() {
     row.className = "crow";
     // The name copies the line into Element styles; the value is a field that writes it there.
     // (Tab goes from value to value: the names are out of the tab order.)
-    row.innerHTML = '<button type="button" class="cp" tabindex="-1" title="Click to copy into Element styles · drag to change the number"></button><input class="cval" type="text" spellcheck="false" autocomplete="off">';
+    // After the value, the page's variable it equals, when there is one (a click writes it).
+    row.innerHTML = '<button type="button" class="cp" tabindex="-1" title="Click to copy into Element styles · drag to change the number"></button><input class="cval" type="text" spellcheck="false" autocomplete="off"><button type="button" class="ctok" tabindex="-1" hidden></button>';
     scrubbable(row.firstChild);
     return row;
   });
   const focused = root.activeElement;
+  const toks = live ? tokensOf(el) : [], host = compEl.getRootNode();
   list.forEach((p, i) => {
-    const row = rows[i], field = row.lastChild;
-    const v = pretty(cs.getPropertyValue(p));
+    const row = rows[i], field = row.children[1];
+    const raw = cs.getPropertyValue(p), v = pretty(raw);
+    const t = tokenMatch(p, raw, toks, host);
+    const hint = t ? t.names.join(" ") : "";
+    if (row._hint !== hint) {
+      const tok = row.lastChild;
+      row._hint = tok.textContent = hint;
+      row._tok = t ? t.names : null;
+      tok.hidden = !hint;
+      tok.title = hint ? `The page's variable${t.names.length > 1 ? "s" : ""} with this value${t.others.length ? ` (so ${t.others.length > 1 ? "are" : "is"} ${t.others.join(", ")})` : ""} · click to write ${p}: ${t.names.map((n) => `var(${n})`).join(" ")}` : "";
+    }
     // In the accent colour: what this batch has changed on this element.
     const changed = mine.some((m) => m === p || m.startsWith(`${p}-`) || p.startsWith(`${m}-`));
     if (row._p !== p) {
@@ -198,8 +210,8 @@ export function drawComputed() {
 export const unmarkValue = (row) => {
   if (!row._bad) return;
   row._bad = false;
-  row.lastChild.classList.remove("bad");
-  row.lastChild.title = row._v || "";
+  row.children[1].classList.remove("bad");
+  row.children[1].title = row._v || "";
 };
 
 /** A computed row's value as the page has it now, read and kept (drawComputed reads it too,
@@ -240,7 +252,7 @@ const FULL = "This element's styles are full: shorten them first";
 /** `prop: value;` into the selection's styles. False, and the field marked, when the browser
  *  would not take the value; "full" when there is no room left for it. */
 function writeValue(row, v) {
-  const field = row.lastChild, p = row._p;
+  const field = row.children[1], p = row._p;
   if (!supports(p, v)) {
     row._bad = true;
     field.classList.add("bad");

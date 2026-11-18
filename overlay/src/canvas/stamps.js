@@ -33,10 +33,12 @@ function pathSel(el) {
 // then the element is the one where the old one last was, as before. An element with an id of
 // its own needs no stamp.
 export const STAMP = "data-b42e";
-const stampSel = (id) => `[${STAMP}="${id}"]`;
+export const stampSel = (id) => `[${STAMP}="${id}"]`;
 export const stampOf = (rs) => /^\[data-b42e="([a-z0-9]+)"\]$/.exec(rs)?.[1];
 const stampBase = `${Date.now().toString(36).slice(-4)}${Math.random().toString(36).slice(2, 5)}`; // (a restored draft has stamps of an earlier load)
 let stampN = 0;
+/** A stamp no element has yet (a copy's, see copies.js). */
+export const freshStamp = () => `${stampBase}${(++stampN).toString(36)}`;
 
 /** The selector that says which element this is: its stamp if it has one, else its path. */
 export const stableSel = (el) => (el.hasAttribute(STAMP) ? stampSel(el.getAttribute(STAMP)) : pathSel(el));
@@ -46,7 +48,7 @@ export function stamp(el) {
   const path = pathSel(el);
   if (!el.hasAttribute(STAMP)) {
     if (el === document.body || el === document.documentElement || (el.id && path === `#${CSS.escape(el.id)}`)) return path;
-    el.setAttribute(STAMP, `${stampBase}${(++stampN).toString(36)}`);
+    el.setAttribute(STAMP, freshStamp());
   }
   const rs = stampSel(el.getAttribute(STAMP));
   C.paths.set(rs, { path, tag: el.localName });
@@ -67,8 +69,12 @@ export function elOf(rs) {
     }
     return el;
   }
+  // (one in a copy that is out of the page with its batch comes back with it: in its place now is
+  // the element the copy was made from, or the one after it)
+  if (el && C.copies.size) for (const node of C.copies.values()) if (!node.isConnected && node.contains(el)) return null;
   el = q(rs);
-  if (!el && id) {
+  // (a copy is never found by where it was: in its place now may be the element it copies)
+  if (!el && id && !C.copyRs.has(rs)) {
     const p = C.paths.get(rs);
     const at = p && q(p.path);
     if (at && at !== hostEl && at.localName === p.tag && !at.hasAttribute(STAMP)) {

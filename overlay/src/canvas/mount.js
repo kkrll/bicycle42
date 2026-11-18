@@ -116,9 +116,11 @@ export function mountCanvas() {
   compEl.addEventListener("blur", (e) => e.target.classList && e.target.classList.contains("cval") && setValue(e.target), true);
   compEl.addEventListener("click", (e) => {
     const row = e.target.closest(".crow");
-    if (!row || !C.sel || !e.target.classList.contains("cp")) return;
+    const tok = e.target.classList.contains("ctok");
+    if (!row || !C.sel || !(tok || e.target.classList.contains("cp")) || (tok && !row._tok)) return;
     const en = entry(C.sel);
-    const css = setDecl(en.css, row._p, row._v);
+    // (the name copies the value; the variable after it writes the value as that variable)
+    const css = setDecl(en.css, row._p, tok ? row._tok.map((n) => `var(${n})`).join(" ") : row._v);
     if (css.length <= MAX_CSS) en.css = css;
     commit();
     syncFields(true);

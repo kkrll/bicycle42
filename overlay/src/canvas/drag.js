@@ -4,9 +4,9 @@ import * as Notes from "../notes/api.js";
 import { C, kids, MAX_CSS, num, px } from "./state.js";
 import { entry, meta, stableSel, stamp } from "./stamps.js";
 import { setDecl } from "./css.js";
-import { applyAll, ordered } from "./apply.js";
+import { applyAll, ordered, stackOf } from "./apply.js";
 import { commit } from "./batch.js";
-import { between, cursorOf, flow, select, zoneOf } from "./select.js";
+import { between, boxBand, cursorOf, flow, select, SIDES, zoneOf } from "./select.js";
 import { endEdit, startEdit } from "./text.js";
 import { liveEnd, liveSet, shield } from "./cursor.js";
 import { flash, hush, setPop } from "./bar.js";
@@ -30,7 +30,7 @@ export function cvDown(e, z) {
   if (!document.hasFocus()) window.focus();
   const x = e.clientX, y = e.clientY, r = C.r;
   const body = !z && r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
-  C.drag = { x0: x, y0: y, x, y, zone: z || (body ? { t: "body" } : null), mode: null, free: mod(e), sx: window.scrollX, sy: window.scrollY };
+  C.drag = { x0: x, y0: y, x, y, zone: z || (body ? { t: "body" } : null), mode: null, free: mod(e), both: e.shiftKey, sx: window.scrollX, sy: window.scrollY };
 }
 
 export function cvMove(e) {
@@ -53,6 +53,7 @@ export function cvMove(e) {
   d.x = e.clientX;
   d.y = e.clientY;
   d.free = mod(e);
+  d.both = e.shiftKey;
   const far = Math.hypot(d.x - d.x0, d.y - d.y0);
   if (!d.mode && far > (d.zone && d.zone.t !== "body" ? 2 : DRAG_PX)) d.mode = "start";
   kick();
@@ -96,24 +97,56 @@ function beginDrag(d) {
   if (z && z.t === "resize") return startResize(d, z);
   if (z && z.t === "space") {
     const cs = getComputedStyle(z.el);
-    Object.assign(d, { mode: "space", el: z.el, sel: stableSel(z.el) + BOOST, v0: z.value, val: z.value,
-      near: [...new Set(["paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "rowGap", "columnGap"].map((k) => num(cs[k])).filter(Boolean))] });
+    const near = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "rowGap", "columnGap", ...(z.box ? ["marginTop", "marginRight", "marginBottom", "marginLeft"] : [])];
+    Object.assign(d, { mode: "space", el: z.el, sel: stableSel(z.el) + BOOST, v0: z.value, val: z.value, k: 1,
+      near: [...new Set(near.map((k) => num(cs[k])).filter(Boolean))] });
+    if (z.box) startBox(d, z, cs);
     return;
   }
   // A drag that starts on the selection moves the selection. One that starts elsewhere moves
   // what is under the pointer, or rather the nearest thing around it that can be reordered:
-  // grabbing a card by its heading moves the card.
+  // grabbing a card by its heading moves the card. A flex or grid parent first; failing that,
+  // a stack of blocks (a paragraph is moved among paragraphs, not a word inside it).
   let el = z ? C.sel : pick(d.x0, d.y0);
   if (!el) return;
   if (!z) {
-    for (let a = el; a && a.parentElement && a !== document.body; a = a.parentElement)
-      if (/flex|grid/.test(getComputedStyle(a.parentElement).display)) {
-        el = a;
-        break;
-      }
+    const up = (ok) => {
+      for (let a = el; a && a.parentElement && a !== document.body; a = a.parentElement) if (ok(a)) return a;
+      return null;
+    };
+    el = up((a) => /flex|grid/.test(getComputedStyle(a.parentElement).display))
+      || up((a) => {
+        const st = stackOf(a.parentElement);
+        return !!st && st.length > 1 && st.some((s) => s.el === a);
+      })
+      || el;
     if (el !== C.sel) select(el);
   }
   startMove(d, el);
+}
+
+/** A padding or margin band: the edge of it that moves when the value grows follows the pointer.
+ *  Which edge that is, and how far it goes per pixel, depends on the element (a fixed height
+ *  grows inward, an auto one outward; a margin pushes the element itself), so it is tried once:
+ *  16px more, measured, put back. Shift drags the opposite side with it (if it is a number). */
+function startBox(d, z, cs) {
+  const opp = (z.side + 2) % 4, oprop = `${z.box === "pad" ? "padding" : "margin"}-${SIDES[opp]}`;
+  let auto = false;
+  try {
+    auto = String(z.el.computedStyleMap().get(oprop)) === "auto";
+  } catch {}
+  d.opp = auto ? null : { prop: oprop, v0: num(cs.getPropertyValue(oprop)) };
+  const was = boxBand(z);
+  liveSet(z.el, d.sel, z.prop, px(z.value + 16));
+  const now = boxBand(z);
+  liveSet(z.el, d.sel, z.prop, px(z.value));
+  const [p, s] = z.axis === "x" ? ["x", "w"] : ["y", "h"];
+  const lo = now[p] - was[p], hi = now[p] + now[s] - was[p] - was[s];
+  const m = Math.abs(hi) >= Math.abs(lo) ? hi : lo;
+  // (outward is down or right for the bottom and right sides; a padding grows inward)
+  const out = z.side === 1 || z.side === 2 ? 1 : -1;
+  const sign = Math.abs(m) >= 2 ? Math.sign(m) : z.box === "mar" ? out : -out;
+  d.k = sign * (Math.abs(m) > 5 && Math.abs(m) < 11 ? 0.5 : 1);
 }
 
 function startResize(d, z) {
@@ -142,10 +175,16 @@ function startResize(d, z) {
 
 function startMove(d, el) {
   const P = el.parentElement;
-  const cs = P && getComputedStyle(P);
-  const layout = !cs ? "block" : cs.display.includes("flex") ? (cs.flexDirection.startsWith("column") ? "flex-column" : "flex-row") : cs.display.includes("grid") ? "grid" : "block";
-  if (layout === "block") return flash("Reordering works inside flex and grid containers for now");
-  const items = flow(P);
+  if (!P || P === document.documentElement) return flash("Nothing here to reorder it with");
+  const cs = getComputedStyle(P);
+  const layout = cs.display.includes("flex") ? (cs.flexDirection.startsWith("column") ? "flex-column" : "flex-row") : cs.display.includes("grid") ? "grid" : "block";
+  let items = flow(P);
+  if (layout === "block") {
+    const st = stackOf(P);
+    if (!st) return flash("It sits among text or side-by-side boxes: it can't be reordered there");
+    const inStack = new Set(st.map((s) => s.el));
+    items = items.filter((it) => inStack.has(it.el));
+  }
   const self = items.findIndex((it) => it.el === el);
   if (self < 0) return flash("This element is out of the flow: it can't be reordered");
   if (items.length < 2) return flash("Nothing here to reorder it with");
@@ -187,7 +226,7 @@ function startMove(d, el) {
 
 export function stepDrag(d) {
   const dx = d.x - d.x0 + VP.sx - d.sx, dy = d.y - d.y0 + VP.sy - d.sy;
-  const key = `${dx}|${dy}|${d.free}`;
+  const key = `${dx}|${dy}|${d.free}|${d.both}`;
   if (key === d.key) return;
   d.key = key;
   d.snapped = false;
@@ -209,9 +248,12 @@ export function stepDrag(d) {
     d.label = z.hx && z.hy ? `${n(d.w0)} × ${n(d.h0)} → ${n(d.w)} × ${n(d.h)}` : z.hx ? `width ${n(d.w0)} → ${n(d.w)}` : `height ${n(d.h0)} → ${n(d.h)}`;
   } else if (d.mode === "space") {
     const z = d.zone;
-    d.val = snap(d.v0 + (z.axis === "x" ? dx : dy), d.near);
+    d.val = snap(d.v0 + (z.axis === "x" ? dx : dy) / d.k, d.near);
     liveSet(d.el, d.sel, z.prop, px(d.val));
-    d.label = `${z.prop} ${n(d.v0)} → ${n(d.val)}`;
+    const both = !!(z.box && d.both && d.opp);
+    if (both || d.oppSet) liveSet(d.el, d.sel, d.opp.prop, px(both ? d.val : d.opp.v0));
+    d.oppSet = d.oppSet || both;
+    d.label = `${both ? `${z.prop}/${SIDES[(z.side + 2) % 4]}` : z.prop} ${n(d.v0)} → ${n(d.val)}`;
   } else if (d.mode === "move") {
     // The nearest insertion line, in the coordinates the lines were measured in.
     const x = d.x + VP.sx - d.sx, y = d.y + VP.sy - d.sy;
@@ -243,6 +285,7 @@ function endDrag(d, keep) {
   let css = e.css;
   if (d.mode === "space") {
     if (d.val !== d.v0) css = setDecl(css, d.zone.prop, px(d.val));
+    if (d.zone.box && d.both && d.opp && d.val !== d.opp.v0) css = setDecl(css, d.opp.prop, px(d.val));
   } else {
     const w = d.zone.hx && px(d.w) !== px(d.w0), h = d.zone.hy && px(d.h) !== px(d.h0);
     if ((w || h) && d.unflex) css = setDecl(css, "flex", "none");

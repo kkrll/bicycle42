@@ -134,14 +134,17 @@ them.
 | Edit mode | |
 |---|---|
 | click, or a row of the tree | Select an element |
-| drag an element / an edge / a gap | Move it among its siblings / resize it / change the gap |
+| drag an element / an edge / a gap | Move it among its siblings (in flex, grid or a stack of blocks) / resize it / change the gap |
+| drag a padding or margin band | Change that side (`shift`: the opposite side too). A side without any shows a short bar to grab |
 | hold `mod` while dragging | No snapping |
 | double-click text | Edit it in place |
-| `Delete` | Hide the selection |
+| `Delete` | Hide the selection (a copy made in this batch is taken out) |
+| `mod+D` | Duplicate the selection: a copy right after it, selected, to edit like any element. The note asks the agent for the copy, and edits made in it say so |
 | `↑` / `↓` in a computed value | Step the number at the caret by 1, as in DevTools (`shift`: 10, `alt`: 0.1, `mod`: 100); on a keyword (`center`), the property's keyword before / after it. `Tab` / `shift+Tab` go from one computed value to the next |
 | double-click a number or keyword in the style boxes, then `↑` `↓` | The same in Element styles and Global, for what is selected (it stays selected, so the next press goes on). With a caret alone the arrows move it from line to line, as in any text box |
 | drag a computed value's name | Change its number, 1 a pixel (`shift`: 10, `alt`: 0.1); `Esc` puts it back. A click copies the line into Element styles |
 | typing CSS in the inspector | A list of property names, then of the property's values and the page's own CSS variables (design tokens) the property takes, as `var(--name)` with their value (`ctrl+Space` opens it too; `--` or `var(` lists only the variables) |
+| a computed value equal to a page variable | Its name shows after the value (`padding 16px --space-4`; a length only under a name of its kind); a click writes the value as `var(--space-4)` |
 | double-click a `var(--space-4)` in the style boxes, then `↑` `↓` | The next step of that token's scale (`--space-1`, `--space-2`, … by size), live; it stops at either end. The note then names the token: `gap: 16px → 24px (var(--space-6))`, and the agent is told to use it |
 | `↑` `↓` in that list, then `Enter`, `Tab` or a click | Show each value on the page / take it; `Esc` closes the list and puts back what was typed |
 | `mod+Z` / `mod+shift+Z` | Undo / redo |
@@ -172,7 +175,7 @@ a skill or a helper agent.
 
 - Signed builds and installers.
 - Tabs and device widths.
-- Edit mode: adding elements, moving one into another container, reordering in block flow.
+- Edit mode: adding new elements (other than a copy) and editing HTML, moving one into another container.
 
 The full list is in [app/README.md](app/README.md).
 

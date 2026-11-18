@@ -8,6 +8,7 @@ import { applyAll, splitRules } from "./apply.js";
 import { commit, countEdits } from "./batch.js";
 import { value } from "./send.js";
 import { select } from "./select.js";
+import { dropCopy } from "./copies.js";
 import { dock } from "./cursor.js";
 import { syncFields } from "./inspector.js";
 import { bar, clsEl, cnote, corner, cssEl, freeEl } from "./mount.js";
@@ -101,11 +102,13 @@ const HELP = () => {
     ];
   return [
     ["click", "select · ↑ ↓ parent, child"],
-    ["drag", "reorder inside a flex or grid parent"],
+    ["drag", "reorder among its siblings"],
     ["drag an edge or corner", `resize · hold ${isMac ? "⌘" : "ctrl"} for no snapping`],
     ["drag the space between items", "change the gap"],
+    ["drag a padding or margin band", `change it · ${sh.replace("+", "")} both sides`],
     ["double-click text", "edit it · ↵ keep, esc revert"],
-    ["Delete", "hide the selection"],
+    ["Delete", "hide the selection · a copy: take it out"],
+    [`${m}D`, "duplicate the selection: a copy right after it"],
     ["↑ ↓ in a computed value", `step its number · ${sh.replace("+", "")} 10, ${alt.replace("+", "")} 0.1, ${m.replace("+", "")} 100 · a keyword: the one before, after`],
     ["double-click a number or keyword in the style boxes, then ↑ ↓", "the same there"],
     ["drag a computed value's name", "change its number"],
@@ -157,8 +160,8 @@ function editRows() {
     if (e.cls) rows.push({ kind: "class", rs: e.rs, label: e.label, text: `class “${line(e.cls.from)}” → “${line(e.cls.to)}”` });
   }
   for (const op of B.ops)
-    rows.push({ kind: op.kind, rs: op.rs, label: op.label, op,
-      text: op.kind === "hide" ? "hidden" : op.kind === "move" ? `moved from place ${op.fromIndex + 1} to ${op.toIndex + 1}` : `text “${line(op.from)}” → “${line(op.to)}”` });
+    rows.push({ kind: op.kind, rs: op.kind === "duplicate" ? op.copy : op.rs, label: op.label, op,
+      text: op.kind === "hide" ? "hidden" : op.kind === "duplicate" ? "duplicated" : op.kind === "move" ? `moved from place ${op.fromIndex + 1} to ${op.toIndex + 1}` : `text “${line(op.from)}” → “${line(op.to)}”` });
   if (B.sheet.trim()) {
     const k = splitRules(B.sheet).length;
     rows.push({ kind: "sheet", label: "Stylesheet", text: `${k} rule${k === 1 ? "" : "s"}` });
@@ -171,6 +174,7 @@ function removeEdit(row) {
   if (row.kind === "style") B.els[row.rs].css = "";
   else if (row.kind === "class") delete B.els[row.rs].cls;
   else if (row.kind === "sheet") B.sheet = "";
+  else if (row.kind === "duplicate") return dropCopy(row.op.copy); // (with what was edited in the copy)
   else B.ops.splice(B.ops.indexOf(row.op), 1);
   commit(); // a step like any other: mod+Z brings it back
   syncFields(true);

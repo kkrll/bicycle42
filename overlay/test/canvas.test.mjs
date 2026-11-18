@@ -305,7 +305,7 @@ test("computed list shows current values; a click copies the line into element s
   const { page, f } = await open();
   await clickAt(page, f, "#plans", 2, 2);
   await page.waitForTimeout(250);
-  const rows = await ui(f, (r) => [...r.querySelectorAll(".crow")].map((x) => `${x.firstChild.textContent}: ${x.lastChild.value}`));
+  const rows = await ui(f, (r) => [...r.querySelectorAll(".crow")].map((x) => `${x.firstChild.textContent}: ${x.querySelector(".cval").value}`));
   assert.ok(rows.includes("display: flex") && rows.includes("gap: 16px"), rows.join("; "));
   await f.locator("b42-review .crow .cp", { hasText: "gap" }).click();
   assert.equal(await field(f, "css").inputValue(), "gap: 16px;");
@@ -389,6 +389,134 @@ test("a style edit set with the page's variables says which: the note's change n
   await page.close();
 });
 
+test("a computed value the page has a variable for names it; a click writes it as var(); a length only under a name of its kind", async () => {
+  const { page, f, errors } = await open();
+  const hints = () => ui(f, (r) => Object.fromEntries([...r.querySelectorAll(".crow")].map((x) => [x.firstChild.textContent, x.querySelector(".ctok").hidden ? "" : x.querySelector(".ctok").textContent])));
+  await clickAt(page, f, SECOND, 100, 80);
+  await page.waitForTimeout(250);
+  let h = await hints();
+  // padding 16px is --space-4; width 200px and font-size 15px are no variable's; 16px is not a font size's
+  assert.deepEqual([h.padding, h.width, h["font-size"], h.color, h["border-radius"]], ["--space-4", "", "", "", ""]);
+  await field(f, "css").fill("color: var(--brand);\npadding: 8px 16px;");
+  await settle(f);
+  await page.waitForTimeout(1100);
+  h = await hints();
+  assert.deepEqual([h.color, h.padding], ["--brand", "--space-2 --space-4"]);
+  // a click on it writes the value as those variables
+  await ui(f, (r) => [...r.querySelectorAll(".crow")].find((x) => x.firstChild.textContent === "padding").querySelector(".ctok").click());
+  await settle(f);
+  assert.equal(await field(f, "css").inputValue(), "color: var(--brand);\npadding: var(--space-2) var(--space-4);");
+  assert.equal(await style(f, SECOND, "padding"), "8px 16px");
+  // the flex row's gap
+  await clickAt(page, f, "#plans", 2, 2);
+  await page.waitForTimeout(250);
+  assert.equal((await hints()).gap, "--space-4");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("padding and margin: their bands are dragged like a gap, written into element styles; shift drags both sides; a side without any has a bar to grab", async () => {
+  const { page, f, errors } = await open();
+  const hover = async (x, y) => {
+    await page.mouse.move(x, y);
+    await page.mouse.move(x + 1, y);
+    await settle(f);
+    return ui(f, (r) => ({ label: r.querySelector(".lab.live").hidden ? "" : r.querySelector(".lab.live").textContent, band: r.querySelector(".band").hidden ? "" : r.querySelector(".band").className }));
+  };
+  await clickAt(page, f, SECOND, 100, 80);
+  const b = await box(f, SECOND);
+  // the top padding (a 1px border, then 16px), and its drag: 8px down is 8px more
+  assert.deepEqual(await hover(b.x + 100, b.y + 9), { label: "padding-top 16", band: "band pad" });
+  await drag(page, f, b.x + 101, b.y + 9, b.x + 101, b.y + 17);
+  assert.equal(await style(f, SECOND, "padding-top"), "24px");
+  // shift: the left one and the right one together
+  await page.keyboard.down("Shift");
+  await drag(page, f, b.x + 9, b.y + 60, b.x + 17, b.y + 60);
+  await page.keyboard.up("Shift");
+  assert.deepEqual([await style(f, SECOND, "padding-left"), await style(f, SECOND, "padding-right")], ["24px", "24px"]);
+  // its sides in the row are the gap's; above it, no margin: a bar to grab, 14px out
+  assert.deepEqual(await hover(b.x + b.width / 2, b.y - 11), { label: "margin-top 0", band: "band mar" });
+  assert.equal(await field(f, "css").inputValue(), "padding-top: 24px;\npadding-left: 24px;\npadding-right: 24px;");
+  // a block's margin below it, dragged down (scrolled up from under the inspector first)
+  await f.evaluate(() => document.querySelector("#stack").scrollIntoView({ block: "start" }));
+  await frames(f);
+  await clickAt(page, f, "#stack p:nth-of-type(1)");
+  const s1 = await box(f, "#stack p:nth-of-type(1)");
+  // (from 6px out: nearer the border, the edge is the resize handle)
+  assert.deepEqual(await hover(s1.x + 100, s1.y + s1.height + 9), { label: "margin-bottom 12", band: "band mar" });
+  await drag(page, f, s1.x + 101, s1.y + s1.height + 9, s1.x + 101, s1.y + s1.height + 17);
+  assert.equal(await style(f, "#stack p:nth-of-type(1)", "margin-bottom"), "20px");
+  const n = await send(page);
+  assert.deepEqual(n.edits.map((e) => [e.kind, e.css]), [["style", "padding-top: 24px;\npadding-left: 24px;\npadding-right: 24px;"], ["style", "margin-bottom: 20px;"]]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("duplicate: mod+D puts a copy right after the selection and selects it; edits in it say so; undo, a re-render and Delete; Reset leaves the page as it began", async () => {
+  const { page, f, errors } = await open();
+  const start = await pageState(f);
+  const names = () => f.evaluate(() => [...document.querySelectorAll("#plans h3")].map((h) => h.textContent).join(" "));
+  await clickAt(page, f, SECOND, 100, 80);
+  await page.keyboard.press(`${MOD}+KeyD`);
+  await settle(f);
+  assert.equal(await names(), "Free Pro Pro Scale");
+  const third = "#plans article:nth-of-type(3)";
+  assert.equal(await f.evaluate((s) => document.querySelector(s).hasAttribute("data-b42e") && document.querySelector(s).getAttribute("data-b42e") !== document.querySelector("#plans article:nth-of-type(2)").getAttribute("data-b42e"), third), true);
+  assert.equal(await ui(f, (r) => r.querySelector(".count .cn").textContent), "1 edit");
+  // the copy is the selection: styles typed now are its own, and it shows its source's too
+  await field(f, "css").fill("border-color: rgb(255, 0, 0);");
+  await settle(f);
+  assert.equal(await style(f, third, "border-color"), "rgb(255, 0, 0)");
+  assert.equal(await style(f, SECOND, "border-color"), "rgb(216, 216, 210)");
+  // its heading reworded in place
+  const h = await box(f, `${third} h3`);
+  await page.mouse.click(h.x + 10, h.y + h.height / 2);
+  await page.mouse.click(h.x + 10, h.y + h.height / 2);
+  await frames(f);
+  await page.keyboard.type("Team");
+  await page.keyboard.press("Enter");
+  await settle(f);
+  assert.equal(await names(), "Free Pro Team Scale");
+  // undo takes the copy out with its edits, redo brings them back
+  for (let i = 0; i < 3; i++) await page.keyboard.press(`${MOD}+KeyZ`);
+  await settle(f);
+  assert.equal(await names(), "Free Pro Scale");
+  for (let i = 0; i < 3; i++) await page.keyboard.press(`${MOD}+Shift+KeyZ`);
+  await settle(f);
+  assert.equal(await names(), "Free Pro Team Scale");
+  // the page builds the row anew: the copy is put back after its source
+  await f.evaluate(() => window.rerender());
+  await settle(f);
+  assert.equal(await names(), "Free Pro Team Scale");
+  assert.equal(await style(f, third, "border-color"), "rgb(255, 0, 0)");
+  const n = await send(page);
+  assert.deepEqual(n.edits.map((e) => [e.kind, e.label, e.copyOf]), [["style", "Card · Pro For small teams", 1], ["duplicate", "Card · Pro For small teams", undefined], ["text", "Heading · Pro", 1]]);
+  assert.equal(n.edits[2].to, "Team");
+  // a copy in the next batch, taken out by Delete with what was edited in it
+  await clickAt(page, f, "#plans article:nth-of-type(1)", 100, 80);
+  await page.keyboard.press(`${MOD}+KeyD`);
+  await settle(f);
+  await field(f, "css").fill("opacity: 0.5;");
+  await settle(f);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Delete");
+  await settle(f);
+  assert.equal(await ui(f, (r) => r.querySelector(".count .cn").textContent), "No edits");
+  assert.deepEqual(errors, []);
+  await page.close();
+  // Reset: nothing of it stays in the page
+  const p2 = await open();
+  await clickAt(p2.page, p2.f, SECOND, 100, 80);
+  await p2.page.keyboard.press(`${MOD}+KeyD`);
+  await settle(p2.f);
+  await field(p2.f, "css").fill("color: red;");
+  await settle(p2.f);
+  await ui(p2.f, (r) => r.querySelector(".reset").click());
+  await settle(p2.f);
+  assert.deepEqual(await pageState(p2.f), start);
+  await p2.page.close();
+});
+
 test("move: dragging a card reorders it in its flex row with an insertion line; the DOM order is untouched", async () => {
   const { page, f } = await open();
   const b3 = await box(f, "#plans article:nth-of-type(3)");
@@ -413,18 +541,51 @@ test("move: dragging a card reorders it in its flex row with an insertion line; 
   await page.close();
 });
 
-test("move: in a grid, to the end (before: null); in block flow it is refused and said", async () => {
+test("move: in a grid, to the end (before: null)", async () => {
   const { page, f } = await open();
   const t1 = await box(f, "#grid .tile:nth-child(1)");
   const t6 = await box(f, "#grid .tile:nth-child(6)");
   await drag(page, f, t1.x + 20, t1.y + 20, t6.x + t6.width + 20, t6.y + 30);
   const tiles = await f.evaluate(() => [...document.querySelectorAll("#grid .tile")].sort((a, b) => { const p = a.getBoundingClientRect(), q = b.getBoundingClientRect(); return p.y - q.y || p.x - q.x; }).map((a) => a.textContent).join(""));
   assert.equal(tiles, "234561");
-  const s1 = await box(f, "#stack p:nth-of-type(1)");
-  await drag(page, f, s1.x + 30, s1.y + 15, s1.x + 30, s1.y + 120);
-  assert.match(await ui(f, (r) => r.querySelector(".bmsg").textContent), /flex and grid/);
   const n = await send(page);
   assert.deepEqual([n.edits.length, n.edits[0].kind, n.edits[0].fromIndex, n.edits[0].toIndex, n.edits[0].before, n.edits[0].parent.layout], [1, "move", 0, 5, null, "grid"]);
+  await page.close();
+});
+
+test("move: in block flow the stack is shown in its new order (shifted, the DOM untouched); what follows does not move; in running text it is refused", async () => {
+  const { page, f, errors } = await open();
+  const seen = () => f.evaluate(() => [...document.querySelectorAll("#stack p")].sort((a, b) => a.getBoundingClientRect().y - b.getBoundingClientRect().y).map((p) => p.textContent).join(" "));
+  const tops = () => f.evaluate(() => [...document.querySelectorAll("#stack p")].map((p) => Math.round(p.getBoundingClientRect().y)));
+  const top0 = await tops();
+  const after0 = await f.evaluate(() => Math.round(document.querySelector("#open-dialog").getBoundingClientRect().y));
+  const s1 = await box(f, "#stack p:nth-of-type(1)"), s3 = await box(f, "#stack p:nth-of-type(3)");
+  let mid;
+  await drag(page, f, s1.x + 30, s1.y + 15, s3.x + 30, s3.y + s3.height + 4, {
+    hold: async () => (mid = await ui(f, (r) => ({ line: !r.querySelector(".ins").hidden, wide: r.querySelector(".ins").getBoundingClientRect().width > 100, label: r.querySelector(".lab.live").textContent }))),
+  });
+  assert.deepEqual(mid, { line: true, wide: true, label: "1 → 3" });
+  assert.equal(await seen(), "Review Ship Annotate Repeat");
+  assert.deepEqual(await f.evaluate(() => [...document.querySelectorAll("#stack p")].map((p) => p.textContent).join(" ")), "Annotate Review Ship Repeat");
+  // the places are the old ones: the first box starts where the first did, the last one and what follows stay
+  const top1 = await tops();
+  assert.deepEqual([top1[1], top1[2], top1[0], top1[3]], top0);
+  assert.equal(await f.evaluate(() => Math.round(document.querySelector("#open-dialog").getBoundingClientRect().y)), after0);
+  // the page patches the stack: the order stays
+  await f.evaluate(() => window.rerender());
+  await frames(f, 3);
+  assert.equal(await seen(), "Review Ship Annotate Repeat");
+  // a button in a paragraph sits in a line: dragging it is refused and said
+  await f.evaluate(() => document.querySelector("#stack").scrollIntoView({ block: "start" }));
+  await frames(f);
+  await clickAt(page, f, "#open-dialog");
+  const b = await box(f, "#open-dialog");
+  await drag(page, f, b.x + b.width / 2, b.y + b.height / 2, b.x + b.width / 2, b.y + 80);
+  assert.match(await ui(f, (r) => r.querySelector(".bmsg").textContent), /among text or side-by-side/);
+  const n = await send(page);
+  const e = n.edits[0];
+  assert.deepEqual([n.edits.length, e.kind, e.fromIndex, e.toIndex, e.parent.selector, e.parent.layout, e.before.label], [1, "move", 0, 2, "#stack", "block", "Text · Repeat"]);
+  assert.deepEqual(errors, []);
   await page.close();
 });
 
@@ -867,10 +1028,13 @@ test("U3 a refusal never outlives the next thing done; in notes mode unsent canv
   assert.deepEqual(await msg(), ["Nothing to send yet: edit something first", true]);
   await clickAt(page, f, "#cta");
   assert.deepEqual(await ui(f, (r) => [r.querySelector(".bmsg").hidden, r.querySelector(".cnote").hidden]), [true, false], "idle: the note field, no message");
-  // a refused reorder, then an edit: the refusal is gone at once
-  const s1 = await box(f, "#stack p:nth-of-type(1)");
-  await drag(page, f, s1.x + 30, s1.y + 15, s1.x + 30, s1.y + 40);
-  assert.match((await msg())[0], /flex and grid/);
+  // a refused reorder (a button in a line of a paragraph), then an edit: the refusal is gone at once
+  await f.evaluate(() => document.querySelector("#stack").scrollIntoView({ block: "start" }));
+  await frames(f);
+  await clickAt(page, f, "#open-dialog");
+  const s1 = await box(f, "#open-dialog");
+  await drag(page, f, s1.x + s1.width / 2, s1.y + s1.height / 2, s1.x + s1.width / 2, s1.y + 60);
+  assert.match((await msg())[0], /among text or side-by-side/);
   await field(f, "css").fill("color: red;");
   await settle(f);
   assert.equal(await ui(f, (r) => r.querySelector(".bmsg").hidden), true);
@@ -1239,7 +1403,7 @@ test("↑ ↓ step the number at the caret: its unit kept, the page following, a
   await page.waitForTimeout(250);
   const val = (prop) => f.locator("b42-review .crow", { has: f.locator(".cp", { hasText: new RegExp(`^${prop}$`) }) }).locator(".cval");
   const row = (prop) => ui(f, (r, p) => {
-    const x = [...r.querySelectorAll(".crow")].find((c) => c.firstChild.textContent === p).lastChild;
+    const x = [...r.querySelectorAll(".crow")].find((c) => c.firstChild.textContent === p).querySelector(".cval");
     return { value: x.value, sel: x.value.slice(x.selectionStart, x.selectionEnd), bad: x.classList.contains("bad"), focus: r.activeElement === x };
   }, prop);
   const area = (cls) => ui(f, (r, c) => { const x = r.querySelector(`.${c}`); return { value: x.value, sel: x.value.slice(x.selectionStart, x.selectionEnd), at: x.selectionStart }; }, cls);
@@ -1387,7 +1551,7 @@ test("a drag on a computed row's name scrubs its number: one undo step, Esc puts
   await page.waitForTimeout(250);
   const name = (prop) => f.locator("b42-review .crow .cp", { hasText: new RegExp(`^${prop}$`) });
   const at = async (prop) => { const b = await name(prop).boundingBox(); return { x: Math.round(b.x + 30), y: Math.round(b.y + b.height / 2) }; };
-  const value = (prop) => ui(f, (r, p) => [...r.querySelectorAll(".crow")].find((c) => c.firstChild.textContent === p).lastChild.value, prop);
+  const value = (prop) => ui(f, (r, p) => [...r.querySelectorAll(".crow")].find((c) => c.firstChild.textContent === p).querySelector(".cval").value, prop);
   const width = async () => (await box(f, SECOND)).width;
   const w = await at("width");
   // one unit a pixel, live; the cursor says so wherever the pointer goes
@@ -1481,7 +1645,7 @@ test("computed values are fields: a typed value goes into element styles; invali
   const val = (prop) => f.locator("b42-review .crow", { has: f.locator(".cp", { hasText: new RegExp(`^${prop}$`) }) }).locator(".cval");
   const row = (prop) => ui(f, (r, p) => {
     const x = [...r.querySelectorAll(".crow")].find((c) => c.firstChild.textContent === p);
-    return { value: x.lastChild.value, bad: x.lastChild.classList.contains("bad"), title: x.lastChild.title, mine: x.classList.contains("mine"), focus: r.activeElement === x.lastChild };
+    return { value: x.querySelector(".cval").value, bad: x.querySelector(".cval").classList.contains("bad"), title: x.querySelector(".cval").title, mine: x.classList.contains("mine"), focus: r.activeElement === x.querySelector(".cval") };
   }, prop);
   assert.match(await ui(f, (r) => r.querySelector(".p-el div.sec").textContent), /^Computed edit a value to add it to Element styles$/);
   assert.deepEqual(await row("width"), { value: "200px", bad: false, title: "200px", mine: false, focus: false });
@@ -1522,7 +1686,7 @@ test("computed values are fields: a typed value goes into element styles; invali
   assert.equal(await field(f, "css").inputValue(), "width: 311px;\nborder-radius: 20px;\ndisplay: block;");
   assert.equal(await f.evaluate(() => window.pageKeys), 0, "the page saw none of the typing");
   // a long value is cut with an ellipsis, whole in its title
-  const ff = await ui(f, (r) => { const x = [...r.querySelectorAll(".crow")].find((c) => c.firstChild.textContent === "font-family").lastChild; return [x.title === x.value, getComputedStyle(x).textOverflow, x.getBoundingClientRect().right <= r.querySelector(".side").getBoundingClientRect().right]; });
+  const ff = await ui(f, (r) => { const x = [...r.querySelectorAll(".crow")].find((c) => c.firstChild.textContent === "font-family").querySelector(".cval"); return [x.title === x.value, getComputedStyle(x).textOverflow, x.getBoundingClientRect().right <= r.querySelector(".side").getBoundingClientRect().right]; });
   assert.deepEqual(ff, [true, "ellipsis", true]);
   // still one style edit for the element
   await clickAt(page, f, "#title");
@@ -1726,7 +1890,7 @@ test("the inspector follows a class the page itself changes: the class line and 
   const { page, f } = await open();
   await clickAt(page, f, "#cta");
   await settle(f);
-  const read = () => ui(f, (r) => ({ cls: r.querySelector(".cls").value, size: [...r.querySelectorAll(".crow")].find((x) => x.firstChild.textContent === "font-size").lastChild.value }));
+  const read = () => ui(f, (r) => ({ cls: r.querySelector(".cls").value, size: [...r.querySelectorAll(".crow")].find((x) => x.firstChild.textContent === "font-size").querySelector(".cval").value }));
   assert.deepEqual(await read(), { cls: "primary", size: "15px" });
   // What an agent's edit, hot-reloaded, looks like from here: an attribute changes, no node does.
   await f.evaluate(() => {
@@ -1737,7 +1901,7 @@ test("the inspector follows a class the page itself changes: the class line and 
   assert.deepEqual(await read(), { cls: "primary big", size: "30px" });
   // An inline style set by the page shows too.
   await f.evaluate(() => (document.getElementById("cta").style.fontSize = "12px"));
-  await f.waitForFunction(() => [...document.querySelector("b42-review").shadowRoot.querySelectorAll(".crow")].find((x) => x.firstChild.textContent === "font-size").lastChild.value === "12px", null, { timeout: 1500 });
+  await f.waitForFunction(() => [...document.querySelector("b42-review").shadowRoot.querySelectorAll(".crow")].find((x) => x.firstChild.textContent === "font-size").querySelector(".cval").value === "12px", null, { timeout: 1500 });
   await f.evaluate(() => (document.getElementById("cta").style.fontSize = ""));
   // A class added now is added to what the page has.
   await field(f, "cls").fill("primary big wide");

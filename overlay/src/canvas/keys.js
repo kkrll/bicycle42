@@ -4,6 +4,7 @@ import { C } from "./state.js";
 import { commit, redo, undo } from "./batch.js";
 import { submitCanvas } from "./send.js";
 import { cvWalk, hideSel, select } from "./select.js";
+import { draftCopy, dropCopy, duplicateSel } from "./copies.js";
 import { cancelDrag } from "./drag.js";
 import { endEdit } from "./text.js";
 import { setPop } from "./bar.js";
@@ -105,7 +106,14 @@ export function cvKey(e) {
   }
   if ((e.key === "Delete" || e.key === "Backspace") && C.sel) {
     block(e);
-    hideSel();
+    // (a copy this batch made is taken out, not hidden: it was never the page's)
+    if (draftCopy(C.selRs)) dropCopy(C.selRs);
+    else hideSel();
+    return;
+  }
+  if (mod(e) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "d" && C.sel) {
+    block(e);
+    duplicateSel();
     return;
   }
   if ((e.key === "ArrowUp" || e.key === "ArrowDown") && C.sel) {

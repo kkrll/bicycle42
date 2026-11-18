@@ -40,7 +40,7 @@ export function scrubbable(btn) {
     }
     d.acc += (e.clientX - d.last) * (e.shiftKey ? 10 : e.altKey ? 0.1 : 1);
     d.last = e.clientX;
-    liveValue(d.row.lastChild, d.text.slice(0, d.token.start) + step(d.token, d.acc) + d.text.slice(d.token.end), true);
+    liveValue(d.row.children[1], d.text.slice(0, d.token.start) + step(d.token, d.acc) + d.text.slice(d.token.end), true);
   });
   const up = () => {
     const d = D;
@@ -70,7 +70,7 @@ function end() {
 
 /** The field shows what the page has again (a value the browser refused was never written). */
 function settle(d) {
-  const field = d.row.lastChild;
+  const field = d.row.children[1];
   if (d.row._bad) field.value = d.row._v;
   unmarkValue(d.row);
   C.compKey = "";
@@ -84,8 +84,8 @@ export function cancelScrub() {
   C.draft.B = JSON.parse(C.snap); // nothing was committed since the drag began
   applyAll();
   d.row._bad = false;
-  d.row.lastChild.classList.remove("bad");
-  d.row.lastChild.value = d.row.lastChild.title = d.row._v = d.text;
+  d.row.children[1].classList.remove("bad");
+  d.row.children[1].value = d.row.children[1].title = d.row._v = d.text;
   syncFields(true);
   return true;
 }
