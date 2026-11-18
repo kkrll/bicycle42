@@ -103,11 +103,21 @@ const CSS_VALUE = /^[a-zA-Z0-9 .%(),+*/#-]{1,200}$/;
 const value = (s) => (typeof s === "string" && CSS_VALUE.test(s) ? s : quote(s, 200));
 /** A property name, or a custom property (`--stripe-period`). */
 const CSS_PROP = /^(--[a-zA-Z0-9_-]{1,60}|[a-z][a-z-]{0,39})$/;
-/** The `changes` of a style edit that can be printed: `gap: 16px → 32px`. */
+/** A design token's name: the page's custom property (`--space-4`). */
+const TOKEN = /^--[a-zA-Z0-9_-]{1,60}$/;
+/** The tokens a change was set with, that can be printed. */
+const tokensOf = (c) => (Array.isArray(c.tokens) ? c.tokens.filter((t) => typeof t === "string" && TOKEN.test(t)).slice(0, 4) : []);
+/** The `changes` of a style edit that can be printed: `gap: 16px → 32px`, and the tokens the
+ *  reviewer set it with: `gap: 16px → 24px (var(--space-6))`. */
 const changesOf = (e) =>
   (Array.isArray(e.changes) ? e.changes : [])
     .filter((c) => c && typeof c.prop === "string" && CSS_PROP.test(c.prop))
-    .map((c) => `${c.prop}: ${value(c.from)} → ${value(c.to)}`);
+    .map((c) => {
+      const t = tokensOf(c);
+      return `${c.prop}: ${value(c.from)} → ${value(c.to)}${t.length ? ` (${t.map((n) => `var(${n})`).join(", ")})` : ""}`;
+    });
+/** Whether a canvas note's style edits name a token anywhere. */
+const namesTokens = (note) => (note.edits ?? []).some((e) => Array.isArray(e.changes) && e.changes.some((c) => c && tokensOf(c).length));
 /** How many of a style edit's changes fit in its one sentence. */
 const CHANGES_SHOWN = 4;
 
@@ -346,8 +356,10 @@ export function notePrompt(note, n, opts = {}) {
     if (hasCss(note))
       lines.push("New CSS rules to add (put them where this project keeps its styles, renamed to its conventions if needed):", ...fenced(note.css));
     lines.push(
-      "Use the nearest existing design token or utility class instead of a raw pixel value. Where the element is one of " +
-        "several of the same component, change the component, unless the note says otherwise.",
+      (namesTokens(note)
+        ? "Where a change names a design token (var(--…)), the reviewer chose that token: use it. Elsewhere use the nearest existing design token or utility class instead of a raw pixel value."
+        : "Use the nearest existing design token or utility class instead of a raw pixel value.") +
+        " Where the element is one of several of the same component, change the component, unless the note says otherwise.",
       "The page shows these as temporary previews; they are not in the code yet.",
     );
   }

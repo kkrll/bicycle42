@@ -65,7 +65,10 @@ async function open() {
     const l = r.querySelector(".sug");
     if (l.hidden || l.style.visibility === "hidden") return null;
     const b = l.getBoundingClientRect();
-    return { items: [...l.children].map((c) => c.textContent), on: l.querySelector(".sg.on")?.textContent, x: b.x, y: b.y, w: b.width, h: b.height, scrolls: l.scrollHeight > l.clientHeight };
+    // (an item's own text: a variable's value beside it is in its .tv)
+    const own = (c) => (c ? [...c.childNodes].filter((n) => n.nodeType === 3).map((n) => n.nodeValue).join("") : undefined);
+    return { items: [...l.children].map(own), on: own(l.querySelector(".sg.on")), vals: [...l.children].map((c) => c.querySelector(".tv")?.textContent ?? null),
+      swatches: [...l.children].map((c) => c.querySelector("i")?.style.background || null), x: b.x, y: b.y, w: b.width, h: b.height, scrolls: l.scrollHeight > l.clientHeight };
   });
   const value = (cls) => ui((r, c) => r.querySelector(`.${c}`).value, cls);
   const focus = () => ui((r) => r.activeElement?.className ?? "");
@@ -489,6 +492,74 @@ test("the stylesheet: nothing in a selector; a click on an item takes it and kee
   await page.mouse.click(700, 150);
   await press();
   assert.equal(await list(), null);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("the page's variables: offered where the property takes them, with their values; ↑ ↓ walk a selected one's scale", async () => {
+  const { page, f, errors, press, type, list, value, style, sel, dbl, pick } = await open();
+  await f.locator("b42-review .css").click();
+  // after the property's own keywords, only those it takes (no colours for gap), each with its value
+  await type("gap: ");
+  let l = await list();
+  const vars = l.items.filter((i) => i.startsWith("var("));
+  assert.deepEqual(vars, ["var(--space-1)", "var(--space-2)", "var(--space-3)", "var(--space-4)", "var(--space-6)"]);
+  // (gap has no keyword of its own in Chrome's list: the CSS-wide ones come after the variables)
+  assert.deepEqual(l.items.slice(0, 6), [...vars, "inherit"]);
+  assert.deepEqual(vars.map((v) => l.vals[l.items.indexOf(v)]), ["4px", ".5rem", "calc(4px * 3)", "16px", "24px"]);
+  assert.equal(l.vals[l.items.indexOf("inherit")], null, "a keyword has no value beside it");
+  // `--` lists the variables only; looking through them shows each on the page; Enter takes one
+  await type("--sp");
+  l = await list();
+  assert.deepEqual(l.items, vars);
+  await press("ArrowDown");
+  assert.equal(await style("#plans", "column-gap"), "8px");
+  await press("Enter");
+  assert.equal(await value("css"), "gap: var(--space-2)");
+  assert.equal(await list(), null);
+  // ↑ on a selected one (a double click on its name): the next step up, by size, and still selected
+  await dbl("css", 13);
+  await press("ArrowUp");
+  assert.deepEqual([await value("css"), await sel("css"), await style("#plans", "column-gap")], ["gap: var(--space-3)", { text: "var(--space-3)", at: 5 }, "12px"]);
+  await press("ArrowUp", "ArrowUp");
+  assert.equal(await value("css"), "gap: var(--space-6)");
+  // the top of the scale: nothing, and the key is taken (the 6 in the name is no number)
+  await press("ArrowUp");
+  assert.deepEqual([await value("css"), (await sel("css")).text], ["gap: var(--space-6)", "var(--space-6)"]);
+  await press("ArrowDown");
+  assert.deepEqual([await value("css"), await style("#plans", "column-gap")], ["gap: var(--space-4)", "16px"]);
+  // a caret alone in it: the arrows are the field's own
+  await pick("css", 12);
+  await press("ArrowDown");
+  assert.equal(await value("css"), "gap: var(--space-4)");
+  // in a var( typed by hand: the variables at once, the whole var(…) replaced
+  await page.keyboard.press(`${MOD}+a`);
+  await type("color: var(");
+  l = await list();
+  assert.deepEqual(l.items, ["var(--bg-200)", "var(--bg-300)", "var(--brand)"]);
+  assert.deepEqual(l.swatches.map(Boolean), [true, true, true], "a colour has its swatch");
+  await press("ArrowDown", "Enter");
+  assert.equal(await value("css"), "color: var(--bg-300)");
+  // the Global sheet: the page's own variables (its root's), whatever is selected
+  await press("Escape");
+  await f.locator("b42-review .t-gl").click();
+  await f.locator("b42-review .free").click();
+  await type(".x { margin: --sp");
+  assert.deepEqual((await list()).items, ["var(--space-1)", "var(--space-2)", "var(--space-3)", "var(--space-4)", "var(--space-6)"]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("a computed row offers the variables too: the one taken goes into Element styles", async () => {
+  const { page, f, errors, press, type, list, style, row } = await open();
+  await row("gap").click();
+  await press(`${process.platform === "darwin" ? "Meta" : "Control"}+a`);
+  await type("--");
+  let l = await list();
+  assert.deepEqual(l.items, ["var(--space-1)", "var(--space-2)", "var(--space-3)", "var(--space-4)", "var(--space-6)"]);
+  await press("ArrowDown", "ArrowDown", "Enter");
+  assert.equal(await style("#plans", "column-gap"), "12px");
+  assert.equal(await f.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelector(".css").value), "gap: var(--space-3);");
   assert.deepEqual(errors, []);
   await page.close();
 });

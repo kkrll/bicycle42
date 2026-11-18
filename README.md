@@ -141,7 +141,8 @@ them.
 | `↑` / `↓` in a computed value | Step the number at the caret by 1, as in DevTools (`shift`: 10, `alt`: 0.1, `mod`: 100); on a keyword (`center`), the property's keyword before / after it. `Tab` / `shift+Tab` go from one computed value to the next |
 | double-click a number or keyword in the style boxes, then `↑` `↓` | The same in Element styles and Global, for what is selected (it stays selected, so the next press goes on). With a caret alone the arrows move it from line to line, as in any text box |
 | drag a computed value's name | Change its number, 1 a pixel (`shift`: 10, `alt`: 0.1); `Esc` puts it back. A click copies the line into Element styles |
-| typing CSS in the inspector | A list of property names, then of the property's values (`ctrl+Space` opens it too) |
+| typing CSS in the inspector | A list of property names, then of the property's values and the page's own CSS variables (design tokens) the property takes, as `var(--name)` with their value (`ctrl+Space` opens it too; `--` or `var(` lists only the variables) |
+| double-click a `var(--space-4)` in the style boxes, then `↑` `↓` | The next step of that token's scale (`--space-1`, `--space-2`, … by size), live; it stops at either end. The note then names the token: `gap: 16px → 24px (var(--space-6))`, and the agent is told to use it |
 | `↑` `↓` in that list, then `Enter`, `Tab` or a click | Show each value on the page / take it; `Esc` closes the list and puts back what was typed |
 | `mod+Z` / `mod+shift+Z` | Undo / redo |
 | `Enter` (`mod+Enter` in a text box), or **Send** | Send all the edits as one note |

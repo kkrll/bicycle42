@@ -106,6 +106,19 @@ export function topProps(css) {
   return out.slice(0, 40);
 }
 
+/** The page's variables a top-level declaration of `prop` is set with: `gap: var(--space-4)` →
+ *  ["--space-4"]. The last declaration of it counts, as in the browser; four names at most. */
+export function varsIn(css, prop) {
+  let value = "";
+  for (const g of scanCss(css).segs) {
+    const d = !g.depth && !g.head ? declOf(g.text) : null;
+    if (d && d.prop === prop) value = d.value;
+  }
+  const out = [];
+  for (const m of value.matchAll(/var\(\s*(--[a-zA-Z0-9_-]{1,60})\s*[,)]/g)) if (!out.includes(m[1]) && out.length < 4) out.push(m[1]);
+  return out;
+}
+
 /** `css` with `prop: value` set: replaced where it is declared at the top level, else added. */
 export function setDecl(css, prop, value) {
   let hit = null;

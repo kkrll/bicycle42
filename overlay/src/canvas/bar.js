@@ -110,6 +110,7 @@ const HELP = () => {
     ["double-click a number or keyword in the style boxes, then ↑ ↓", "the same there"],
     ["drag a computed value's name", "change its number"],
     ["typing CSS · ctrl Space", "suggestions · ↑ ↓ show on the page, ↵ take, esc put back"],
+    ["-- or var( in a value", "the page's variables · on a selected var(--…), ↑ ↓ go along its scale"],
     [`${m}Z · ${m}${sh}Z`, "undo · redo"],
     ["↵", `send · ${m}↵ from the inspector's fields`],
     ["esc", "leave the field, deselect, back to annotate"],

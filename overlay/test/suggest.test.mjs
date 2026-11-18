@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CSS_PROPS } from "../src/canvas/css-data.js";
-import { alone, caretContext, COLOURS, isNumber, matches, propNames, step, valueContext, valuesAt, valuesOf, wants, WIDE } from "../src/canvas/suggest-model.js";
+import { alone, caretContext, COLOURS, family, isNumber, matches, propNames, scaleOf, step, TOKEN_NAME, valueContext, valuesAt, valuesOf, varToken, wants, WIDE, withVars } from "../src/canvas/suggest-model.js";
 
 /** The context at `|` in `src`. */
 const at = (src, sheet = false) => {
@@ -45,7 +45,8 @@ test("nothing to complete: comments, strings, brackets, custom properties, !impo
   assert.equal(kind("/* never closed al|"), "none");
   assert.equal(kind('content: "al|"'), "none");
   assert.equal(kind("width: calc(100% - a|)"), "none");
-  assert.equal(kind("color: var(--a|"), "none");
+  assert.equal(kind("color: var(--a|"), "value"); // (the one bracket that has something: the page's variables, below)
+  assert.equal(kind("color: rgb(var(--a) 1|"), "none");
   assert.equal(kind("--my-col|"), "none");
   assert.equal(kind("--x: re|"), "none");
   assert.equal(kind("color: red !imp|"), "none");
@@ -231,4 +232,73 @@ test("a { in a comment or a string after the caret opens nothing (review: DeepSe
   assert.equal(at('font-family: st|, "a { b"').kind, "value");
   // a real one still makes it a rule's head
   assert.equal(at("li:hover| {").kind, "selector");
+});
+
+// ── the page's variables ────────────────────────────────────────────────────────────────────
+test("in a var( the caret is on a variable's name: the whole var(…) is what an item replaces", () => {
+  assert.deepEqual(at("gap: var(|"), { kind: "value", prop: "gap", word: "", s: 5, e: 9, first: true, inVar: true });
+  assert.deepEqual(at("gap: var(--sp|"), { kind: "value", prop: "gap", word: "--sp", s: 5, e: 13, first: true, inVar: true });
+  // in a whole one, with its `)`: up to and with it
+  const c = at("margin: 0 var(--sp|ace-4); color: red");
+  assert.deepEqual([c.kind, c.prop, c.word, c.s, c.e, c.first, c.inVar], ["value", "margin", "--sp", 10, 24, false, true]);
+  // a var( opens the list at once; other brackets are still nothing
+  assert.equal(wants(at("gap: var(|"), false), true);
+  assert.equal(kind("width: calc(|"), "none");
+  assert.equal(kind("width: calc(var(--a) + |"), "none");
+  assert.equal(kind("width: calc(1px + var(--a|"), "value");
+  // not in a selector's or a comment's
+  assert.equal(kind(".a:is(var(|", true), "selector");
+  assert.equal(kind("/* gap: var(| */"), "none");
+});
+
+test("typing -- in a value is a variable's name, and a variable matches on what it contains", () => {
+  const c = at("gap: --sp|");
+  assert.deepEqual([c.kind, c.word, c.s, c.e], ["value", "--sp", 5, 9]);
+  assert.equal(wants(c, false), true);
+  assert.deepEqual(matches(["normal", "var(--space-4)", "var(--Space-Big)", "var(--brand)"], "--sp"), ["var(--space-4)", "var(--Space-Big)"]);
+  assert.deepEqual(matches(["var(--space-4)", "normal"], "var(--s"), ["var(--space-4)"]);
+});
+
+test("a var(--name) at a caret or a selection; one with a fallback is none", () => {
+  const t = "gap: var(--space-4); margin: var(--a, 4px) var( --b )";
+  assert.deepEqual(varToken(t, 12, 12), { s: 5, e: 19, name: "--space-4" });
+  assert.deepEqual(varToken(t, 11, 16), { s: 5, e: 19, name: "--space-4" }); // (a double-click's `space`)
+  assert.deepEqual(varToken(t, 5, 19), { s: 5, e: 19, name: "--space-4" });
+  assert.equal(varToken(t, 3, 12), null); // more than it
+  assert.equal(varToken(t, 33, 33), null);
+  assert.deepEqual(varToken(t, 47, 47), { s: 43, e: 53, name: "--b" });
+  assert.equal(varToken("gap: 4px", 6, 6), null);
+});
+
+test("a token's scale: its family, the ones the property takes, by size, else by name", () => {
+  assert.deepEqual([family("--space-4"), family("--radius-lg"), family("--color-gray-500"), family("--brand"), family("--x-")], ["--space-", "--radius-", "--color-gray-", "", ""]);
+  const tokens = [
+    { name: "--space-1", value: "4px" }, { name: "--space-2", value: ".5rem" }, { name: "--space-3", value: "calc(4px * 3)" },
+    { name: "--space-10", value: "40px" }, { name: "--space-x-1", value: "1px" }, { name: "--space-auto", value: "auto" },
+    { name: "--gray-100", value: "#eee" }, { name: "--gray-50", value: "#fafafa" }, { name: "--gray-900", value: "#111" },
+    { name: "--radius-lg", value: "12px" }, { name: "--radius-sm", value: "4px" }, { name: "--radius-md", value: "8px" },
+  ];
+  const px = { "4px": 4, ".5rem": 8, "calc(4px * 3)": 12, "40px": 40, "1px": 1, "12px": 12, "8px": 8 };
+  const size = (v) => px[v] ?? NaN;
+  const length = (v) => v in px;
+  assert.deepEqual(scaleOf(tokens, "--space-3", length, size), ["--space-1", "--space-2", "--space-3", "--space-10"]);
+  assert.deepEqual(scaleOf(tokens, "--radius-sm", length, size), ["--radius-sm", "--radius-md", "--radius-lg"]);
+  // no sizes: by name, the numbers in it as numbers
+  assert.deepEqual(scaleOf(tokens, "--gray-900", (v) => v.startsWith("#"), size), ["--gray-50", "--gray-100", "--gray-900"]);
+  // on no scale: a name with no family, one the property does not take, one not there
+  assert.deepEqual(scaleOf(tokens, "--brand", length, size), []);
+  assert.deepEqual(scaleOf(tokens, "--space-auto", length, size), []);
+  assert.deepEqual(scaleOf(tokens, "--space-7", length, size), []);
+});
+
+test("the variables come after a property's own keywords, before the colours and the CSS-wide ones", () => {
+  assert.deepEqual(withVars(["normal", "inherit", "initial"], ["var(--a)"]), ["normal", "var(--a)", "inherit", "initial"]);
+  assert.deepEqual(withVars(["currentcolor", "aliceblue", "inherit"], ["var(--brand)"]), ["currentcolor", "var(--brand)", "aliceblue", "inherit"]);
+  assert.deepEqual(withVars(["a", "b"], ["var(--a)"]), ["a", "b", "var(--a)"]);
+  assert.deepEqual(withVars(["a"], []), ["a"]);
+});
+
+test("a variable's name is offered only when it is plain: the host and the prompt take no other", () => {
+  for (const ok of ["--space-4", "--Brand_2", "--a"]) assert.ok(TOKEN_NAME.test(ok), ok);
+  for (const no of ["--", "-a", "--a b", "--a\"b", "--<img>", `--${"x".repeat(61)}`, "--ünï"]) assert.ok(!TOKEN_NAME.test(no), no);
 });

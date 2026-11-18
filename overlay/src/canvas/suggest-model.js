@@ -45,12 +45,13 @@ const keywordish = (t) => /^-?[a-z_]?[\w-]*$/i.test(t) && !isNumber(t);
  * (which may nest rules with `&`).
  *  - { kind: "name", word, s, e, colon }: a property's name; `word` is what is typed of it (up to
  *    the caret), s…e the whole name in the text, `colon` whether a `:` already follows it;
- *  - { kind: "value", prop, word, s, e, first }: the token of that property's value at the caret
- *    (s === e when there is none yet); `first`: nothing of the value comes before it;
+ *  - { kind: "value", prop, word, s, e, first, inVar }: the token of that property's value at the
+ *    caret (s === e when there is none yet); `first`: nothing of the value comes before it;
+ *    `inVar`: the caret is in a `var(` (s…e the whole of it, `word` the name typed in it);
  *  - { kind: "selector" }: a rule's head, or an at-rule's;
  *  - { kind: "none" }: a comment, a string, inside brackets, a custom property, descriptors.
  * Like css.js's scan it is not a parser: it finds where the declaration at the caret starts.
- * @returns {{ kind: string, word?: string, prop?: string, s?: number, e?: number, colon?: boolean, first?: boolean }}
+ * @returns {{ kind: string, word?: string, prop?: string, s?: number, e?: number, colon?: boolean, first?: boolean, inVar?: boolean }}
  */
 export function caretContext(text, caret, sheet) {
   const stack = [sheet ? "rules" : "decls"];
@@ -85,7 +86,9 @@ export function caretContext(text, caret, sheet) {
     }
   }
   const top = stack[stack.length - 1];
-  if (paren || top === "raw") return NONE;
+  // Inside brackets nothing is completed but the name in a `var(`, the innermost of them.
+  const inVar = paren && top !== "raw" ? /var\(\s*(--[\w-]*)?$/i.exec(text.slice(start, caret)) : null;
+  if ((paren && !inVar) || top === "raw") return NONE;
   if (top === "rules") return SELECTOR;
   // The declaration starts on the last line that begins with `name:`, as number.js has it: a
   // line without one goes on with the value above only after a comma, the colon or a bracket;
@@ -131,6 +134,15 @@ export function caretContext(text, caret, sheet) {
   }
   const prop = text.slice(start, colon).trim().toLowerCase();
   if (!/^-?[a-z][a-z-]*$/.test(prop)) return NONE;
+  if (inVar) {
+    // The whole `var(--name)` is what an item replaces: up to its `)` when it has one already.
+    const s = caret - inVar[0].length;
+    let e = caret;
+    while (e < text.length && /[\w-]/.test(text[e])) e++;
+    const close = /^\s*\)/.exec(text.slice(e));
+    if (close) e += close[0].length;
+    return { kind: "value", prop, word: inVar[1] || "", s, e, first: !text.slice(colon + 1, s).trim(), inVar: true };
+  }
   let s = caret, e = caret;
   while (s > colon + 1 && WORD.test(text[s - 1])) s--;
   while (e < text.length && WORD.test(text[e])) e++;
@@ -149,6 +161,7 @@ export function valueContext(prop, text, caret) {
 /** Whether a list opens for this context: `asked` is ctrl+space, which opens it on nothing typed. */
 export function wants(ctx, asked) {
   if (ctx.kind === "name") return asked || !!ctx.word;
+  if (ctx.kind === "value" && ctx.inVar) return true; // `var(`: the page's variables, at once
   if (ctx.kind !== "value" || !keywordish(ctx.word)) return false;
   return asked || !!ctx.word || !!ctx.first; // right after the colon: every value
 }
@@ -160,7 +173,7 @@ export function matches(items, word) {
   if (!w) return items.slice();
   const starts = [], has = [];
   for (const it of items) {
-    const i = it.indexOf(w);
+    const i = it.toLowerCase().indexOf(w); // (a variable's name may have capitals)
     if (i === 0) starts.push(it);
     else if (i > 0) has.push(it);
   }
@@ -203,4 +216,54 @@ export const valuesAt = (values, text, ctx) => (alone(text, ctx) ? values : valu
 export function step(values, cur, dir) {
   const i = values.indexOf(cur.toLowerCase());
   return i < 0 ? null : values[(i + dir + values.length) % values.length];
+}
+
+// ── the page's variables (design tokens) ────────────────────────────────────────────────────
+// They are the page's, so only a name made of plain letters, digits, `-` and `_` is used (the
+// host and the prompt take no other), and a name or a value is only ever text in the list.
+
+/** A custom property's name that can be offered: `--space-4`. */
+export const TOKEN_NAME = /^--[a-zA-Z0-9_-]{1,60}$/;
+
+/** The `var(--name)` that holds a…b of `text` (a caret: a === b), or null. Only the plain form:
+ *  one with a fallback (`var(--x, 4px)`) is not a step on a scale. */
+export function varToken(text, a, b) {
+  for (let s = text.lastIndexOf("var(", a); s >= 0 && s > a - 70; s = text.lastIndexOf("var(", s - 1)) {
+    const m = /^var\(\s*(--[a-zA-Z0-9_-]{1,60})\s*\)/.exec(text.slice(s, s + 80));
+    if (m && b <= s + m[0].length) return { s, e: s + m[0].length, name: m[1] };
+    if (s === 0) break;
+  }
+  return null;
+}
+
+/** The scale a token is a step of: its name without the last part (`--space-4` → `--space-`,
+ *  `--radius-lg` → `--radius-`). "" for a name with no parts (`--brand`): it is on no scale. */
+export const family = (name) => {
+  const f = name.replace(/[^-]+$/, "");
+  return f.length > 2 && f !== name ? f : "";
+};
+
+const natural = new Intl.Collator("en", { numeric: true }).compare;
+
+/** The names on `name`'s scale, smallest first: those of its family whose value `fits` the
+ *  property, ordered by `size` (px, or a plain number) when all of them have one, else by name
+ *  (`gray-50` before `gray-100`). `tokens`: [{ name, value }]. Empty when it is on none. */
+export function scaleOf(tokens, name, fits, size) {
+  const f = family(name);
+  if (!f) return [];
+  const on = tokens.filter((t) => t.name.startsWith(f) && !t.name.slice(f.length).includes("-") && fits(t.value));
+  if (!on.some((t) => t.name === name)) return [];
+  const sized = on.map((t) => ({ name: t.name, n: size(t.value) }));
+  const all = sized.every((t) => Number.isFinite(t.n));
+  sized.sort((x, y) => (all ? x.n - y.n : 0) || natural(x.name, y.name));
+  return sized.map((t) => t.name);
+}
+
+/** A property's values with the page's variables among them: after its own keywords, before
+ *  the named colours and the CSS-wide ones (`vars`: `var(--x)` items). */
+export function withVars(values, vars) {
+  if (!vars.length) return values;
+  let i = values.findIndex((v) => WIDE.includes(v) || COLOURS.includes(v));
+  if (i < 0) i = values.length;
+  return [...values.slice(0, i), ...vars, ...values.slice(i)];
 }

@@ -3,7 +3,7 @@ import { adopt, describe, editSel, line, rectOf, round, union, vp } from "../pag
 import { dispatch } from "../sent.js";
 import { C, EMPTY, MAX_CLASS, MAX_CSS, MAX_SHEET, MAX_TEXT, newBatch } from "./state.js";
 import { elOf, stableSel } from "./stamps.js";
-import { topProps } from "./css.js";
+import { topProps, varsIn } from "./css.js";
 import { applyAll } from "./apply.js";
 import { commit, countEdits } from "./batch.js";
 import { select } from "./select.js";
@@ -79,7 +79,11 @@ export function submitCanvas(background) {
   for (const e of entries) {
     if (e.css.trim())
       edits.push({ kind: "style", ...tidy(e, sel(e)), css: e.css,
-        changes: props.get(e.rs).map((prop, i) => ({ prop, from: before.vals.get(e.rs)[i], to: after.vals.get(e.rs)[i] })) });
+        changes: props.get(e.rs).map((prop, i) => {
+          // (and the page's variables it was set with: the agent is to use those, not the px)
+          const tokens = varsIn(e.css, prop);
+          return { prop, from: before.vals.get(e.rs)[i], to: after.vals.get(e.rs)[i], ...(tokens.length ? { tokens } : {}) };
+        }) });
     if (e.cls) edits.push({ kind: "class", ...tidy(e, sel(e)), from: line(e.cls.from), to: line(e.cls.to) });
   }
   for (const op of B.ops) {

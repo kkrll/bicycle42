@@ -54,8 +54,9 @@ export type Edit = {
   to?: string
   /** style only: the declarations typed for this element (and written by gestures), verbatim. */
   css?: string
-  /** style only: each property set, with its computed value before and after. */
-  changes?: Array<{ prop: string; from: string; to: string }>
+  /** style only: each property set, with its computed value before and after, and the page's
+   *  variables (design tokens) its value was set with: `["--space-4"]` for `gap: var(--space-4)`. */
+  changes?: Array<{ prop: string; from: string; to: string; tokens?: string[] }>
   /** move only. */
   parent?: { selector: string; label: string; layout: "flex-row" | "flex-column" | "grid" | "block" }
   /** 0-based among element siblings. */

@@ -1,7 +1,8 @@
 import { line } from "../page.js";
 import { C, clean, MAX_CSS } from "./state.js";
 import { CSS_PROPS } from "./css-data.js";
-import { caretContext, isNumber, matches, propNames, step, valueContext, valuesAt, valuesOf, wants, WIDE } from "./suggest-model.js";
+import { caretContext, isNumber, matches, propNames, scaleOf, step, valueContext, valuesAt, valuesOf, varToken, wants, WIDE, withVars } from "./suggest-model.js";
+import { sizeOf, tokensOf } from "./tokens.js";
 import { entry } from "./stamps.js";
 import { setDecl, supports } from "./css.js";
 import { applyAll } from "./apply.js";
@@ -12,8 +13,10 @@ import { picked, readValue, setValue, syncFields, typed, unmarkValue } from "./i
 // As Chrome's Styles pane has them: property names while a name is typed, the property's
 // keywords while its value is, in Element styles, in the stylesheet (never in a selector) and in
 // a computed row (values only: the row is its property). The list is the layer's own, in its
-// shadow root, and made of Chrome's property list (css-data.js) and what CSS.supports says:
-// nothing of the page's is in it. suggest-model.js is the part without a DOM.
+// shadow root, and made of Chrome's property list (css-data.js) and what CSS.supports says, and
+// of the page's variables that reach the selected element and that the property takes
+// (tokens.js), as `var(--name)` with their value beside: text, never markup. suggest-model.js is
+// the part without a DOM.
 //
 // Moving through a list of values shows each on the page, as typing it would. Until the list
 // closes that is not an undo step: the step's timer is held, and closes with Enter (the value
@@ -32,6 +35,7 @@ const L = {
   on: 0, // the highlighted item
   s: 0, e: 0, // the token in the field that an item replaces
   colon: false, // a name that already has its colon: only the name is replaced
+  vars: new Map(), // var(--name) → its value, for the variables in the list
   live: false, // an item is being shown on the page in place of what was typed
   typed: "", caret: 0, // what was typed there, and where the caret was: Escape puts them back
   css: "", // (a computed row) the element's styles before the first item was shown
@@ -57,8 +61,33 @@ function valuesFor(prop) {
 const colours = new Map(); // keyword → whether it is a colour (for its swatch)
 function isColour(kw) {
   let c = colours.get(kw);
-  if (c === undefined) colours.set(kw, (c = kw !== "currentcolor" && !WIDE.includes(kw) && supports("color", kw)));
+  if (c === undefined) {
+    if (colours.size > 2000) colours.clear();
+    colours.set(kw, (c = kw !== "currentcolor" && !WIDE.includes(kw) && supports("color", kw)));
+  }
   return c;
+}
+
+const fit = new Map(); // "prop|value" → whether the property takes it
+function fits(prop, value) {
+  const k = `${prop}|${value}`;
+  let ok = fit.get(k);
+  if (ok === undefined) {
+    if (fit.size > 4000) fit.clear();
+    fit.set(k, (ok = supports(prop, value)));
+  }
+  return ok;
+}
+
+/** Whose variables a field offers: the selected element's, or for the Global sheet (whose
+ *  rules may be for any element) the page's own, those of its root. */
+const tokensFor = (f) => tokensOf(f === freeEl ? document.documentElement : C.sel);
+
+/** The page's variables that `prop` takes, as items, and their values in L.vars. */
+function varsFor(f, prop) {
+  L.vars = new Map();
+  for (const t of tokensFor(f)) if (fits(prop, t.value)) L.vars.set(`var(${t.name})`, t.value);
+  return [...L.vars.keys()];
 }
 
 /** @returns {ReturnType<typeof caretContext>} */
@@ -85,7 +114,13 @@ function show(f, asked) {
   const ctx = contextOf(f);
   if (!wants(ctx, asked)) return close();
   // (A name is asked of the browser as css.js's problems() asks it: what is offered is never flagged.)
-  const all = ctx.kind === "name" ? (names ||= propNames(CSS_PROPS).filter((n) => supports(n, "initial"))) : valuesAt(valuesFor(ctx.prop), f.value, ctx);
+  let all;
+  if (ctx.kind === "name") all = names ||= propNames(CSS_PROPS).filter((n) => supports(n, "initial"));
+  else {
+    const vars = varsFor(f, ctx.prop);
+    // In a `var(`, or on `--`: the variables only.
+    all = ctx.inVar || ctx.word.startsWith("--") ? vars : withVars(valuesAt(valuesFor(ctx.prop), f.value, ctx), vars);
+  }
   const items = matches(all, ctx.word);
   // (The one thing it could offer is what is typed already: Enter is then the field's own.)
   if (!items.length || (!asked && items.length === 1 && items[0] === ctx.word)) return close();
@@ -110,8 +145,14 @@ function draw() {
     row.id = `b42-sg-${i}`;
     row.setAttribute("role", "option");
     row.setAttribute("aria-selected", String(i === L.on));
-    if (colour && isColour(it)) row.appendChild(document.createElement("i")).style.background = it;
+    const v = colour ? L.vars.get(it) : undefined;
+    if (colour && isColour(v ?? it)) row.appendChild(document.createElement("i")).style.background = v ?? it;
     row.append(it); // text, never markup
+    if (v !== undefined) {
+      const at = row.appendChild(document.createElement("span"));
+      at.className = "tv";
+      at.textContent = v.length > 40 ? `${v.slice(0, 39)}…` : v;
+    }
     return row;
   }));
   listEl.setAttribute("aria-label", L.kind === "name" ? "CSS properties" : `Values of ${L.prop}`);
@@ -297,6 +338,11 @@ function accept(i) {
  *  click); the new one is selected in its place, so the next press goes on from it. */
 function cycle(f, dir) {
   const area = !isVal(f);
+  const at = area ? picked(f) : [f.selectionEnd ?? f.value.length, f.selectionEnd ?? f.value.length];
+  if (!area || at[0] !== at[1]) {
+    const v = varToken(f.value, at[0], at[1]);
+    if (v) return walk(f, v, -dir, area); // (↑ is up the scale, as it is for a number; in a list it is back)
+  }
   let ctx;
   if (area) {
     const [a, b] = picked(f);
@@ -314,6 +360,28 @@ function cycle(f, dir) {
     f.setRangeText(next, ctx.s, ctx.e, "select");
     typed(f);
   } else put(f, ctx.s, ctx.e, next);
+  stepIn(700); // a run of presses is one step
+  return true;
+}
+
+/** ↑/↓ on a `var(--name)`: the next step of its scale (`--space-4` → `--space-6`; `dir` 1 is up),
+ *  live, and at either end nothing. The key is taken either way: the digits of a name are no number. */
+function walk(f, v, dir, area) {
+  const lead = isVal(f) ? `${f.parentElement._p}:` : "";
+  const ctx = isVal(f) ? caretContext(lead + f.value, lead.length + v.s, false) : caretContext(f.value, v.s, f === freeEl);
+  if (ctx.kind !== "value") return true;
+  const host = /** @type {ShadowRoot} */ (listEl.getRootNode());
+  const scale = scaleOf(tokensFor(f), v.name, (value) => fits(ctx.prop, value), (value) => sizeOf(value, host));
+  const next = scale[scale.indexOf(v.name) + dir];
+  if (!next) return true;
+  const text = `var(${next})`;
+  if (area) {
+    f.setRangeText(text, v.s, v.e, "select");
+    typed(f);
+  } else {
+    put(f, v.s, v.e, text);
+    f.setSelectionRange(v.s, v.s + text.length);
+  }
   stepIn(700); // a run of presses is one step
   return true;
 }

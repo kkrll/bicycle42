@@ -370,6 +370,25 @@ test("gap: dragging the space between flex items writes gap on the parent", asyn
   await page.close();
 });
 
+test("a style edit set with the page's variables says which: the note's change names them", async () => {
+  const { page, f, errors } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  await page.waitForTimeout(250);
+  await field(f, "css").fill("padding: var(--space-2) var(--space-4);\ncolor: var(--brand);\nmargin: 0;\nborder-color: var(--nope, red);");
+  await page.keyboard.press(`${MOD}+Enter`);
+  await waitNotes(page, 1);
+  const [n] = await sentNotes(page);
+  assert.deepEqual(n.edits[0].changes, [
+    { prop: "padding", from: "16px", to: "8px 16px", tokens: ["--space-2", "--space-4"] },
+    { prop: "color", from: "rgb(28, 28, 30)", to: "rgb(42, 109, 244)", tokens: ["--brand"] },
+    { prop: "margin", from: "0px", to: "0px" },
+    // (one the page does not have is still what was typed: the agent sees it, with its fallback, in the CSS)
+    { prop: "border-color", from: "rgb(216, 216, 210)", to: "rgb(255, 0, 0)", tokens: ["--nope"] },
+  ]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("move: dragging a card reorders it in its flex row with an insertion line; the DOM order is untouched", async () => {
   const { page, f } = await open();
   const b3 = await box(f, "#plans article:nth-of-type(3)");
