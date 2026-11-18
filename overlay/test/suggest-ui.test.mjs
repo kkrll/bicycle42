@@ -201,6 +201,23 @@ test("with the list closed, ↑/↓ on a keyword goes through the property's key
   await page.close();
 });
 
+test("names are properties this browser takes: no descriptors, nothing it would flag as unknown", async () => {
+  const { page, f, errors, press, type, list } = await open();
+  await f.locator("b42-review .css").click();
+  await type("sr");
+  assert.ok(!(await list())?.items.includes("src"), "src is @font-face's, not a property");
+  await press("Backspace", "Backspace");
+  await page.keyboard.press("Control+Space");
+  await press();
+  const all = (await list()).items;
+  assert.ok(all.length > 450, `${all.length} names`);
+  assert.deepEqual(await f.evaluate((names) => names.filter((n) => !CSS.supports(n, "initial")), all), [], "none of them would be flagged as unknown");
+  for (const d of ["src", "syntax", "inherits", "unicode-range", "system", "pad", "range", "fallback", "font-display", "origin-trial-test-property"]) assert.ok(!all.includes(d), d);
+  assert.ok(all.includes("scrollbar-color") && all.includes("align-items") && all.includes("font-family"));
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("a computed row: values only, under the field; ↑/↓ cycles; Enter writes as the row does", async () => {
   const { page, errors, ui, press, type, list, value, focus, style, row, settle } = await open();
   const ai = row("align-items");
@@ -271,7 +288,7 @@ test("the stylesheet: nothing in a selector; a click on an item takes it and kee
   await type(".card:ho");
   assert.equal(await list(), null);
   await type("ver { disp");
-  assert.deepEqual((await list()).items.slice(0, 2), ["display", "font-display"]);
+  assert.deepEqual((await list()).items, ["display"]); // (font-display is @font-face's: not offered)
   await f.locator("b42-review .sg").first().click();
   await press();
   assert.equal(await value("free"), ".card:hover { display: ");

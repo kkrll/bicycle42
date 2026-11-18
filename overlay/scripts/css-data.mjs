@@ -22,19 +22,93 @@ const BLINK_URL = `https://chromium.googlesource.com/chromium/src/+/refs/tags/${
 const META_URL = `https://raw.githubusercontent.com/ChromeDevTools/devtools-frontend/${DEVTOOLS_BRANCH}/front_end/core/sdk/CSSMetadata.ts`;
 const OUT = fileURLToPath(new URL("../src/canvas/css-data.js", import.meta.url));
 
-const skipName = (n) => n.startsWith("-internal") || n.startsWith("-webkit-") || n.startsWith("-epub-");
+/** The list had about 600 properties when this was written: more than 5% fewer is a broken source, not a new Chrome. */
+export const MIN_PROPS = 570;
+
+const skipName = (n) => n.startsWith("-"); // -internal-, -webkit-, -epub-, -alternative-: none is offered
 const keepValue = (v) => !v.startsWith("-webkit-");
 
-/** Blink's json5: each property is a block starting `name: "..."`, with `keywords: [ ... ]` that may span lines. */
+/** After the string or comment that starts at `i` (or `i` itself, when none does). */
+function skip(src, i) {
+  const ch = src[i];
+  if (ch === '"' || ch === "'") {
+    for (i++; i < src.length && src[i] !== ch; i++) if (src[i] === "\\") i++;
+    return i + 1;
+  }
+  if (ch === "/" && src[i + 1] === "/") {
+    const j = src.indexOf("\n", i);
+    return j < 0 ? src.length : j;
+  }
+  if (ch === "/" && src[i + 1] === "*") {
+    const j = src.indexOf("*/", i + 2);
+    return j < 0 ? src.length : j + 2;
+  }
+  return i;
+}
+
+/** The objects of the json5's `data: [ … ]`, one per property: { text, top }, `top` being the
+ *  block without its comments and without what its nested objects hold (a logical_property_group
+ *  has a `name` of its own). Found by the brackets, whatever the indentation or the order of keys. */
+const stray = (i) => new Error(`css_properties.json5: "data" holds something that is not an object, at ${i}`);
+function blocks(src) {
+  const at = /\bdata:\s*\[/.exec(src);
+  if (!at) throw new Error('css_properties.json5 has no "data: ["');
+  const out = [];
+  const open = []; // the brackets open inside the block
+  let start = -1, top = "";
+  const own = () => !open.includes("{"); // not inside a nested object
+  for (let i = at.index + at[0].length; i < src.length; i++) {
+    const j = skip(src, i);
+    const ch = src[i];
+    if (j > i) {
+      if (ch !== "/" && start < 0) throw stray(i);
+      if (ch !== "/" && own()) top += src.slice(i, j);
+      i = j - 1;
+      continue;
+    }
+    if (start < 0) {
+      if (ch === "]") return out; // the end of data
+      if (ch === "{") {
+        start = i;
+        top = "";
+      } else if (!/[\s,]/.test(ch)) throw stray(i);
+    } else if (ch === "{" || ch === "[") {
+      if (own()) top += ch;
+      open.push(ch);
+    } else if (ch === "}" || ch === "]") {
+      if (!open.length) {
+        out.push({ text: src.slice(start, i + 1), top });
+        start = -1;
+      } else {
+        open.pop();
+        if (own()) top += ch;
+      }
+    } else if (own()) top += ch;
+  }
+  throw new Error("css_properties.json5: data's bracket never closes");
+}
+
+const NAME_LINE = /^\s*name:\s*"/gm;
+
+/** Blink's json5: property → its keywords. Descriptors that are no property (`src`, `syntax`,
+ *  `unicode-range`: is_property: false) are left out; what Chrome has behind a flag is not, and
+ *  suggest.js asks the browser which names it takes. Throws when a block was not understood:
+ *  every `name: "…"` line of the file must be one block's own name or inside one. */
 function parseBlink(src) {
   const props = new Map();
-  for (const block of src.split(/\n\s*\{\s*\n\s*name: "/).slice(1)) {
-    const name = block.slice(0, block.indexOf('"'));
-    if (skipName(name)) continue;
-    const body = block.split("\n    },")[0];
-    const m = /keywords: \[(.*?)\]/s.exec(body);
+  let seen = 0;
+  for (const { text, top } of blocks(src)) {
+    const names = [...top.matchAll(/(?<![\w"])name:\s*"([^"]+)"/g)];
+    if (names.length !== 1) throw new Error(`css_properties.json5: a block with ${names.length} names:\n${text.slice(0, 200)}`);
+    seen += (text.match(NAME_LINE) || []).length;
+    const name = names[0][1];
+    if (skipName(name) || /(?<![\w"])is_property:\s*false\b/.test(top)) continue;
+    // (devtools_keywords is Blink's own override of keywords for DevTools; typedom_keywords is neither.)
+    const m = /(?<![\w"])devtools_keywords:\s*\[(.*?)\]/s.exec(top) || /(?<![\w"])keywords:\s*\[(.*?)\]/s.exec(top);
     props.set(name, m ? [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]) : []);
   }
+  const all = (src.match(NAME_LINE) || []).length;
+  if (seen !== all) throw new Error(`css_properties.json5 has ${all} "name:" lines, but the blocks read hold ${seen}: its layout changed, and properties would be dropped`);
   return props;
 }
 
@@ -73,6 +147,13 @@ export function merge(blinkSrc, metaSrc) {
   return out;
 }
 
+/** The number of properties; throws when there are too few to be Chrome's list. */
+export function enough(props) {
+  const n = Object.keys(props).length;
+  if (n < MIN_PROPS) throw new Error(`only ${n} properties (fewer than ${MIN_PROPS}): nothing written`);
+  return n;
+}
+
 export function render(props) {
   const lines = Object.entries(props).map(([k, p]) => `  ${JSON.stringify(k)}: { v: ${JSON.stringify(p.v)}, w: ${p.w} },`);
   return `// Generated by overlay/scripts/css-data.mjs from Chromium ${CHROMIUM_TAG} (css_properties.json5) and
@@ -97,8 +178,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const blinkSrc = blinkPath ? readFileSync(blinkPath, "utf8") : await get(BLINK_URL, true);
   const metaSrc = metaPath ? readFileSync(metaPath, "utf8") : await get(META_URL, false);
   const props = merge(blinkSrc, metaSrc);
+  const n = enough(props);
   writeFileSync(OUT, render(props));
-  const n = Object.keys(props).length;
   const withValues = Object.values(props).filter((p) => p.v.length).length;
   console.log(`wrote ${OUT}: ${n} properties, ${withValues} with values`);
 }

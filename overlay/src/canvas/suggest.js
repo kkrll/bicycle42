@@ -46,7 +46,7 @@ const take = (e) => {
   return true;
 };
 
-let names;
+let names; // the properties this browser takes (Chrome's list has what is behind its flags too)
 const values = new Map(); // property → its keywords, asked of the browser once
 function valuesFor(prop) {
   let v = values.get(prop);
@@ -83,7 +83,9 @@ function stepIn(ms) {
 function show(f, asked) {
   const ctx = contextOf(f);
   if (!wants(ctx, asked)) return close();
-  const items = matches(ctx.kind === "name" ? (names ||= propNames(CSS_PROPS)) : valuesFor(ctx.prop), ctx.word);
+  // (A name is asked of the browser as css.js's problems() asks it: what is offered is never flagged.)
+  const all = ctx.kind === "name" ? (names ||= propNames(CSS_PROPS).filter((n) => supports(n, "initial"))) : valuesFor(ctx.prop);
+  const items = matches(all, ctx.word);
   // (The one thing it could offer is what is typed already: Enter is then the field's own.)
   if (!items.length || (!asked && items.length === 1 && items[0] === ctx.word)) return close();
   if (L.field && L.field !== f) close();
