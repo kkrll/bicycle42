@@ -8,7 +8,10 @@ import { cancelDrag } from "./drag.js";
 import { endEdit } from "./text.js";
 import { setPop } from "./bar.js";
 import { treeKey } from "./tree.js";
-import { setValue, unmarkValue } from "./inspector.js";
+import { freshValue, setValue, stepNumber, unmarkValue } from "./inspector.js";
+import { stepSize } from "./number.js";
+import { cancelScrub } from "./scrub.js";
+import { suggestKey } from "./suggest.js";
 import { clsEl, insp, treeEl } from "./mount.js";
 import { setMode } from "../mode.js";
 import { block } from "../input.js";
@@ -31,8 +34,11 @@ export function cvKey(e) {
   }
   const val = f && f.classList.contains("cval") ? f : null; // a computed value being edited
   const tab = f && f.classList.contains("tab") ? f : null;
+  // The suggestion list has the first say on a key in a field of the inspector.
+  if ((area || val) && suggestKey(e, f)) return;
   if (e.key === "Escape") {
     block(e);
+    if (cancelScrub()) return;
     if (C.drag) cancelDrag();
     else if (C.pop) setPop(C.pop);
     else if (val) {
@@ -70,26 +76,17 @@ export function cvKey(e) {
     }
     return;
   }
-  if (val && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-    block(e);
-    const up = e.key === "ArrowUp";
-    if (e.altKey) {
-      // alt+↑/↓ nudges the first number of the value by 1 (with shift: 10) and writes it.
-      val.value = val.value.replace(/-?\d*\.?\d+/, (m) => String(Math.round((Number(m) + (up ? 1 : -1) * (e.shiftKey ? 10 : 1)) * 100) / 100));
-      setValue(val);
-    } else {
-      const row = up ? val.parentElement.previousElementSibling : val.parentElement.nextElementSibling;
-      if (row) {
-        row.lastChild.focus();
-        row.lastChild.select();
-      }
-    }
-    return;
+  if ((area || val) && (e.key === "ArrowUp" || e.key === "ArrowDown") && !e.isComposing) {
+    // ↑/↓ step the number at the caret, as in DevTools: 1; shift 10; alt 0.1; mod 100. Where there
+    // is none, a text area's caret moves as it would; a computed value does nothing (Tab moves on).
+    const by = stepSize({ shift: e.shiftKey, alt: e.altKey, mod: mod(e) }) * (e.key === "ArrowUp" ? 1 : -1);
+    if (stepNumber(f, by) || val) return void block(e);
   }
   if (mod(e) && !e.altKey && e.key.toLowerCase() === "z") {
     block(e);
     if (e.shiftKey) redo();
     else undo();
+    if (val) freshValue(val);
     return;
   }
   if (area && e.key === "Tab" && !e.shiftKey && !mod(e)) {

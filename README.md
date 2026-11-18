@@ -138,6 +138,8 @@ them.
 | hold `mod` while dragging | No snapping |
 | double-click text | Edit it in place |
 | `Delete` | Hide the selection |
+| `↑` / `↓` on a number in the inspector | Step it by 1, as in DevTools (`shift`: 10, `alt`: 0.1, `mod`: 100), in a computed value and in both style boxes. `Tab` / `shift+Tab` go from one computed value to the next |
+| drag a computed value's name | Change its number, 1 a pixel (`shift`: 10, `alt`: 0.1); `Esc` puts it back. A click copies the line into Element styles |
 | `mod+Z` / `mod+shift+Z` | Undo / redo |
 | `Enter` (`mod+Enter` in a text box), or **Send** | Send all the edits as one note |
 

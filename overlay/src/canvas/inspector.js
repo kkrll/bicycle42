@@ -8,6 +8,8 @@ import { commit } from "./batch.js";
 import { dock, syncUi } from "./cursor.js";
 import { drawBar, drawPop, flash, hush } from "./bar.js";
 import { reveal, T } from "./tree.js";
+import { numberAt, step } from "./number.js";
+import { scrubbable } from "./scrub.js";
 import { clsEl, compEl, cssEl, freeEl, insp, ipath } from "./mount.js";
 import { kick, pool } from "../render.js";
 import { domVersion, root } from "../mount.js";
@@ -101,9 +103,15 @@ export function typed(field) {
     // "From" is the attribute as this batch found it (the page's own, or what an earlier batch left).
     e.cls = { from: e.cls ? e.cls.from : C.sel.getAttribute("class"), to: v.replace(/\s+/g, " ") };
   }
+  follow();
+}
+
+/** The batch's text changed under the reviewer's hands: the page follows within a frame, and the
+ *  undo step closes when they pause (unless `held`: a drag closes its own when it ends). */
+function follow(held) {
   hush();
   clearTimeout(C.typeTimer);
-  C.typeTimer = setTimeout(commit, 700);
+  C.typeTimer = held ? 0 : setTimeout(commit, 700);
   // The key press itself only stores the text. Marking and applying happen in the next frame;
   // on a page where applying is slow (measured: the restyle it causes is forced and timed), it
   // waits for a short pause in the typing instead of running on every frame.
@@ -166,7 +174,8 @@ export function drawComputed() {
     row.className = "crow";
     // The name copies the line into Element styles; the value is a field that writes it there.
     // (Tab goes from value to value: the names are out of the tab order.)
-    row.innerHTML = '<button type="button" class="cp" tabindex="-1" title="Copy into Element styles"></button><input class="cval" type="text" spellcheck="false" autocomplete="off">';
+    row.innerHTML = '<button type="button" class="cp" tabindex="-1" title="Click to copy into Element styles · drag to change the number"></button><input class="cval" type="text" spellcheck="false" autocomplete="off">';
+    scrubbable(row.firstChild);
     return row;
   });
   const focused = root.activeElement;
@@ -193,6 +202,17 @@ export const unmarkValue = (row) => {
   row.lastChild.title = row._v || "";
 };
 
+/** After an undo or a redo with a computed value in hand: the field shows what the page has
+ *  now, not the text that was just taken back (leaving the field would write it again). */
+export function freshValue(field) {
+  const row = field.parentElement;
+  if (!C.sel || !C.sel.isConnected || !row._p) return;
+  row._bad = false;
+  field.classList.remove("bad");
+  field.value = field.title = row._v = pretty(getComputedStyle(C.sel).getPropertyValue(row._p));
+  field.select();
+}
+
 /** A computed value was edited: write `prop: value;` into Element styles (the way a drag does),
  *  unless the browser would not take it; then it is marked, like rejected CSS, and not written. */
 export function setValue(field) {
@@ -202,20 +222,65 @@ export function setValue(field) {
     field.value = row._v;
     return unmarkValue(row);
   }
+  const wrote = writeValue(row, v);
+  if (!wrote) return;
+  commit();
+  syncFields(true);
+  if (wrote === "full") flash(FULL);
+}
+
+const FULL = "This element's styles are full: shorten them first";
+/** `prop: value;` into the selection's styles. False, and the field marked, when the browser
+ *  would not take the value; "full" when there is no room left for it. */
+function writeValue(row, v) {
+  const field = row.lastChild, p = row._p;
   if (!supports(p, v)) {
     row._bad = true;
     field.classList.add("bad");
     field.title = `invalid value for ${p}: not written`;
-    return;
+    return false;
   }
   unmarkValue(row);
   const en = entry(C.sel);
   const css = setDecl(en.css, p, v);
-  const full = css.length > MAX_CSS;
-  if (!full) en.css = css;
-  commit();
-  syncFields(true);
-  if (full) flash("This element's styles are full: shorten them first");
+  if (css.length > MAX_CSS) return "full";
+  en.css = css;
+  return "ok";
+}
+
+/** A computed value changed by a key or a drag: written as setValue writes it, but live, the way
+ *  typing is: the page follows within a frame and the presses of a burst are one undo step. */
+export function liveValue(field, value, held) {
+  const row = field.parentElement, v = line(clean(value));
+  field.value = v;
+  if (!C.sel || !row._p || !v) return;
+  const wrote = writeValue(row, v);
+  if (!wrote) return;
+  if (wrote === "full") {
+    commit();
+    return flash(FULL);
+  }
+  cssEl.value = entry(C.sel).css;
+  follow(held);
+}
+
+/** ↑/↓ in a field: the number at the caret moves by `delta`, its unit kept. In the text areas
+ *  only a number of a declaration's value; in a computed row the value's first number when the
+ *  caret is on none. False when there is no number to step. */
+export function stepNumber(field, delta) {
+  const area = field === cssEl || field === freeEl;
+  const text = field.value;
+  const t = numberAt(text, field.selectionStart, { to: field.selectionEnd, context: field === freeEl ? "sheet" : area ? "css" : "value", first: !area });
+  if (!t) return false;
+  const next = step(t, delta);
+  if (area) {
+    field.setRangeText(next, t.start, t.end, "select");
+    typed(field);
+  } else {
+    liveValue(field, text.slice(0, t.start) + next + text.slice(t.end));
+    field.setSelectionRange(t.start, t.start + next.length);
+  }
+  return true;
 }
 
 /** Element | Global: the selection's own styles, or the batch's stylesheet. Without a selection
