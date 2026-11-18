@@ -114,7 +114,8 @@ const changesOf = (e) =>
     .filter((c) => c && typeof c.prop === "string" && CSS_PROP.test(c.prop))
     .map((c) => {
       const t = tokensOf(c);
-      return `${c.prop}: ${value(c.from)} → ${value(c.to)}${t.length ? ` (${t.map((n) => `var(${n})`).join(", ")})` : ""}`;
+      // (an element that was not there before, a copy: only what it is now)
+      return `${c.prop}: ${c.from === "" ? "" : `${value(c.from)} → `}${value(c.to)}${t.length ? ` (${t.map((n) => `var(${n})`).join(", ")})` : ""}`;
     });
 /** Whether a canvas note's style edits name a token anywhere. */
 const namesTokens = (note) => (note.edits ?? []).some((e) => Array.isArray(e.changes) && e.changes.some((c) => c && tokensOf(c).length));
@@ -173,6 +174,8 @@ export function editWords(e) {
       return `${el}: text ${e.from !== undefined ? `${quote(e.from, 400)} → ` : "→ "}${quote(e.to, 400)}.`;
     case "hide":
       return `Removed ${el}.`;
+    case "duplicate":
+      return `Duplicated ${el}: add a copy of it right after it.`;
     case "style": {
       const changes = changesOf(e);
       if (!changes.length) return `Styled ${el}.`;
@@ -199,6 +202,8 @@ function editShort(e) {
       return `reworded ${el}`;
     case "hide":
       return `removed ${el}`;
+    case "duplicate":
+      return `duplicated ${el}`;
     case "style":
       return `styled ${el}`;
     case "class":
@@ -344,6 +349,7 @@ export function notePrompt(note, n, opts = {}) {
       const where = [oneLine(e.selector)];
       if (e.component) where.push(`<${oneLine(e.component)}>`);
       if (e.repeated > 1) where.push(`one of ${e.repeated} alike`);
+      if (Number.isInteger(e.copyOf) && e.copyOf !== i && note.edits[e.copyOf]?.kind === "duplicate") where.push(`in the copy made by edit ${e.copyOf + 1}`);
       const at = `[${where.join(", ")}]`;
       if (e.kind !== "style") return void lines.push(`${i + 1}. ${editWords(e)} ${at}`);
       // The CSS as typed, then what it came to, property by property.

@@ -149,7 +149,7 @@ const MAX_CHANGES = 40
 /** A computed value: a font stack or a gradient is long. */
 const MAX_COMPUTED = 400
 const MAX_CLASSES = 1000
-const EDIT_KINDS: readonly Edit["kind"][] = ["move", "resize", "gap", "padding", "margin", "text", "hide", "style", "class"]
+const EDIT_KINDS: readonly Edit["kind"][] = ["move", "resize", "gap", "padding", "margin", "text", "hide", "style", "class", "duplicate"]
 /** A custom property (`--stripe-period`), as a style edit's changes may name. */
 const CUSTOM_PROP = /^--[a-zA-Z0-9_-]{1,60}$/
 /** CSS as typed: any text up to `max`, line breaks and all (the prompt fences it), but not blank
@@ -193,6 +193,7 @@ function edit(raw: unknown): Edit | undefined {
   const component = line(raw.component, 100)
   if (component) out.component = component
   if (index(raw.repeated) && raw.repeated > 1) out.repeated = raw.repeated
+  if (index(raw.copyOf)) out.copyOf = raw.copyOf // (checked against the note's edits in pageEdits)
   if (kind === "style") {
     const css = typedCss(raw.css, MAX_EDIT_CSS)
     // Text that is there but can't be used (too long) makes the edit unusable: its changes
@@ -218,9 +219,10 @@ function edit(raw: unknown): Edit | undefined {
     out.to = now
     return out
   }
-  if (prop && kind !== "move" && kind !== "hide" && !text) out.prop = prop
-  if (from !== undefined && kind !== "move" && kind !== "hide") out.from = from
-  if (to !== undefined && kind !== "move" && kind !== "hide") out.to = to
+  const bare = kind === "move" || kind === "hide" || kind === "duplicate"
+  if (prop && !bare && !text) out.prop = prop
+  if (from !== undefined && !bare) out.from = from
+  if (to !== undefined && !bare) out.to = to
   if (kind === "move") {
     const parent = isObj(raw.parent) ? named(raw.parent) : undefined
     const layout = isObj(raw.parent) && LAYOUTS.includes(raw.parent.layout as (typeof LAYOUTS)[number]) ? (raw.parent.layout as (typeof LAYOUTS)[number]) : "block"
@@ -238,10 +240,20 @@ function edit(raw: unknown): Edit | undefined {
 /** The edits of a note, from the page or from disk: the first 40, the malformed ones dropped. */
 export function pageEdits(raw: unknown): Edit[] {
   const edits: Edit[] = []
-  for (const e of Array.isArray(raw) ? raw.slice(0, MAX_EDITS) : []) {
+  const at = new Map<number, number>() // an edit's place in `raw` → in `edits`
+  ;(Array.isArray(raw) ? raw.slice(0, MAX_EDITS) : []).forEach((e, i) => {
     const ok = edit(e)
-    if (ok) edits.push(ok)
-  }
+    if (!ok) return
+    at.set(i, edits.length)
+    edits.push(ok)
+  })
+  // "In the copy made by edit N": N must be a duplicate edit that is still there.
+  edits.forEach((e, i) => {
+    if (e.copyOf === undefined) return
+    const j = at.get(e.copyOf)
+    if (j === undefined || j === i || edits[j]?.kind !== "duplicate") delete e.copyOf
+    else e.copyOf = j
+  })
   return edits
 }
 

@@ -839,6 +839,20 @@ test("pageEdits: style and class edits are kept as sent, typed CSS line breaks a
   assert.deepEqual(pageEdits([{ ...CLASS, from: undefined }]), [{ ...CLASS, from: "" }])
 })
 
+test("pageEdits: a duplicate names what it copies; copyOf points at a duplicate that is still there, at its new place", () => {
+  const DUP = { kind: "duplicate", selector: "#plans > article:nth-of-type(2)", tag: "article", label: "Card · Pro", from: "x", to: "y", prop: "gap" }
+  const TEXT = { kind: "text", selector: "h3", tag: "h3", label: "Heading · Pro", from: "Pro", to: "Team" }
+  // (a duplicate carries nothing but its element)
+  assert.deepEqual(pageEdits([DUP]), [{ kind: "duplicate", selector: DUP.selector, tag: "article", label: "Card · Pro" }])
+  // an unusable edit before it: the index follows it
+  const out = pageEdits([{ kind: "nope" }, DUP, { ...TEXT, copyOf: 1 }, { ...STYLE, copyOf: 1 }])
+  assert.deepEqual(out.map((e) => [e.kind, e.copyOf]), [["duplicate", undefined], ["text", 0], ["style", 0]])
+  // not a duplicate, itself, past the end, not an index: dropped
+  for (const copyOf of [0, 1, 9, -1, 1.5, "0"])
+    assert.equal(pageEdits([DUP, { ...TEXT, copyOf }])[1]?.copyOf, copyOf === 0 ? 0 : undefined, String(copyOf))
+  assert.equal(pageEdits([TEXT, { ...TEXT, copyOf: 0 }])[1]?.copyOf, undefined)
+})
+
 test("pageEdits: a change keeps the page's variables it was set with, names only, four at most", () => {
   const change = (tokens: unknown) => pageEdits([{ ...STYLE, changes: [{ prop: "gap", from: "16px", to: "24px", tokens }] }])[0]?.changes
   assert.deepEqual(change(["--space-6"]), [{ prop: "gap", from: "16px", to: "24px", tokens: ["--space-6"] }])
@@ -904,7 +918,7 @@ test("pageNote: the batch stylesheet rides along, checked; a note may be nothing
   const row = r.rows()[0]!
   assert.equal(row.text, '3 canvas edits: styled "Card · Pricing", classes of "Link · Docs", 1 new CSS rule')
   assert.deepEqual(row.edits, [
-    'Styled "Card · Pricing": gap: 16px → 32px; --stripe-period: "" → 6px; font-family: "\\"Inter\\", sans-serif" → Geist, sans-serif.',
+    'Styled "Card · Pricing": gap: 16px → 32px; --stripe-period: 6px; font-family: "\\"Inter\\", sans-serif" → Geist, sans-serif.',
     '"Link · Docs": class "docs" → "docs bg-stripes".',
     "1 new CSS rule.",
   ])

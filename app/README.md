@@ -249,8 +249,8 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
 ## What a canvas note sends
 
 What the agent gets: the edits as a numbered list with each element's selector and the window
-width they were made at. A moved, reworded or removed element is a sentence
-(`Removed "Badge · New".`); a styled one is the CSS as typed, in a fenced block, followed by the
+width they were made at. A moved, reworded, removed or duplicated element is a sentence
+(`Removed "Badge · New".`); an edit made inside a copy says `in the copy made by edit 2`; a styled one is the CSS as typed, in a fenced block, followed by the
 computed value of each property before and after (`gap: 16px → 32px`); a class change is
 `class "a b" → "a b c"`; the batch's new rules follow, fenced, with the request to put them where
 the project keeps its styles. With them go two pictures of the same area, **before** and **after**
@@ -274,9 +274,10 @@ on its pin and in the chat. A note may be new CSS rules and nothing else.
   `/export`, `/copy`, `/timeline`, and choosing the message to fork from (a fork copies the
   whole conversation).
   A canvas note does carry before and after pictures of the reviewer's own edits.
-- Canvas mode: reordering in block flow (only flex and grid parents reorder), moving an element
-  into another container, dragging padding and margins (type them in the CSS box instead),
-  adding new elements and editing HTML.
+- Canvas mode: moving an element into another container, adding new elements other than a copy
+  of one, and editing HTML. A reorder in block flow is previewed by shifting the boxes
+  (`translate`), so it is exact for a plain stack of blocks; one among text or side-by-side boxes
+  is refused.
 - Canvas mode: the edited area's crop is cut where the elements are after the edits and before
   them, but a note of new CSS rules alone is cut around at most 20 of the elements they match.
 - The overlay's outlines have square corners: each is four edge strips and a scaled fill, so

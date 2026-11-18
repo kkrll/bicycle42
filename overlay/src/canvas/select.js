@@ -38,7 +38,9 @@ export function flow(P) {
     if (cs.position === "absolute" || cs.position === "fixed") continue;
     out.push({ el, r, o: fg ? Number(cs.order) || 0 : 0, i });
   }
+  // (in block flow, as they are seen: a reorder there is a shift, not a new order)
   if (fg) out.sort((a, b) => a.o - b.o || a.i - b.i);
+  else out.sort((a, b) => a.r.y - b.r.y || a.i - b.i);
   return out;
 }
 
@@ -76,7 +78,69 @@ export function buildGeo(el, r) {
   const P = el.parentElement;
   if (P && P !== document.documentElement) gapZones(g, P, el);
   if (el.childElementCount > 1) gapZones(g, el, null);
+  if (g.resizable && el !== document.body && el !== document.documentElement) boxZones(g, el);
   return g;
+}
+
+export const SIDES = ["top", "right", "bottom", "left"];
+const cap = (s) => s[0].toUpperCase() + s.slice(1);
+/** A side with no padding or margin still has something to grab: a short bar in its middle,
+ *  `off` px in from the border (padding: past the edge's own strip) or out from it (margin). */
+const pillAt = (i, w, h, off) => {
+  const L = 22, T = 6;
+  if (i === 0) return { x: w / 2 - L / 2, y: off, w: L, h: T };
+  if (i === 2) return { x: w / 2 - L / 2, y: h - off - T, w: L, h: T };
+  if (i === 3) return { x: off, y: h / 2 - L / 2, w: T, h: L };
+  return { x: w - off - T, y: h / 2 - L / 2, w: T, h: L };
+};
+
+/** The selection's own padding and margin, side by side, as bands to drag (relative to its
+ *  corner, as the gaps are). A margin the browser works out (`auto`, which centres) is left
+ *  alone: dragging it would write a number over the centring. So is a side where the parent's
+ *  gap is: there the gap's band is what moves the neighbour. */
+function boxZones(g, el) {
+  const cs = getComputedStyle(el), w = g.r.w, h = g.r.h;
+  const side = (k) => SIDES.map((s) => num(cs[k.replace("$", cap(s))]));
+  const [bt, br, bb, bl] = side("border$Width"), pad = side("padding$"), mar = side("margin$");
+  const [pt, pr, pb, pl] = pad;
+  let map = null;
+  try {
+    map = el.computedStyleMap();
+  } catch {}
+  const gapAt = new Set();
+  for (const z of g.zones) if (z.a === el) gapAt.add(z.axis === "x" ? 1 : 2);
+  else if (z.b === el) gapAt.add(z.axis === "x" ? 3 : 0);
+  const add = (box, i, value, rel, pill) =>
+    g.zones.push({ t: "space", box, side: i, i: g.zones.length, el, axis: i % 2 ? "x" : "y", rel, pill, prop: `${box === "pad" ? "padding" : "margin"}-${SIDES[i]}`, value });
+  // Padding, inside the border: top and bottom the full width, left and right what is between.
+  const iw = Math.max(0, w - bl - br), ih = Math.max(0, h - bt - bb - pt - pb);
+  const padRel = [{ x: bl, y: bt, w: iw, h: pt }, { x: w - br - pr, y: bt + pt, w: pr, h: ih }, { x: bl, y: h - bb - pb, w: iw, h: pb }, { x: bl, y: bt + pt, w: pl, h: ih }];
+  const roomy = w >= 48 && h >= 32; // (on a small one the bars would cover what moves it)
+  for (let i = 0; i < 4; i++)
+    if (pad[i] > 0) padRel[i].w > 0 && padRel[i].h > 0 && add("pad", i, pad[i], padRel[i]);
+    else if (roomy) add("pad", i, 0, pillAt(i, w, h, 5), true);
+  const marRel = [{ x: 0, y: -mar[0], w, h: mar[0] }, { x: w, y: 0, w: mar[1], h }, { x: 0, y: h, w, h: mar[2] }, { x: -mar[3], y: 0, w: mar[3], h }];
+  for (let i = 0; i < 4; i++) {
+    let auto = false;
+    try {
+      auto = String(map && map.get(`margin-${SIDES[i]}`)) === "auto";
+    } catch {}
+    if (auto || gapAt.has(i) || mar[i] < 0) continue;
+    if (mar[i] > 0) add("mar", i, mar[i], marRel[i]);
+    else add("mar", i, 0, pillAt(i, w, h, -14), true);
+  }
+}
+
+/** Where a padding or margin band is now (it moves as it is dragged), in the viewport. */
+export function boxBand(z) {
+  const r = rectOf(z.el), cs = getComputedStyle(z.el), s = cap(SIDES[z.side]);
+  const v = num(cs[`${z.box === "pad" ? "padding" : "margin"}${s}`]);
+  const b = SIDES.map((x) => num(cs[`border${cap(x)}Width`]));
+  if (z.box === "mar")
+    return [{ x: r.x, y: r.y - v, w: r.w, h: v }, { x: r.x + r.w, y: r.y, w: v, h: r.h }, { x: r.x, y: r.y + r.h, w: r.w, h: v }, { x: r.x - v, y: r.y, w: v, h: r.h }][z.side];
+  const iw = r.w - b[1] - b[3], ih = r.h - b[0] - b[2];
+  return [{ x: r.x + b[3], y: r.y + b[0], w: iw, h: v }, { x: r.x + r.w - b[1] - v, y: r.y + b[0], w: v, h: ih },
+    { x: r.x + b[3], y: r.y + r.h - b[2] - v, w: iw, h: v }, { x: r.x + b[3], y: r.y + b[0], w: v, h: ih }][z.side];
 }
 
 /** Lay out what the pointer can grab around the selection: corners, edges, the gaps. They are
@@ -114,6 +178,8 @@ export function layoutHit(g, r) {
     zs[i]._k = "";
     at(zs[i], q2.x - px2, q2.y - py2, q2.w + 2 * px2, q2.h + 2 * py2);
     zs[i]._z = z;
+    const look = z.pill ? `gz pill ${z.box}` : "gz";
+    if (zs[i].className !== look) zs[i].className = look;
     const cur = z.axis === "x" ? "col-resize" : "row-resize";
     if (zs[i]._c !== cur) zs[i].style.cursor = zs[i]._c = cur;
   });

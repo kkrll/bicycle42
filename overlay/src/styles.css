@@ -138,6 +138,11 @@ textarea::placeholder { color: #9ca3af; }
   background: #fff; border: 1.5px solid var(--pa); border-radius: 2px; }
 .cv > .shield { inset: 0; pointer-events: auto; }
 .band { background: color-mix(in srgb, var(--pa) 22%, transparent) repeating-linear-gradient(135deg, color-mix(in srgb, var(--pa) 60%, transparent) 0 1px, transparent 1px 5px); }
+.band.pad { --pa: #5fb35f; }
+.band.mar { --pa: #e39a4c; }
+.gz.pill { border-radius: 3px; background: color-mix(in srgb, #5fb35f 55%, transparent); opacity: 0.6; }
+.gz.pill.mar { background: color-mix(in srgb, #e39a4c 55%, transparent); }
+.gz.pill:hover { opacity: 1; }
 .ghost { border: 1.5px dashed var(--pa); border-radius: 3px; background: color-mix(in srgb, var(--pa) 12%, transparent); }
 .ins { background: var(--pa); border-radius: 2px; }
 .ins::before, .ins::after { content: ""; position: absolute; width: 9px; height: 9px; border-radius: 50%; background: var(--pa); }
@@ -277,6 +282,9 @@ textarea::placeholder { color: #9ca3af; }
 .cval:focus { background: rgba(255, 255, 255, 0.1); box-shadow: 0 0 0 1.5px rgba(255, 250, 160, 0.7); text-overflow: clip; }
 .cval.bad { text-decoration: underline wavy #f87171; text-decoration-skip-ink: none; box-shadow: 0 0 0 1.5px #f87171; }
 .crow.mine .cp, .crow.mine .cval { color: #fffaa0; }
+.ctok { all: unset; flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #9ca3af; opacity: 0.75; font: inherit; cursor: pointer; }
+.ctok:hover { color: #fff; opacity: 1; }
+.ctok[hidden] { display: none; }
 /* With room for it, the inspector is three equal columns: the tree, what the selection
    computes to, and what is typed for it. Each scrolls by itself, so the fields stay in view
    down the list, and the styles box takes the height that is left, as the stylesheet's does.

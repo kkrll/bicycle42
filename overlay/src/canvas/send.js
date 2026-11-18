@@ -7,6 +7,7 @@ import { topProps, varsIn } from "./css.js";
 import { applyAll } from "./apply.js";
 import { commit, countEdits } from "./batch.js";
 import { select } from "./select.js";
+import { copyAround } from "./copies.js";
 import { drawBar, flash, setPop } from "./bar.js";
 import { syncFields } from "./inspector.js";
 import { cnote } from "./mount.js";
@@ -35,6 +36,8 @@ export function submitCanvas(background) {
     return flash(`Too long to send: a text edit holds ${MAX_TEXT} characters at most. Double-click the text to shorten it`);
   const rss = [...new Set([...entries.map((e) => e.rs), ...B.ops.map((o) => o.rs)])];
   const els = rss.map(elOf).filter(Boolean);
+  // The copies are the page's own only while the batch is on: outlined and in the crop, not targets.
+  const copies = B.ops.filter((o) => o.kind === "duplicate").map((o) => C.copies.get(o.copy)).filter(Boolean);
   const props = new Map(entries.map((e) => [e.rs, topProps(e.css)]));
   // Elements the new rules match: only where nothing else says where the note is about.
   const matched = [];
@@ -51,7 +54,7 @@ export function submitCanvas(background) {
       const cs = el && getComputedStyle(el);
       vals.set(rs, list.map((p) => (cs ? value(cs.getPropertyValue(p)) : "")));
     }
-    return { vals, rects: [...els, ...matched].map(rectOf) };
+    return { vals, rects: [...els, ...copies, ...matched].map(rectOf) };
   };
   C.draft.id = "measuring";
   C.hide.add("measuring");
@@ -75,7 +78,8 @@ export function submitCanvas(background) {
   applyAll();
   const after = measure();
 
-  const edits = [];
+  /** @type {any[]} */
+  const edits = [], who = []; // (who: each edit's element, and its op if it has one)
   for (const e of entries) {
     if (e.css.trim())
       edits.push({ kind: "style", ...tidy(e, sel(e)), css: e.css,
@@ -85,8 +89,10 @@ export function submitCanvas(background) {
           return { prop, from: before.vals.get(e.rs)[i], to: after.vals.get(e.rs)[i], ...(tokens.length ? { tokens } : {}) };
         }) });
     if (e.cls) edits.push({ kind: "class", ...tidy(e, sel(e)), from: line(e.cls.from), to: line(e.cls.to) });
+    while (who.length < edits.length) who.push({ rs: e.rs });
   }
   for (const op of B.ops) {
+    who.push({ rs: op.rs, op });
     const out = { kind: op.kind, ...tidy(op, sel(op)) };
     if (op.kind === "text") Object.assign(out, { from: line(op.from), to: line(op.to) });
     if (op.kind === "move")
@@ -97,6 +103,13 @@ export function submitCanvas(background) {
       });
     edits.push(out);
   }
+  // An edit made in a copy says which "duplicate" made it: in the code that element is still to come.
+  const dupAt = new Map(who.flatMap((w, i) => (w.op && w.op.kind === "duplicate" ? [[w.op.copy, i]] : [])));
+  edits.forEach((x, i) => {
+    const el = elOf(who[i].rs);
+    const at = el ? dupAt.get(copyAround(el)) : undefined;
+    if (at !== undefined && at !== i) x.copyOf = at;
+  });
   const seen = [...before.rects, ...after.rects].filter((r) => r.w > 0 && r.h > 0);
   const bounds = union(seen);
   const note = {
@@ -132,7 +145,7 @@ export function submitCanvas(background) {
   if (C.pop) setPop(C.pop);
   select(null);
   // Outlines for the screenshot: the edited elements, wherever they are in each picture.
-  S.sel = els.filter((el, i) => after.rects[i].w > 0 || before.rects[i].w > 0);
+  S.sel = [...els.filter((el, i) => after.rects[i].w > 0 || before.rects[i].w > 0), ...copies.filter((n) => n.isConnected)];
   syncFields(true);
   drawBar();
   dispatch(note);

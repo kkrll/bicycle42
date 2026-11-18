@@ -2,7 +2,7 @@ import { S } from "../state.js";
 import { pick, q, rectOf, VP } from "../page.js";
 import { C } from "./state.js";
 import { elOf, stampOf } from "./stamps.js";
-import { between, buildGeo, layoutHit, select } from "./select.js";
+import { between, boxBand, buildGeo, layoutHit, select } from "./select.js";
 import { startDrag, stepDrag } from "./drag.js";
 import { endEdit } from "./text.js";
 import { dock } from "./cursor.js";
@@ -108,10 +108,10 @@ export function cvFrame(capturing) {
   // The gap under the pointer (or being dragged): a tinted band, its value above it.
   let band = null;
   if (z && z.t === "space") {
-    band = live ? between(rectOf(z.a), rectOf(z.b), rectOf(z.el))?.rect : r && { x: r.x + z.rel.x, y: r.y + z.rel.y, w: z.rel.w, h: z.rel.h };
+    band = live ? (z.box ? boxBand(z) : between(rectOf(z.a), rectOf(z.b), rectOf(z.el))?.rect) : r && { x: r.x + z.rel.x, y: r.y + z.rel.y, w: z.rel.w, h: z.rel.h };
     if (band) {
       const bw = Math.max(band.w, 2), bh = Math.max(band.h, 2);
-      place(bandEl, Math.round(band.x - (bw - band.w) / 2), Math.round(band.y - (bh - band.h) / 2), Math.round(bw), Math.round(bh));
+      place(bandEl, Math.round(band.x - (bw - band.w) / 2), Math.round(band.y - (bh - band.h) / 2), Math.round(bw), Math.round(bh), z.box ? `band ${z.box}` : "band");
     }
   }
   if (!band) gone(bandEl);

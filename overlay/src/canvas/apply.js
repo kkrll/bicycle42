@@ -2,6 +2,7 @@ import { adopt, BOOST } from "../page.js";
 import { C, MAX_CLASS, MAX_CSS, MAX_SHEET } from "./state.js";
 import { elOf, stableSel, STAMP, stampOf } from "./stamps.js";
 import { usable } from "./css.js";
+import { syncCopies } from "./copies.js";
 import { drawBar } from "./bar.js";
 import { T } from "./tree.js";
 import { kick } from "../render.js";
@@ -86,6 +87,43 @@ export function ordered(base, ops) {
   return L;
 }
 
+/** The children of P that a reorder in block flow moves about: those laid out one under the
+ *  other, in DOM order, with where they are (offsetTop and offsetHeight: a `translate` does not
+ *  change them, so the preview never measures itself). Null when P's children are not such a
+ *  stack: text runs among them, or they sit side by side (inline, inline-block, a table's cells).
+ *  Floated and positioned ones take no part. */
+export function stackOf(P) {
+  for (const n of P.childNodes) if (n.nodeType === 3 && n.data.trim()) return null;
+  const out = [];
+  for (const el of P.children) {
+    if (el === hostEl) continue;
+    const cs = getComputedStyle(el);
+    if (cs.display === "none" || cs.display === "contents" || cs.position === "absolute" || cs.position === "fixed" || cs.float !== "none") continue;
+    if (/^(inline|table-|ruby)/.test(cs.display)) return null;
+    out.push({ el, top: /** @type {HTMLElement} */ (el).offsetTop, h: /** @type {HTMLElement} */ (el).offsetHeight });
+  }
+  for (let i = 1; i < out.length; i++) if (out[i].top < out[i - 1].top + out[i - 1].h - 0.5) return null;
+  return out;
+}
+
+/** Reorder in block flow, where `order` does nothing: each child that changes place is shifted
+ *  by `translate` to where the new order puts it. The places are the old ones' (the first box
+ *  starts where the first one did, and the space between two boxes is the space that was at that
+ *  place), so what follows the stack does not move. Rules as in flex: by child position. */
+function blockRules(prs, stack, L, kidsNow) {
+  const at = new Map(kidsNow.map((el, i) => [el, i + 1]));
+  const inStack = new Map(stack.map((s) => [s.el, s]));
+  const now = L.filter((el) => inStack.has(el)).map((el) => inStack.get(el));
+  const rules = [];
+  let y = stack.length ? stack[0].top : 0;
+  now.forEach((s, k) => {
+    const dy = Math.round((y - s.top) * 100) / 100;
+    if (Math.abs(dy) >= 0.5) rules.push(`${prs} > :nth-child(${at.get(s.el)}) { translate: 0 ${dy}px !important; }`);
+    y += s.h + (k + 1 < stack.length ? stack[k + 1].top - stack[k].top - stack[k].h : 0);
+  });
+  return rules;
+}
+
 export const setText = (el, s) => {
   const t = el.firstChild;
   if (el.childNodes.length === 1 && t.nodeType === 3) t.data = s; // the same text node: a framework keeps its reference
@@ -108,8 +146,14 @@ export function applyAll() {
     if (el) marks.set(el, marks.has(el) && marks.get(el) !== m ? "ed hid" : m);
     return el;
   };
-  let watchClass = false, watchDom = false, dirty = false;
+  let dirty = syncCopies(), watchClass = false, watchDom = false;
   const named = new Set();
+  // A copy shows its source's style edits (listed in the source's rule); its own are in a rule
+  // of twice the weight, so they win over those.
+  const mirror = new Map();
+  for (const b of [...C.sent, C.draft])
+    if (!C.hide.has(b.id)) for (const op of b.B.ops) if (op.kind === "duplicate") (mirror.get(op.rs) || mirror.set(op.rs, []).get(op.rs)).push(op.copy);
+  const ruleSel = (rs) => [(C.copyRs.has(rs) ? rs + rs : rs) + BOOST, ...(mirror.get(rs) || []).map((c) => c + BOOST)].join(", ");
   for (const b of [...C.sent, C.draft]) {
     const off = C.hide.has(b.id);
     const ok = b.ok || (b.ok = {}); // per element (and "" for the stylesheet): the last complete text
@@ -122,7 +166,7 @@ export function applyAll() {
       // does not switch the rest of the box off and on.
       if (usable(e.css, MAX_CSS)) ok[rs] = e.css;
       else if (!e.css.trim() || e.css.length > MAX_CSS) delete ok[rs];
-      if (ok[rs]) rules.push(`${rs}${BOOST} {\n${ok[rs]}\n}`);
+      if (ok[rs]) rules.push(`${ruleSel(rs)} {\n${ok[rs]}\n}`);
       if (e.css.trim() || e.cls) note(rs, "ed");
       if (!e.cls || off || e.cls.to.length > MAX_CLASS) continue;
       watchClass = true;
@@ -135,6 +179,12 @@ export function applyAll() {
       named.add(op.rs);
       if (op.parent) named.add(op.parent.rs);
       if (op.before) named.add(op.before.rs);
+      if (op.kind === "duplicate") {
+        named.add(op.copy);
+        note(op.copy, "ed");
+        if (!off) watchDom = true; // (the page may re-render it away: it is put back)
+        continue;
+      }
       note(op.rs, op.kind === "hide" ? "hid" : "ed");
       if (op.kind === "hide") rules.push(`${op.rs} { display: none !important; }`);
       if (off || op.kind === "hide") continue;
@@ -157,15 +207,22 @@ export function applyAll() {
   // Reorder: `order` on the children from the first one that moves; worked out again only when
   // the parent's children or its moves changed (this runs on every re-render of the page).
   const order = [];
+  C.blockMoves = false;
   for (const [prs, ops] of groups) {
     const P = elOf(prs);
     if (!P) continue;
     const all = P.children;
-    const sig = ops.map((o) => `${o.rs}>${o.before ? o.before.rs : ""}`).join("|");
+    // In block flow the rules are offsets, so where the children are is part of what they say.
+    const stack = /flex|grid/.test(getComputedStyle(P).display) ? null : stackOf(P) || [];
+    const sig = ops.map((o) => `${o.rs}>${o.before ? o.before.rs : ""}`).join("|") + (stack ? `@${stack.map((s) => `${s.top},${s.h}`).join(" ")}` : "");
+    if (stack) C.blockMoves = true;
     let c = C.orders.get(prs);
     let same = !!c && c.P === P && c.sig === sig && c.kids.length === all.length;
     for (let i = 0; same && i < all.length; i++) same = c.kids[i] === all[i];
-    if (!same) {
+    if (!same && stack) {
+      const kidsNow = [...all];
+      C.orders.set(prs, (c = { P, sig, kids: kidsNow, rules: blockRules(prs, stack, ordered(kidsNow.filter((x) => x !== hostEl), ops), kidsNow) }));
+    } else if (!same) {
       const kidsNow = [...all];
       const base = kidsNow.filter((x) => x !== hostEl);
       const L = ordered(base, ops);
@@ -240,6 +297,9 @@ export function applyAll() {
   drawBar();
   kick();
 }
+
+// A block reorder's offsets are in pixels: when the window's width changes, so may the heights.
+addEventListener("resize", () => C.blockMoves && applyAll());
 
 /** Re-apply after the page changes under us. Only observed while a batch needs it: class and
  *  text edits (the DOM was written) and reorders (the rules go by child position). */
