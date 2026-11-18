@@ -723,6 +723,50 @@ async function main() {
     page.send({ type: "pins", pins: [{ id: moved2!.id, n: 9, status: "failed", selector: "#title" }] })
     check("a failed note puts the order and the text back", (await until(async () => (await order()) === "Free,Pro,Scale" && (await js("document.querySelector('#title').textContent")) === "Simple pricing", 2000)) === true)
     page.send({ type: "pins", pins: [] })
+    // ── numbers: ↑ steps the one at the caret, a drag on a computed row's name scrubs it ──────
+    {
+      await clickPt(centre(await pageBox(SECOND)))
+      const rowOf = (prop: string) => `[...${shadow}.querySelectorAll('.crow')].find((c) => c.firstChild.textContent === ${JSON.stringify(prop)})`
+      const cssBox = () => js(`${part("css")}.value`) as Promise<string>
+      const widthNow = async () => Math.round((await pageBox(SECOND)).width * 10) / 10
+      const arrowUp = async (modifiers = 0) => {
+        await dbg.sendCommand("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowUp", code: "ArrowUp", windowsVirtualKeyCode: 38, modifiers })
+        await dbg.sendCommand("Input.dispatchKeyEvent", { type: "keyUp", key: "ArrowUp", code: "ArrowUp", windowsVirtualKeyCode: 38, modifiers })
+        await sleep(150)
+      }
+      const modZ = async () => {
+        const modifiers = mod === "meta" ? 4 : 2
+        await dbg.sendCommand("Input.dispatchKeyEvent", { type: "keyDown", key: "z", code: "KeyZ", windowsVirtualKeyCode: 90, modifiers })
+        await dbg.sendCommand("Input.dispatchKeyEvent", { type: "keyUp", key: "z", code: "KeyZ", windowsVirtualKeyCode: 90, modifiers })
+        await sleep(200)
+      }
+      await until(async () => !!(await js(`${rowOf("width")}?.lastChild.value`)), 2000)
+      const w0 = await widthNow()
+      await clickPt(centre(await boxOf(`${rowOf("width")}.lastChild`)))
+      await arrowUp()
+      check("↑ in a computed value steps its number by 1, and the page follows", (await cssBox()) === `width: ${w0 + 1}px;` && (await widthNow()) === w0 + 1, `${await cssBox()} / ${await widthNow()} from ${w0}`)
+      await arrowUp(8)
+      check("shift+↑ steps by 10", (await cssBox()) === `width: ${w0 + 11}px;` && (await widthNow()) === w0 + 11, `${await cssBox()} / ${await widthNow()}`)
+      await sleep(800) // the burst becomes one edit after a pause
+      await modZ()
+      check("a burst of presses is one undo step", (await cssBox()) === "" && (await widthNow()) === w0, `${JSON.stringify(await cssBox())} / ${await widthNow()}`)
+      await typeIn("css", "padding: 20px") // (the caret is at the end, touching the number)
+      await arrowUp()
+      check("↑ in Element styles steps the number at the caret", (await cssBox()) === "padding: 21px" && (await css(SECOND, "padding-left")) === "21px", `${await cssBox()} / ${await css(SECOND, "padding-left")}`)
+      await sleep(800)
+      const name = await boxOf(`${rowOf("width")}.firstChild`)
+      const grab = { x: Math.round(name.x + 30), y: Math.round(name.y + name.height / 2) }
+      const w1 = await widthNow()
+      await drag(grab, { x: grab.x + 24, y: grab.y })
+      check("a drag on a computed row's name scrubs its number, 1 a pixel", (await cssBox()) === `padding: 21px;\nwidth: ${w1 + 24}px;` && (await widthNow()) === w1 + 24, `${JSON.stringify(await cssBox())} / ${await widthNow()} from ${w1}`)
+      await modZ()
+      check("…and the drag is one undo step", (await cssBox()) === "padding: 21px" && (await widthNow()) === w1, `${JSON.stringify(await cssBox())} / ${await widthNow()}`)
+      await clickPt(grab)
+      check("a click on the name without moving still copies the line", (await cssBox()) === `padding: 21px;\nwidth: ${w1}px;`, JSON.stringify(await cssBox()))
+      await clickPt(centre(await boxOf(part("reset"))))
+      check("(Reset takes these edits away again)", (await cssBox()) === "" && (await css(SECOND, "padding-left")) === "16px", JSON.stringify(await cssBox()))
+    }
+
     // ── the bar's Send button: a real click sends the batch; the mode is the host's to switch ──
     check("the layer says which mode it is in, for the host's switch", same(messages.filter((m) => m.type === "mode").at(-1), { type: "mode", mode: "canvas", brush: false }), JSON.stringify(messages.filter((m) => m.type === "mode").at(-1)))
     await clickPt(centre(await pageBox(SECOND)))
