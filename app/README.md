@@ -261,22 +261,33 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   `renderer/app.tsx`, as the composer's model is): its list opens over the page, where nothing
   of the window's own document would show.
 - **The panel is at the window's left, and a phone's page next to it, in every mode.** The
-  column on the page's right is the mode's dock, or in a mode with none (Preview, Annotate) the
-  modes and the keys (`ModeAside` in `renderer/app.tsx`): the column is always there, so the
-  page does not move when the mode changes.
+  column on the page's right is the mode's dock, or in a mode with none (Preview, Annotate) This
+  page on this phone (below): the column is always there, so the page does not move when the
+  mode changes.
+- **This page on this phone** (`renderer/facts-pane.tsx`, its own `facts-pane.css`; `PhoneAside`
+  in `renderer/dock.tsx`). What the page is at this phone's size, each row an element of it: what
+  sticks out past the screen's right edge (why a phone scrolls it sideways or zooms it out), tap
+  targets under 44 px, fields whose text is under 16 px (iOS zooms into them), and no viewport
+  tag; one line when all is well. The pointer on a row outlines its element on the page, a click
+  brings it into view, and in Annotate "Note" makes it the note's selection (main puts the keys
+  on the page then). Under them the files the agent changed, and the two keys worth knowing here.
+  The overlay works the facts out (`overlay/src/facts/host.js`), only while the pane is up: it
+  says "view" when it appears and "stop" when it goes. It is a pane of the window's that is no
+  mode's dock (`Pane` in `overlay/protocol.ts`, "facts" in `HOSTED_PANES`) and rides as a dock
+  does. A desktop's page has no column, and nothing is worked out for it.
 - **The bar's hints wait two seconds** (`HINT_DELAY`), and one that is up stays a moment after
   the pointer leaves its control (`HINT_LINGER`): on the way to the next control the same
   element gets new words, and is not taken down and put up again.
 - **A dock the window draws.** Edit mode's inspector and motion mode's dock are the overlay's,
-  drawn at the bottom of the page. A dock named in `HOSTED_DOCKS` (`shared/types.ts`) is drawn by
+  drawn at the bottom of the page. A dock named in `HOSTED_PANES` (`shared/types.ts`) is drawn by
   the window instead: the overlay is told after every "state" ("docks"), shows no dock of its own
   and makes no room for one, sends what the dock shows (`PanelMessage`, the "panel" stream, kept
   in `dockViews` in `renderer/store.ts`) and does what the window's dock asks (the `panel`
   command, `dockAct`). Main carries both and reads neither. The dock's component goes into
   `DOCKS` in `renderer/dock.tsx`; the window puts it under the page (its top edge drags, as the
   panel's side does) or, beside a phone's page, in the column at the page's right.
-  What a view and an act carry is each dock's own file: `overlay/protocol-motion.ts`,
-  `overlay/protocol-canvas.ts`.
+  What a view and an act carry is each pane's own file: `overlay/protocol-motion.ts`,
+  `overlay/protocol-canvas.ts`, `overlay/protocol-facts.ts`.
 - **Motion's dock is the window's** (`renderer/motion-dock.tsx`, its own `motion-dock.css`):
   the list, the open animation's header, timeline and keyframe, the note and Send, all of the
   overlay's in-page dock. Its layout asks its own box (container queries): wide, the list beside
@@ -296,9 +307,10 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   them as text and never as markup, and keeps nothing of the page's that the overlay does not
   also have (a reload of either side loses nothing). `dockPing` measures the way to the overlay
   and back.
-- Shots: `phone`, `dock`, `phone-dock`, `phone-motion-dock`, `dock-more`, `dock-narrow`,
-  `canvas-dock` (the mock takes `&device=phone`, `&docks=motion,canvas`, `&mode=edit|motion`; it
-  feeds motion's dock a sample view, and the inspector the one in `mock-canvas.ts`).
+- Shots: `phone`, `phone-se`, `phone-wide`, `phone-clear`, `dock`, `phone-dock`,
+  `phone-motion-dock`, `dock-more`, `dock-narrow`, `canvas-dock` (the mock takes `&device=phone`,
+  `&docks=motion,canvas`, `&mode=preview|edit|motion`, `&facts=clear`; it feeds motion's dock a
+  sample view, the inspector the one in `mock-canvas.ts`, and the facts pane one of a pricing page).
 
 ## What a canvas note sends
 
