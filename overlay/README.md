@@ -78,7 +78,15 @@ src/globals.d.ts    what the type check cannot read from the .js files
   `src/page.js`). "marks" (or `marks` with "view"; off until asked, and the view says which):
   a quiet 1.5 px outline on every listed element, in its kind's tone (`.box.fx.mk.k-wide`,
   `k-taps`, `k-small`: red, orange, blue), following scroll and layout; the hovered or shown
-  one is drawn strong in its tone instead. Like the hover outline they take no pointer, are in
+  one is drawn strong in its tone instead. In canvas and motion mode they are faint
+  (`.mk.faint`: 1 px, half opacity) and never on canvas's selection (the inspector outlines it).
+  "kind" (the host's line: the pointer on a kind's count) marks that kind's listed elements,
+  2 px (`.mk.lit`), in any mode, marks on or off, until a "kind" of null. "show" in canvas mode
+  also selects the element, as a click on it there would (`select` in `src/canvas/select.js`):
+  the host's line cycles through a kind's listed elements with it. In canvas mode the view's
+  `own` is the selection's own fact when it is one (listed or past the list's end), worked out
+  again with every look, so an inspector edit that fixes it makes it null; a new selection is
+  noticed in the next frame (`boxes` asks). Like the hover outline they take no pointer, are in
   no note's screenshot and go with "stop". A new document sends the view null, so a host whose
   pane is up asks again. `?page=facts` is its harness page (`test/facts-hosted.test.mjs`).
 
