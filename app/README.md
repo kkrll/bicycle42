@@ -285,31 +285,26 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   has the focus), so nine of them do not outweigh the facts. 620 px wide or more, the facts and
   the changed files are two columns. Units are written with a space ("+134 px"). The changed
   files are words, not controls: the path's last two segments, the full one in the title.
-- **The phone line: the column's top, the same in every mode** (`PhoneLine` in
-  `facts-pane.tsx`; on top of the pane in Preview and Annotate, mounted by `DockRegion` above
-  Edit's and Motion's dock). 36 px, as the inspector's header, the words 12 px in; its
-  accessible name is "This page on this phone". At its left the counts, each a quiet button
-  with its kind's dot ("2 stick out", "5 small taps", "2 fields zoom"; none for a kind with
-  none), "Fits this phone" when all are none, the missing viewport tag instead when there is
-  none, "Looking at the page…" until the first look. The pointer on a count (or the focus) marks
-  that kind on the page while it is there, in every mode; a click goes to the next of them
-  (`nextOf`, cycling): the page scrolls to it and flashes it, in Edit the inspector selects it,
-  in Preview and Annotate the pane's row for it comes into view, lit a moment. In Edit, when the
-  inspector's selection is one of the facts, the line says so first, on a wash of its kind's
-  tone ("This element: 64 × 32, under 44", "… sticks out 134 px", "… text 14 px, iOS zooms"),
-  live: the edit that fixes it takes it away. At its right "Marks on" | "Marks off": every
-  listed element outlined on the page in its kind's tone, the sections' dots their legend. Two
-  choices: Preview and Annotate's (`facts.marks`, on unless turned off) and Edit and Motion's
-  (`facts.marks.edit`, off unless turned on; the marks fainter there, and none on the
-  inspector's selection). A narrow line shortens the counts first ("2 out · 5 taps · 2 zoom",
-  then the numbers by their dots), then the selection's fact ("sticks out 46 px"): container
-  queries in `facts-pane.css`; nothing is cut at the column's least.
-  The overlay works the facts out (`overlay/src/facts/host.js`), only while a phone line is up:
-  each says it wants them (`wantFacts`), and the window sends "view" (with whether to mark) when
-  the first appears, "marks" when that changes and "stop" when the last goes, once a mode
-  change's unmount and mount have settled. It is a pane of the window's that is no mode's
-  dock (`Pane` in `overlay/protocol.ts`, "facts" in `HOSTED_PANES`) and rides as a dock does. A
-  desktop's page has no column and no line, and nothing is worked out for it.
+- **The phone line: the facts pane's header** (`PhoneLine` in `facts-pane.tsx`; Preview and
+  Annotate only). 36 px, as the inspector's header, the words 12 px in; its accessible name is
+  "This page on this phone". At its left the counts, each a quiet button with its kind's dot ("2
+  stick out", "5 small taps", "2 fields zoom"; none for a kind with none), "Fits this phone" when
+  all are none, the missing viewport tag instead when there is none, "Looking at the page…" until
+  the first look. The pointer on a count (or the focus) marks that kind on the page while it is
+  there; a click goes to the next of them (`nextOf`, cycling): the page scrolls to it and flashes
+  it, and the pane's row for it comes into view, lit a moment. At its right "Marks off" | "Marks
+  on" (its title says what it would do): every listed element outlined on the page in its kind's
+  tone, the sections' dots their legend. Off until turned on (`facts.marks`): the page in Preview
+  is the page, and an element is outlined only while its row or its kind's count is pointed at. A
+  narrow line shortens the counts ("2 out · 5 taps · 2 zoom", then the numbers by their dots):
+  container queries in `facts-pane.css`; nothing is cut at the column's least.
+  The overlay works the facts out (`overlay/src/facts/host.js`) only while the pane is up: it
+  says it wants them (`wantFacts`), and the window sends "view" (with whether to mark) when it
+  appears, "marks" when that changes and "stop" when it goes, once a mode change's unmount and
+  mount have settled. It is a pane of the window's that is no mode's dock (`Pane` in
+  `overlay/protocol.ts`, "facts" in `HOSTED_PANES`) and rides as a dock does. In Edit and Motion
+  the column is the mode's dock and nothing else, and nothing is worked out; a desktop's page has
+  no column and no pane.
 - **The bar's hints wait two seconds** (`HINT_DELAY`), and one that is up stays a moment after
   the pointer leaves its control (`HINT_LINGER`): on the way to the next control the same
   element gets new words, and is not taken down and put up again.
@@ -334,8 +329,21 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
 - **Edit's inspector is the window's** (`renderer/canvas-dock.tsx`, its own `canvas-dock.css`; the
   overlay's side is `overlay/src/canvas/host.js`). Its fields are its own while typed in and its
   suggestions are worked out here (the overlay's pure `suggest-model.js`, `number.js`,
-  `css-data.js`, and this window's `CSS.supports`), so typing never waits for the page.
-- **Send in a dock of the window's** (motion's Send, the inspector's mod+Enter) has no key or
+  `css-data.js`, and this window's `CSS.supports`), so typing never waits for the page. Its
+  header names what is selected (its component, else tag#id.class as the tree has it), never
+  what the element says. A handle between the tree and the styles (a pill, as the window's other
+  handles) sizes the tree: its height above the styles, its width beside them; arrows step 16
+  px, Home and End go to the limits, a double click gives it its share again; kept
+  (`canvas.tree.h`, `canvas.tree.w`). The tree scrolls up and down only: a long row ends in "…".
+- **The bar is the inspector's footer.** While the window draws the inspector the page has no
+  bar over it: the footer has how many edits ("No edits", "3 edits"), undo, redo, Reset, the
+  note ("Add a note…"; Enter sends, alt+Enter to the background, mod+Enter from the inspector's
+  fields), Send and, in the note's place while it is empty, what happened to the note sent last
+  ("Sent · preview stays until note 4 is done", a refusal for a moment). The words are the
+  overlay's, sent with every key (CanvasView `batch`, the acts "note" and "reset"), so a refused
+  note brings them back. Its "?" opens the keys list (the overlay's `canvas/help.js`) inside the
+  inspector's box. Folded under a desktop's page, the inspector keeps its footer.
+- **Send in a dock of the window's** (motion's Send, the inspector's Send and mod+Enter) has no key or
   click in the page to come with, which the page view asks of every note: on a "send" act the
   controller tells the page view to let the next note through, once (`admitNote`).
 - **A view is the page's text.** A class, a keyframe's name, an element's words: the window draws
@@ -343,7 +351,8 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   also have (a reload of either side loses nothing). `dockPing` measures the way to the overlay
   and back.
 - Shots: `phone`, `phone-se`, `phone-wide`, `phone-clear`, `dock`, `phone-dock`,
-  `phone-motion-dock`, `dock-more`, `dock-narrow`, `canvas-dock` (the mock takes `&device=phone`,
+  `phone-dock-keys`, `phone-least-dock`, `phone-motion-dock`, `dock-more`, `dock-narrow`,
+  `canvas-dock`, `canvas-dock-narrow` (the mock takes `&device=phone`,
   `&docks=motion,canvas`, `&mode=preview|edit|motion`, `&facts=clear`; it feeds motion's dock a
   sample view, the inspector the one in `mock-canvas.ts`, and the facts pane one of a pricing page).
 

@@ -65,7 +65,12 @@ src/globals.d.ts    what the type check cannot read from the .js files
   `__harness.hostDocks(["motion"])` plays such a host, `__harness.act(panel, act)` its dock, and
   `__harness.panel` holds what the overlay sent. Canvas's is `src/canvas/host.js`: the view is
   made in the frames the layer's inspector would be drawn in, the acts call what its fields, rows
-  and keys call (`test/canvas-hosted.test.mjs`).
+  and keys call (`test/canvas-hosted.test.mjs`). The bar over the page is the host's inspector's
+  too then: none is drawn, the view's `batch` says what it would (edits, undo, redo, the note's
+  words, a refusal, the state), and "note", "reset", "undo", "redo" and "send" are its controls.
+  The note's words stay the layer's own field's (draft, refusal). Not hosted, the bar is as ever.
+  The view's `sel.label` is what the element is (its component's name, else tag#id.class), not
+  what it says. The keys lists are `src/canvas/help.js`, pure, for the host to show too.
 - **"facts" is a pane only the host draws** (`Pane` in `protocol.ts`, `protocol-facts.ts`,
   `src/facts/host.js`): what the page is at the size it is shown at (what sticks out past the
   right edge, tap targets under 44 px, fields under 16 px, the viewport tag), each fact an
@@ -78,16 +83,16 @@ src/globals.d.ts    what the type check cannot read from the .js files
   `src/page.js`). "marks" (or `marks` with "view"; off until asked, and the view says which):
   a quiet 1.5 px outline on every listed element, in its kind's tone (`.box.fx.mk.k-wide`,
   `k-taps`, `k-small`: red, orange, blue), following scroll and layout; the hovered or shown
-  one is drawn strong in its tone instead. In canvas and motion mode they are faint
-  (`.mk.faint`: 1 px, half opacity) and never on canvas's selection (the inspector outlines it).
-  "kind" (the host's line: the pointer on a kind's count) marks that kind's listed elements,
-  2 px (`.mk.lit`), in any mode, marks on or off, until a "kind" of null. "show" in canvas mode
-  also selects the element, as a click on it there would (`select` in `src/canvas/select.js`):
-  the host's line cycles through a kind's listed elements with it. In canvas mode the view's
-  `own` is the selection's own fact when it is one (listed or past the list's end), worked out
-  again with every look, so an inspector edit that fixes it makes it null; a new selection is
-  noticed in the next frame (`boxes` asks). Like the hover outline they take no pointer, are in
-  no note's screenshot and go with "stop". A new document sends the view null, so a host whose
+  one is drawn strong in its tone instead. "kind" (the host's line: the pointer on a kind's
+  count) marks that kind's listed elements, 2 px (`.mk.lit`), marks on or off, until a "kind"
+  of null. "show" scrolls the element into view and flashes it (it selects nothing). An outline
+  of an element that moves with the document's scroll alone is drawn in a second element of the
+  layer's, `b42-marks`: absolute at the document's origin (not fixed, not in the top layer), in
+  the document only while it has one to show, so the compositor scrolls it with the page in the
+  same frame. One in a scroller of its own, or fixed or sticky (`anchored` in
+  `src/facts/host.js`), is placed in the window every frame, as the other outlines are (a
+  scroller's scroll asks for a frame). Like the hover outline they take no pointer, are in no
+  note's screenshot, go with the peek and go with "stop". A new document sends the view null, so a host whose
   pane is up asks again. `?page=facts` is its harness page (`test/facts-hosted.test.mjs`).
 
 ![harness](docs/harness.png)
