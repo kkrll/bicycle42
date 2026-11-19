@@ -58,7 +58,7 @@ export const M = {
   unsent: null, // what the animation being sent was, until the host takes it
   view: "keys", // the timeline, or the keyframes as text
   rowEls: null, // the elements of the list row under the pointer
-  drag: null, last: null, findUntil: 0, obs: null,
+  drag: null, findUntil: 0, obs: null,
   msg: "", msgTimer: 0, done: "", doneTimer: 0,
   note: "", // the words that go with the open animation, as typed in the host's dock
   // The host's dock (host.js): the view without its clock as last built (null: to be built
