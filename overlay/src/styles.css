@@ -304,6 +304,15 @@ textarea::placeholder { color: #9ca3af; }
   .p-el .c-in .ed { flex: 1; min-height: 60px; }
   .p-el .c-in .ed textarea { height: 100%; max-height: none; field-sizing: fixed; }
 }
+/* Too narrow for the tree and the styles side by side (a phone-width page): the tree on top, a
+   few rows of it, and the styles under it at the whole width. (A media query: the inspector is
+   as wide as the page, and its body, the container above, cannot be asked about itself.) */
+@media (max-width: 520px) {
+  .ibody { flex-direction: column; }
+  .tree { flex: 0 0 38%; border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+  .side { min-height: 0; }
+  .ihead { gap: 8px; padding-left: 10px; }
+}
 /* The inspector's suggestions: property names and a property's keywords, under the caret. Not
    inside the inspector, which would cut the list off at its edge (and whose body is a container:
    a fixed box in it would be placed by it): a box of the layer's own, moved to its place.
@@ -487,6 +496,25 @@ textarea::placeholder { color: #9ca3af; }
 .m-flag::after { content: ""; position: absolute; top: 30px; bottom: 0; left: 0; width: 1px; background: var(--ma); opacity: 0.8; }
 .m-flag::before { content: ""; position: absolute; top: 18px; left: -5.5px; width: 12px; height: 13px; background: var(--ma); clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%); border-radius: 2px; }
 .m-flag b { position: absolute; top: 1px; left: 0; translate: -50% 0; padding: 0 5px; border-radius: 4px; background: var(--ma); color: #161617; font: 600 10px/15px var(--mono); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* A dock narrower than the list and a timeline side by side (a phone-width page): one or the
+   other. The list until something is selected or open, then that, with a button back in its
+   header; the timing fields on a row of their own, the lanes' names narrower. */
+.m-back, .m-hd.bare { display: none; }
+@media (max-width: 720px) {
+  .m-dock { grid-template-columns: minmax(0, 1fr); }
+  .m-dock.detail .m-list, .m-dock:not(.detail) .m-main { display: none; }
+  .m-list { border-right: 0; }
+  .m-back { display: inline-flex; margin-left: -8px; }
+  .m-hd.bare { display: flex; height: 44px; }
+  .m-hd { flex-wrap: wrap; height: auto; min-height: 44px; gap: 6px 10px; padding: 8px 8px 8px 12px; }
+  .m-hd > .m-tools + .m-tools { margin-left: 0; }
+  /* the second row: the timing fields, then undo and put back (two buttons: 58px, and the gap) */
+  .m-timing { order: 1; flex: 1 0 calc(100% - 68px); gap: 10px; }
+  .m-hd > .m-tools:last-child { order: 2; }
+  .m-tl { --lab: 104px; }
+  .m-lab { padding-left: 12px; }
+  .m-lane .m-lab { padding-left: 24px; }
+}
 /* a field's list (a property, an easing): picked with the pointer, or ↑/↓ and Enter */
 .m-sug { position: fixed; z-index: 2; max-height: 240px; overflow: auto; padding: 4px; border-radius: 8px; pointer-events: auto; background: #232325; color: var(--mm);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08); font: 12px var(--mono); scrollbar-width: thin; }

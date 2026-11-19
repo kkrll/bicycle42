@@ -243,6 +243,7 @@ function onClick(e) {
     if (a && a.dataset && a.dataset.css !== undefined) a.blur();
     M.view = b.dataset.v;
   }
+  else if (act === "back") return selectEl(null); // (a narrow dock's way back to the list: as Esc)
   else if (act === "more") return popAnchor === b ? closePop() : morePop(b);
   else if (act === "kease") return popAnchor === b ? closePop() : easePop(b);
   else if (act === "ez") {

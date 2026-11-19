@@ -410,3 +410,23 @@ test("the dock gives the page its room: what is fixed to the window's bottom goe
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("a phone-width dock shows the list or what is open, with a way back to the list", async () => {
+  const { page, f, errors } = await open();
+  await page.evaluate(() => { const i = document.getElementById("page"); i.style.flex = "none"; i.style.width = i.style.maxWidth = "390px"; });
+  const shown = () => f.evaluate(() => {
+    const r = document.querySelector("b42-review").shadowRoot, vis = (s) => getComputedStyle(r.querySelector(s)).display !== "none";
+    return { list: vis(".m-list"), main: vis(".m-main"), back: !!r.querySelector(".m-back") && vis(".m-back") };
+  });
+  await page.waitForFunction(() => document.getElementById("page").getBoundingClientRect().width === 390);
+  assert.deepEqual(await shown(), { list: true, main: false, back: false });
+  await ui(f, ".m-it").first().click();
+  assert.deepEqual(await shown(), { list: false, main: true, back: true });
+  // The list's column gives the lanes its width: they start at the narrow label column.
+  const lab = await f.evaluate(() => getComputedStyle(document.querySelector("b42-review").shadowRoot.querySelector(".m-tl")).getPropertyValue("--lab").trim());
+  assert.equal(lab, "104px");
+  await ui(f, ".m-back").click();
+  assert.deepEqual(await shown(), { list: true, main: false, back: false });
+  assert.deepEqual(errors, []);
+  await page.close();
+});

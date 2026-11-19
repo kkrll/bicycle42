@@ -100,6 +100,7 @@ export const focusLater = (sel) =>
 export function draw() {
   if (!dock || !M.on) return;
   if (sug && !sug.f.isConnected) sugHide();
+  dock.classList.toggle("detail", !!(M.open || M.sel)); // what a narrow dock shows: this, not the list
   drawList();
   drawHead();
   const css = M.view === "css" && !!M.open;
@@ -132,10 +133,14 @@ function timingFields() {
 function drawHead() {
   if (typingIn(hdEl)) return;
   const o = M.open;
-  hdEl.hidden = !o;
-  if (!o) return void (hdEl.innerHTML = "");
+  // A narrow dock shows the list or what is open, not both: the way back to the list is the
+  // header's first button, shown only there (styles.css), with an element selected and nothing open too.
+  const back = `<button type="button" class="m-btn ic m-back" data-m="back" title="Everything that moves">${mi("chevron-left")}</button>`;
+  hdEl.hidden = !o && !M.sel;
+  hdEl.classList.toggle("bare", !o);
+  if (!o) return void (hdEl.innerHTML = M.sel ? back : "");
   const b = (v, t) => `<button type="button" data-m="view" data-v="${v}" class="${M.view === v ? "on" : ""}">${t}</button>`;
-  hdEl.innerHTML = `<div class="m-seg" role="tablist">${b("keys", "Keyframes")}${b("css", "CSS")}</div><div class="m-timing">${timingFields()}</div>
+  hdEl.innerHTML = `${back}<div class="m-seg" role="tablist">${b("keys", "Keyframes")}${b("css", "CSS")}</div><div class="m-timing">${timingFields()}</div>
     <button type="button" class="m-btn ic" data-m="more" title="More">${mi("more")}</button><span class="m-sp"></span>
     <div class="m-tools"><button type="button" class="m-btn" data-m="rate" title="Speed while looking">${RATE_TEXT[M.rate]}</button>
       <button type="button" class="m-btn ic${M.loop ? " on" : ""}" data-m="loop" title="Repeat while looking">${mi("loop")}</button>
