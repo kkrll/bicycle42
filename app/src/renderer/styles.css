@@ -644,10 +644,15 @@ details[open] > summary > .caret {
 }
 
 /* The accent is the mode's alone: it says what a click on the page does. Which device the page
-   is shown as is a quieter fact. */
+   is shown as is a quieter fact, but a plain one: the chosen one is a light chip with the
+   foreground's ink, the other is dimmed. */
 .device[aria-checked="true"] {
-  background: var(--surface-strong);
+  background: color-mix(in srgb, var(--foreground) 26%, var(--background));
   color: var(--foreground);
+}
+
+.device:not([aria-checked="true"]) {
+  color: color-mix(in srgb, var(--foreground) 50%, var(--background));
 }
 
 .mode[aria-checked="true"],
@@ -932,6 +937,8 @@ details[open] > summary > .caret {
   width: calc(var(--phone-width) + 2px);
   height: calc(var(--phone-height) + 2px);
   margin: 0;
+  /* The phone's own screen corners (PHONES in shared/types.ts; main rounds the page view to match). */
+  border-radius: var(--phone-radius);
 }
 
 .device-bar {
@@ -1196,23 +1203,26 @@ details[open] > summary > .caret {
   touch-action: none;
 }
 
+/* The pill is not there until the edge is pointed at, and then it is where the pointer is
+   (--at, from the pointer: app.tsx), kept whole inside the edge. By the keyboard, in the middle. */
 .resizer::after {
   content: "";
   position: absolute;
-  top: 50%;
+  top: clamp(20px, var(--at, 50%), calc(100% - 20px));
   left: 2px;
   width: 4px;
   height: 40px;
   margin-top: -20px;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--foreground) 18%, transparent);
-  transition: background-color var(--duration-micro) var(--ease-micro);
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--duration-micro) var(--ease-micro);
 }
 
 .resizer:hover::after,
 .resizer.active::after,
 .resizer:focus-visible::after {
-  background: var(--accent);
+  opacity: 1;
 }
 
 .resizer:focus-visible {
@@ -1259,19 +1269,20 @@ details[open] > summary > .caret {
   content: "";
   position: absolute;
   top: 1.5px;
-  left: 50%;
+  left: clamp(20px, var(--at, 50%), calc(100% - 20px));
   width: 40px;
   height: 4px;
   margin-left: -20px;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--foreground) 18%, transparent);
-  transition: background-color var(--duration-micro) var(--ease-micro);
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--duration-micro) var(--ease-micro);
 }
 
 .divider:hover::after,
 .divider.active::after,
 .divider:focus-visible::after {
-  background: var(--accent);
+  opacity: 1;
 }
 
 .divider:focus-visible {

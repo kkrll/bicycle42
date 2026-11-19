@@ -27,16 +27,18 @@ export const HOSTED_PANES: readonly Pane[] = ["canvas", "motion", "facts"]
  *  page. */
 export type Device = "desktop" | "phone"
 
-/** A phone the page can be shown as: its screen in CSS px, upright. */
-export type Phone = { id: string; name: string; width: number; height: number }
-/** The phones on offer, small to large. Sizes are what the phone's browser reports as its screen. */
+/** A phone the page can be shown as: its screen in CSS px, upright, and how round the screen's
+ *  corners are (the radius, in the same px: an iPhone's is large, an iPhone SE's screen is square). */
+export type Phone = { id: string; name: string; width: number; height: number; radius: number }
+/** The phones on offer, small to large. Sizes are what the phone's browser reports as its screen;
+ *  the iPhones' corners are the screens' own, the others' are near enough. */
 export const PHONES: readonly Phone[] = [
-  { id: "galaxy-s24", name: "Galaxy S24", width: 360, height: 780 },
-  { id: "iphone-se", name: "iPhone SE", width: 375, height: 667 },
-  { id: "iphone-14", name: "iPhone 14", width: 390, height: 844 },
-  { id: "iphone-16", name: "iPhone 16", width: 393, height: 852 },
-  { id: "pixel-8", name: "Pixel 8", width: 412, height: 915 },
-  { id: "iphone-16-pro-max", name: "iPhone 16 Pro Max", width: 440, height: 956 },
+  { id: "galaxy-s24", name: "Galaxy S24", width: 360, height: 780, radius: 24 },
+  { id: "iphone-se", name: "iPhone SE", width: 375, height: 667, radius: 0 },
+  { id: "iphone-14", name: "iPhone 14", width: 390, height: 844, radius: 47 },
+  { id: "iphone-16", name: "iPhone 16", width: 393, height: 852, radius: 55 },
+  { id: "pixel-8", name: "Pixel 8", width: 412, height: 915, radius: 28 },
+  { id: "iphone-16-pro-max", name: "iPhone 16 Pro Max", width: 440, height: 956, radius: 62 },
 ]
 /** The phone a page is shown as until another is chosen. */
 export const PHONE: Phone = PHONES[2]!

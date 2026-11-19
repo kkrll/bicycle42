@@ -186,7 +186,14 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     return w > 0 && w < phone.width ? w / phone.width : 1
   }
   let fitted = 1
+  /** The view's corners: the pane's, or a phone's screen's own at the size it is drawn (inside
+   *  the 1px hairline the window draws around it). */
+  const shape = () => {
+    if (gone()) return
+    view.setBorderRadius(device === "phone" ? Math.max(0, Math.round(phone.radius * fit()) - 1) : PAGE_RADIUS)
+  }
   const emulate = () => {
+    shape()
     if (gone() || !committed || wc.isCrashed()) return
     if (device === "phone") {
       const size = { width: phone.width, height: phone.height }
@@ -451,6 +458,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       view.setVisible(true)
       // A phone's page in a box of another width is drawn at another size.
       if (device === "phone" && fit() !== fitted) emulate()
+      else shape()
     },
     setDevice(d, p) {
       if (d === device && p.id === phone.id) return

@@ -715,6 +715,19 @@ export function App() {
     else return
     e.preventDefault()
   }
+  // An edge's pill is where the pointer is on it (styles.css, .resizer and .divider: --at). One
+  // listener for all of them, the dock's own handles too; with the pointer captured (a drag) the
+  // moves still come to the edge.
+  const pillFollows = (e: PointerEvent) => {
+    const edge = e.target instanceof Element ? e.target.closest<HTMLElement>(".resizer, .divider") : null
+    if (!edge) return
+    const r = edge.getBoundingClientRect()
+    edge.style.setProperty("--at", r.height > r.width ? `${Math.round(e.clientY - r.top)}px` : `${Math.round(e.clientX - r.left)}px`)
+  }
+  onMount(() => {
+    document.addEventListener("pointermove", pillFollows)
+    onCleanup(() => document.removeEventListener("pointermove", pillFollows))
+  })
   onMount(() => {
     window.addEventListener("keydown", onKey)
     const off = b42.onShortcut(onShortcut)
@@ -744,6 +757,8 @@ export function App() {
         "--dock-height": `${dockHeight()}px`,
         "--phone-width": `${pageBox().width}px`,
         "--phone-height": `${pageBox().height}px`,
+        // (The screen's own corners at the size it is drawn, and the hairline around them.)
+        "--phone-radius": `${Math.round(phoneOf(state.page.phone).radius * fit())}px`,
       }}
     >
       <TopBar
