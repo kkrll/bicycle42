@@ -341,6 +341,25 @@ test("alt+A held hides the layer and lets hover through; the note, its focus and
   await page.close();
 });
 
+test("alt+A held in edit mode, with the page focused: letting go brings the layer back", async () => {
+  // Edit mode keeps every keyup of the page's from the page's own listeners: not from the peek's.
+  const { page, f } = await open();
+  await page.keyboard.press(`${MOD}+KeyO`);
+  await page.waitForFunction(() => window.__harness.mode === "canvas");
+  await clickAt(page, f, "#cta");
+  const opacity = () => shadow(f, () => getComputedStyle(document.querySelector("b42-review")).opacity);
+  for (const last of ["KeyA", "Alt"]) {
+    await page.keyboard.down("Alt");
+    await page.keyboard.down("KeyA");
+    assert.equal(await opacity(), "0");
+    await page.keyboard.up(last);
+    assert.equal(await opacity(), "1", `${last} let go first`);
+    await page.keyboard.up(last === "Alt" ? "KeyA" : "Alt");
+  }
+  assert.equal(await page.evaluate(() => window.__harness.mode), "canvas");
+  await page.close();
+});
+
 test("a draft survives a page reload", async () => {
   const { page, f } = await open();
   await clickAt(page, f, "#cta");

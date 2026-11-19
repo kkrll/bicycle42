@@ -56,6 +56,12 @@ function mount() {
   hostEl.setAttribute("popover", "manual");
   hostEl.setAttribute("style", "all:initial;position:fixed;inset:0;z-index:2147483647;pointer-events:none;display:block");
   root = hostEl.attachShadow({ mode: "open" });
+  // The peek's end first, before any mode's listeners: edit mode stops every keyup of the page's
+  // at the window (canvas/mount.js), and the peek must still hear its keys let go. Let go
+  // somewhere else, no keyup comes here at all: the window's blur ends it then.
+  window.addEventListener("keyup", onKeyUp, { capture: true, passive: false });
+  window.addEventListener("blur", (e) => e.target === window && endPeek());
+  document.addEventListener("visibilitychange", endPeek);
   root.innerHTML = `<style>${STYLES}</style>
     ${Notes.inkHtml}
     <div class="boxes"></div><div class="pins"></div>
@@ -120,10 +126,6 @@ function mount() {
   for (const t of ["mousedown", "mouseup", "click", "dblclick", "auxclick", "dragstart", "selectstart", "touchstart"])
     window.addEventListener(t, blockIfActive, opts);
   window.addEventListener("keydown", onKeyDown, opts);
-  window.addEventListener("keyup", onKeyUp, opts);
-  // The peek's keys let go somewhere else: no keyup comes here.
-  window.addEventListener("blur", (e) => e.target === window && endPeek());
-  document.addEventListener("visibilitychange", endPeek);
   window.addEventListener("scroll", moved, { capture: true, passive: true });
   window.addEventListener("resize", moved, { passive: true });
   for (const type of ["pointerdown", "pointermove", "pointerup", "keydown", "keyup", "wheel"])
