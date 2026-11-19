@@ -1820,6 +1820,9 @@ export function createCore(host: Host): Core {
       // only something with an act in it: the overlay reads the rest.
       const a = act as { panel?: unknown; act?: unknown } | null
       if (!a || !isDock(a.panel) || typeof a.act !== "object" || a.act === null) return
+      // Send, in the window's dock: the note the overlay now makes has no key or click in the
+      // page to come with, which the page view asks of every note. The window vouches for this one.
+      if ((a.act as { type?: unknown }).type === "send") page?.admitNote()
       page?.send({ type: "panel", panel: a.panel, act: a.act } as Parameters<Page["send"]>[0])
     },
     clearNotes() {

@@ -35,6 +35,10 @@ export type Page = {
   setDevice(device: Device): void
   /** host → overlay (window.__b42.receive). */
   send(msg: HostMessage): void
+  /** The reviewer asked for a note outside this view: Send in a dock the window draws. The next
+   *  note the overlay sends is let through as one that came with an Enter here is: one note, and
+   *  only within the same second. The window is the app's own; the page's scripts cannot ask. */
+  admitNote(): void
   /** A picture of the page as it is drawn now, in device pixels. */
   capture(): Promise<Frame>
   /** Reloads once the reviewer isn't mid-note (overlay busy() is false). No-op when the page hot-reloads itself. */
@@ -429,6 +433,11 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       emulate()
     },
     send,
+    admitNote() {
+      if (gone()) return
+      enterAt = Date.now()
+      holdForInput() // the overlay sends it two frames on: the page draws them, hidden or not
+    },
     capture: async () => frameOf(await wc.capturePage()),
     reloadWhenIdle,
     busy,

@@ -263,13 +263,22 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   `DOCKS` in `renderer/dock.tsx`; the window puts it under the page (its top edge drags, as the
   panel's side does) or, beside a phone's page, in the column between the page and the panel.
   What a view and an act carry is each dock's own file: `overlay/protocol-motion.ts`,
-  `overlay/protocol-canvas.ts`. No dock is hosted yet.
+  `overlay/protocol-canvas.ts`.
+- **Motion's dock is the window's** (`renderer/motion-dock.tsx`, its own `motion-dock.css`):
+  the list, the open animation's header, timeline and keyframe, the note and Send, all of the
+  overlay's in-page dock. Its layout asks its own box (container queries): wide, the list beside
+  what is open; narrower than 720, one or the other with a way back; narrow and at least 600
+  tall (beside a phone's page), the list above what is open. Typing, a keyframe dragged and the
+  playhead scrubbed are drawn from the hand until the view agrees (an act's view comes back on
+  the page's next frame, 20 to 35 ms headless; a ping is about 1 ms). Its popovers stay inside
+  its box: the page view paints over the window wherever it sits.
 - **A view is the page's text.** A class, a keyframe's name, an element's words: the window draws
   them as text and never as markup, and keeps nothing of the page's that the overlay does not
   also have (a reload of either side loses nothing). `dockPing` measures the way to the overlay
   and back.
-- Shots: `phone`, `dock`, `phone-dock` (the mock takes `&device=phone`, `&docks=motion,canvas`,
-  `&mode=edit|motion`).
+- Shots: `phone`, `dock`, `phone-dock`, `phone-motion-dock`, `dock-more`, `dock-narrow` (the
+  mock takes `&device=phone`, `&docks=motion,canvas`, `&mode=edit|motion`; with motion's dock it
+  feeds a sample view).
 
 ## What a canvas note sends
 

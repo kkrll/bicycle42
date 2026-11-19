@@ -19,7 +19,7 @@ export type TestShell = {
     sent: { type: string; [k: string]: unknown }[]
     /** Set by a test that wants screenshots: returns the next picture. */
     capture?: () => Frame
-    /** [what, value] for each call the controller or the shell made on the page: "bounds", "load" and "device". */
+    /** [what, value] for each call the controller or the shell made on the page: "bounds", "load", "device" and "admit". */
     calls: [string, unknown][]
     /** Set by a test whose page has an overlay that answers "frame": the window it says it has. */
     viewport?: { w: number; h: number; dpr: number; scrollX: number; scrollY: number }
@@ -60,6 +60,7 @@ export function testShell(dataDir: string, opts: { docks?: ("canvas" | "motion")
     forward() {},
     setBounds: (bounds) => void stub.calls.push(["bounds", bounds]),
     setDevice: (device) => void stub.calls.push(["device", device]),
+    admitNote: () => void stub.calls.push(["admit", null]),
     send(msg) {
       stub.sent.push(msg)
       // The overlay answers a "frame" a moment later, as it does two frames on.

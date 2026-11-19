@@ -95,6 +95,10 @@ export const M = {
   rowEls: null, // the elements of the list row under the pointer
   drag: null, last: null, findUntil: 0, obs: null,
   msg: "", msgTimer: 0, done: "", doneTimer: 0,
+  // When the host draws the dock (host.js): whether it does, the view without its clock as last
+  // built (null: to be built again), the clock last sent, a view asked for in this task, the
+  // rows that view listed (what "row" and "hover" name), why the keyframes' text is not keyframes.
+  hosted: false, hostBody: null, hostClock: "", hostQueued: false, hostRows: [], cssWhy: "",
 };
 
 // ── elements of the page ─────────────────────────────────────────────────────────────────

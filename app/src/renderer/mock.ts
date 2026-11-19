@@ -21,6 +21,8 @@ import type {
   FileChange,
   MentionOption,
   NoteRow,
+  PanelAct,
+  PanelMessage,
   PromptFile,
   Rect,
   SendOptions,
@@ -29,6 +31,7 @@ import type {
   SlashCommand,
 } from "../shared/types"
 import { setFocusedNote } from "./store"
+import type { MotionView } from "../../../overlay/protocol-motion"
 
 const SESSION = "s-main"
 const ORIGIN = "http://localhost:3000"
@@ -442,6 +445,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   const chatFns = new Set<(e: ChatEvent) => void>()
   const push = () => stateFns.forEach((fn) => fn(structuredClone(state)))
   const emit = (e: ChatEvent) => chatFns.forEach((fn) => fn(e))
+  const panelFns = new Set<(m: PanelMessage) => void>()
   const sid = () => state.session?.id ?? ""
   let serial = 0
   /** The conversations put away. */
@@ -764,7 +768,9 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       state.page.device = device
       push()
     },
-    panel() {},
+    panel(act) {
+      motionAct(act as PanelAct, (msg) => panelFns.forEach((fn) => fn(msg)))
+    },
     setPageBounds(bounds: Rect | null) {
       page.style.display = bounds ? "block" : "none"
       // Rounded like the real page view (PAGE_RADIUS in main/page.ts).
@@ -1068,7 +1074,11 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       return () => chatFns.delete(fn)
     },
     onNoteFocus: () => () => true,
-    onPanel: () => () => true,
+    onPanel(fn) {
+      panelFns.add(fn)
+      if (state.review.docks.includes("motion")) fn({ panel: "motion", view: structuredClone(MOTION) })
+      return () => panelFns.delete(fn)
+    },
     onShortcut(fn) {
       shortcutFns.add(fn)
       return () => shortcutFns.delete(fn)
@@ -1177,4 +1187,93 @@ async function stressCode(emit: (e: ChatEvent) => void, session: string) {
   }
   Object.assign(window, { __stress: result })
   console.log("stress-code", JSON.stringify(result))
+}
+
+// ── motion mode's dock, as the overlay would describe it (&docks=motion&mode=motion) ───────────────
+// The harness's motion page with the heading's "rise" open, its opacity keyframe at 100% selected
+// and the playhead stopped at 42%. A few acts change it, enough to click through the dock.
+
+const RISE = { duration: 700, delay: 0, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", count: "1", direction: "normal", fill: "both" }
+const MOTION: MotionView = {
+  on: true,
+  rows: [
+    { group: "Animations" },
+    { id: "css||nav > div > span.sync > i|spin", kind: "css", text: "spin", aside: ".spinner", duration: 900, on: false, sub: false, last: false, off: false, running: true, dirty: false },
+    { id: "css|||rise", kind: "css", text: "rise", aside: "2 elements", duration: null, on: false, sub: false, last: false, off: false, running: false, dirty: true },
+    { id: "css|rise|section > h2|Ship calmer interfaces", kind: "css", text: "Ship calmer interfaces", aside: "", duration: 900, on: true, sub: true, last: false, off: false, running: false, dirty: true },
+    { id: "css|rise|section > p|A review layer for…", kind: "css", text: "A review layer for…", aside: "", duration: 700, on: false, sub: true, last: true, off: false, running: false, dirty: false },
+    { id: "css||button.primary|pulse", kind: "css", text: "pulse", aside: "Start free trial", duration: 2400, on: false, sub: false, last: false, off: false, running: true, dirty: false },
+    { id: "css|||card-in", kind: "css", text: "card-in", aside: "3 elements", duration: null, on: false, sub: false, last: false, off: false, running: false, dirty: false },
+    { group: "Transitions" },
+    { id: "transition||button.ghost|Book a demo", kind: "transition", text: "Book a demo", aside: "background-color, translate", duration: 180, on: false, sub: false, last: false, off: false, running: false, dirty: false },
+    { group: "Scripts" },
+    { id: "script||.badge|bob", kind: "script", text: "bob", aside: "New", duration: 1200, on: false, sub: false, last: false, off: false, running: true, dirty: false },
+    { id: "frames||.meter > i|.meter i", kind: "frames", text: ".meter i", aside: "per frame", duration: null, on: false, sub: false, last: false, off: true, running: true, dirty: false },
+    { group: "Unused" },
+    { id: "unused|||wiggle", kind: "unused", text: "wiggle", aside: "", duration: null, on: false, sub: false, last: false, off: true, running: false, dirty: false },
+  ],
+  sel: "Heading · Ship calmer interfaces",
+  open: {
+    kind: "css",
+    name: "rise",
+    readOnly: false,
+    renamable: false,
+    removable: false,
+    shared: 2,
+    from: null,
+    timing: { ...RISE, duration: 900 },
+    starts: "asnow",
+    T: 900,
+    frames: [0, 60, 100],
+    lanes: [
+      { prop: "opacity", keys: [{ at: 0, value: "0" }, { at: 60, value: "1" }], eases: [""] },
+      { prop: "transform", keys: [{ at: 0, value: "translateY(18px)" }, { at: 100, value: "none" }], eases: [""] },
+    ],
+    key: { at: 60, prop: "opacity", value: "1", ease: "", dflt: RISE.easing, last: false, props: 1 },
+    css: "@keyframes rise {\n  0% { opacity: 0; transform: translateY(18px); }\n  60% { opacity: 1; }\n  100% { transform: none; }\n}",
+    cssError: "",
+    dirty: true,
+  },
+  names: [],
+  view: "keys",
+  rate: 1,
+  loop: false,
+  isolate: false,
+  undo: true,
+  redo: false,
+  note: "",
+  msg: "",
+  status: "",
+  clock: { pos: 0.42, playing: false, on: false },
+  choices: {
+    easings: ["linear", "ease", "ease-in", "ease-out", "ease-in-out", "cubic-bezier(0.2, 0.8, 0.2, 1)", "cubic-bezier(0.34, 1.56, 0.64, 1)", "steps(4, end)"], // kkrll-ignore: CSS easings the page is offered, as data
+    props: ["translate", "scale", "rotate", "background-color", "color", "filter", "clip-path", "width", "height"],
+    starts: [["asnow", "As now"], ["load", "On load"], ["view", "In view"], ["hover", "On hover"], ["click", "On click"], ["appear", "On appear"], ["scroll", "On scroll"]],
+    count: [["1", "Once", "1"], ["2", "2×", "2"], ["3", "3×", "3"], ["infinite", "Forever", "infinite"]],
+    direction: [["normal", "Forward", "normal"], ["reverse", "Backward", "From the last keyframe to the first"], ["alternate", "Alternate", "Forward, then backward, and so on"], ["alternate-reverse", "Alt. reverse", "Backward, then forward, and so on"]],
+    fill: [["none", "None", "Before it starts and after it ends, the element looks as it does without it"], ["forwards", "Hold end", "After it ends, it stays on the last keyframe"], ["backwards", "Hold start", "During the delay, it waits on the first keyframe"], ["both", "Hold both", "Waits on the first keyframe, stays on the last"]],
+    rates: [[1, "1×"], [0.5, "½×"], [0.25, "¼×"], [0.1, "⅒×"]],
+  },
+}
+
+/** A few of the dock's acts, done to the sample view; the rest change nothing. */
+function motionAct(a: PanelAct, out: (m: PanelMessage) => void): void {
+  if (a.panel !== "motion") return
+  const act = a.act
+  const o = MOTION.open!
+  if (act.type === "ping") return out({ panel: "motion", pong: act.id })
+  if (act.type === "view") MOTION.view = act.view
+  else if (act.type === "rate") MOTION.rate = act.rate
+  else if (act.type === "loop") MOTION.loop = act.on
+  else if (act.type === "isolate") MOTION.isolate = act.on
+  else if (act.type === "play") MOTION.clock.playing = !MOTION.clock.playing
+  else if (act.type === "seek") MOTION.clock.pos = act.p
+  else if (act.type === "note") MOTION.note = act.text
+  else if (act.type === "timing" && act.done && act.what !== "how") (o.timing as Record<string, unknown>)[act.what] = act.what === "duration" || act.what === "delay" ? Number(act.value) : act.value
+  else if (act.type === "select") {
+    const lane = act.key && o.lanes.find((l) => l.prop === act.key!.prop)
+    const k = act.key && lane?.keys.find((x) => x.at === act.key!.at)
+    o.key = act.key && k ? { at: k.at, prop: lane!.prop, value: k.value, ease: "", dflt: o.timing.easing, last: k.at >= 100, props: 1 } : null
+  } else if (act.type !== "resend") return
+  out({ panel: "motion", view: structuredClone(MOTION) })
 }

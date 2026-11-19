@@ -97,6 +97,12 @@ const SHOTS = [
   { name: "phone", mock: "review", query: "&device=phone" },
   { name: "dock", mock: "review", query: "&docks=motion&mode=motion" },
   { name: "phone-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit" },
+  // Motion's dock drawn by the window: beside a phone's page (the list above what is open), and
+  // under the page with its "more" sheet open (inside the dock's box, never over the page).
+  { name: "phone-motion-dock", mock: "review", query: "&device=phone&docks=motion&mode=motion" },
+  { name: "dock-more", mock: "review", query: "&docks=motion&mode=motion", run: [click('.mdock-hd [aria-label="More"]')], wait: 400 },
+  // Under a page in a narrow window: what is open, with a way back to the list.
+  { name: "dock-narrow", mock: "review", query: "&docks=motion&mode=motion", size: [1000, 720] },
   { name: "collapsed", mock: "review", run: [click("[data-action=panel]")] },
   { name: "busy", mock: "busy", wait: 1500 },
   { name: "permission", mock: "permission" },

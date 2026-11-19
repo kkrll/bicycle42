@@ -59,7 +59,9 @@ src/globals.d.ts    what the type check cannot read from the .js files
   `protocol.ts`). For such a dock a mode asks `hosted(name)` (`src/panel.js`) wherever it would
   show its dock or measure it, sends the whole of what the dock shows with `sendView` (once a
   frame at most) and takes what the host's dock asks with `onAct`. Everything that is the page's
-  stays here: the selection, the edits and their undo, playing, sending. In the harness,
+  stays here: the selection, the edits and their undo, playing, sending. Motion's side of it is
+  `src/motion/host.js`: where the dock would be drawn a view is built instead, and each act calls
+  what the in-page dock's gesture calls. In the harness,
   `__harness.hostDocks(["motion"])` plays such a host, `__harness.act(panel, act)` its dock, and
   `__harness.panel` holds what the overlay sent.
 

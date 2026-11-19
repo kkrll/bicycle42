@@ -8,6 +8,7 @@ import { apply, clamp, COUNT, curve, DIRECTION, EASINGS, esc, FILL, HOW, M, open
 import { animOf, newAnimation, position, reveal, seek, selectEl, toggle, useKf } from "./open.js";
 import { addKey, addLane, commit, detach, discard, keyInfo, laneOrder, moveKey, removeKey, removeLane, setCss, setKey, setName, setTiming, timing, travel } from "./edit.js";
 import { submit } from "./send.js";
+import { hostListen } from "./host.js";
 import { draw, drawFoot, drawLanes, focusLater, keyEditor, typingIn } from "./draw.js";
 import { setMode } from "../mode.js";
 import { block, isOurs } from "../input.js";
@@ -413,4 +414,5 @@ export function mount() {
   tlEl.addEventListener("pointermove", tlMove);
   tlEl.addEventListener("pointerup", tlUp);
   tlEl.addEventListener("pointercancel", tlUp);
+  hostListen(); // the host's dock, when the host draws it
 }

@@ -6,6 +6,7 @@ import { icon } from "../ui.js";
 import { rectOf } from "../page.js";
 import { setRoom } from "../room.js";
 import { hosted } from "../panel.js";
+import { hostFrame, hostSync, wantView } from "./host.js";
 import * as Notes from "../notes/api.js";
 import * as Canvas from "../canvas/api.js";
 import { apply, curve, DOCK_H, esc, frames, KIND_TITLE, kindIcon, M, MAJOR, mi, mq, name, openDirty, openKf, openUse, r1, RATE_TEXT, readOnly, scan, secs } from "./model.js";
@@ -64,6 +65,7 @@ export function resume() {
 /** Room for the dock: the page is laid out as if the window ended where the dock begins (room.js). */
 export function syncUi() {
   setRoom("motion", M.on && S.enabled && !hosted("motion") ? DOCK_H : 0); // (the host's own dock: no room for one here)
+  hostSync();
 }
 /** What no stylesheet and no animation object accounts for: an inline style rewritten many
  *  times a second. It cannot be edited here, but the list can say it is there. */
@@ -94,12 +96,17 @@ export const typingIn = (el) => {
 /** A field of the dock, focused once the dock has been drawn again (a keyframe's value, after
  *  the keyframe or its lane is added). */
 export const focusLater = (sel) =>
-  setTimeout(() => {
+  !hosted("motion") && setTimeout(() => {
     const f = dock.querySelector(sel);
     if (f && !f.disabled) f.select ? f.select() : f.focus();
   }, 0);
 export function draw() {
   if (!dock || !M.on) return;
+  if (hosted("motion")) {
+    // The host draws the dock: it is told what it shows instead (host.js).
+    wantView();
+    return kick();
+  }
   if (sug && !sug.f.isConnected) sugHide();
   dock.classList.toggle("detail", !!(M.open || M.sel)); // what a narrow dock shows: this, not the list
   drawList();
@@ -116,6 +123,7 @@ export function draw() {
 }
 export function drawList() {
   if (!dock || !M.on) return;
+  if (hosted("motion")) return wantView();
   const list = rows();
   listEl._rows = list;
   listEl.innerHTML = list.map((r, i) => r.group ? `<div class="m-grp">${esc(r.group)}</div>`
@@ -225,13 +233,14 @@ function drawCss() {
   cssEl.innerHTML = `<textarea data-css spellcheck="false" autocomplete="off" ${openKf() ? "" : "readonly"}>${esc(cssText())}</textarea><div class="m-err" hidden></div>`;
 }
 /** What the line under the timeline says while the last animation sent is a preview. */
-function sentStatus() {
+export function sentStatus() {
   const b = M.sent[M.sent.length - 1];
   return b ? `Sent · preview stays until ${b.n !== null ? `note ${b.n}` : "the note"} is done` : "";
 }
 /** The note that goes with the open animation, and Send; or what the line has to say. */
 export function drawFoot() {
   if (!ftEl) return;
+  if (hosted("motion")) return wantView();
   const o = M.open, can = !!o && (openDirty() || !!noteEl.value.trim());
   const busy = root.activeElement === noteEl || !!noteEl.value;
   const msg = M.msg || (busy ? "" : M.done || (o && openDirty() ? "" : sentStatus()));
@@ -285,6 +294,7 @@ export function frame(capturing) {
     }
   }
   const run = running(), p = position();
+  if (hosted("motion")) hostFrame();
   const flag = tlEl.querySelector(".m-flag");
   if (flag && M.T) {
     hide(flag, p === null);
