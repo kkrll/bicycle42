@@ -559,13 +559,18 @@ async function main() {
   check("the panel is at the window's left, the page after it", panelRight > 0 && panelRight <= narrow.x, `${panelRight} ${JSON.stringify(narrow)}`)
   await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
   await until(() => state().review.mode === "notes")
-  const aside = (await until(() => ui(`(() => { const r = document.querySelector('.dock.fp')?.getBoundingClientRect(); return r ? { x: r.x, text: document.querySelector('.fp-title').textContent } : null })()`))) as { x: number; text: string } | undefined
+  const aside = (await until(() => ui(`(() => { const r = document.querySelector('.dock.fp')?.getBoundingClientRect(); return r ? { x: r.x, text: document.querySelector('.dock.fp > .pl').getAttribute('aria-label') } : null })()`))) as { x: number; text: string } | undefined
+  // The phone line, the column's top: one in every mode, the same class, top and height.
+  type Line = { cls: string; top: number; height: number; left: number; width: number; n: number }
+  const lineBox = () => ui(`(() => { const l = document.querySelector('.pl'); if (!l) return null; const r = l.getBoundingClientRect(); return { cls: l.className, top: r.top, height: r.height, left: r.left, width: r.width, n: document.querySelectorAll('.pl').length } })()`) as Promise<Line | null>
+  const lines: Record<string, Line | null> = { annotate: await lineBox() }
   await sleep(200) // (a frame or two: where the page is goes to main once a frame)
   check("in Annotate the phone's page stays where it was, with this page on this phone beside it", !!aside && page.view.getBounds().x === narrow.x && page.view.getBounds().width === narrow.width && aside.x >= narrow.x + narrow.width && aside.text === "This page on this phone", `${JSON.stringify(page.view.getBounds())} ${JSON.stringify(aside)}`)
   // Preview: the facts are the real page's, worked out by its overlay with review off; the
   // pointer on a row outlines its element on the page, the size the row says.
   await ui(`document.querySelector('.mode[data-mode="preview"]').click()`)
   await until(() => !state().review.enabled)
+  lines.preview = (await until(async () => ((await lineBox())?.n === 1 ? lineBox() : null))) ?? null
   const tapRows = () => ui(`[...document.querySelectorAll('.fp-sec[aria-label="Tap targets under 44 px"] .fp-fact')].map((r) => r.querySelector('.fp-label').textContent + "|" + r.querySelector('.fp-detail').textContent)`) as Promise<string[]>
   const taps = (await until(async () => ((await tapRows()).some((r) => r.startsWith("Start free trial|")) ? tapRows() : null))) ?? (await tapRows())
   const cta = taps.find((r) => r.startsWith("Start free trial|")) ?? ""
@@ -580,10 +585,11 @@ async function main() {
     const [m, r] = [await marked(), await rowCount()]
     return m > 0 && m === r ? m : null
   }, 3000)
-  check("with marks on, the page has a mark for each of the pane's rows", !!markedAll && (await ui(`document.querySelector('.fp-marks').getAttribute('aria-pressed')`)) === "true", `${await marked()} marks, ${await rowCount()} rows`)
-  await ui(`document.querySelector('.fp-marks').click()`)
-  check("…and the toggle takes them off the page", (await until(async () => (await marked()) === 0, 3000)) === true && (await ui(`document.querySelector('.fp-marks').getAttribute('aria-pressed')`)) === "false", String(await marked()))
-  await ui(`document.querySelector('.fp-marks').click()`)
+  const marksBtn = () => ui(`(() => { const b = document.querySelector('.pl-marks'); return b.getAttribute('aria-pressed') + "|" + b.textContent })()`) as Promise<string>
+  check("with marks on, the page has a mark for each of the pane's rows", !!markedAll && (await marksBtn()) === "true|Marks on", `${await marked()} marks, ${await rowCount()} rows, ${await marksBtn()}`)
+  await ui(`document.querySelector('.pl-marks').click()`)
+  check("…and the toggle takes them off the page, and says so in words", (await until(async () => (await marked()) === 0, 3000)) === true && (await marksBtn()) === "false|Marks off", `${await marked()} ${await marksBtn()}`)
+  await ui(`document.querySelector('.pl-marks').click()`)
   await until(async () => (await marked()) === (await rowCount()), 3000)
   await hoverRow(true)
   const boxes = (await until(async () => ((await outlined()).length ? outlined() : null), 3000)) ?? []
@@ -618,9 +624,45 @@ async function main() {
   const counts = await paneCounts()
   await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
   await until(() => state().review.mode === "edit")
-  const strip = () => ui(`(() => { const s = document.querySelector('.dock[data-dock="canvas"] > .fs'); return s ? { text: s.textContent, counts: [...s.querySelectorAll('.fs-count')].map((c) => c.textContent.match(/\\d+/)[0]).join(",") } : null })()`) as Promise<{ text: string; counts: string } | null>
+  const strip = () => ui(`(() => { const s = document.querySelector('.dock[data-dock="canvas"] > .pl'); return s ? { text: s.textContent, counts: [...s.querySelectorAll('.pl-count .pl-num')].map((c) => c.textContent).join(",") } : null })()`) as Promise<{ text: string; counts: string } | null>
   const stripped = await until(async () => ((await strip())?.counts ? strip() : null), 3000)
-  check("in Edit beside a phone's page, a line above the inspector counts the page's facts", !!stripped && stripped.counts === counts && stripped.text.startsWith("On this phone:") && (await marked()) === 0, `${JSON.stringify(stripped)} / pane ${counts} / ${await marked()} marks`)
+  check("in Edit beside a phone's page, the phone line above the inspector counts the page's facts, no marks on the page", !!stripped && stripped.counts === counts && (await marked()) === 0, `${JSON.stringify(stripped)} / pane ${counts} / ${await marked()} marks`)
+  lines.edit = await lineBox()
+  // The pointer on a count marks that kind on the page, in Edit too, while it is there.
+  const lit = () => js(`${shadow}?.querySelectorAll('.box.fx.mk.lit.k-taps').length ?? 0`) as Promise<number>
+  const pointCount = (on: boolean) => ui(`document.querySelector('.pl-count[data-kind="taps"]').dispatchEvent(new PointerEvent(${JSON.stringify(on ? "pointerenter" : "pointerleave")}))`)
+  await pointCount(true)
+  const litN = await until(async () => ((await lit()) > 0 ? lit() : null), 3000)
+  await pointCount(false)
+  check("in Edit the pointer on a count marks that kind on the page, and only while it is there", !!litN && (await until(async () => (await lit()) === 0, 3000)) === true, `${litN} then ${await lit()}`)
+  // A click on it: the inspector selects the first of them, and the line says what it is.
+  const tapLabels = taps.map((r) => r.split("|")[0]!)
+  await ui(`document.querySelector('.pl-count[data-kind="taps"]').click()`)
+  const inspected = (await until(async () => {
+    const t = (await ui(`document.querySelector('.cd-path')?.textContent ?? ""`)) as string
+    return tapLabels.some((l) => t.includes(l)) ? t : null
+  }, 3000)) as string | undefined
+  const ownText = (await until(() => ui(`document.querySelector('.pl-own')?.textContent ?? null`), 3000)) as string | undefined
+  check("in Edit a click on small taps selects a small tap target in the inspector, and the line says what is wrong with it", !!inspected && !!ownText && /^This element: \d+ × \d+, under 44$/.test(ownText), `${inspected} / ${ownText} / ${tapLabels.join(", ")}`)
+  // Marks in Edit: a choice of their own (off until turned on), fainter.
+  const faint = () => js(`${shadow}?.querySelectorAll('.box.fx.mk.faint').length ?? 0`) as Promise<number>
+  const editMarks = await marksBtn()
+  await ui(`document.querySelector('.pl-marks').click()`)
+  const faintN = await until(async () => ((await faint()) > 0 ? faint() : null), 3000)
+  check("in Edit the marks are off until turned on, then faint; the words flip", editMarks === "false|Marks off" && !!faintN && (await marksBtn()) === "true|Marks on", `${editMarks} → ${await marksBtn()}, ${faintN} faint`)
+  await ui(`document.querySelector('.pl-marks').click()`)
+  await until(async () => (await faint()) === 0, 3000)
+  await ui(`document.querySelector('.mode[data-mode="motion"]').click()`)
+  await until(() => state().review.mode === "motion")
+  lines.motion = (await until(async () => ((await ui(`!!document.querySelector('.dock[data-dock="motion"] > .pl')`)) ? lineBox() : null), 3000)) ?? null
+  const ls = Object.values(lines)
+  check(
+    "the phone line is the column's top in Preview, Annotate, Edit and Motion: one, the same class, top and height",
+    ls.length === 4 && ls.every((l) => !!l && l.n === 1 && l.cls === "pl" && l.height === 36 && l.top === ls[0]!.top && l.left === ls[0]!.left && l.width === ls[0]!.width),
+    JSON.stringify(lines),
+  )
+  await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
+  await until(() => state().review.mode === "edit")
   await ui(`document.querySelector('[data-device="desktop"]').click()`)
   await until(() => page.view.getBounds().width === wide.width)
   check("the desktop switch gives its pane back", page.view.getBounds().width === wide.width && page.view.getBounds().x === wide.x && state().page.device === "desktop", `${JSON.stringify(page.view.getBounds())}, was ${JSON.stringify(wide)}`)

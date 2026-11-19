@@ -36,6 +36,10 @@
 .box.fx.k-small { --bc: #3b82f6; --bg: rgba(59, 130, 246, 0.08); }
 .box.fx.mk { --bw: 1.5px; }
 .box.fx.mk > .fill { display: none; }
+/* Beside a dock (canvas, motion) the marks are fainter: the page is being worked on. The kind
+   under the pointer in the host's phone line is marked as strongly as a row's element is. */
+.box.fx.mk.faint { --bw: 1px; opacity: 0.5; }
+.box.fx.mk.lit { --bw: 2px; }
 .box.fx.flash { animation: fxflash 700ms ease-out 2; }
 @keyframes fxflash { 0% { opacity: 1; } 50% { opacity: 0.25; } 100% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .box.fx.flash { animation: none; } }

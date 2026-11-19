@@ -1280,7 +1280,7 @@ const FACTS: FactsView = {
   meta: true,
   partial: false,
   marks: true,
-  wide: { items: [{ id: 1, label: "table.compare", detail: "+134 px" }, { id: 2, label: "Trusted by 2,000 teams", detail: "+46 px" }], total: 2 },
+  wide: { items: [{ id: 1, label: "table.compare", detail: "+134 px" }, { id: 2, label: "div.card", detail: "+46 px" }], total: 2 },
   taps: {
     items: [
       { id: 3, label: "Monthly", detail: "64 × 32" },
@@ -1299,7 +1299,10 @@ let factsMarks = true
 function factsView(): FactsView {
   const q = new URLSearchParams(location.search)
   const phone = phoneOf(q.get("phone"))
-  return { ...structuredClone(q.get("facts") === "clear" ? FACTS_CLEAR : FACTS), viewport: { w: phone.width, h: phone.height }, marks: factsMarks }
+  const sample = structuredClone(q.get("facts") === "clear" ? FACTS_CLEAR : FACTS)
+  // In Edit the inspector's selection (the Pro card, mock-canvas.ts) is the card that sticks out.
+  const own = q.get("mode") === "edit" && sample.wide.total > 0 ? ({ kind: "wide", detail: "+46 px" } as const) : null
+  return { ...sample, viewport: { w: phone.width, h: phone.height }, marks: factsMarks, own }
 }
 
 /** What the facts pane asks: its view when it is shown, nothing once it goes. */

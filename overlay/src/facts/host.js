@@ -2,8 +2,10 @@
 // A pane of the host's beside a phone's page, in a mode with no dock (Preview, Annotate): what the
 // page is at the size it is shown at, each fact tied to its element (FactsView in
 // ../../protocol-facts.ts). The layer draws no pane of its own for it; it works the facts out and
-// does what the host's pane asks (FactsAct): mark every listed element on the page, outline one
-// more strongly, bring it into view, make it a note's selection.
+// does what the host's pane asks (FactsAct): mark every listed element on the page, or one kind
+// of them, outline one more strongly, bring it into view (in canvas mode: and select it), make it
+// a note's selection. Beside canvas mode's dock the view also says what the inspector's selection
+// is, when it is one of the facts (`own`), and keeps saying it as the reviewer edits.
 //
 // Nothing is worked out unless the pane asks: between its "view" and its "stop" (or the pane no
 // longer hosted, or a new document) the page is looked at after it loads, when the window
@@ -16,10 +18,12 @@
 import { S } from "../state.js";
 import { line, onRestyle } from "../page.js";
 import { hosted, onAct, onHosted, sendView } from "../panel.js";
-import { kick } from "../render.js";
+import { active, kick } from "../render.js";
 import { hostEl } from "../mount.js";
 import { modeOn } from "../mode.js";
 import { openCard } from "../notes/card.js";
+import { C } from "../canvas/state.js";
+import { select } from "../canvas/select.js";
 
 /** The page is looked at again no sooner than this after the last look (ms). */
 const SPACING = 400;
@@ -45,6 +49,9 @@ const F = {
   marks: false, // every listed element is marked on the page (the host's pane asks: "marks")
   kinds: new Map(), // the id of each listed element → its kind ("wide" | "taps" | "small")
   hover: null, hoverKind: "", // the element outlined for the pane's row under the pointer
+  kind: "", // the kind whose elements are marked while the pointer is on its count ("kind")
+  all: new Map(), // every element the last look found, listed or not → { kind, detail } (its first kind)
+  ownFor: null, // the selection the view's `own` was last worked out for
   flash: null, flashKind: "", flashUntil: 0, flashTimer: 0, // the element shown ("show"), and until when
   ids: new WeakMap(), els: new Map(), n: 0, // element ↔ the number the host names it by
 };
@@ -140,6 +147,10 @@ function scan() {
     for (let i = kids.length - 1; i >= 0; i--) stack.push([kids[i], clips, out]);
   }
   wide.sort((a, b) => b[1] - a[1]);
+  F.all = new Map();
+  const found = (k, el, detail) => F.all.has(el) || F.all.set(el, { kind: k, detail });
+  for (const [el, px] of wide) found("wide", el, `+${px} px`);
+  for (const k of /** @type {const} */ (["taps", "small"])) for (const it of k === "taps" ? taps : small) found(k, elOfId(it.id), it.detail);
   const lists = {
     wide: list(wide.map(([el, px]) => item(el, `+${px} px`)), MAX.wide),
     taps: list(taps, MAX.taps),
@@ -155,6 +166,7 @@ function scan() {
     partial,
     marks: F.marks,
     ...lists,
+    own: own(),
   };
   sendView("facts", F.view);
   if (F.marks) kick(); // (the marks are where the elements are now)
@@ -214,8 +226,35 @@ function stop() {
   window.removeEventListener("scroll", onScroll);
   window.removeEventListener("load", later);
   F.kinds = new Map();
+  F.all = new Map();
+  F.kind = "";
+  F.ownFor = null;
   outline(null);
   if (was) sendView("facts", null);
+}
+
+// ── canvas mode's selection ─────────────────────────────────────────────────────────────────
+/** Canvas mode is on (review on): its inspector has a selection, and the marks are quieter. */
+const editing = () => S.enabled && C.on;
+/** Motion or canvas mode: a mode with a dock beside a phone's page. Marks there are faint. */
+const docked = () => S.enabled && modeOn() !== "notes";
+const selected = () => (editing() && C.sel && C.sel.isConnected ? C.sel : null);
+
+/** The selection's own fact, when it is one of the page's (listed or not), as the last look
+ *  found it; null in any other mode. */
+function own() {
+  const el = selected();
+  F.ownFor = el;
+  const f = el && F.all.get(el);
+  return f ? { kind: f.kind, detail: f.detail } : null;
+}
+
+/** A new selection (or none): the view says what its own fact is, at once. */
+function followSelection() {
+  if (!F.want || !F.view || selected() === F.ownFor) return;
+  const was = JSON.stringify(F.view.own ?? null);
+  const now = own();
+  if (JSON.stringify(now) !== was) sendView("facts", (F.view = { ...F.view, own: now }));
 }
 
 // ── the outline ────────────────────────────────────────────────────────────────────────────
@@ -227,11 +266,15 @@ function outline(el, kind = "") {
 }
 
 /** The layer's outlines for the pane (render.js): with marks on, a quiet one on each listed
- *  element in its kind's tone (`fx mk k-taps`); the row under the pointer and the one just shown,
- *  strong (`fx k-taps`, `fx flash k-taps`). None in a note's screenshot. */
+ *  element in its kind's tone (`fx mk k-taps`; fainter in a mode with a dock, `fx mk faint k-taps`,
+ *  and never on canvas's selection, which has the inspector's outline); while the pointer is on a
+ *  kind's count, that kind's, in any mode, marks on or off (`fx mk lit k-taps`); the row under the
+ *  pointer and the one just shown, strong (`fx k-taps`, `fx flash k-taps`). None in a note's
+ *  screenshot. */
 export function boxes(capturing) {
+  followSelection();
   const marking = F.marks && F.want && F.view;
-  if (capturing || (!F.hover && !F.flash && !marking)) return null;
+  if (capturing || (!F.hover && !F.flash && !marking && !F.kind)) return null;
   const out = [];
   const flashing = F.flash && F.flash.isConnected && performance.now() < F.flashUntil ? F.flash : null;
   if (!flashing) F.flash = null;
@@ -240,10 +283,15 @@ export function boxes(capturing) {
     const r = el.getBoundingClientRect();
     if (r.width || r.height) out.push([{ x: r.left, y: r.top, w: r.width, h: r.height }, cls]);
   };
-  if (marking)
+  // In a mode with a dock the marks are faint, and the inspector's selection has its own outline.
+  const faint = docked() ? " faint" : "";
+  const sel = selected();
+  if (marking || F.kind)
     for (const [id, k] of F.kinds) {
+      const lit = k === F.kind;
+      if (!lit && !marking) continue;
       const el = elOfId(id);
-      if (el && el !== F.hover && el !== flashing) put(el, `fx mk k-${k}`);
+      if (el && el !== F.hover && el !== flashing && el !== sel) put(el, lit ? `fx mk lit k-${k}` : `fx mk${faint} k-${k}`);
     }
   const kindOf = (el) => {
     const k = el === F.hover ? F.hoverKind : F.flashKind;
@@ -255,7 +303,12 @@ export function boxes(capturing) {
 }
 
 function show(el, kind = "") {
-  el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+  el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  // In canvas mode the inspector's selection too, as a click on it there would make it.
+  if (editing() && el !== C.sel) {
+    select(el);
+    active();
+  }
   F.flash = el;
   F.flashKind = kind;
   F.flashUntil = performance.now() + FLASH_MS;
@@ -297,6 +350,12 @@ function act(a) {
       if (!F.want) return;
       stopLooking();
       return scan();
+    case "kind": {
+      const k = a.kind === "wide" || a.kind === "taps" || a.kind === "small" ? a.kind : "";
+      if (k === F.kind) return;
+      F.kind = k;
+      return kick();
+    }
     case "hover":
       return a.id === null || a.id === undefined ? outline(null) : outline(elOfId(a.id), F.kinds.get(Number(a.id)) || "");
     case "show": {

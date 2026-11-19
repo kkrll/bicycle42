@@ -290,3 +290,133 @@ test("an edit made in canvas mode's inspector to a page element counts: the tap 
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+// ── the window's phone line: a kind's count under the pointer, a click on it, and Edit ────────
+/** Canvas mode with the host's inspector, the facts worked out: as Edit beside a phone's page. */
+async function inCanvas(marks = false) {
+  const o = await open();
+  await o.page.evaluate(() => window.__harness.hostDocks(["facts", "canvas"]));
+  await act(o.page, { type: "view", marks });
+  await until(o.page, "(v) => v.small.total > 0");
+  await o.f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
+  await o.page.waitForFunction(() => window.__harness.panel.some((m) => m.panel === "canvas" && m.view));
+  return o;
+}
+/** The label of what the host's inspector has selected. */
+const canvasSel = (page) => page.evaluate(() => window.__harness.panel.filter((m) => m.panel === "canvas" && m.view).at(-1)?.view?.sel?.label ?? null);
+
+test("kind: the pointer on a count marks that kind's elements only, and only while it is there; in canvas mode too, marks off", async () => {
+  const { page, f, errors } = await open();
+  await act(page, { type: "view" });
+  await until(page, "(v) => v.small.total > 0");
+  const v = await view(page);
+  await frames(f);
+  assert.deepEqual(await marks(f), []);
+  await act(page, { type: "kind", kind: "taps" });
+  await frames(f);
+  let m = await marks(f);
+  assert.equal(m.length, v.taps.items.length);
+  assert.ok(m.every((o) => o.cls === "box fx mk lit k-taps"), JSON.stringify(m));
+  await act(page, { type: "kind", kind: null });
+  await frames(f);
+  assert.deepEqual(await marks(f), []);
+
+  // Marks on: every kind stays marked; the one under the pointer is the stronger.
+  await act(page, { type: "marks", on: true });
+  await act(page, { type: "kind", kind: "small" });
+  await frames(f);
+  m = await marks(f);
+  assert.equal(m.length, v.wide.items.length + v.taps.items.length + v.small.items.length);
+  assert.deepEqual(m.filter((o) => o.cls.includes(" lit ")).map((o) => o.cls), ["box fx mk lit k-small"]);
+  await act(page, { type: "kind", kind: null });
+  await act(page, { type: "marks", on: false });
+  await page.close();
+
+  // Canvas mode, marks off: the same.
+  const c = await inCanvas();
+  await act(c.page, { type: "kind", kind: "wide" });
+  await frames(c.f);
+  assert.deepEqual((await marks(c.f)).map((o) => o.cls), ["box fx mk lit k-wide"]);
+  await act(c.page, { type: "kind", kind: null });
+  await frames(c.f);
+  assert.deepEqual(await marks(c.f), []);
+  assert.deepEqual([...errors, ...c.errors], []);
+  await c.page.close();
+});
+
+test("show, one listed element after another (the line's click): each scrolled into view and flashed; in canvas mode the inspector selects it", async () => {
+  const { page, f, errors } = await inCanvas();
+  const v = await view(page);
+  await f.evaluate(() => (document.getElementById("more").style.height = "2000px"));
+  const labels = [];
+  for (const it of v.taps.items) {
+    await f.evaluate(() => window.scrollTo(0, 2000));
+    await act(page, { type: "show", id: it.id });
+    await page.waitForFunction((l) => window.__harness.panel.filter((m) => m.panel === "canvas" && m.view).at(-1)?.view?.sel?.label?.includes(l), it.label);
+    labels.push(await canvasSel(page));
+    await frames(f);
+    assert.deepEqual((await outlines(f)).map((o) => o.cls), ["box fx flash k-taps"]);
+  }
+  assert.equal(labels.length, v.taps.items.length);
+  // The last one, Close, is in view.
+  await f.waitForFunction(() => {
+    const r = document.getElementById("tiny").getBoundingClientRect();
+    return r.top >= 0 && r.bottom <= innerHeight;
+  });
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("in canvas mode the view says what the selection's own fact is: it changes as the inspector edits it, and goes once the edit fixes it", async () => {
+  const { page, f, errors } = await inCanvas();
+  assert.equal((await view(page)).own ?? null, null);
+  const v = await view(page);
+  await act(page, { type: "show", id: idOf(v, "Close") });
+  await until(page, "(v) => v.own?.kind === 'taps' && v.own.detail === '24 × 24'");
+  const id = await (await page.waitForFunction(() => window.__harness.panel.filter((m) => m.panel === "canvas" && m.view).at(-1)?.view?.sel?.id)).jsonValue();
+  const css = (text) => page.evaluate(([x, t]) => window.__harness.act("canvas", { type: "text", field: "css", id: x, text: t }), [id, text]);
+  await css("width: 40px;\nheight: 30px;");
+  await until(page, "(v) => v.own?.kind === 'taps' && v.own.detail === '40 × 30'");
+  await css("width: 48px;\nheight: 48px;");
+  await until(page, "(v) => v.own === null");
+  // Another selection: its own (the field's text), and none for an element that is no fact.
+  await act(page, { type: "show", id: idOf(v, "Email") });
+  await until(page, "(v) => v.own?.kind === 'small' && v.own.detail === '14 px'");
+  await f.evaluate(() => window.scrollTo(0, 0));
+  const b = await f.locator("#big").boundingBox();
+  await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+  await until(page, "(v) => v.own === null");
+  // Out of canvas mode: none.
+  await act(page, { type: "show", id: idOf(v, "Email") });
+  await until(page, "(v) => !!v.own");
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "notes" }));
+  await until(page, "(v) => v.own === null");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("marks in canvas mode are faint, and never on the inspector's selection", async () => {
+  const { page, f, errors } = await inCanvas(true);
+  const v = await view(page);
+  const all = v.wide.items.length + v.taps.items.length + v.small.items.length;
+  await frames(f);
+  let m = await marks(f);
+  assert.equal(m.length, all);
+  assert.ok(m.every((o) => / faint k-/.test(o.cls)), JSON.stringify(m));
+  await act(page, { type: "show", id: idOf(v, "Close") });
+  await page.waitForFunction(() => window.__harness.panel.filter((m) => m.panel === "canvas" && m.view).at(-1)?.view?.sel?.label?.includes("Close"));
+  await f.waitForFunction(() => !document.querySelector("b42-review").shadowRoot.querySelector(".box.fx.flash"), null, { timeout: 3000 });
+  m = await marks(f);
+  const tiny = await rect(f, "#tiny");
+  assert.equal(m.length, all - 1);
+  assert.ok(!m.some((o) => o.x === tiny.x && o.y === tiny.y && o.w === tiny.w), JSON.stringify(m));
+  // Back in notes mode: as strong as ever, the button too.
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "notes" }));
+  await page.waitForFunction(() => window.__harness.mode === "notes");
+  await frames(f);
+  m = await marks(f);
+  assert.equal(m.length, all);
+  assert.ok(m.every((o) => /^box fx mk k-/.test(o.cls)), JSON.stringify(m));
+  assert.deepEqual(errors, []);
+  await page.close();
+});
