@@ -1,7 +1,7 @@
 // Motion mode's dock, drawn by the window (dock.tsx): the list of what moves on the page, and the
 // open animation: its header (Keyframes | CSS, timing, how it plays while looking, undo), its
 // timeline (the ruler and playhead, a lane of keyframes per property), the selected keyframe, the
-// note and Send. It is the overlay's dock (overlay/src/motion/draw.js and input.js) drawn here, so
+// note and Send. It is motion mode's only dock (the overlay draws none of its own), drawn here so
 // it can sit beside a phone-width page; the overlay keeps everything that touches the page.
 //
 // What it shows is the overlay's view (MotionView in overlay/protocol-motion.ts), whole each
@@ -392,7 +392,10 @@ export function MotionDock() {
     if (s && !s.on && p !== null && Math.abs(p - s.p) <= 0.002) setScrub(null)
   })
   createEffect(() => {
-    const w = focusWant()
+    const w = focusWant(), o = open()
+    // The view is reconciled into the one object (store.ts): what the wanted fields are drawn
+    // from is read here, so that a view that draws one runs this again.
+    void [v()?.sel, o?.name, o?.renamable, o?.key?.at, o?.key?.prop, o?.lanes.length]
     if (!w || !v()) return
     const f = root.querySelector<HTMLInputElement>(w.sel)
     if (f && !f.disabled) {

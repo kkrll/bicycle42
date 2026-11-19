@@ -718,7 +718,7 @@ async function main() {
   const mrows = () => ui(`[...document.querySelectorAll(".mdock-row")].map((r) => r.querySelector(".mdock-nm").textContent).join("|")`) as Promise<string>
   check(
     "Motion opens the window's dock, listing what moves on the page, and the page draws no dock of its own",
-    (await until(async () => /rise/.test(await mrows()))) === true && state().review.mode === "motion" && (await js(`${shadow}.querySelector(".m-dock").hidden`)) === true,
+    (await until(async () => /rise/.test(await mrows()))) === true && state().review.mode === "motion" && (await js(`!${shadow}.querySelector(".m-dock")`)) === true,
     await mrows(),
   )
   // The paragraph's rise: the second element under it.
@@ -780,6 +780,68 @@ async function main() {
   await ui(`document.querySelector(".mdock-go").click()`)
   const sentIt = await until(() => state().review.notes.length === before + 1, 3000)
   check("Send in the window's dock makes the note", sentIt === true && /rise/.test(state().review.notes.at(-1)?.text ?? ""), `${state().review.notes.length - before} new: ${state().review.notes.at(-1)?.text}`)
+  // The page is beside the window's dock, not under it: its view ends where the dock begins, and
+  // the page is given no room of its own for a dock (the overlay draws none).
+  const mdockTop = (await ui(`document.querySelector('.dock[data-dock="motion"]').getBoundingClientRect().top`)) as number
+  const pv = page.view.getBounds()
+  const mroom = (await js(`getComputedStyle(document.documentElement).paddingBottom + "|" + innerHeight`)) as string
+  check(
+    "in Motion the page's view ends above the window's dock, and the page keeps its own height: no room is made in it for a dock",
+    pv.y + pv.height <= Math.ceil(mdockTop) && mroom === `0px|${pv.height}`,
+    `view ${JSON.stringify(pv)}, dock at ${mdockTop}, page ${mroom}`,
+  )
+  // A field's list, the dock's own (inside the dock's box: the page is painted over anything of
+  // the window's on it): the property and easing fields offer their values; ↑/↓ and Enter pick,
+  // and so does a click.
+  const sugs = () => ui(`[...document.querySelectorAll(".mdock-pop .mdock-sg")].map((o) => o.textContent + (o.classList.contains("on") ? "*" : "")).join("|")`) as Promise<string>
+  const wkey = async (key: string, code: number) => {
+    await windowDbg.sendCommand("Input.dispatchKeyEvent", { type: "rawKeyDown", key, code: key, windowsVirtualKeyCode: code })
+    await windowDbg.sendCommand("Input.dispatchKeyEvent", { type: "keyUp", key, code: key, windowsVirtualKeyCode: code })
+  }
+  await ui(`document.querySelector(".mdock [data-addp]").focus()`)
+  const allProps = ((await until(async () => ((await sugs()) ? sugs() : null))) ?? "").split("|")
+  await windowDbg.sendCommand("Input.insertText", { text: "bo" })
+  const bo = await until(async () => ((await sugs()).replace(/\*/g, "") === "border-color|box-shadow|border-radius" ? sugs() : null))
+  await wkey("ArrowDown", 40)
+  await wkey("Enter", 13)
+  const laned = await until(async () => (await ui(`!!document.querySelector('.mdock-kspan[data-lane="box-shadow"]')`)) && /@keyframes rise[^]*box-shadow/.test(await sheets()), 3000)
+  // (The caret goes on to the new lane's last keyframe's value, and the list closes with the field.)
+  const toValue = await until(() => ui(`document.activeElement?.matches("[data-kval]") && !document.querySelector(".mdock-pop")`), 3000)
+  check(
+    "the property field lists what has no lane yet; typed, what matches; ↓ and Enter add the lane, on the page, and the caret goes to its value",
+    allProps.includes("color") && !allProps.includes("opacity") && bo === "border-color*|box-shadow|border-radius" && laned === true && toValue === true,
+    `${allProps.join(",")} / ${bo} / ${laned} / ${toValue}: ${await sugs()}`,
+  )
+  await ui(`document.querySelector(".mdock [data-teasing]").focus()`)
+  const easeMarked = await until(async () => (await sugs()).split("|").find((x) => x.endsWith("*")) ?? null)
+  await ui(`[...document.querySelectorAll(".mdock-pop .mdock-sg")].find((o) => o.textContent === "ease-in").click()`)
+  const eased = await until(() => js(`getComputedStyle(document.querySelector(".hero p")).animationTimingFunction === "ease-in"`), 3000)
+  check(
+    "the easing field marks the easing it has; a click on another sets it on the page and closes the list",
+    easeMarked === "cubic-bezier(0.2, 0.8, 0.2, 1)*" && eased === true && (await sugs()) === "" && (await ui(`document.querySelector(".mdock [data-teasing]").value`)) === "ease-in",
+    `${easeMarked} / ${eased} / ${await sugs()}`,
+  )
+  // A narrow, short dock (a narrow window): the list or what is open, not both, with a way back
+  // to the list; the lanes' names narrower.
+  win.setSize(1000, 900)
+  const mshape = () => ui(`(() => { const shown = (s) => { const e = document.querySelector(s); return !!e && getComputedStyle(e).display !== "none" }; return [shown(".mdock-list"), shown(".mdock-main"), shown(".mdock-back"), getComputedStyle(document.querySelector(".mdock-tl") ?? document.body).getPropertyValue("--lab").trim()].join("|") })()`) as Promise<string>
+  const narrowOpen = await until(async () => ((await mshape()).startsWith("false|true") ? mshape() : null), 3000)
+  await ui(`document.querySelector(".mdock-back").click()`)
+  const narrowList = await until(async () => ((await mshape()).startsWith("true|false") ? mshape() : null), 3000)
+  const mdockW = await ui(`Math.round(document.querySelector(".mdock").getBoundingClientRect().width)`)
+  check(
+    "a narrow dock shows what is open, with a way back, and narrower lane names; back, the list",
+    narrowOpen === "false|true|true|104px" && narrowList?.startsWith("true|false|false") === true,
+    `${mdockW} wide: ${narrowOpen} / ${narrowList}`,
+  )
+  win.setSize(1441, 900)
+  // New: the new animation's name has the caret, to be named at once.
+  await clickAt(`document.querySelector(".card h3")`)
+  await until(() => ui(`!!document.querySelector(".mdock-empty .btn")`), 3000)
+  await ui(`document.querySelector(".mdock-empty .btn").click()`)
+  const named = await until(() => ui(`document.activeElement?.matches("[data-mname]") && document.activeElement.value === "new-animation"`), 3000)
+  check("New in the window's dock makes a new animation, its name ready to be typed", named === true, (await ui(`document.activeElement?.outerHTML.slice(0, 120)`)) as string)
+  await ui(`window.b42.invoke("panel", { panel: "motion", act: { type: "discard" } })`)
   await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
   await until(async () => state().review.mode === "notes")
 
