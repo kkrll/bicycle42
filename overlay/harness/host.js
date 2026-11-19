@@ -18,8 +18,9 @@ const H = {
   refuse: "", // set by a test: the next notes are refused with this reason
   selected: null,
   log: [],
-  // The docks this host says it draws itself (none: the overlay draws its own), set by a test
-  // with hostDocks(); and what the overlay then sent for them: views and pongs, in order.
+  // The panes this host says it draws itself (Pane in protocol.ts: "canvas" and "motion", whose
+  // docks the overlay then does not draw, and "facts", which it never draws), set by a test with
+  // hostDocks(); and what the overlay then sent for them: views and pongs, in order.
   docks: [],
   panel: [],
 };
@@ -34,13 +35,15 @@ const pins = () =>
 function toPage(msg) {
   frame.contentWindow?.__b42?.receive(msg);
 }
-/** As a host that draws these docks itself does: now, and after every "state". */
+/** As a host that draws these panes itself does: now, and after every "state". */
 H.hostDocks = (list) => {
   H.docks = list;
   toPage({ type: "docks", hosted: list });
 };
-/** What a hosted dock asks of the overlay. */
+/** What a hosted pane asks of the overlay. */
 H.act = (panel, act) => toPage({ type: "panel", panel, act });
+/** The last view the overlay sent for a pane (undefined: none yet; null: "facts" works nothing out). */
+H.view = (panel) => H.panel.findLast((m) => m.panel === panel && "view" in m)?.view;
 
 function onMessage(msg) {
   H.log.push(msg.type);
@@ -176,8 +179,9 @@ window.addEventListener("keydown", (e) => {
 
 frame.addEventListener("load", inject);
 // ?page=canvas loads the canvas-mode test page instead of the default one; ?page=motion, the one
-// with animations, transitions and scripted motion.
-const PAGES = { canvas: "./canvas.html", motion: "./motion-page.html" };
+// with animations, transitions and scripted motion; ?page=facts, the one the facts pane's tests
+// look at as a phone's (something too wide, small tap targets, a field that zooms).
+const PAGES = { canvas: "./canvas.html", motion: "./motion-page.html", facts: "./facts.html" };
 const PAGE = PAGES[new URLSearchParams(location.search).get("page")] || "./page.html";
 frame.src = new URL(PAGE, import.meta.url).href;
 render();

@@ -25,6 +25,12 @@
 .box > .er { right: 0; border-right-width: var(--bw); }
 .box:is(.hover, .sel, .csel, .mrow, .mcorn) > i:not(.fill), .box:is(.hover, .sel, .mrow) > .fill { display: block; }
 .box.hover { --bw: 1.5px; --bs: dashed; --bc: #3b82f6; --bg: rgba(59, 130, 246, 0.06); }
+/* The host's facts pane: the element of the row under the pointer, and the one just brought into view. */
+.box.fx > i { display: block; }
+.box.fx { --bw: 2px; --bc: #f97316; --bg: rgba(249, 115, 22, 0.08); }
+.box.fx.flash { animation: fxflash 700ms ease-out 2; }
+@keyframes fxflash { 0% { opacity: 1; } 50% { opacity: 0.25; } 100% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .box.fx.flash { animation: none; } }
 .box.sel { --bw: 2px; --bc: var(--pa); --bg: color-mix(in srgb, var(--pa) 10%, transparent); }
 /* A selection's outline and the pins are compositor layers of their own: they keep their size
    and only move, with the scroll, so the page under them (which may be large) is not painted

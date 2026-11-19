@@ -7,6 +7,7 @@ import { drawVariants } from "./variants.js";
 import { hideTip, makePin } from "./sent.js";
 import * as Canvas from "./canvas/api.js";
 import * as Motion from "./motion/api.js";
+import { boxes as factBoxes } from "./facts/host.js";
 import { boxes, domVersion, pinsEl, root } from "./mount.js";
 import { roomFrame } from "./room.js";
 
@@ -112,11 +113,14 @@ export function render() {
   const canvasBoxes = Canvas.frame(capturing);
   const motionBoxes = Motion.frame(capturing);
 
-  // boxes: hover, the note's outlines (in its screenshot, whichever mode made it), canvas, motion
+  // boxes: hover, the note's outlines (in its screenshot, whichever mode made it), canvas,
+  // motion, and the host's facts pane (review on or off)
   const items = Notes.outlines(capturing);
   if (S.enabled || capturing) for (const el of S.sel) if (el.isConnected) items.push([rectOf(el), "sel"]);
   if (canvasBoxes) items.push(...canvasBoxes);
   if (motionBoxes) items.push(...motionBoxes);
+  const facts = factBoxes(capturing);
+  if (facts) items.push(...facts);
   const dpr = window.devicePixelRatio || 1;
   if (boxes._dpr !== dpr) boxes.style.setProperty("--dp", `${1 / (boxes._dpr = dpr)}px`);
   const divs = pool(boxes, items.length, makeBox);
