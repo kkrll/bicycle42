@@ -20,7 +20,6 @@ import type {
 import { Composer } from "./composer"
 import { CopyButton } from "./copy"
 import { Icon, Kbd, toolIcon } from "./icons"
-import { ServerButton } from "./connect"
 import { openLightbox } from "./lightbox"
 import { Markdown } from "./markdown"
 import { RepoBar } from "./repo"
@@ -1207,7 +1206,6 @@ function Conversations(props: { openSettings: () => void }) {
         if (open() && !swapping && !root.contains(e.relatedTarget as Node | null)) close(false)
       }}
     >
-      <ServerButton onClick={props.openSettings} />
       <button
         ref={button}
         class="convo-current"

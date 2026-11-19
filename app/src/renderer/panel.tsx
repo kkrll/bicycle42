@@ -4,7 +4,7 @@
 import { For, Match, Show, Switch, createEffect, createMemo, createResource, createSelector, createSignal, on, onCleanup } from "solid-js"
 import type { NoteRow } from "../shared/types"
 import { Chat } from "./chat"
-import { SetupSteps, serverLabel } from "./connect"
+import { ServerButton, SetupSteps, serverLabel } from "./connect"
 import { Icon } from "./icons"
 import { NoteView } from "./note-detail"
 import {
@@ -75,9 +75,21 @@ function noteTitle(note: NoteRow): string {
   return [note.text, "", ...note.edits.map((e, i) => `${i + 1}. ${e}`)].join("\n")
 }
 
+/** The list is sorted by what a note needs, most urgent first. Finished ones (done, or taken
+ *  back) fold into one line. */
+type Group = "needs" | "working" | "waiting" | "done"
+const GROUPS: Array<{ key: Group; name: string }> = [
+  { key: "needs", name: "Needs you" },
+  { key: "working", name: "Working" },
+  { key: "waiting", name: "Waiting" },
+  { key: "done", name: "Done" },
+]
+export const groupOf = (note: NoteRow): Group =>
+  note.takenBack || note.status === "done" ? "done" : note.status === "failed" ? "needs" : note.status === "queued" ? "waiting" : "working"
+
 /** Rows the list shows before it scrolls, unless the reviewer drags the divider. */
 const ROW = 32
-const LIST_DEFAULT = ROW * 5 + 6
+const LIST_DEFAULT = ROW * 8 + 6 // (five notes and the names of their groups)
 const LIST_MIN = ROW + 6
 
 function Notes(props: { listHeight: number; open: boolean; onToggle: () => void; width: number; hidden: boolean }) {
@@ -112,11 +124,26 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
   onCleanup(() => observer.disconnect())
   createEffect(
     on(
-      () => [state.review.notes.length, props.listHeight, props.open, state.review.notes.filter((n) => n.status === "failed").length],
+      () => [state.review.notes.length, props.listHeight, props.open, state.review.notes.filter((n) => n.status === "failed").length, doneOpen(), GROUPS.map((g) => grouped()[g.key].length).join()],
       () => requestAnimationFrame(measure),
     ),
   )
   const [why, setWhy] = createSignal(false)
+  const grouped = createMemo(() => {
+    const g: Record<Group, NoteRow[]> = { needs: [], working: [], waiting: [], done: [] }
+    for (const note of state.review.notes) g[groupOf(note)].push(note)
+    return g
+  })
+  const [doneOpen, setDoneOpenSignal] = createSignal(recall("notes.done") === "1")
+  const setDoneOpen = (on: boolean) => {
+    setDoneOpenSignal(on)
+    remember("notes.done", on ? "1" : "0")
+  }
+  /** A row that is about to be pointed at has to be there: its group is unfolded first. */
+  const unfoldFor = (id: string) => {
+    const note = state.review.notes.find((n) => n.id === id)
+    if (note && groupOf(note) === "done" && !doneOpen()) setDoneOpenSignal(true)
+  }
   /** "Note 5" or "Notes 5 and 7", when main says which ones. */
   const lostNumbers = () => {
     const ns = state.review.notes.filter((n) => n.lost).map((n) => n.n)
@@ -135,6 +162,7 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
       // With a note open as a view, the clicked pin's note takes its place; otherwise the list
       // only points at the row.
       if (openedNote()) return void setOpenedNote(focus.id)
+      unfoldFor(focus.id)
       // The panel or the list may have just been opened: wait for layout.
       requestAnimationFrame(() => {
         const row = rows.get(focus.id)
@@ -247,13 +275,33 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
             style={{ "--list-h": `${snap() ?? props.listHeight}px` }}
             onScroll={measure}
           >
-            <For each={state.review.notes}>
-              {(note) => {
+            <For each={GROUPS}>
+              {(g) => (
+                <Show when={grouped()[g.key].length}>
+                  <li class="note-group" data-group={g.key}>
+                    <Show
+                      when={g.key === "done"}
+                      fallback={
+                        <span class="note-group-name">
+                          {g.name} · {grouped()[g.key].length}
+                        </span>
+                      }
+                    >
+                      <button class="note-group-name" aria-expanded={doneOpen()} onClick={() => setDoneOpen(!doneOpen())}>
+                        <Icon name="right" class="caret" />
+                        {g.name} · {grouped()[g.key].length}
+                      </button>
+                    </Show>
+                  </li>
+                  <Show when={g.key !== "done" || doneOpen()}>
+                    <For each={grouped()[g.key]}>
+                      {(note) => {
                 const shown = () => shownStatus(note)
                 onCleanup(() => rows.delete(note.id))
                 return (
                   <li
                     class="note"
+                    data-group={g.key}
                     ref={(el) => rows.set(note.id, el)}
                     aria-current={focused(note.id) ? "true" : undefined}
                   >
@@ -292,8 +340,8 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
                             <Icon name="alert" />
                           </span>
                         </Show>
-                        {/* The badge's colour says waiting; a word is kept for what says more. */}
-                        <Show when={note.takenBack || shown() !== "queued"}>
+                        {/* The group says waiting, working and done; a word is kept for what says more. */}
+                        <Show when={note.takenBack || !["queued", "working", "done"].includes(shown())}>
                           <span class="note-status" data-status={shown()}>
                             {noteWord(note)}
                           </span>
@@ -322,6 +370,10 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
                   </li>
                 )
               }}
+            </For>
+                  </Show>
+                </Show>
+              )}
             </For>
           </ul>
         </Show>
@@ -632,6 +684,19 @@ function NoConversation(props: { chooseFolder: () => void }) {
   )
 }
 
+/** Where the notes and the conversations are: the server and the code folder. The notes list
+ *  under it is this server's, for the site on screen; a conversation is one of many there. */
+function Place(props: { openSettings: () => void }) {
+  const server = () => state.serverName || ("url" in state.connection ? serverLabel(state.connection.url) : "")
+  return (
+    <div class="place">
+      <ServerButton onClick={props.openSettings} />
+      <span class="place-server">{server()}</span>
+      <Show when={state.site?.directory}>{(dir) => <span class="place-folder" title={dir()}>{tail(dir())}</span>}</Show>
+    </div>
+  )
+}
+
 // ── panel ───────────────────────────────────────────────────────────────────────────────────────
 
 export function Panel(props: {
@@ -643,8 +708,8 @@ export function Panel(props: {
   const [listHeight, setListHeight] = createSignal(Number(recall("notes.height")) || LIST_DEFAULT)
   // The conversation keeps at least 160px of messages, under its header and above the message box;
   // the notes header takes its line too. What is left can go to the list.
-  // (notes header, conversation header, message box at its one empty line, the 160)
-  const room = () => props.size.height - 36 - 36 - 100 - 160
+  // (server row, notes header, conversation header, message box at its one empty line, the 160)
+  const room = () => props.size.height - 32 - 36 - 36 - 100 - 160
   const maxList = () => Math.max(LIST_MIN, room())
   // A narrow or short panel folds the list to its one-line summary, unless the reviewer opens it.
   const cramped = () => props.size.width > 0 && (props.size.width < 360 || room() < ROW * 3 + 6)
@@ -693,6 +758,7 @@ export function Panel(props: {
           <FolderPicker onCancel={() => setPicking(false)} onDone={() => setPicking(false)} />
         </Match>
         <Match when={true}>
+          <Place openSettings={props.openSettings} />
           <Notes
             listHeight={Math.min(listHeight(), maxList())}
             open={listOpen()}
