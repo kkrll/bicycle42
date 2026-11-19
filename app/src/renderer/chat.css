@@ -492,7 +492,7 @@
 
 /* Once something has scrolled under the conversation bar, the top edge fades over 28px, so a
    line cut by the edge disappears instead of showing as a sliver. */
-/* Painted as gradients of the paper colour lying over the edges, not as a mask on the scrolling
+/* Painted as gradients of the card's colour (the conversation is on one) lying over the edges, not as a mask on the scrolling
    transcript: a mask makes the whole transcript repaint through it on every scrolled or streamed
    frame, and a gradient on top costs nothing. */
 .transcript-wrap::before,
@@ -508,13 +508,13 @@
 .transcript-wrap::before {
   top: 0;
   height: 28px;
-  background: linear-gradient(to bottom, var(--background) 4px, transparent);
+  background: linear-gradient(to bottom, var(--card) 4px, transparent);
 }
 
 .transcript-wrap::after {
   bottom: 0;
   height: 64px;
-  background: linear-gradient(to top, var(--background) 26px, transparent);
+  background: linear-gradient(to top, var(--card) 26px, transparent);
 }
 
 .transcript-wrap:has(> .transcript.scrolled)::before,

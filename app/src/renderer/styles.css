@@ -43,6 +43,9 @@
   --rule: var(--background-07);
   --surface: color-mix(in srgb, var(--background-07) 32%, var(--background));
   --surface-strong: color-mix(in srgb, var(--background-07) 62%, var(--background));
+  /* A card: a section of the panel standing a step off the window's own colour (the panel's
+     place, notes and conversation). Mixed from the two ends, so it follows the theme. */
+  --card: color-mix(in srgb, var(--foreground) 8%, var(--background));
   --add: color-mix(in srgb, var(--status-done) 20%, transparent);
   --del: color-mix(in srgb, var(--status-failed) 18%, transparent);
 
@@ -1229,9 +1232,16 @@ details[open] > summary > .caret {
   outline: none;
 }
 
+/* The panel is three cards, one under another with 8px between: where its notes and
+   conversation are (the server and the folder), the notes, and the conversation with its message
+   box. Each a step lighter than the window, with the hairline and the corners the page's pane
+   and the docks have, so one section does not run into the next. What is in a card starts
+   --gutter in from its edge. */
 .panel {
   /* At the window's left edge: 8px in, as the bar above it starts and the panes beside it end. */
-  padding-left: 8px;
+  padding: 0 0 8px 8px;
+  gap: 8px;
+  --gutter: 10px;
   flex: none;
   /* (--panel-max: half the window, or less beside a phone's page; maxWidth in app.tsx.) */
   width: clamp(320px, var(--panel-width), var(--panel-max, 50vw));
@@ -1244,13 +1254,31 @@ details[open] > summary > .caret {
   display: none;
 }
 
+.place,
+.notes,
+.chat {
+  border: 1px solid var(--background-05);
+  border-radius: 10px;
+  background: var(--card);
+  overflow: hidden;
+}
+
+/* Between the notes' card and the conversation's: the handle is the gap itself. */
+.panel > .divider {
+  height: 8px;
+  margin: -8px 0;
+}
+
+.panel > .divider::after {
+  top: 2px;
+}
+
 /* ── notes ────────────────────────────────────────────────────────────────────────────────── */
 
 .notes {
   flex: none;
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid var(--rule);
 }
 
 /* Between the notes and the conversation. The notes' bottom rule is the visible line; the handle
@@ -1394,9 +1422,8 @@ details[open] > summary > .caret {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
+  height: 36px;
   padding: 0 10px 0 4px;
-  border-bottom: 1px solid var(--rule);
   font-size: var(--text-control);
   white-space: nowrap;
 }
@@ -2169,7 +2196,8 @@ kbd {
   margin-top: 8px;
   padding: 8px 12px;
   border-radius: 10px;
-  background: var(--surface-strong);
+  /* (A step off the card it is on, as the card is off the window.) */
+  background: color-mix(in srgb, var(--foreground) 16%, var(--background));
   line-height: var(--text-ui--line-height);
 }
 
@@ -2828,15 +2856,16 @@ details[open] > summary > .caret {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* No padding at the sides: the panel's own at the left, the page pane's 8px margin at the right. */
-  padding: 8px 0;
+  /* Inside the conversation's card, at its foot. */
+  padding: 8px;
 }
 
 .composer-box {
   border: 1px solid var(--background-05);
   border-radius: 8px;
   transition: border-color var(--duration-micro) var(--ease-micro);
-  background: var(--background-07);
+  /* The window's own colour: set into the card, where the writing goes. */
+  background: var(--background);
 }
 
 .composer-box:focus-within {
