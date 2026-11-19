@@ -843,7 +843,8 @@ export function CanvasDock() {
   }
   let wantSheet = false
   createEffect(() => {
-    if (wantSheet && global() && els.sheet) {
+    const g = global() // (read first: the effect follows it, whatever wantSheet is now)
+    if (wantSheet && g && els.sheet) {
       wantSheet = false
       els.sheet.focus({ preventScroll: true })
     }

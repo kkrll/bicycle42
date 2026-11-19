@@ -3,8 +3,7 @@ import { C, EMPTY, MAX_EDITS, newBatch } from "./state.js";
 import { stampOf } from "./stamps.js";
 import { applyAll } from "./apply.js";
 import { flash, hush } from "./bar.js";
-import { syncFields } from "./inspector.js";
-import { cnote } from "./mount.js";
+import { syncFields } from "./host.js";
 
 // ── the batch: commit, undo, reset, draft ───────────────────────────────────────────────────
 export const countEdits = (B) =>
@@ -68,7 +67,7 @@ export function reset() {
 export function restoreEdits(d) {
   if (!d || C.snap !== EMPTY) return;
   // The words typed for the batch are a draft on their own: they come back with or without edits.
-  if (cnote && typeof d.note === "string" && !cnote.value) cnote.value = d.note;
+  if (typeof d.note === "string" && !C.note) C.note = d.note;
   const B = d.edits;
   if (B && typeof B === "object" && B.els && typeof B.els === "object" && Array.isArray(B.ops)) {
     const paths = d.paths && typeof d.paths === "object" ? d.paths : {};
@@ -102,7 +101,7 @@ function pathsOf(B) {
 /** The unsent batch and the words typed for it, for the draft the host keeps; null without either. */
 export function draft() {
   const edits = C.snap !== EMPTY ? C.draft.B : null;
-  const words = cnote ? cnote.value : "";
+  const words = C.note;
   if (!edits && !words) return null;
   return { ...(edits ? { edits, paths: pathsOf(edits) } : {}), ...(words ? { note: words } : {}) };
 }

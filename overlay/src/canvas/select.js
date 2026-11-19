@@ -3,8 +3,8 @@ import { C, num } from "./state.js";
 import { meta, stableSel } from "./stamps.js";
 import { commit } from "./batch.js";
 import { hush } from "./bar.js";
-import { reveal, T, treeKids } from "./tree.js";
-import { syncFields } from "./inspector.js";
+import { reveal, treeKids } from "./tree.js";
+import { syncFields } from "./host.js";
 import { gone } from "./frame.js";
 import { edges, gzEl, handles } from "./mount.js";
 import { kick, pool } from "../render.js";
@@ -20,7 +20,6 @@ export function select(el) {
   C.geoKey = "";
   C.zone = null;
   if (el) reveal(el);
-  T.need = true;
   syncFields(true);
   kick();
 }

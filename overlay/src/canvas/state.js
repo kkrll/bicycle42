@@ -43,7 +43,8 @@ export const C = {
   marks: new Map(), // Element → "ed" | "hid" | "ed hid": what the tree marks
   copies: new Map(), // a copy's stamp (as a selector) → the copy, made by a "duplicate" edit (copies.js)
   copyRs: new Set(), // the stamps of every copy a batch names
-  pop: "", // the list open above the bar: "list" (the batch), "help" (the keys) or none
+  note: "", // the words typed for the batch in the host's footer: they go with it, and come back with a refused one
+  pop: "", // notes mode's keys list, open over its "?" ("help"), or not
   list: false, // the host's list of the unsent edits is open (host.js)
   done: "", // what happened to the last sent batch, shown for a few seconds
   r: null, // the selection's rect in the last frame
@@ -55,14 +56,8 @@ export const C = {
   rev: 0,
   px: 0, py: 0, moved: false, over: false, last: null,
   drawn: false, msg: "", msgTimer: 0, typeTimer: 0, typeRaf: 0, hideTimer: 0,
-  ph: 300, collapsed: false, compKey: "", compAt: 0,
-  forced: 0, // counts the fields' text put in by force (syncFields(true)): a host's inspector takes it then (host.js)
+  forced: 0, // counts the fields' text put in by force (syncFields(true)): the host's inspector takes it then (host.js)
 };
-try {
-  const p = JSON.parse(sessionStorage.getItem("b42-inspector") || "{}");
-  if (p.h > 0) C.ph = p.h;
-  C.collapsed = !!p.c;
-} catch {}
 
 export const num = (s) => parseFloat(s) || 0;
 export const px = (n) => `${Math.round(n * 100) / 100}px`;

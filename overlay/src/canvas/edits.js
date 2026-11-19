@@ -6,7 +6,7 @@ import { applyAll, splitRules } from "./apply.js";
 import { commit } from "./batch.js";
 import { value } from "./send.js";
 import { dropCopy } from "./copies.js";
-import { syncFields } from "./inspector.js";
+import { syncFields } from "./host.js";
 
 // ── the unsent batch in plain words ─────────────────────────────────────────────────────────
 // The host's footer counts the edits; its count opens this list (CanvasBatch.list in

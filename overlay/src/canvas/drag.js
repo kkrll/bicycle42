@@ -9,9 +9,8 @@ import { commit } from "./batch.js";
 import { between, boxBand, cursorOf, flow, select, SIDES, zoneOf } from "./select.js";
 import { endEdit, startEdit } from "./text.js";
 import { liveEnd, liveSet, shield } from "./cursor.js";
-import { flash, hush, setPop } from "./bar.js";
-import { T } from "./tree.js";
-import { syncFields } from "./inspector.js";
+import { flash, hush } from "./bar.js";
+import { syncFields } from "./host.js";
 import { block, isOurs } from "../input.js";
 import { kick } from "../render.js";
 import { root } from "../mount.js";
@@ -22,8 +21,7 @@ import { root } from "../mount.js";
 export function cvDown(e, z) {
   if (z && z.t === "page") z = null; // (the page's, under a band: see zoneOf)
   hush();
-  if (C.pop) setPop(C.pop);
-  C.list = false;
+  C.list = false; // (the host's list of the edits closes, as at a press anywhere outside it)
   const f = root.activeElement;
   if (f && f !== Notes.textarea) f.blur(); // a click on the page ends typing in the bar or the inspector
   if (C.edit) endEdit(true);
@@ -40,10 +38,7 @@ export function cvMove(e) {
   if (!d) {
     const z = zoneOf(e);
     const ours = !z && isOurs(e);
-    if (ours && !C.over && C.hover) {
-      C.hover = null;
-      T.need = true;
-    }
+    if (ours && !C.over && C.hover) C.hover = null;
     C.over = ours;
     C.px = e.clientX;
     C.py = e.clientY;

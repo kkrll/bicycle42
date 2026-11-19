@@ -177,174 +177,30 @@ textarea::placeholder { color: #9ca3af; }
 .lab.live { color: #fffaa0; }
 .lab.snap { background: #fffaa0; color: #171717; }
 .lab.mid { translate: -50% -50%; }
-/* The bar, in edit mode: a small card above the inspector. What is in the batch, undo, reset
-   and Send on its first row; the note that goes with the edits (or what the bar has to say)
-   on its second. Its width is fixed, so nothing in it moves as the state changes. In notes
-   mode it is one button, and only when edits were left unsent. The mode switch and the brush
-   are the host's. */
-.bar { position: fixed; left: 56px; right: 56px; bottom: 14px; width: max-content; margin: 0 auto; display: flex; flex-direction: column; gap: 4px; padding: 4px;
+/* Notes mode's chip, and only when edits were left unsent: one button back to edit mode, where
+   they can be sent. (In edit mode the inspector and its footer are the host's.) The mode switch
+   and the brush are the host's too. */
+.bar { position: fixed; left: 56px; right: 56px; bottom: 14px; width: max-content; margin: 0 auto; display: flex; padding: 4px;
   box-sizing: border-box; max-width: calc(100vw - 112px); pointer-events: auto; background: #1a1a1b; color: #ededed; border-radius: 10px; white-space: nowrap;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.12); font: 13px/1 system-ui, -apple-system, sans-serif; }
-.bar.canvas { width: 340px; }
 .bar.idle { display: none; }
-.brow { display: flex; align-items: center; gap: 2px; height: 28px; }
-.bgap { flex: 1; }
-.act, .ifold, .count { all: unset; box-sizing: border-box; height: 24px; padding: 0 10px; border-radius: 5px; cursor: pointer; font: inherit; line-height: 24px; color: #b4b4b4; }
-.act:hover, .ifold:hover { color: #fff; }
-.act { flex: none; padding: 0 8px; color: #ededed; }
-.act.ib { display: grid; place-items: center; width: 28px; padding: 0; }
-.act:hover, .count:hover, .count.open { background: rgba(255, 255, 255, 0.1); }
-.act:disabled, .count:disabled { color: #6b6b6b; background: none; cursor: default; }
-.act:focus-visible, .ifold:focus-visible, .count:focus-visible, .bsend:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
-.count { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; color: #fffaa0; font-weight: 600; font-variant-numeric: tabular-nums; }
-.count .ic { display: none; order: -1; }
-.bar.canvas .count:not(:disabled) .ic { display: block; }
+.count { all: unset; box-sizing: border-box; flex: none; display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: 5px;
+  cursor: pointer; font: inherit; font-weight: 600; line-height: 24px; color: #fffaa0; font-variant-numeric: tabular-nums; }
+.count:hover { background: rgba(255, 255, 255, 0.1); }
+.count:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
+/* Notes mode's "?", in the corner, and its keys above it. */
 .corner { position: fixed; right: 12px; bottom: 14px; width: 36px; height: 36px; pointer-events: auto; font: 13px/1 system-ui, -apple-system, sans-serif; }
 .help { all: unset; display: grid; place-items: center; width: 36px; height: 36px; box-sizing: border-box; border-radius: 8px; background: #1a1a1b; color: #b4b4b4;
   cursor: pointer; font: 600 14px/1 system-ui, -apple-system, sans-serif;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.12); }
 .help:hover, .help.on { color: #fff; }
 .help:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
-.corner .pop { left: auto; right: 0; width: min(400px, calc(100vw - 24px)); color: #ededed; }
-.cnote { all: unset; box-sizing: border-box; flex: none; width: 100%; height: 30px; padding: 0 8px; border-radius: 6px;
-  background: rgba(255, 255, 255, 0.07); color: #ededed; font: inherit; cursor: text; }
-.cnote::placeholder { color: #8b8b8b; }
-.cls::placeholder, .ed textarea::placeholder { color: #8b8b8b; font: italic 12px/18px system-ui, -apple-system, sans-serif; }
-.cnote:focus, .cls:focus, .ed textarea:focus { box-shadow: 0 0 0 1.5px rgba(255, 250, 160, 0.7); }
-.bmsg { flex: none; box-sizing: border-box; width: 100%; height: 30px; padding: 0 8px; color: #9ca3af; font-size: 12px; line-height: 30px; overflow: hidden; text-overflow: ellipsis; }
-.bmsg.warn { color: #fbbf24; }
-.bsend { all: unset; flex: none; box-sizing: border-box; height: 28px; margin-left: 4px; padding: 0 16px; border-radius: 6px; background: #fffaa0; color: #171717;
-  font: inherit; font-weight: 600; line-height: 28px; cursor: pointer; }
-.bsend:hover { background: #fffcc4; }
-.bsend:disabled { background: rgba(255, 255, 255, 0.08); color: #6b6b6b; cursor: default; }
-.bar .pop { bottom: calc(100% + 6px); }
-.pop { position: absolute; left: 0; right: 0; bottom: 42px; max-height: min(50vh, 320px); overflow: auto; padding: 4px; box-sizing: border-box; white-space: normal;
+.pop { position: absolute; left: auto; right: 0; bottom: 42px; width: min(400px, calc(100vw - 24px)); max-height: min(50vh, 320px); overflow: auto; padding: 4px;
+  box-sizing: border-box; white-space: normal; color: #ededed;
   background: #1a1a1b; border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.12); font-size: 12px; line-height: 1.4; }
-.erow, .hrow { display: flex; align-items: baseline; gap: 6px; padding: 4px 4px 4px 8px; border-radius: 5px; }
-.erow { cursor: pointer; }
-.erow:hover { background: rgba(255, 255, 255, 0.08); }
-.erow .el { flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fffaa0; font-weight: 500; }
-.erow .et { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d4d4d4; }
-.ex { all: unset; flex: none; display: grid; place-items: center; width: 24px; height: 24px; margin: -2px 0; align-self: center; border-radius: 4px; color: #9ca3af; cursor: pointer; }
-.ex:hover { background: rgba(248, 113, 113, 0.2); color: #f87171; }
-.ex:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
+.hrow { display: flex; align-items: baseline; gap: 6px; padding: 4px 4px 4px 8px; border-radius: 5px; }
 .hk { flex: 0 0 190px; color: #ededed; }
 .hv { flex: 1; color: #9ca3af; }
-/* canvas mode: the inspector */
-.insp { position: fixed; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; box-sizing: border-box; pointer-events: auto;
-  background: #1a1a1b; color: #ededed; border-radius: 8px 8px 0 0; font: 13px/1.4 system-ui, -apple-system, sans-serif;
-  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.12); }
-.grip { position: absolute; left: 0; right: 0; top: -4px; height: 9px; cursor: ns-resize; touch-action: none; }
-.grip::after { content: ""; position: absolute; left: 50%; top: 6px; width: 36px; height: 3px; margin-left: -18px; border-radius: 2px; background: rgba(255, 255, 255, 0.22); }
-.grip:hover::after { background: #fffaa0; }
-.insp.shut .grip { display: none; }
-.ihead { flex: none; display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 6px 0 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
-.insp.shut .ihead { border-bottom: 0; }
-.ititle { font-weight: 600; }
-.ipath { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fffaa0; }
-.ifold { flex: none; display: grid; place-items: center; width: 28px; height: 24px; padding: 0; }
-.ibody { flex: 1; min-height: 0; display: flex; container-type: inline-size; }
-.insp.shut .ibody { display: none; }
-.tree { flex: 0 0 44%; min-width: 0; overflow: auto; outline: none; border-right: 1px solid rgba(255, 255, 255, 0.1);
-  font: 12px/20px ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace; }
-.tree:focus-visible { box-shadow: inset 0 0 0 1.5px rgba(255, 250, 160, 0.5); }
-.tspace { position: relative; min-width: max-content; }
-.trow { height: 20px; padding-right: 12px; white-space: nowrap; cursor: default; }
-.trow.hov { background: rgba(255, 255, 255, 0.06); }
-.trow.on { background: rgba(255, 250, 160, 0.2); box-shadow: inset 2px 0 0 #fffaa0; }
-/* Edited in a batch: a small dot. Hidden by one: struck through and dimmed, still selectable. */
-.trow.ed::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 8px; border-radius: 50%; background: #fffaa0; vertical-align: 1px; }
-.trow.hid .tt, .trow.hid .ti, .trow.hid .tc { text-decoration: line-through; opacity: 0.5; }
-.trow.hid .tx { opacity: 0.5; }
-.tw { display: inline-grid; place-items: center; width: 16px; height: 20px; vertical-align: top; color: #9ca3af; cursor: pointer; }
-.tw.open .ic { rotate: 90deg; }
-.tw.none { visibility: hidden; }
-.tt { color: #ededed; } .ti { color: #fffaa0; } .tc { color: #9ca3af; }
-.tx { margin-left: 8px; color: #6f7684; font-style: italic; }
-.side { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-/* Element: the selection's classes, styles and computed values. Global: the batch's stylesheet.
-   The switch is in the inspector's header, so the columns start at the top of the body. */
-.tabs { flex: none; display: flex; gap: 2px; padding: 2px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); }
-.insp.shut .tabs { display: none; }
-.tab { all: unset; box-sizing: border-box; height: 20px; padding: 0 10px; border-radius: 4px; color: #b4b4b4; font-size: 12px; line-height: 20px; cursor: pointer; }
-.tab:hover { color: #fff; }
-.tab.on { background: rgba(255, 255, 255, 0.14); color: #fff; }
-.tab:disabled { color: #6b6b6b; cursor: default; }
-.tab:focus-visible { box-shadow: 0 0 0 2px #fffaa0; }
-.dot { display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: #fffaa0; vertical-align: 1px; }
-.pane { flex: 1; min-height: 0; overflow: auto; padding: 0 12px 14px; }
-.p-gl { display: flex; flex-direction: column; }
-.p-gl .sec { flex: none; }
-.p-gl .ed { flex: 1; min-height: 60px; }
-.p-gl .ed textarea { height: 100%; max-height: none; field-sizing: fixed; }
-.p-gl .err { flex: none; }
-.sec { display: block; margin: 10px 0 4px; color: #d4d4d4; font-size: 12px; font-weight: 600; }
-.sec i { margin-left: 6px; color: #8b8b8b; font-style: normal; font-weight: 400; }
-.cls, .ed textarea, .hl { box-sizing: border-box; width: 100%; margin: 0; padding: 5px 8px; border: 0; border-radius: 6px;
-  font: 12px/18px ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace; tab-size: 2; }
-.cls { all: unset; display: block; box-sizing: border-box; width: 100%; padding: 5px 8px; border-radius: 6px; background: rgba(255, 255, 255, 0.07); color: #ededed;
-  font: 12px/18px ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace; cursor: text; }
-.cls:disabled, .ed textarea:disabled { opacity: 0.5; cursor: default; }
-.cls.bad { box-shadow: 0 0 0 1.5px #f87171; }
-.ed { position: relative; border-radius: 6px; background: rgba(255, 255, 255, 0.07); }
-/* The box grows with its text by itself (field-sizing), so typing never has to measure it. */
-.ed textarea { position: relative; display: block; min-height: 40px; max-height: 220px; height: auto; field-sizing: content; overflow: auto; resize: none; background: none; color: #ededed;
-  white-space: pre-wrap; overflow-wrap: anywhere; cursor: text; }
-@supports not (field-sizing: content) { .ed textarea { height: 76px; } }
-.hl { position: absolute; inset: 0; overflow: hidden; color: transparent; white-space: pre-wrap; overflow-wrap: anywhere; pointer-events: none; }
-.hl u { text-decoration: underline wavy #f87171; text-decoration-skip-ink: none; }
-.err { margin: 4px 2px 0; color: #f87171; font-size: 12px; overflow-wrap: anywhere; }
-.crow { display: flex; gap: 10px; align-items: center; height: 20px; padding: 0 8px; border-radius: 4px; font: 12px/18px ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace; }
-.crow:hover { background: rgba(255, 255, 255, 0.06); }
-.cp { all: unset; flex: 0 0 116px; color: #9ca3af; font: inherit; cursor: pointer; }
-.cp:hover { color: #fff; }
-/* A value reads as text until it is pointed at or focused: then it is a field. */
-.cval { all: unset; flex: 1; min-width: 0; height: 18px; box-sizing: border-box; padding: 0 4px; margin-left: -4px; border-radius: 4px; color: #ededed; font: inherit;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
-.cval:hover { background: rgba(255, 255, 255, 0.08); }
-.cval:focus { background: rgba(255, 255, 255, 0.1); box-shadow: 0 0 0 1.5px rgba(255, 250, 160, 0.7); text-overflow: clip; }
-.cval.bad { text-decoration: underline wavy #f87171; text-decoration-skip-ink: none; box-shadow: 0 0 0 1.5px #f87171; }
-.crow.mine .cp, .crow.mine .cval { color: #fffaa0; }
-.ctok { all: unset; flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #9ca3af; opacity: 0.75; font: inherit; cursor: pointer; }
-.ctok:hover { color: #fff; opacity: 1; }
-.ctok[hidden] { display: none; }
-/* With room for it, the inspector is three equal columns: the tree, what the selection
-   computes to, and what is typed for it. Each scrolls by itself, so the fields stay in view
-   down the list, and the styles box takes the height that is left, as the stylesheet's does.
-   (Tab still goes to the fields first: they come first in the markup.) */
-@container (min-width: 900px) {
-  .tree { box-sizing: border-box; flex-basis: 33.333%; }
-  .p-el { display: flex; padding: 0; overflow: hidden; }
-  .p-el .col { box-sizing: border-box; min-width: 0; overflow: auto; padding: 0 12px 14px; }
-  .p-el .c-comp { order: -1; flex: 0 0 50%; border-right: 1px solid rgba(255, 255, 255, 0.1); }
-  .p-el .c-in { flex: 1; display: flex; flex-direction: column; }
-  .p-el .c-in > * { flex: none; }
-  .p-el .c-in .ed { flex: 1; min-height: 60px; }
-  .p-el .c-in .ed textarea { height: 100%; max-height: none; field-sizing: fixed; }
-}
-/* Too narrow for the tree and the styles side by side (a phone-width page): the tree on top, a
-   few rows of it, and the styles under it at the whole width. (A media query: the inspector is
-   as wide as the page, and its body, the container above, cannot be asked about itself.) */
-@media (max-width: 520px) {
-  .ibody { flex-direction: column; }
-  .tree { flex: 0 0 38%; border-right: 0; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
-  .side { min-height: 0; }
-  .ihead { gap: 8px; padding-left: 10px; }
-}
-/* The inspector's suggestions: property names and a property's keywords, under the caret. Not
-   inside the inspector, which would cut the list off at its edge (and whose body is a container:
-   a fixed box in it would be placed by it): a box of the layer's own, moved to its place.
-   Eight rows show, the rest scrolls; the highlighted row is in the accent colour. */
-.sug { position: fixed; left: 0; top: 0; z-index: 3; box-sizing: border-box; min-width: 150px; max-width: min(360px, calc(100vw - 8px)); max-height: 168px; overflow: hidden auto;
-  padding: 4px; border-radius: 8px; pointer-events: auto; background: #232325; color: #d4d4d4; scrollbar-width: thin; overscroll-behavior: contain;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.12); font: 12px/20px ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace; }
-.sug[hidden] { display: none; }
-.sg { display: flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; }
-.sg:hover { background: rgba(255, 255, 255, 0.08); }
-.sg.on { background: #fffaa0; color: #171717; }
-.sg i { flex: none; width: 10px; height: 10px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(128, 128, 128, 0.6); }
-/* a variable's value, after its name: dimmer, and the part cut when the row is too narrow */
-.sg .tv { flex: 0 1 auto; min-width: 0; margin-left: auto; padding-left: 14px; overflow: hidden; text-overflow: ellipsis; opacity: 0.55; }
 /* motion mode: on the page, the open element (the accent), its corners while it plays, the
    elements of the list row under the pointer, a ring that goes out to find a small one */
 /* (its corners are the outline's four strips, each a 10 px corner) */

@@ -24,14 +24,13 @@
  * The host's brush makes a plain drag draw, as alt+drag does, until the note is sent or cancelled.
  *
  * Canvas mode ("Edit" to the reviewer; mod+O, or the host's switch; review mode on): the page's real elements are edited and
- * the batch goes out as one note. An inspector docks at the bottom: DOM tree, class line, "Element
- * styles" (declarations for the selected element), "Stylesheet" (new rules), computed values.
+ * the batch goes out as one note. The inspector is the host's (protocol-canvas.ts: DOM tree, class
+ * line, "Element styles" for the selected element, "Stylesheet" for new rules, computed values, and
+ * a footer with the batch, its list of edits, undo, Reset, the note and Send); the page has none.
  * click selects · drag reorders inside a flex or grid parent · drag an edge or corner resizes ·
  * drag the space between flex/grid items changes the gap (mod: no snapping) · double-click edits
- * text · Delete hides · mod+Z / mod+shift+Z undo, redo · Enter sends (mod+Enter from the
- * inspector's fields) · Esc: leave the field, deselect, then back to notes.
- * The bar's count opens the list of edits in the batch (a row selects its element, its × removes that
- * edit); "?" lists these keys. After sending, the bar says the preview stays until the note is done.
+ * text · Delete hides · mod+D duplicates · mod+Z / mod+shift+Z undo, redo · Enter sends · Esc:
+ * deselect, then back to notes. In notes mode, edits left unsent are a chip back to canvas mode.
  * Previews never touch the page's inline styles: styles, order and hiding are rules in constructed
  * stylesheets; class and text edits write the DOM and are re-applied when a framework re-renders.
  * An edited element without an id of its own carries a `data-b42e` attribute while a batch names

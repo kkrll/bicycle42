@@ -1,10 +1,10 @@
-// Canvas mode's inspector when the host draws it (see Dock in protocol.ts): what the inspector
+// Canvas mode's inspector, which the host draws (see Dock in protocol.ts): what the inspector
 // shows, and what the reviewer can do in it. Types only.
 //
 // The overlay keeps everything that is the page's: the selection and its outlines, the handles
 // and the drags, the batch, its undo and its previews, the note's words, sending the note. The
-// bar it draws over the page when the inspector is its own is the host's inspector's footer
-// instead (`batch`, and the acts "note", "reset", "undo", "redo", "send"): no bar on the page.
+// batch's bar is the inspector's footer (`batch`, and the acts "note", "reset", "undo", "redo",
+// "send", "edits", "unedit"): there is none on the page.
 // The host's inspector is a drawing of `CanvasView` and a source of `CanvasAct`s; it keeps
 // nothing the overlay does not also have, so a reload of either side loses nothing.
 //
@@ -101,7 +101,7 @@ export type CanvasView = {
    *  root's while Global is shown. */
   tokens: CanvasToken[]
   tree: CanvasTree
-  /** What the bar over the page says when the inspector is the overlay's, for the footer. */
+  /** What the footer says: the batch's edits, undo and redo, the note, a refusal, the state. */
   batch: CanvasBatch
 }
 
@@ -161,7 +161,7 @@ export type CanvasAct =
   | { type: "redo" }
   /** Send the batch (mod+Enter, the footer's Send); `bg` to the background lane (alt). */
   | { type: "send"; bg?: boolean }
-  /** Every unsent edit removed, as one undo step (the bar's Reset). */
+  /** Every unsent edit removed, as one undo step (the footer's Reset). */
   | { type: "reset" }
   /** The note's words as typed in the footer, whole. */
   | { type: "note"; text: string }

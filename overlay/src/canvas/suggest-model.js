@@ -1,7 +1,8 @@
 // ── suggestions: the pure part ──────────────────────────────────────────────────────────────
 // What is at the caret of typed CSS (a property's name, its value, a selector, nothing to
-// complete), which names and keywords match what is typed, and in what order. No DOM here:
-// suggest.js draws the list and writes the field; test/suggest.test.mjs runs this in node.
+// complete), which names and keywords match what is typed, and in what order. No DOM here: the
+// host's inspector draws the list and writes the field (the app's canvas-dock.tsx);
+// test/suggest.test.mjs runs this in node.
 
 import { continues, NAME, opens } from "./number.js";
 

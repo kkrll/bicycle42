@@ -5,14 +5,11 @@ import { elOf, stampOf } from "./stamps.js";
 import { between, boxBand, buildGeo, layoutHit, select } from "./select.js";
 import { startDrag, stepDrag } from "./drag.js";
 import { endEdit } from "./text.js";
-import { dock } from "./cursor.js";
-import { drawTree, reveal, T } from "./tree.js";
-import { drawComputed, syncFields } from "./inspector.js";
-import { hostView } from "./host.js";
+import { reveal } from "./tree.js";
+import { hostView, syncFields } from "./host.js";
 import { closePop } from "./bar.js";
-import { bandEl, bar, corner, cv, dimEl, ghostEl, hitEl, insEl, insp, labEl } from "./mount.js";
+import { bandEl, bar, corner, cv, dimEl, ghostEl, hitEl, insEl, labEl } from "./mount.js";
 import { modeOn } from "../mode.js";
-import { hosted } from "../panel.js";
 import { domVersion } from "../mount.js";
 
 // ── canvas: one frame ───────────────────────────────────────────────────────────────────────
@@ -43,14 +40,13 @@ const say = (el, text, x, y, cls) => {
 export function cvFrame(capturing) {
   if (!bar) return null;
   const show = S.enabled && !capturing && modeOn() !== "motion"; // motion mode has its own dock
-  // The host's inspector has the bar's part in its footer (host.js): none over the page then.
-  const barShown = show && !(C.on && hosted("canvas"));
-  if (bar._shown !== barShown) {
-    bar.hidden = corner.hidden = !(bar._shown = barShown);
-    if (!barShown && C.pop) closePop(); // (a list of the bar's, open when the host took the bar)
+  // Notes mode's chip and "?" (bar.js); in edit mode the host's inspector has the footer.
+  const chip = show && !C.on;
+  if (bar._shown !== chip) {
+    bar.hidden = corner.hidden = !(bar._shown = chip);
+    if (!chip && C.pop) closePop();
   }
-  const on = C.on && show, own = on && !hosted("canvas"); // (the host's own inspector: none here)
-  if (insp._shown !== own) insp.hidden = !(insp._shown = own);
+  const on = C.on && show;
   if (!on) {
     if (C.drawn) {
       cv.hidden = true;
@@ -60,8 +56,7 @@ export function cvFrame(capturing) {
   }
   if (!C.drawn) {
     cv.hidden = false;
-    C.drawn = T.need = true;
-    T.want = T.scroll; // a pane that was not displayed has lost its scroll: put it back
+    C.drawn = true;
   }
   const d = C.drag, now = performance.now();
   if (d && d.mode === "start") startDrag(d);
@@ -98,10 +93,7 @@ export function cvFrame(capturing) {
     C.moved = false;
     if (!C.over) {
       const h = C.zone ? null : pick(C.px, C.py);
-      if (h !== C.hover) {
-        C.hover = h;
-        T.need = true;
-      }
+      if (h !== C.hover) C.hover = h;
     }
   }
 
@@ -124,7 +116,7 @@ export function cvFrame(capturing) {
   }
   if (!band) gone(bandEl);
 
-  const floor = VP.h - dock();
+  const floor = VP.h;
   if (live && d.mode === "move") {
     const ox = VP.sx - d.sx, oy = VP.sy - d.sy;
     // The ghost follows the pointer but stays inside its parent (and the window).
@@ -139,18 +131,14 @@ export function cvFrame(capturing) {
   }
 
   // Labels: the live one sits 12px off the pointer; a gap's value sits above its band; the
-  // selection's size sits under it, unless the dock covers that spot.
+  // selection's size sits under it, unless that is out of the window.
   if (live && d.label) say(labEl, d.label, Math.min(d.x + 12, VP.w - 180), Math.min(d.y + 12, floor - 24), `lab live${d.snapped ? " snap" : ""}`);
   else if (band && !d) say(labEl, `${z.prop} ${Math.round(z.value)}`, band.x + band.w / 2, Math.max(10, band.y - 12), "lab live mid");
   else gone(labEl);
   if (seen && !d && !C.edit && r.y + r.h + 26 <= floor && r.y + r.h + 14 > 0) say(dimEl, `${Math.round(r.w)} × ${Math.round(r.h)}`, r.x + r.w / 2, r.y + r.h + 14, "lab dim mid");
   else gone(dimEl);
 
-  // The host's own inspector is drawn from the view (host.js); the layer's, hidden, is not drawn.
-  if (!hostView() && !C.collapsed) {
-    drawTree();
-    drawComputed();
-  }
+  hostView(); // the host's inspector: what it shows now (host.js)
   return boxes;
 }
 
