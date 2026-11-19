@@ -1,7 +1,8 @@
 // End-to-end tests for motion mode's dock when the host draws it (src/motion/host.js): the
 // harness plays a host that draws the dock (__harness.hostDocks), reads the views the overlay
 // sends (__harness.panel) and acts in the dock (__harness.act). The page is
-// harness/motion-page.html, as in motion.test.mjs. Run: bun run test
+// harness/motion-page.html, as in motion.test.mjs (which has what motion mode does on the page,
+// driven the same way). Run: bun run test
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
@@ -70,7 +71,6 @@ async function open({ delay = 150 } = {}) {
 
 test("hosted: the view lists what moves, and opening a row says everything the dock shows of it", async () => {
   const { page, f, errors, v } = await open();
-  assert.equal(await f.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelector(".m-dock").hidden), true);
   const names = v.rows.map((r) => r.group ? `#${r.group}` : r.text);
   for (const want of ["#Animations", "spin", "rise", "pulse", "card-in", "#Transitions", "#Scripts", "bob", "#Unused", "wiggle"]) assert.ok(names.includes(want), `${want} in ${names.join(" ")}`);
   // rise is played by two elements: they are listed under it, with ids of their own
@@ -115,7 +115,11 @@ test("hosted: each act changes the page and the next view; undo takes it back", 
   await act(page, { type: "timing", what: "duration", value: "900", done: false });
   await act(page, { type: "timing", what: "duration", value: "900", done: true });
   let w = await view(page, "v.open.timing.duration === 900 && v.undo");
-  assert.match(await adopted(f), /animation: 900ms cubic-bezier\(0\.2, 0\.8, 0\.2, 1\) 120ms 1 normal both running rise;/);
+  // (timing belongs to the element: its animation is written, not the keyframes)
+  const css = await adopted(f);
+  assert.match(css, /animation: 900ms cubic-bezier\(0\.2, 0\.8, 0\.2, 1\) 120ms 1 normal both running rise;/);
+  assert.match(css, /section\.hero|body > section/);
+  assert.doesNotMatch(css, /@keyframes/);
   assert.equal(w.open.dirty, true);
   // a choice of the "more" sheet
   await act(page, { type: "timing", what: "direction", value: "alternate", done: true });
@@ -180,16 +184,28 @@ test("hosted: play moves the playhead in the views; seek and step stop it at a f
   assert.equal((await view(page, "v.clock.pos !== null && Math.abs(v.clock.pos - 0.5) < 0.01")).clock.playing, false);
   await act(page, { type: "step", by: 0.1 });
   await view(page, "Math.abs(v.clock.pos - 0.6) < 0.01");
+  // A quarter of the speed: what is left of card-in (200ms) plays for 800ms, so a loaded machine
+  // still draws several frames of it.
+  await act(page, { type: "rate", rate: 0.25 });
+  await view(page, "v.rate === 0.25");
   const n = await views(page);
   await act(page, { type: "play" });
-  await view(page, "v.clock.playing");
-  await view(page, "!v.clock.playing && v.clock.pos > 0.99", 4000);
+  // (Any view since: the last one may already say it ended, on a machine that polls slowly.)
+  await page.waitForFunction((k) => window.__harness.panel.filter((m) => m.panel === "motion" && m.view).slice(k).some((m) => m.view.clock.playing), n);
+  const end = await view(page, "!v.clock.playing && v.clock.pos > 0.99", 4000);
   // one view a frame at most, each with the playhead where the page had it
   const sent = await views(page);
   assert.ok(sent - n > 3, `${sent - n} views while it played`);
-  // nothing new to say: nothing is sent
+  // Nothing new to say about the playhead: nothing is sent for it. (The list may still have
+  // something new: the page's frame-by-frame bar is listed once it has been seen to move for a
+  // while, which on a loaded machine can be now. Such a view says it, and the same clock.)
   await frames(f, 6);
-  assert.equal(await views(page), sent);
+  const after = await page.evaluate((k) => window.__harness.panel.filter((m) => m.panel === "motion" && m.view).slice(k).map((m) => m.view), sent - 1);
+  for (let i = 1; i < after.length; i++) {
+    const { clock: _, ...before } = after[i - 1], { clock, ...now } = after[i];
+    assert.deepEqual(clock, end.clock, "the playhead stays where it ended");
+    assert.notDeepEqual(now, before, `view ${i} after the end says nothing new`);
+  }
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -261,17 +277,12 @@ test("hosted: after a reload the view comes again, with the unsent edits and wor
   // motion mode comes back by itself; its dock is still the host's, and says what is unsent
   const w = await view(page, "v.on && v.note === 'slower' && v.rows.some((r) => r.sub && r.dirty)", 5000);
   assert.ok(w.rows.length > 0);
-  assert.equal(await f2.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelector(".m-dock").hidden), true);
+  assert.equal(await page.evaluate(() => window.__harness.mode), "motion");
   await f2.waitForFunction(() => document.adoptedStyleSheets.some((s) => [...s.cssRules].some((r) => /1200ms[^;]* rise;/.test(r.cssText))));
   // a host that lost its view asks for it again
   const n = await views(page);
   await act(page, { type: "resend" });
   await page.waitForFunction((k) => window.__harness.panel.filter((m) => m.panel === "motion" && m.view).length > k, n);
-  // given back, the layer's own dock is drawn again as it is now
-  await page.evaluate(() => window.__harness.hostDocks([]));
-  await f2.waitForFunction(() => !document.querySelector("b42-review").shadowRoot.querySelector(".m-dock").hidden);
-  assert.ok(await f2.evaluate(() => [...document.querySelector("b42-review").shadowRoot.querySelectorAll(".m-it .m-nm")].some((e) => e.textContent === "rise")));
-  assert.equal(await f2.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelector(".m-note").value), "slower");
   assert.deepEqual(errors, []);
   await page.close();
 });

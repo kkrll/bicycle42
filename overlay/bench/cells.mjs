@@ -97,9 +97,14 @@ async function resizeDrag({ page }) {
   await paced(170, WINDOW_MS - 150, (i) => page.mouse.move(x + 0.5 * (i < 85 ? i + 1 : 169 - i), y));
   await page.mouse.up();
 }
+/** Motion mode, its dock the host's (as the app's is: the overlay has none of its own), so the
+ *  views the dock is sent are part of what is measured. */
 const motionOn = async (page) => {
-  await page.evaluate(() => window.__b42.receive({ type: "mode", mode: "motion" }));
-  await page.waitForFunction(() => !document.querySelector("b42-review").shadowRoot.querySelector(".m-dock").hidden);
+  await page.evaluate(() => {
+    window.__b42.receive({ type: "docks", hosted: ["motion"] });
+    window.__b42.receive({ type: "mode", mode: "motion" });
+  });
+  await page.waitForFunction(() => document.documentElement.hasAttribute("data-b42-review"));
 };
 /** A card that bobs forever (the none+bob baseline is the page with it and no overlay). */
 const bob = ({ page }) => page.addStyleTag({ content: "#c7 { animation: bob 1.2s ease-in-out infinite; } @keyframes bob { 50% { transform: translateY(-6px); } }" });
@@ -153,7 +158,7 @@ export const CELLS = [
   { id: "canvas-selected", page: "heavy", enabled: true, setup: async ({ page }) => (await canvasOn(page), await click(page, "#c7")), ready: inspecting },
   { id: "canvas-after-drag", page: "heavy", enabled: true, setup: canvasDrag, ready: inspecting },
   { id: "canvas-drag", page: "heavy", enabled: true, setup: async ({ page }) => (await canvasOn(page), await clickPad(page, "#c7")), ready: inspecting, run: resizeDrag },
-  { id: "motion-selected", page: "heavy", enabled: true, setup: motionSelected, base: "none+bob", ready: (r) => !r.querySelector(".m-hd").hidden },
+  { id: "motion-selected", page: "heavy", enabled: true, setup: motionSelected, base: "none+bob", ready: (r) => !r.querySelector(".m-tag").hidden },
   { id: "pins-scroll", page: "heavy", pins: PLACED, ready: (r) => r.querySelectorAll(".pin:not(.approx)").length === 20, run: wheel, base: "none-wheel", after: () => window.scrollY > 3000 },
   { id: "pins200-scroll", page: "heavy", pins: MANY, ready: (r) => r.querySelectorAll(".pin:not(.approx)").length > 5, run: wheel, base: "none-wheel", after: () => window.scrollY > 3000 },
   { id: "pin-working", page: "heavy", pins: WORKING, ready: (r) => r.querySelectorAll(".pin.working:not(.approx)").length === 1 },
