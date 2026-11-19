@@ -88,7 +88,7 @@ src/globals.d.ts    what the type check cannot read from the .js files
   of null. "show" scrolls the element into view and flashes it (it selects nothing). An outline
   of an element that moves with the document's scroll alone is drawn in a second element of the
   layer's, `b42-marks`: absolute at the document's origin (not fixed, not in the top layer), in
-  the document only while it has one to show, so the compositor scrolls it with the page in the
+  the document from the first one it shows until "stop", so the compositor scrolls it with the page in the
   same frame. One in a scroller of its own, or fixed or sticky (`anchored` in
   `src/facts/host.js`), is placed in the window every frame, as the other outlines are (a
   scroller's scroll asks for a frame). Like the hover outline they take no pointer, are in no

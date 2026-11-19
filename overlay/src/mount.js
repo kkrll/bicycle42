@@ -18,8 +18,8 @@ import STYLES from "./styles.css"; // its text: the build loads a stylesheet as 
 export let hostEl, root, boxes, pinsEl, cursorStyle, tip, variantsEl, variantStyle;
 // Outlines that move with the page and not with the window: a second element of the layer's, in
 // the document's flow (absolute at its origin, not fixed, not in the top layer), so the compositor
-// scrolls them with what they outline in the same frame. Put in the document only when it has
-// something to show (docLayer in render.js).
+// scrolls them with what they outline in the same frame. Put in the document the first time it
+// has something to show (docLayer in render.js), taken out when the facts pane stops.
 export let docHost, docBoxes;
 export let domVersion = 0; // bumped on every DOM mutation; pins re-search only when it changes
 export let treeVersion = 0; // bumped when elements are added or removed (not for a text): variant groups are looked for again

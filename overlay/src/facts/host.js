@@ -225,6 +225,7 @@ function stop() {
   F.anchored = new Map();
   F.kind = "";
   outline(null);
+  docHost.remove(); // (the layer that scrolls with the document: empty now, and none of the page's)
   if (was) sendView("facts", null);
 }
 

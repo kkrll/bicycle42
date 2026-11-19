@@ -280,10 +280,14 @@ test("marks never trail a scroll: those that scroll with the document are in its
   await frames(f, 3);
   const inner = await rect(f, "#inner");
   assert.ok((await marks(f)).some((o) => o.x === inner.x && o.y === inner.y && o.w === inner.w), JSON.stringify(await marks(f)));
-  // Off: the document's layer is out of the page.
+  // Off: the document's layer is empty (and stays: a row pointed at is no change to the page's
+  // tree); the pane's stop takes it out.
   await act(page, { type: "marks", on: false });
   await until(page, "(v) => v.marks === false");
   await frames(f);
+  assert.equal(await f.evaluate(() => document.querySelector("b42-marks")?.shadowRoot.querySelector(".boxes").childElementCount), 0);
+  await act(page, { type: "stop" });
+  await page.waitForFunction(() => window.__harness.view("facts") === null);
   assert.equal(await f.evaluate(() => !!document.querySelector("b42-marks")), false);
   assert.deepEqual(errors, []);
   await page.close();

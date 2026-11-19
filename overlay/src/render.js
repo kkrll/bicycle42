@@ -103,14 +103,13 @@ function pinAt(p, now) {
   return m.at && (m.fixed ? m.at : [m.at[0] - VP.sx, m.at[1] - VP.sy]);
 }
 
-/** The layer that scrolls with the document: in it while it has outlines to show (`want`), out of
- *  it (and empty) when not. Where its origin is in the window now, or null when it is not used. */
+/** The layer that scrolls with the document: put in it the first time it has outlines to show
+ *  (`want`), emptied when it has none (the facts pane's "stop" takes it out: facts/host.js), so a
+ *  row pointed at and left is no change to the page's tree. Where its origin is in the window
+ *  now, or null when it shows nothing. */
 function docLayer(want) {
   if (!want) {
-    if (docHost.isConnected) {
-      pool(docBoxes, 0, makeBox);
-      docHost.remove();
-    }
+    if (docBoxes.firstChild) pool(docBoxes, 0, makeBox);
     return null;
   }
   if (docHost.parentNode !== document.documentElement) document.documentElement.appendChild(docHost);
