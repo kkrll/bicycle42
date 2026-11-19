@@ -65,7 +65,11 @@ const view = (page) => page.evaluate(() => window.__harness.panel.filter((m) => 
 const until = (page, fn) => page.waitForFunction(`(() => { const v = window.__harness.panel.filter((m) => m.panel === "canvas" && m.view).at(-1)?.view; return !!v && (${fn})(v); })()`);
 const act = (page, a) => page.evaluate((x) => window.__harness.act("canvas", x), a);
 const style = (f, sel, prop) => f.evaluate(([s, p]) => getComputedStyle(document.querySelector(s)).getPropertyValue(p), [sel, prop]);
-const undoSteps = (f) => f.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelector(".undo").hidden);
+/** The layer's bar and the "?" in its corner: shown or not. */
+const barShown = (f) => f.evaluate(() => {
+  const r = document.querySelector("b42-review").shadowRoot;
+  return { bar: !r.querySelector(".bar").hidden, corner: !r.querySelector(".corner").hidden };
+});
 const SECOND = "#plans article:nth-of-type(2)";
 
 test("hosted: the layer shows no inspector and makes no room; the view names the selection, its rows, values and variables", async () => {
@@ -75,7 +79,7 @@ test("hosted: the layer shows no inspector and makes no room; the view names the
     bar: document.querySelector("b42-review").shadowRoot.querySelector(".bar").hidden,
     room: getComputedStyle(document.documentElement).paddingBottom,
   }));
-  assert.deepEqual(s, { insp: true, bar: false, room: "0px" });
+  assert.deepEqual(s, { insp: true, bar: true, room: "0px" }); // (the bar is the host's footer)
   let v = await view(page);
   assert.equal(v.sel, null);
   assert.equal(v.global, true, "nothing selected: the stylesheet");
@@ -84,7 +88,10 @@ test("hosted: the layer shows no inspector and makes no room; the view names the
 
   await clickAt(page, f, SECOND, 100, 80);
   v = await until(page, "(v) => v.sel && v.computed.length").then(() => view(page));
-  assert.match(v.sel.label, /^Card · Pro/);
+  // What it is, not what it says: no words of the page in the header.
+  assert.equal(v.sel.label, await f.evaluate((s) => { const e = document.querySelector(s); return `${e.localName}${e.id ? `#${e.id}` : ""}.${e.getAttribute("class").trim().split(/\s+/).slice(0, 4).join(".")}`; }, SECOND));
+  assert.equal(v.sel.tag, v.sel.label);
+  assert.doesNotMatch(v.sel.label, /Pro|small teams/);
   assert.equal(v.global, false);
   assert.equal(v.classes.text, await f.evaluate((s) => document.querySelector(s).getAttribute("class") ?? "", SECOND));
   // its row is among those sent, opened down to it, and named as the selection
@@ -180,7 +187,7 @@ test("hosted values: a computed value set is one undo step; a scrub is live and 
   await act(page, { type: "value", id, prop: "padding", value: "24px" });
   await f.waitForFunction((s) => getComputedStyle(document.querySelector(s)).paddingTop === "24px", SECOND);
   await until(page, `(v) => v.css.text === "padding: 24px;"`);
-  assert.equal(await undoSteps(f), false, "an undo step at once");
+  await until(page, "(v) => v.batch.undo && v.batch.edits === 1"); // an undo step at once
   // a value the browser does not take is not written
   await act(page, { type: "value", id, prop: "padding", value: "lots" });
   await frames(f, 3);
@@ -215,6 +222,66 @@ test("hosted values: a computed value set is one undo step; a scrub is live and 
   assert.deepEqual(note.edits.map((e) => e.kind), ["style"]);
   assert.equal(note.edits[0].css, "padding: 24px;\nwidth: 240px;");
   assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted: the bar is the inspector's footer: none on the page; the view says what it would, its acts are its controls", async () => {
+  const { page, f, errors } = await open();
+  await frames(f);
+  assert.deepEqual(await barShown(f), { bar: false, corner: false });
+  let v = await view(page);
+  assert.deepEqual(v.batch, { edits: 0, undo: false, redo: false, note: "", msg: "", status: "" });
+  // Send with nothing edited: refused, for a moment.
+  await act(page, { type: "send" });
+  await until(page, `(v) => v.batch.msg.startsWith("Nothing to send yet")`);
+  await until(page, `(v) => v.batch.msg === ""`); // (it goes by itself)
+
+  // An edit and the note's words: counted, kept as the layer's own field's (the draft has them).
+  await clickAt(page, f, SECOND, 100, 80);
+  const { sel: { id } } = await until(page, "(v) => v.sel").then(() => view(page));
+  await act(page, { type: "value", id, prop: "padding", value: "24px" });
+  await act(page, { type: "note", text: "roomier\nplease" });
+  v = await until(page, `(v) => v.batch.edits === 1 && v.batch.note === "roomier please"`).then(() => view(page));
+  assert.equal(v.batch.undo, true);
+  await page.waitForFunction(() => window.__harness.draft?.note === "roomier please");
+  // Reset: no edits, one step; undo brings them back.
+  await act(page, { type: "reset" });
+  await until(page, "(v) => v.batch.edits === 0 && v.batch.undo && !v.css.text");
+  assert.notEqual(await style(f, SECOND, "padding-top"), "24px");
+  await act(page, { type: "undo" });
+  await until(page, "(v) => v.batch.edits === 1 && v.batch.redo");
+  assert.equal(await style(f, SECOND, "padding-top"), "24px");
+
+  // Send: a note with the words, the batch empty again, and the line says it was sent.
+  await act(page, { type: "send" });
+  await page.waitForFunction(() => window.__harness.notes.length === 1);
+  const note = await page.evaluate(() => window.__harness.notes[0]);
+  assert.equal(note.text, "roomier please");
+  assert.deepEqual(note.edits.map((e) => e.kind), ["style"]);
+  v = await until(page, "(v) => v.batch.edits === 0 && v.batch.note === '' && v.batch.status.startsWith('Sent')").then(() => view(page));
+  assert.equal(v.batch.undo, false);
+  // Back in notes mode with no unsent edits: no bar; nothing of the layer's bar came back in canvas mode.
+  await frames(f);
+  assert.deepEqual(await barShown(f), { bar: false, corner: false });
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("not hosted: the bar is the layer's, over the page, as it always was", async () => {
+  const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  await page.goto(`${base}/?delay=150&page=canvas`);
+  const f = await pageFrame(page);
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
+  await frames(f, 3);
+  assert.deepEqual(await barShown(f), { bar: true, corner: true });
+  // Hosted while it is up: it goes; given back: it is there again.
+  await page.evaluate(() => window.__harness.hostDocks(["canvas"]));
+  await page.waitForFunction(() => window.__harness.panel.some((m) => m.panel === "canvas" && m.view));
+  await frames(f);
+  assert.deepEqual(await barShown(f), { bar: false, corner: false });
+  await page.evaluate(() => window.__harness.hostDocks([]));
+  await frames(f, 3);
+  assert.deepEqual(await barShown(f), { bar: true, corner: true });
   await page.close();
 });
 

@@ -2,7 +2,9 @@
 // shows, and what the reviewer can do in it. Types only.
 //
 // The overlay keeps everything that is the page's: the selection and its outlines, the handles
-// and the drags, the bar over the page, the batch, its undo and its previews, sending the note.
+// and the drags, the batch, its undo and its previews, the note's words, sending the note. The
+// bar it draws over the page when the inspector is its own is the host's inspector's footer
+// instead (`batch`, and the acts "note", "reset", "undo", "redo", "send"): no bar on the page.
 // The host's inspector is a drawing of `CanvasView` and a source of `CanvasAct`s; it keeps
 // nothing the overlay does not also have, so a reload of either side loses nothing.
 //
@@ -81,9 +83,10 @@ export type CanvasView = {
    *  answers (undo, redo, a value set from the computed list, a drag on the page, a new
    *  selection): a field being typed in takes the view's text then. */
   force: number
-  /** The selection: its id (the acts that edit it name it), its plain name for the header, and
-   *  whether this batch hides it. Null when nothing is selected. */
-  sel: { id: number; label: string; hidden: boolean } | null
+  /** The selection: its id (the acts that edit it name it), what it is for the header (its
+   *  component's name when the page says one, else `tag`; never its words), `tag` as the tree
+   *  names it ("article.card.pro"), and whether this batch hides it. Null when nothing is selected. */
+  sel: { id: number; label: string; tag: string; hidden: boolean } | null
   /** The stylesheet is shown (Global), not the selection's styles (Element): nothing is selected,
    *  or the reviewer chose Global. */
   global: boolean
@@ -98,6 +101,25 @@ export type CanvasView = {
    *  root's while Global is shown. */
   tokens: CanvasToken[]
   tree: CanvasTree
+  /** What the bar over the page says when the inspector is the overlay's, for the footer. */
+  batch: CanvasBatch
+}
+
+export type CanvasBatch = {
+  /** Unsent edits in this batch (the Global stylesheet with rules counts as one): "No edits",
+   *  "3 edits". Send and Reset do nothing without one. */
+  edits: number
+  /** There is a step to undo, to redo. */
+  undo: boolean
+  redo: boolean
+  /** The note's words as typed so far: they go with the batch ("Add a note…"). */
+  note: string
+  /** What could not be done, for a moment (a send refused, a value too long): a warning. "" for none. */
+  msg: string
+  /** What the line says in place of the note when it is empty and not typed in: "Editing text"
+   *  (text edited in place on the page), the note sent last until the agent is done with it, a
+   *  note done or failed and its preview gone. "" for nothing. */
+  status: string
 }
 
 /** One thing done in the inspector. `id` is a row's or the selection's (CanvasRow.id). */
@@ -127,8 +149,12 @@ export type CanvasAct =
   | { type: "revert" }
   | { type: "undo" }
   | { type: "redo" }
-  /** Send the batch (mod+Enter); `bg` to the background lane (alt). */
+  /** Send the batch (mod+Enter, the footer's Send); `bg` to the background lane (alt). */
   | { type: "send"; bg?: boolean }
+  /** Every unsent edit removed, as one undo step (the bar's Reset). */
+  | { type: "reset" }
+  /** The note's words as typed in the footer, whole. */
+  | { type: "note"; text: string }
   /** Esc outside a field: the bar's open list closes, else the selection goes, else Annotate. */
   | { type: "escape" }
   /** Delete and mod+D on the tree: the selection hidden (a copy taken out), or duplicated. */

@@ -9,6 +9,7 @@ import { dock } from "./cursor.js";
 import { drawTree, reveal, T } from "./tree.js";
 import { drawComputed, syncFields } from "./inspector.js";
 import { hostView } from "./host.js";
+import { closePop } from "./bar.js";
 import { bandEl, bar, corner, cv, dimEl, ghostEl, hitEl, insEl, insp, labEl } from "./mount.js";
 import { modeOn } from "../mode.js";
 import { hosted } from "../panel.js";
@@ -42,7 +43,12 @@ const say = (el, text, x, y, cls) => {
 export function cvFrame(capturing) {
   if (!bar) return null;
   const show = S.enabled && !capturing && modeOn() !== "motion"; // motion mode has its own dock
-  if (bar._shown !== show) bar.hidden = corner.hidden = !(bar._shown = show);
+  // The host's inspector has the bar's part in its footer (host.js): none over the page then.
+  const barShown = show && !(C.on && hosted("canvas"));
+  if (bar._shown !== barShown) {
+    bar.hidden = corner.hidden = !(bar._shown = barShown);
+    if (!barShown && C.pop) closePop(); // (a list of the bar's, open when the host took the bar)
+  }
   const on = C.on && show, own = on && !hosted("canvas"); // (the host's own inspector: none here)
   if (insp._shown !== own) insp.hidden = !(insp._shown = own);
   if (!on) {
