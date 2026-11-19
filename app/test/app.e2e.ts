@@ -323,10 +323,13 @@ async function main() {
   const CARD = "#plans article:nth-of-type(2)"
   // The mode switch is the top bar's: Preview | Notes | Edit, and it follows the page's own keys.
   const modeShown = () => ui(`document.querySelector('.mode[aria-checked="true"]')?.dataset.mode`) as Promise<string>
-  const inspector = () => js(`${shadow}.querySelector('.insp')?.checkVisibility() ?? false`) as Promise<boolean>
+  // Edit mode's inspector is the window's (HOSTED_DOCKS): the page shows none of its own.
+  const inspector = () => ui(`!!document.querySelector('.dock .cd')?.checkVisibility()`) as Promise<boolean>
+  const pageInspector = () => js(`${shadow}.querySelector('.insp')?.checkVisibility() ?? false`) as Promise<boolean>
   check("the top bar shows Annotate, and the page has no mode switch of its own", (await modeShown()) === "notes" && (await ui(`document.querySelector('.mode[aria-checked="true"]').textContent`)) === "Annotate" && state().review.mode === "notes" && (await js(`!${shadow}.querySelector('.seg, .m-brush')`)) === true)
   await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
-  check("Edit in the top bar opens the inspector on the page", (await until(inspector)) === true && (await until(async () => (await modeShown()) === "edit")) === true && state().review.mode === "edit")
+  check("Edit in the top bar opens the window's inspector, and the page has none of its own", (await until(inspector)) === true && (await until(async () => (await modeShown()) === "edit")) === true && state().review.mode === "edit" && !(await pageInspector()) && state().review.docks.includes("canvas"))
+  check("…and the page makes no room for one", (await js(`getComputedStyle(document.documentElement).paddingBottom`)) === "0px")
   wc.sendInputEvent({ type: "keyDown", keyCode: "P", modifiers: [mod] })
   check("mod+P on the page goes back to Annotate, and the top bar follows", (await until(async () => !(await inspector()) && (await modeShown()) === "notes")) === true)
   // Resting the pointer on a control shows what it does and its key, in the bar; the chosen
@@ -362,13 +365,35 @@ async function main() {
   check("the pencil turns review on, in Annotate", (await until(async () => state().review.brush && (await modeShown()) === "notes" && (await ui(`document.querySelector('[data-action="draw"]').getAttribute("aria-pressed")`)) === "true")) === true)
   await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
   check("…and Edit turns the pencil off", (await until(async () => (await inspector()) && !state().review.brush && state().review.mode === "edit")) === true)
+  // The window's inspector drives the real page: an element clicked on the page is its selection;
+  // a row of its tree selects another; a style typed in it changes the page; mod+Enter sends.
+  const windowDbg = win.webContents.debugger
+  windowDbg.attach("1.3")
+  await windowDbg.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true })
+  const header = () => ui(`document.querySelector('.cd-path')?.textContent ?? ""`) as Promise<string>
   await clickAt(`document.querySelector(${JSON.stringify(CARD)})`)
-  await clickAt(`${shadow}.querySelector('.css')`)
-  await dbg.sendCommand("Input.insertText", { text: "padding: 32px;" })
-  await sleep(200)
+  check("a card clicked on the page is the inspector's selection, its row in the tree", (await until(async () => (await header()).startsWith("Card · Pro"))) === true && (await until(() => ui(`document.querySelector('.cd-trow.on .cd-tt')?.textContent === "article"`))) === true, await header())
+  // (the page's own outline follows the window's choice: the one before it in the tree, then back)
+  await ui(`[...document.querySelectorAll('.cd-trow')].find((r) => r.classList.contains("on")).previousElementSibling.click()`)
+  const firstCard = "#plans article:nth-of-type(1)"
+  check("a row clicked in the tree selects its element on the page", (await until(async () => !(await header()).startsWith("Card · Pro"))) === true && (await until(() => js(`(() => { const o = ${shadow}.querySelector('.box.csel'); const r = document.querySelector(${JSON.stringify(firstCard)}).getBoundingClientRect(); return !!o && Math.abs(o.getBoundingClientRect().width - r.width) < 2 })()`))) === true, await header())
+  await ui(`[...document.querySelectorAll('.cd-trow')].find((r) => r.classList.contains("on")).nextElementSibling.click()`)
+  await until(async () => (await header()).startsWith("Card · Pro"))
+  check("computed values are the page's", (await until(() => ui(`document.querySelector('.cd-cval[data-prop="padding"]')?.value === "16px"`))) === true)
+  // The round trip a drag in the inspector waits for (dockPing's way: an act there, its answer back).
+  const pings = (await ui(`(async () => { const out = []; for (let i = 0; i < 20; i++) out.push(await new Promise((done) => { const id = 9000 + i, t0 = performance.now(); const off = window.b42.onPanel((m) => { if (m.pong === id) { off(); done(performance.now() - t0) } }); window.b42.invoke("panel", { panel: "canvas", act: { type: "ping", id } }) })); return out.sort((a, b) => a - b) })()`)) as number[]
+  console.log(`     dock round trip, 20 pings: median ${pings[10]!.toFixed(1)} ms, worst ${pings[19]!.toFixed(1)} ms`)
+  check("the overlay answers the window's inspector", pings.length === 20 && pings[10]! < 100, pings.map((p) => p.toFixed(1)).join(" "))
+  await ui(`document.querySelector('.cd-css').focus()`)
+  const typedAt = Date.now()
+  await windowDbg.sendCommand("Input.insertText", { text: "padding: 32px;" })
+  check("a style typed in the window's inspector changes the page", (await until(() => js(`getComputedStyle(document.querySelector(${JSON.stringify(CARD)})).paddingLeft === "32px"`))) === true)
+  console.log(`     typed in the window to the page restyled: ${Date.now() - typedAt} ms (polled every 50 ms)`)
+  check("…and the inspector says what the page made of it", (await until(() => ui(`document.querySelector('.cd-cval[data-prop="padding"]')?.value === "32px" && document.querySelector('.cd-crow.mine .cd-cp')?.textContent === "padding"`))) === true)
   const before4 = prompts.length
-  wc.sendInputEvent({ type: "keyDown", keyCode: "Enter", modifiers: [mod] })
-  wc.sendInputEvent({ type: "keyUp", keyCode: "Enter", modifiers: [mod] })
+  const press = (type: string) => windowDbg.sendCommand("Input.dispatchKeyEvent", { type, key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, modifiers: process.platform === "darwin" ? 4 : 2 })
+  await press("rawKeyDown")
+  await press("keyUp")
   await until(() => prompts.length === before4 + 1)
   const canvas = prompts[before4]?.body as { text: string; files: { uri: string; name: string }[] } | undefined
   const NAME = '1 canvas edit: styled "Card · Pro For small teams"'
@@ -399,6 +424,54 @@ async function main() {
   )
   const pinsShown = (await js(`JSON.stringify([...${shadow}.querySelectorAll('.pin')].map((p) => p.textContent))`)) as string
   check("the canvas note has its pin on the page", JSON.parse(pinsShown).includes("4"), pinsShown)
+
+  // ── the window's inspector by hand: a scrub, ↑ on a value, suggestions shown on the page, undo ──
+  await clickAt(`document.querySelector(${JSON.stringify(CARD)})`)
+  await until(async () => (await header()).startsWith("Card · Pro"))
+  const cardPx = (prop: string) => js(`parseFloat(getComputedStyle(document.querySelector(${JSON.stringify(CARD)})).${prop})`) as Promise<number>
+  const winMouse = (type: string, x: number, y: number, extra = {}) => windowDbg.sendCommand("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1, ...extra })
+  const winKey = async (key: string, code: number, modifiers = 0) => {
+    await windowDbg.sendCommand("Input.dispatchKeyEvent", { type: "rawKeyDown", key, code: key, windowsVirtualKeyCode: code, modifiers })
+    await windowDbg.sendCommand("Input.dispatchKeyEvent", { type: "keyUp", key, code: key, windowsVirtualKeyCode: code, modifiers })
+  }
+  const width0 = Number.parseFloat((await ui(`document.querySelector('.cd-cval[data-prop="width"]').value`)) as string)
+  const grip = (await ui(`(() => { const r = [...document.querySelectorAll('.cd-cp')].find((b) => b.textContent === "width").getBoundingClientRect(); return { x: Math.round(r.x + 20), y: Math.round(r.y + r.height / 2) } })()`)) as { x: number; y: number }
+  await winMouse("mouseMoved", grip.x, grip.y, { button: "none" })
+  await winMouse("mousePressed", grip.x, grip.y)
+  for (let i = 1; i <= 6; i++) await winMouse("mouseMoved", grip.x + i * 4, grip.y, { buttons: 1 })
+  check("a drag on a computed value's name scrubs it on the page as it moves", (await until(async () => Math.abs((await cardPx("width")) - (width0 + 24)) < 0.6)) === true, `${width0} → ${await cardPx("width")}`)
+  await winMouse("mouseReleased", grip.x + 24, grip.y)
+  check("…and the scrub is written into Element styles", (await until(() => ui(`document.querySelector('.cd-css').value === "width: ${width0 + 24}px;"`))) === true, (await ui(`document.querySelector('.cd-css').value`)) as string)
+  await ui(`(() => { const f = document.querySelector('.cd-cval[data-prop="padding"]'); f.focus(); f.setSelectionRange(1, 1) })()`)
+  await winKey("ArrowUp", 38, 8) // shift: ten
+  check("shift+↑ on a computed value steps the page's number by ten", (await until(async () => (await cardPx("paddingLeft")) === 42)) === true, String(await cardPx("paddingLeft")))
+  // Suggestions are the window's own, at once: a name, then its values, each shown on the page.
+  await ui(`(() => { const f = document.querySelector('.cd-css'); f.focus(); f.setSelectionRange(f.value.length, f.value.length) })()`)
+  await windowDbg.sendCommand("Input.insertText", { text: "\nmarg" })
+  check("typing a property's name in the window lists the names, with no wait for the page", (await ui(`document.querySelector('.cd-sug .cd-sg.on')?.textContent`)) === "margin")
+  check("…inside the inspector's box, never over the page", (await ui(`(() => { const s = document.querySelector('.cd-sug').getBoundingClientRect(), d = document.querySelector('.dock').getBoundingClientRect(); return s.top >= d.top && s.bottom <= d.bottom && s.left >= d.left && s.right <= d.right })()`)) === true)
+  await winKey("Tab", 9)
+  check("taking a name opens its values", (await until(() => ui(`document.querySelector('.cd-css').value.endsWith("margin: ") && document.querySelectorAll('.cd-sug .cd-sg').length > 2`))) === true)
+  const marginBefore = await cardPx("marginLeft")
+  await winKey("ArrowDown", 40)
+  await winKey("ArrowDown", 40)
+  const shownValue = (await ui(`document.querySelector('.cd-sug .cd-sg.on .cd-sgn').textContent`)) as string
+  check("arrowing through the values shows each on the page", (await until(() => js(`getComputedStyle(document.querySelector(${JSON.stringify(CARD)})).marginLeft !== ${JSON.stringify(`${marginBefore}px`)} || ${JSON.stringify(shownValue)} === "0"`))) === true, shownValue)
+  await winKey("Escape", 27)
+  check("…and Escape puts back what was typed, on the page too", (await until(async () => (await cardPx("marginLeft")) === marginBefore && (await ui(`!document.querySelector('.cd-sug') && document.querySelector('.cd-css').value.endsWith("\\nmargin: ")`)) === true)) === true)
+  // Back to what was sent: the typed line out, then undo the ↑ and the scrub.
+  await ui(`(() => { const f = document.querySelector('.cd-css'); f.select() })()`)
+  await windowDbg.sendCommand("Input.insertText", { text: `width: ${width0 + 24}px;\npadding: 42px;` })
+  await ui(`document.querySelector('.cd-css').blur()`)
+  const last = (await ui(`document.querySelector('.cd-css').value`)) as string
+  await winKey("z", 90, process.platform === "darwin" ? 4 : 2)
+  check("mod+Z in the inspector takes a step back", (await until(async () => (await ui(`document.querySelector('.cd-css').value`)) !== last)) === true, last)
+  // (Typed slowly, the line came and went in steps of its own: undo walks back through them.)
+  for (let i = 0; i < 6 && (await ui(`document.querySelector('.cd-css').value`)) !== ""; i++) {
+    await winKey("z", 90, process.platform === "darwin" ? 4 : 2)
+    await sleep(150)
+  }
+  check("…a step at a time, back to the page as it was sent", (await until(async () => Math.abs((await cardPx("width")) - width0) < 0.6 && (await cardPx("paddingLeft")) === 32 && (await ui(`document.querySelector('.cd-css').value`)) === "")) === true, `${await cardPx("width")} ${await cardPx("paddingLeft")}`)
 
   // ── "/" in the message box: the app's own commands first, then the site's ──────────────────
   const box = `document.querySelector(".composer textarea")`
@@ -464,7 +537,10 @@ async function main() {
   await ui(`document.querySelector('[data-device="phone"]').click()`)
   await until(() => page.view.getBounds().width === 390)
   const narrow = page.view.getBounds()
-  check("the phone switch gives the page a phone's box, in the middle of its room", narrow.width === 390 && narrow.height <= 844 && narrow.x > wide.x && state().page.device === "phone", JSON.stringify(narrow))
+  // (Edit mode is still on: its inspector, the window's, is the column beside the page, which keeps left.)
+  const column = (await ui(`(() => { const r = document.querySelector('.dock .cd').getBoundingClientRect(); return { x: r.x, width: r.width, height: r.height, stacked: getComputedStyle(document.querySelector('.cd-body')).flexDirection === "column" } })()`)) as { x: number; width: number; height: number; stacked: boolean }
+  check("the phone switch gives the page a phone's box, and Edit's inspector the column beside it", narrow.width === 390 && narrow.height <= 844 && state().page.device === "phone" && column.x >= narrow.x + narrow.width && column.height > 600, `${JSON.stringify(narrow)} ${JSON.stringify(column)}`)
+  check("…tall and narrow: the tree above the styles", column.stacked, JSON.stringify(column))
   win.setSize(1440, 900) // (headless: the view's renderer hears of its size with the window's)
   await sleep(200)
   win.setSize(1441, 900)

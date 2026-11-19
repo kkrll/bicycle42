@@ -11,7 +11,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { test } from "node:test"
-import type { ChatEvent } from "../src/shared/types"
+import { HOSTED_DOCKS, type ChatEvent } from "../src/shared/types"
 import { start, until, type FakeReply, type FakeServer } from "./fake-server"
 import { testShell } from "./stubs/host"
 
@@ -2161,8 +2161,15 @@ test("a dock the window draws: the overlay is told after every state, its views 
   }
 })
 
-test("no dock is the window's unless the shell says so: the overlay is told nothing and draws its own", async () => {
-  const h = await boot()
+test("the window draws HOSTED_DOCKS unless the shell says otherwise; told none, the overlay is told nothing and draws its own", async () => {
+  const d = await boot()
+  try {
+    await d.ready()
+    assert.deepEqual(d.snap().review.docks, [...HOSTED_DOCKS])
+  } finally {
+    await d.close()
+  }
+  const h = await boot({ docks: [] })
   try {
     await h.ready()
     h.page.message({ type: "ready", url: `${SITE}/`, viewport: { w: 800, h: 600, dpr: 1, scrollX: 0, scrollY: 0 } })

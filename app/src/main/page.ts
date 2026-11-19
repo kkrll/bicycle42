@@ -48,6 +48,9 @@ export type Page = {
    *  minimised window is throttled like a background tab. */
   holdFrames(): () => void
   focus(): void
+  /** The reviewer sent from a dock the window draws (its mod+Enter is the window's, not this
+   *  view's): the note that follows counts as one an Enter here sent, once (see the note check). */
+  armNote(): void
   /** The browser's developer tools for the page, in a window of their own. */
   openDevTools(): void
   dispose(): void
@@ -434,6 +437,10 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     busy,
     holdFrames,
     focus: () => void (gone() || wc.focus()),
+    armNote() {
+      enterAt = Date.now()
+      holdForInput()
+    },
     // The overlay is the page's preload, not a debugger's: open or closed, the tools leave it be.
     openDevTools: () => void (gone() || wc.openDevTools({ mode: "detach" })),
     dispose() {

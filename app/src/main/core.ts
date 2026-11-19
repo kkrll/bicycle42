@@ -1820,6 +1820,9 @@ export function createCore(host: Host): Core {
       // only something with an act in it: the overlay reads the rest.
       const a = act as { panel?: unknown; act?: unknown } | null
       if (!a || !isDock(a.panel) || typeof a.act !== "object" || a.act === null) return
+      // Sending from the window's dock is the reviewer's own key in the window: the note it
+      // makes the overlay send is let through as one an Enter in the page would be.
+      if ((a.act as { type?: unknown }).type === "send") page?.armNote()
       page?.send({ type: "panel", panel: a.panel, act: a.act } as Parameters<Page["send"]>[0])
     },
     clearNotes() {

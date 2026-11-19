@@ -73,6 +73,7 @@ export function testShell(dataDir: string, opts: { docks?: ("canvas" | "motion")
     busy: async () => false,
     holdFrames: () => () => {},
     focus() {},
+    armNote() {},
     openDevTools() {},
     dispose() {},
   }

@@ -61,7 +61,9 @@ src/globals.d.ts    what the type check cannot read from the .js files
   frame at most) and takes what the host's dock asks with `onAct`. Everything that is the page's
   stays here: the selection, the edits and their undo, playing, sending. In the harness,
   `__harness.hostDocks(["motion"])` plays such a host, `__harness.act(panel, act)` its dock, and
-  `__harness.panel` holds what the overlay sent.
+  `__harness.panel` holds what the overlay sent. Canvas's is `src/canvas/host.js`: the view is
+  made in the frames the layer's inspector would be drawn in, the acts call what its fields, rows
+  and keys call (`test/canvas-hosted.test.mjs`).
 
 ![harness](docs/harness.png)
 

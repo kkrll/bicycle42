@@ -97,6 +97,8 @@ const SHOTS = [
   { name: "phone", mock: "review", query: "&device=phone" },
   { name: "dock", mock: "review", query: "&docks=motion&mode=motion" },
   { name: "phone-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit" },
+  // Edit mode's inspector, drawn by the window under a desktop's page (mock-canvas.ts: a card selected).
+  { name: "canvas-dock", mock: "review", query: "&docks=canvas&mode=edit" },
   { name: "collapsed", mock: "review", run: [click("[data-action=panel]")] },
   { name: "busy", mock: "busy", wait: 1500 },
   { name: "permission", mock: "permission" },

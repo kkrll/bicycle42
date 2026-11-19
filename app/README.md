@@ -263,13 +263,17 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   `DOCKS` in `renderer/dock.tsx`; the window puts it under the page (its top edge drags, as the
   panel's side does) or, beside a phone's page, in the column between the page and the panel.
   What a view and an act carry is each dock's own file: `overlay/protocol-motion.ts`,
-  `overlay/protocol-canvas.ts`. No dock is hosted yet.
+  `overlay/protocol-canvas.ts`. Hosted now: Edit's inspector (`renderer/canvas-dock.tsx`, its own
+  `canvas-dock.css`; the overlay's side is `overlay/src/canvas/host.js`). Its fields are its own
+  while typed in and its suggestions are worked out here (the overlay's pure `suggest-model.js`,
+  `number.js`, `css-data.js`, and this window's `CSS.supports`), so typing never waits for the
+  page; sending from it (mod+Enter) lets the one note through main's Enter check (`armNote`).
 - **A view is the page's text.** A class, a keyframe's name, an element's words: the window draws
   them as text and never as markup, and keeps nothing of the page's that the overlay does not
   also have (a reload of either side loses nothing). `dockPing` measures the way to the overlay
   and back.
-- Shots: `phone`, `dock`, `phone-dock` (the mock takes `&device=phone`, `&docks=motion,canvas`,
-  `&mode=edit|motion`).
+- Shots: `phone`, `dock`, `phone-dock`, `canvas-dock` (the mock takes `&device=phone`,
+  `&docks=motion,canvas`, `&mode=edit|motion`; the inspector's sample view is `mock-canvas.ts`).
 
 ## What a canvas note sends
 

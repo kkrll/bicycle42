@@ -28,6 +28,7 @@ import type {
   Shortcut,
   SlashCommand,
 } from "../shared/types"
+import { canvasView } from "./mock-canvas"
 import { setFocusedNote } from "./store"
 
 const SESSION = "s-main"
@@ -1068,7 +1069,11 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       return () => chatFns.delete(fn)
     },
     onNoteFocus: () => () => true,
-    onPanel: () => () => true,
+    // A hosted dock's view, as the overlay would send it once the dock is shown.
+    onPanel(fn) {
+      if (state.review.docks.includes("canvas")) setTimeout(() => fn({ panel: "canvas", view: canvasView() }))
+      return () => true
+    },
     onShortcut(fn) {
       shortcutFns.add(fn)
       return () => shortcutFns.delete(fn)
