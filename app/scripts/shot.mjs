@@ -102,6 +102,10 @@ const SHOTS = [
   // A window with no room for all three: the panel and the page, or (Edit, Motion) the page and its dock.
   { name: "phone-narrow", mock: "review", query: "&device=phone", size: [900, 700] },
   { name: "phone-narrow-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", size: [900, 700] },
+  // The column at its least (300px, the panel as wide as it goes): the phone line's counts and
+  // the selection's fact shortened, nothing cut.
+  { name: "phone-least-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", run: [`document.querySelector(".resizer").dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }))`], wait: 300, report: `Math.round(document.querySelector(".pl").getBoundingClientRect().width)` },
+  { name: "phone-least", mock: "review", query: "&device=phone&mode=preview", run: [`document.querySelector(".resizer").dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }))`], wait: 300, report: `Math.round(document.querySelector(".pl").getBoundingClientRect().width)` },
   { name: "phone-max-collapsed", mock: "review", query: "&device=phone&phone=iphone-16-pro-max&mode=preview", run: [click("[data-action=panel]")] },
   { name: "phone-wide", mock: "review", query: "&device=phone&mode=preview", size: [1984, 1276] },
   { name: "phone-clear", mock: "review", query: "&device=phone&mode=preview&facts=clear" },
