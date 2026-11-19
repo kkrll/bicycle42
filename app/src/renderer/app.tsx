@@ -237,9 +237,8 @@ function DeviceSwitch(props: { disabled: boolean }) {
   )
 }
 
-/** Which phone, beside the switch while the page is a phone's: a native list under words (as the
- *  composer's model is), because the list opens over the page, where nothing of this document's
- *  would show. */
+/** Which phone, above a phone's page: a native list under words (as the composer's model is),
+ *  because the list opens over the page, where nothing of this document's would show. */
 function PhonePick() {
   const phone = () => phoneOf(state.page.phone)
   const size = (p: { width: number; height: number }) => `${p.width} × ${p.height}`
@@ -314,9 +313,6 @@ function TopBar(props: {
         </div>
         <UrlField ref={props.urlRef} />
         <DeviceSwitch disabled={!state.page.url} />
-        <Show when={state.page.device === "phone" && state.page.url}>
-          <PhonePick />
-        </Show>
         <PageError />
         <div class="tools">
           <Hint />
@@ -424,7 +420,6 @@ function NotesStatus(props: { panelOpen: boolean; showNotes: () => void }) {
 function ModeAside() {
   const mode = () => (state.review.enabled ? state.review.mode : "preview")
   const now = () => MODES.find((m) => m.mode === mode())!
-  const phone = () => phoneOf(state.page.phone)
   const others: { text: string; keys: () => string[] }[] = [
     { text: "Draw on the page", keys: () => [keys("mod", "shift", "P"), `${keys("alt")} drag`] },
     { text: "Look under the layer", keys: () => [`hold ${keys("alt", "A")}`] },
@@ -460,9 +455,6 @@ function ModeAside() {
             )}
           </For>
         </ul>
-        <p class="aside-device">
-          {phone().name} · {phone().width} × {phone().height}
-        </p>
       </div>
     </section>
   )
@@ -760,6 +752,15 @@ export function App() {
             the page. A phone's page has a column beside it in every mode (the dock, or the keys),
             so it stays where it is when the mode changes. */}
         <div class="stage" ref={stageEl} classList={{ phone: phone() }}>
+        {/* A phone's page has a column of its own: in the middle of it, with air around, and
+            which phone it is above it. (A desktop's page is the stage's own child: the wrapper
+            makes no box then.) */}
+        <div class="device-col">
+        <Show when={phone()}>
+          <div class="device-bar">
+            <PhonePick />
+          </div>
+        </Show>
         {/* While a dialog is open or the panel is resized the page view is away: a quiet surface
             stands in for it, so the window does not go black. */}
         <div class="page" ref={pageEl} classList={{ veiled: settings() || switcherOpen() || runningOpen() || resizing() }}>
@@ -811,6 +812,7 @@ export function App() {
               </Show>
             </div>
           </Show>
+        </div>
         </div>
         <Show when={dockShown()} fallback={<Show when={phone()}><ModeAside /></Show>}>
           {(dock) => (

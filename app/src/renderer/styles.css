@@ -896,10 +896,39 @@ details[open] > summary > .caret {
   flex-direction: row;
 }
 
-.stage.phone > .page {
+/* The page's wrapper is no box of its own around a desktop's page… */
+.device-col {
+  display: contents;
+}
+
+/* …and around a phone's it is the phone's column: the page in the middle of it, top to bottom
+   and side to side, with air around (less of it in a small window, where the page needs the
+   room), and which phone it is above. A phone taller than its room is as tall as fits: the
+   page scrolls inside, as it does in a hand. */
+.stage.phone > .device-col {
   flex: none;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: clamp(12px, 3vh, 32px) clamp(16px, 3vw, 40px);
+}
+
+.stage.phone .page {
+  flex: 0 1 calc(var(--phone-height) + 2px);
   width: calc(var(--phone-width) + 2px);
-  height: min(calc(var(--phone-height) + 2px), calc(100% - 8px));
+  min-height: 240px;
+  margin: 0;
+}
+
+.device-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
 }
 
 /* A dock the window draws: a pane like the page's, under it at the height its top edge was
@@ -943,7 +972,7 @@ details[open] > summary > .caret {
   padding: 0 7px;
 }
 
-/* Which phone, after the switch: its name, and its size quieter. (.pick is the composer's.) */
+/* Which phone, above its page: its name, and its size quieter. (.pick is the composer's.) */
 .phone-pick {
   flex: none;
 }
@@ -951,12 +980,6 @@ details[open] > summary > .caret {
 .phone-size {
   margin-left: 6px;
   font-variant-numeric: tabular-nums;
-}
-
-@media (max-width: 1100px) {
-  .phone-size {
-    display: none;
-  }
 }
 
 /* Beside a phone's page in a mode with no dock: the modes and the keys, at rest. A pane like the
@@ -1015,10 +1038,6 @@ details[open] > summary > .caret {
   font-weight: 500;
 }
 
-.aside-device {
-  margin-top: auto;
-  font-variant-numeric: tabular-nums;
-}
 
 /* The page view is away for a moment (a dialog, a resize): a quiet surface holds its place. */
 /* The same paper as the panel, so a dialog's backdrop dims the whole window evenly. */
