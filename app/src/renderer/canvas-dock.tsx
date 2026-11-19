@@ -2,8 +2,8 @@
 // Element styles, the batch's Global stylesheet and the selection's computed values, beside a
 // phone's page or under a desktop's (dock.tsx). What it shows is the overlay's view
 // (dockViews.canvas: CanvasView in overlay/protocol-canvas.ts); what is done in it goes to the
-// overlay as an act (CanvasAct), which does it to the page with the same functions as the
-// overlay's own inspector. Nothing of the page's is kept here.
+// overlay as an act (CanvasAct), which does it to the page (overlay/src/canvas/host.js). The page
+// has no inspector of its own. Nothing of the page's is kept here.
 //
 // Typing never waits for the page: a field being typed in holds its own text and sends it whole
 // with every key; the view answers with the marks, the error line and the computed values, and
@@ -17,9 +17,9 @@
 // suggestion list opens inside the inspector's own box, under or above the caret, and so does the
 // keys list.
 //
-// The footer is the bar the overlay draws over the page when the inspector is its own (the
-// overlay draws none while this one is up): how many edits, undo, redo, Reset, the note's words,
-// Send and what happened to the note sent last (the view's `batch`). The note's words are the
+// The footer is the batch's bar (the page has none): how many edits, undo, redo, Reset, the
+// note's words, Send and what happened to the note sent last (the view's `batch`). The count
+// opens the list of the unsent edits, each removable on its own. The note's words are the
 // overlay's too, sent with every key, as Motion's are: they go with the batch and come back with
 // a refused one. Send is a "send" act, which main lets through to the page (admitNote).
 //

@@ -54,23 +54,31 @@ src/globals.d.ts    what the type check cannot read from the .js files
   keyword values and popularity, from Blink and DevTools; licences in `css-data.NOTICE`). Re-run it
   after an Electron upgrade, with the Chromium tag and DevTools branch at the top of the script updated.
 
-- **A dock can be the host's.** Canvas's inspector and motion's dock are drawn here, at the bottom
-  of the page, unless the host says it draws one itself (`{ type: "docks", hosted }`, `Dock` in
-  `protocol.ts`). For such a dock a mode asks `hosted(name)` (`src/panel.js`) wherever it would
-  show its dock or measure it, sends the whole of what the dock shows with `sendView` (once a
-  frame at most) and takes what the host's dock asks with `onAct`. Everything that is the page's
-  stays here: the selection, the edits and their undo, playing, sending. Motion's side of it is
+- **A dock can be the host's.** Motion's dock is drawn here, at the bottom of the page, unless
+  the host says it draws it itself (`{ type: "docks", hosted }`, `Dock` in `protocol.ts`). For
+  such a dock a mode asks `hosted(name)` (`src/panel.js`) wherever it would show its dock or
+  measure it, sends the whole of what the dock shows with `sendView` (once a frame at most) and
+  takes what the host's dock asks with `onAct`. Everything that is the page's stays here: the
+  selection, the edits and their undo, playing, sending. Motion's side of it is
   `src/motion/host.js`: where the dock would be drawn a view is built instead, and each act calls
-  what the in-page dock's gesture calls. In the harness,
-  `__harness.hostDocks(["motion"])` plays such a host, `__harness.act(panel, act)` its dock, and
-  `__harness.panel` holds what the overlay sent. Canvas's is `src/canvas/host.js`: the view is
-  made in the frames the layer's inspector would be drawn in, the acts call what its fields, rows
-  and keys call (`test/canvas-hosted.test.mjs`). The bar over the page is the host's inspector's
-  too then: none is drawn, the view's `batch` says what it would (edits, undo, redo, the note's
-  words, a refusal, the state), and "note", "reset", "undo", "redo" and "send" are its controls.
-  The note's words stay the layer's own field's (draft, refusal). Not hosted, the bar is as ever.
-  The view's `sel.label` is what the element is (its component's name, else tag#id.class), not
-  what it says. The keys lists are `src/canvas/help.js`, pure, for the host to show too.
+  what the in-page dock's gesture calls. In the harness, `__harness.hostDocks(["motion"])` plays
+  such a host, `__harness.act(panel, act)` its dock, and `__harness.panel` holds what the overlay
+  sent.
+- **Canvas's inspector is only ever the host's.** The page has none of its own, and no bar:
+  `src/canvas/host.js` makes the view in every canvas frame and sends it when it changed, and
+  does what the host's inspector asks (its tree's rows, its fields, its computed values, its
+  footer). A host that does not say it draws the inspector gets no view and nothing on the page;
+  canvas mode still edits the page (selecting, the drags, text in place, the keys). The view's
+  `batch` is the footer: edits, undo, redo, the note's words (the batch's own, `C.note`: they go
+  in its draft and come back with a refused one), a refusal, the state, and while the host's list
+  of the edits is open ("edits") that list, each row's `key` the one "unedit" takes out. The
+  view's `sel.label` is what the element is (its component's name, else tag#id.class), not what
+  it says. What the host's inspector draws itself it takes from here, pure: the keys list
+  (`src/canvas/help.js`), the suggestions (`src/canvas/suggest-model.js`, with Chrome's list of
+  properties, `css-data.js`) and number stepping (`src/canvas/number.js`). The tests play the host
+  (`test/canvas.test.mjs`, `test/canvas-hosted.test.mjs`). In notes mode the page shows a chip
+  when edits were left unsent, a click on it back to canvas mode, and the "?" with notes mode's
+  keys.
 - **"facts" is a pane only the host draws** (`Pane` in `protocol.ts`, `protocol-facts.ts`,
   `src/facts/host.js`): what the page is at the size it is shown at (what sticks out past the
   right edge, tap targets under 44 px, fields under 16 px, the viewport tag), each fact an
@@ -167,8 +175,8 @@ The `hover` state is the worst case, a different element under the pointer on ev
 
 ## What the overlay does and doesn't do
 
-- **Does:** picking, outlines, area and stroke selection, the note card, pins, canvas mode (the
-  inspector and direct manipulation), motion mode (what moves on the page, one animation's
+- **Does:** picking, outlines, area and stroke selection, the note card, pins, canvas mode (direct
+  manipulation, and what the host's inspector shows and asks), motion mode (what moves on the page, one animation's
   timeline, its preview, playback through the Web Animations API), element identity (selector, text, attributes, React/Vue
   component names and dev source location when present), blocking page input while active,
   holding clicks made during a capture, re-finding pins after a re-render or an agent's edit
