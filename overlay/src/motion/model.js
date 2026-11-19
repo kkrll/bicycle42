@@ -1,4 +1,3 @@
-import { icon, ICONS } from "../ui.js";
 import { adopt, BOOST, plainLabel, SKIP, unique } from "../page.js";
 import { hostEl, root } from "../mount.js";
 
@@ -13,7 +12,8 @@ import { hostEl, root } from "../mount.js";
 //    data: undo is a stack of their JSON, and so is the draft the host keeps;
 //  - a sent animation's rules move to a stylesheet of their own, which stays applied until its
 //    pin is done, failed or stopped (or the page reloads), as a sent canvas batch does;
-//  - the dock is drawn from that data; nothing in it is state of its own but what is open.
+//  - the dock (the host's, host.js) is told that data; nothing in it is state of its own but
+//    what is open.
 // Motion mode is a module: the rest of the overlay sees only its api (in api.js), and its
 // names stay out of the canvas code's way.
 //
@@ -32,44 +32,10 @@ export const FILL = { none: ["None", "Before it starts and after it ends, the el
   backwards: ["Hold start", "During the delay, it waits on the first keyframe"], both: ["Hold both", "Waits on the first keyframe, stays on the last"] };
 export const RATES = [1, 0.5, 0.25, 0.1];
 export const RATE_TEXT = { 1: "1×", 0.5: "½×", 0.25: "¼×", 0.1: "⅒×" };
-export const MAJOR = [50, 100, 200, 250, 500, 1000, 2000, 5000];
-export const DOCK_H = 360;
 export const MAX_KF = 4000; // the keyframes' text, as the host takes it
-export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 export const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
 export const r1 = (n) => Math.round(n * 10) / 10;
 export const ms = (n) => `${Math.round(n)}ms`;
-export const secs = (n) => `${+(n / 1000).toFixed(2)}s`;
-const MI = {
-  play: '<path d="M5 3.2v9.6L12.5 8z" fill="currentColor" stroke="none"/>',
-  pause: '<path d="M5.5 3.5v9M10.5 3.5v9"/>',
-  loop: '<path d="M3 7.5V7a3 3 0 0 1 3-3h7"/><path d="m11 2 2 2-2 2"/><path d="M13 8.5V9a3 3 0 0 1-3 3H3"/><path d="m5 14-2-2 2-2"/>',
-  iso: '<circle cx="8" cy="8" r="2"/><path d="M8 1.5v2.5M8 12v2.5M1.5 8H4M12 8h2.5"/>',
-  reset: '<path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9"/><path d="M2.5 2.5v3h3"/>',
-  plus: '<path d="M8 3v10M3 8h10"/>',
-  more: '<circle cx="3.5" cy="8" r="1" fill="currentColor"/><circle cx="8" cy="8" r="1" fill="currentColor"/><circle cx="12.5" cy="8" r="1" fill="currentColor"/>',
-  trash: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.5 8.5h6l.5-8.5"/>',
-  link: '<path d="M7 9a2.5 2.5 0 0 0 3.5 0l2-2A2.5 2.5 0 0 0 9 3.5l-.5.5"/><path d="M9 7a2.5 2.5 0 0 0-3.5 0l-2 2A2.5 2.5 0 0 0 7 12.5l.5-.5"/>',
-};
-export const mi = (name, size = 16) => (ICONS[name] ? icon(name, size)
-  : `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${MI[name]}</svg>`);
-// What kind of motion a row is (24 grid, drawn at 16): a keyframe animation is a ball leaving
-// echoes; a transition goes from one state to another; a script's ball is in braces; frame by
-// frame is three discrete steps; keyframes nothing plays are the ball as an outline.
-const K = "currentColor";
-const TRAIL = `<rect x="6" y="9" width="12" height="1" rx="0.5" fill="${K}"/><rect x="3.5" y="11.5" width="12" height="1" rx="0.5" fill="${K}"/><rect x="6" y="14" width="12" height="1" rx="0.5" fill="${K}"/>
-  <path d="M10 17.3A6.2 6.2 0 0 1 7.12 18C3.74 18 1 15.31 1 12s2.74-6 6.12-6c1.04 0 2.02.25 2.88.7" stroke="${K}"/>
-  <path d="M15 17.3c-.86.45-1.84.7-2.88.7-1.81 0-3.44-.77-4.56-2M15 6.7A6.2 6.2 0 0 0 12.13 6c-1.81 0-3.44.77-4.56 2" stroke="${K}"/>`;
-const KIND = {
-  css: `${TRAIL}<circle cx="18" cy="12" r="5.5" fill="${K}" stroke="${K}"/>`,
-  unused: `${TRAIL}<circle cx="18" cy="12" r="5.5" fill="#161617" stroke="${K}"/>`,
-  transition: `<circle cx="7.5" cy="12" r="5.5" stroke="${K}"/><circle cx="16.5" cy="12" r="5.5" fill="${K}" stroke="${K}"/>`,
-  script: `<path d="M6 5.5c-1.7 0-2.5.8-2.5 2.5v1.5c0 1.3-.7 2.5-2 2.5 1.3 0 2 1.2 2 2.5V16c0 1.7.8 2.5 2.5 2.5M18 5.5c1.7 0 2.5.8 2.5 2.5v1.5c0 1.3.7 2.5 2 2.5-1.3 0-2 1.2-2 2.5V16c0 1.7-.8 2.5-2.5 2.5" stroke="${K}" stroke-linecap="round"/><circle cx="12" cy="12" r="4" fill="${K}"/>`,
-  frames: `<circle cx="4.5" cy="12" r="3" stroke="${K}"/><circle cx="12" cy="12" r="3" stroke="${K}"/><circle cx="19.5" cy="12" r="3" fill="${K}" stroke="${K}"/>`,
-};
-export const KIND_TITLE = { css: "Keyframes", unused: "Keyframes nothing plays", transition: "Transition", script: "Script (animate())", frames: "Moved by a script, frame by frame" };
-export const kindIcon = (kind) => `<svg class="m-kind" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">${KIND[kind] || KIND.css}</svg>`;
-
 export const M = {
   on: false,
   sel: null, selRs: "", hover: null,
@@ -79,7 +45,6 @@ export const M = {
   ro: null, // for the two kinds that are only read: { frames, timing?, laneEase?, state?, total?, on?, items? }
   key: null, // the selected keyframe: { at, prop } (prop null: the whole keyframe)
   lanes: [], // the properties, in the order their lanes were first drawn
-  T: 0, // the open animation's duration in ms (at least 1), as the timeline was last drawn: the playhead's time
   isolate: false, rate: 1, loop: false, loopAt: 0, pos: 0,
   past: [], future: [], snap: "",
   held: null, // the page's Animation object for what is open
@@ -93,12 +58,13 @@ export const M = {
   unsent: null, // what the animation being sent was, until the host takes it
   view: "keys", // the timeline, or the keyframes as text
   rowEls: null, // the elements of the list row under the pointer
-  drag: null, last: null, findUntil: 0, obs: null,
+  drag: null, findUntil: 0, obs: null,
   msg: "", msgTimer: 0, done: "", doneTimer: 0,
-  // When the host draws the dock (host.js): whether it does, the view without its clock as last
-  // built (null: to be built again), the clock last sent, a view asked for in this task, the
-  // rows that view listed (what "row" and "hover" name), why the keyframes' text is not keyframes.
-  hosted: false, hostBody: null, hostClock: "", hostQueued: false, hostRows: [], cssWhy: "",
+  note: "", // the words that go with the open animation, as typed in the host's dock
+  // The host's dock (host.js): the view without its clock as last built (null: to be built
+  // again), the clock last sent, a view asked for in this task, the rows that view listed (what
+  // "row" and "hover" name), why the keyframes' text is not keyframes.
+  hostBody: null, hostClock: "", hostQueued: false, hostRows: [], cssWhy: "",
 };
 
 // ── elements of the page ─────────────────────────────────────────────────────────────────
@@ -214,25 +180,6 @@ export function entryCss(e) {
   if (e.fill !== "none") out.push(e.fill);
   return out.join(" ");
 }
-/** The easing as an SVG polyline's points in a w×h box, sampled from the browser, so steps()
- *  and linear() draw as they are. */
-function curvePoints(easing, w, h, pad) {
-  try {
-    const fx = new KeyframeEffect(null, null, { duration: 100, easing, fill: "both" });
-    const a = new Animation(fx, document.timeline);
-    a.pause();
-    const pts = [];
-    for (let i = 0; i <= 30; i++) {
-      a.currentTime = (i / 30) * 99.999;
-      pts.push(`${(pad + (i / 30) * (w - 2 * pad)).toFixed(1)},${(h - pad - (fx.getComputedTiming().progress || 0) * (h - 2 * pad)).toFixed(1)}`);
-    }
-    a.cancel();
-    return pts.join(" ");
-  } catch {
-    return "";
-  }
-}
-export const curve = (easing) => `<svg class="m-cv" viewBox="0 0 28 28" aria-hidden="true"><polyline points="${curvePoints(easing, 28, 28, 6)}" fill="none" stroke="#fffaa0" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
 
 // ── how an element plays its animations ──────────────────────────────────────────────────
 export function readList(el) {

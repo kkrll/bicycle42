@@ -937,9 +937,10 @@
 /* ── a narrow dock ──────────────────────────────────────────────────────────────────────────── */
 /* Narrower than the list and a timeline side by side: one or the other. The list until something
    is selected or open, then that, with a button back in its header; the timing fields on a row
-   of their own, the lanes' names narrower. (As the overlay's own dock does on a phone-width page.) */
+   of their own, the lanes' names narrower. (On the grid: a container query styles what is in its
+   box, never the box itself.) */
 @container mdock (max-width: 719px) {
-  .mdock {
+  .mdock-grid {
     --lab: 104px;
   }
 

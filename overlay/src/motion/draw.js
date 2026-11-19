@@ -1,29 +1,23 @@
-// Motion mode, the mode and what is drawn: switched on and off, the dock drawn from the data,
-// and every frame the playhead, the time and the outlines on the page.
+// Motion mode, the mode and what is drawn: switched on and off, the dock (the host's: host.js)
+// told what to show, and every frame the playhead's clock, the tag and the outlines on the page.
 
-import { isMac, S } from "../state.js";
-import { icon } from "../ui.js";
+import { S } from "../state.js";
 import { rectOf } from "../page.js";
-import { setRoom } from "../room.js";
-import { hosted } from "../panel.js";
 import { hostFrame, hostSync, wantView } from "./host.js";
 import * as Notes from "../notes/api.js";
 import * as Canvas from "../canvas/api.js";
-import { apply, curve, DOCK_H, esc, frames, KIND_TITLE, kindIcon, M, MAJOR, mi, mq, name, openDirty, openKf, openUse, r1, RATE_TEXT, readOnly, scan, secs } from "./model.js";
-import { animOf, knownNames, letGo, position, running, selectEl, show } from "./open.js";
-import { cssText, keyInfo, laneOrder, rows, segEase, sharedBy, snapshot, timing } from "./edit.js";
-import { closePop, cssEl, dock, ftEl, hdEl, kbEl, listEl, msgEl, noteEl, sug, sugHide, tagEl, tlEl } from "./input.js";
+import { apply, M, mq, name, scan } from "./model.js";
+import { animOf, letGo, running, selectEl, show } from "./open.js";
+import { snapshot } from "./edit.js";
+import { tagEl } from "./input.js";
 import { modeOn, setMode } from "../mode.js";
 import { kick } from "../render.js";
-import { root } from "../mount.js";
 
 // ── mode ─────────────────────────────────────────────────────────────────────────────────
 /** Motion mode's own part of switching it on or off. The switch is setMode (mode.js): it
  *  turns the other modes off first. */
 export function setOn(on) {
-  if (on === M.on || !dock) return;
-  closePop();
-  sugHide();
+  if (on === M.on || !tagEl) return;
   if (on) {
     M.on = true;
     // A note in progress becomes the start: its element is looked at.
@@ -62,11 +56,9 @@ export function resume() {
   } catch {}
   if (was && modeOn() === "notes" && !S.card && !Notes.hasDraft()) setMode("motion");
 }
-/** Room for the dock: the page is laid out as if the window ended where the dock begins (room.js). */
-export function syncUi() {
-  setRoom("motion", M.on && S.enabled && !hosted("motion") ? DOCK_H : 0); // (the host's own dock: no room for one here)
-  hostSync();
-}
+/** The mode or review was switched, or the host's docks changed: the host's dock hears it. (The
+ *  dock is the host's, beside the page: the page needs no room for it.) */
+export const syncUi = () => hostSync();
 /** What no stylesheet and no animation object accounts for: an inline style rewritten many
  *  times a second. It cannot be edited here, but the list can say it is there. */
 function watchSuspects(on) {
@@ -89,170 +81,23 @@ function watchSuspects(on) {
 }
 
 // ── drawing ──────────────────────────────────────────────────────────────────────────────
-export const typingIn = (el) => {
-  const a = root.activeElement;
-  return !!a && /^(INPUT|TEXTAREA)$/.test(a.tagName) && el.contains(a);
-};
-/** A field of the dock, focused once the dock has been drawn again (a keyframe's value, after
- *  the keyframe or its lane is added). */
-export const focusLater = (sel) =>
-  !hosted("motion") && setTimeout(() => {
-    const f = dock.querySelector(sel);
-    if (f && !f.disabled) f.select ? f.select() : f.focus();
-  }, 0);
+// The dock is the host's (host.js): "drawn" is a view for it, once this task is done. A host
+// that does not draw one gets none.
 export function draw() {
-  if (!dock || !M.on) return;
-  if (hosted("motion")) {
-    // The host draws the dock: it is told what it shows instead (host.js).
-    wantView();
-    return kick();
-  }
-  if (sug && !sug.f.isConnected) sugHide();
-  dock.classList.toggle("detail", !!(M.open || M.sel)); // what a narrow dock shows: this, not the list
-  drawList();
-  drawHead();
-  const css = M.view === "css" && !!M.open;
-  tlEl.hidden = css;
-  cssEl.hidden = !css;
-  if (css) drawCss();
-  else if (!typingIn(tlEl)) drawLanes();
-  if (!typingIn(kbEl)) kbEl.innerHTML = css ? "" : keyEditor();
-  kbEl.hidden = !kbEl.innerHTML.trim();
-  drawFoot();
+  if (!tagEl || !M.on) return;
+  wantView();
   kick();
 }
 export function drawList() {
-  if (!dock || !M.on) return;
-  if (hosted("motion")) return wantView();
-  const list = rows();
-  listEl._rows = list;
-  listEl.innerHTML = list.map((r, i) => r.group ? `<div class="m-grp">${esc(r.group)}</div>`
-    : `<div class="m-it k-${r.kind}${r.on ? " on" : ""}${r.sub ? " sub" : ""}${r.last ? " last" : ""}${r.off ? " off" : ""}${r.running ? " run" : ""}" data-row="${i}"
-      title="${r.sub ? "" : `${KIND_TITLE[r.kind]}${r.running ? ", playing" : ""}`}">${r.sub ? "" : kindIcon(r.kind)}<span class="m-nm">${esc(r.text)}</span>
-      <span class="m-ex">${esc(r.aside)}</span>${r.dirty ? '<i class="m-ed"></i>' : ""}
-      ${r.duration !== null && r.duration !== undefined ? `<span class="m-du">${Math.round(r.duration)}</span>` : ""}</div>`).join("") ||
-    `<div class="m-none">Nothing moves on this page</div>`;
-}
-function timingFields() {
-  const t = timing(), ro = readOnly() ? "disabled" : "";
-  return `<label class="m-tf"><span>Duration</span><input class="m-fld num" data-t="duration" value="${Math.round(t.duration)}" inputmode="numeric" ${ro}><span class="m-unit">ms</span></label>
-    <label class="m-tf"><span>Delay</span><input class="m-fld num" data-t="delay" value="${Math.round(t.delay)}" inputmode="numeric" ${ro}><span class="m-unit">ms</span></label>
-    <label class="m-tf"><span>Easing</span><input class="m-fld ease" data-t="easing" data-sug="ease" value="${esc(t.easing)}" spellcheck="false" autocomplete="off" ${ro}>${curve(t.easing)}</label>`;
-}
-function drawHead() {
-  if (typingIn(hdEl)) return;
-  const o = M.open;
-  // A narrow dock shows the list or what is open, not both: the way back to the list is the
-  // header's first button, shown only there (styles.css), with an element selected and nothing open too.
-  const back = `<button type="button" class="m-btn ic m-back" data-m="back" title="Everything that moves">${mi("chevron-left")}</button>`;
-  hdEl.hidden = !o && !M.sel;
-  hdEl.classList.toggle("bare", !o);
-  if (!o) return void (hdEl.innerHTML = M.sel ? back : "");
-  const b = (v, t) => `<button type="button" data-m="view" data-v="${v}" class="${M.view === v ? "on" : ""}">${t}</button>`;
-  hdEl.innerHTML = `${back}<div class="m-seg" role="tablist">${b("keys", "Keyframes")}${b("css", "CSS")}</div><div class="m-timing">${timingFields()}</div>
-    <button type="button" class="m-btn ic" data-m="more" title="More">${mi("more")}</button><span class="m-sp"></span>
-    <div class="m-tools"><button type="button" class="m-btn" data-m="rate" title="Speed while looking">${RATE_TEXT[M.rate]}</button>
-      <button type="button" class="m-btn ic${M.loop ? " on" : ""}" data-m="loop" title="Repeat while looking">${mi("loop")}</button>
-      <button type="button" class="m-btn ic${M.isolate ? " on" : ""}" data-m="iso" ${M.sel ? "" : "disabled"} title="Show only this element">${mi("iso")}</button></div>
-    <div class="m-tools"><button type="button" class="m-btn ic" data-m="undo" ${M.past.length ? "" : "disabled"} title="Undo (${isMac ? "⌘" : "ctrl+"}Z)">${mi("undo")}</button>
-      <button type="button" class="m-btn ic" data-m="discard" ${openDirty() ? "" : "disabled"} title="${openUse() && openUse().isNew ? "Remove this new animation" : "Put back as the page has it"}">${mi("reset")}</button></div>`;
-}
-function laneBars(p) {
-  const fr = frames().filter((f) => p in f.vals), selKey = M.key, out = [];
-  if (!fr.length) return "";
-  const on = (f) => selKey && selKey.at === f.at && (selKey.prop === p || selKey.prop === null);
-  if (fr.length === 1) out.push(`<i class="m-sb solo${on(fr[0]) ? " on" : ""}" style="--fa: ${fr[0].at / 100}; --fb: ${fr[0].at / 100}; --l: -10px; --r: 10px"></i>`);
-  // The outer ends of a lane's bars reach past its first and last keyframes, so those grips sit
-  // inside them; where two bars meet, a gap holds the grip they share.
-  fr.forEach((f, i) => {
-    const next = fr[i + 1];
-    if (!next) return;
-    const ease = segEase(f.at, p), flat = f.vals[p] === next.vals[p];
-    out.push(`<i class="m-sb${on(f) ? " on" : ""}${flat ? " flat" : ""}" data-seg="${f.at}" data-prop="${esc(p)}" title="${esc(ease)}"
-      style="--fa: ${f.at / 100}; --fb: ${next.at / 100}; --l: ${i === 0 ? -10 : 3}px; --r: ${i === fr.length - 2 ? 10 : -3}px"></i>`);
-  });
-  for (const f of fr) out.push(`<i class="m-key m-gr${on(f) ? " on" : ""}" style="--at: ${f.at / 100}" data-at="${f.at}" data-prop="${esc(p)}" title="${esc(f.vals[p])}"></i>`);
-  return out.join("");
-}
-export function drawLanes() {
-  const o = M.open;
-  tlEl.classList.toggle("ro", readOnly());
-  if (!o) {
-    // Something that does not move: new keyframes, or keyframes the page already has.
-    const names = M.sel ? knownNames() : [];
-    const have = names.length ? `<div class="m-or">or play keyframes the page has</div><div class="m-chips">${names.map((n) =>
-      `<button type="button" class="m-chip" data-m="use" data-v="${esc(n)}" title="Play ${esc(n)} on this element">${esc(n)}</button>`).join("")}</div>` : "";
-    tlEl.innerHTML = `<div class="m-empty">${M.sel ? `<div>Nothing moves this</div><button type="button" class="m-btn m-new" data-m="new">${mi("plus")}New animation</button>${have}`
-      : "<div>Click something on the page, or a row of the list</div>"}</div>`;
-    return;
-  }
-  const ro = readOnly(), selKey = M.key, fr = frames(), T = Math.max(1, +timing().duration || 0);
-  M.T = T;
-  const major = MAJOR.find((m) => T / m <= 7) || 5000, minor = major / 5;
-  const ticks = [];
-  for (let n = 0; n <= T + 0.5; n += minor) {
-    const big = Math.round(n / minor) % 5 === 0;
-    ticks.push(`<i class="m-tick${big ? " big" : ""}" style="--at: ${n / T}">${big ? `<b>${secs(n)}</b>` : ""}</i>`);
-  }
-  // the whole keyframes, under the ruler: one grabs every property at that moment
-  const whole = fr.map((f) => `<i class="m-key wk${selKey && selKey.at === f.at && selKey.prop === null ? " on" : ""}" style="--at: ${f.at / 100}" data-at="${f.at}" data-prop=""></i>`).join("");
-  const tr = o.kind === "transition";
-  const html = [`<div class="m-lrow m-ruler"><div class="m-lab"><button type="button" class="m-btn ic play" data-m="play" title="${tr ? "Switch the state" : "Play (space)"}">${mi(running() ? "pause" : "play")}</button><span class="m-time"></span></div>
-    <div class="m-trk" data-ruler>${ticks.join("")}${whole}</div></div>`];
-  // the band: the keyframes' name, and who else plays them
-  const n = sharedBy(), u = openUse(), k = openKf(), nm = tr ? "transition" : o.name;
-  // Keyframes made here are named here; the page's own keep their name (the code uses it).
-  const title = k && k.isNew ? `<input class="m-fld m-name" data-name value="${esc(nm)}" spellcheck="false" autocomplete="off" aria-label="Name" title="Rename these keyframes">` : `<b>${esc(nm)}</b>`;
-  const remove = u && u.isNew ? `<span class="m-sp"></span><button type="button" class="m-btn m-own" data-m="discard" title="Take this animation off the element">${mi("trash", 14)}Remove</button>` : "";
-  const note = n > 1 ? `<span class="m-shared" title="These keyframes are played by ${n} elements: a change to them changes all of them. Duration, delay and easing are this element's own.">${mi("link", 14)}${n} elements</span>
-      <button type="button" class="m-btn m-own" data-m="detach" title="Give this element its own copy of the keyframes to change; the other ${n - 1 === 1 ? "element keeps" : `${n - 1} elements keep`} them as they are">Duplicate</button>`
-    : u && u.from ? `<span class="m-shared">Copy of <b>${esc(u.from)}</b>, for this element only</span>` : "";
-  const lanes = laneOrder();
-  const rowsHtml = lanes.map((p) => `<div class="m-lrow m-lane${selKey && selKey.prop === p ? " kon" : ""}"><div class="m-lab"><span title="${esc(p)}">${esc(p)}</span>${ro ? "" : `<button type="button" class="m-btn ic m-x" data-m="rmlane" data-prop="${esc(p)}" title="Remove">${icon("x", 14)}</button>`}</div>
-      <div class="m-trk"><div class="m-trk m-kspan" data-prop="${esc(p)}">${laneBars(p)}</div></div></div>`);
-  html.push(`<div class="m-lanes"><div class="m-bands"><i class="m-band"></i></div>
-    <div class="m-lrow m-ghead"><div class="m-lab">${kindIcon(tr ? "transition" : o.kind === "script" ? "script" : "css")}${title}</div><div class="m-trk">${note}${remove}</div></div>
-    ${rowsHtml.join("")}</div>`);
-  if (!ro) html.push(`<div class="m-addp"><input class="m-fld" data-addp data-sug="props" placeholder="+ Property" spellcheck="false" autocomplete="off"></div>`);
-  html.push(`<div class="m-phl"><div class="m-flag" hidden><b></b></div></div>`);
-  tlEl.innerHTML = html.join("");
-}
-export function keyEditor() {
-  const k = keyInfo();
-  if (!k) return "";
-  const ro = k.ro ? "disabled" : "";
-  return `<div class="m-keyed"><input class="m-fld num" data-k="at" value="${r1(k.at)}" ${ro}><span class="m-unit">%</span>
-    ${k.prop === null ? `<span class="m-p">${Object.keys(k.f.vals).length} properties</span><span class="m-sp"></span>`
-      : `<span class="m-p">${esc(k.prop)}</span><input class="m-fld val" data-k="val" value="${esc(k.value)}" spellcheck="false" autocomplete="off" ${ro}>`}
-    ${k.last ? "" : `<input class="m-fld ease" data-k="ease" data-sug="ease" value="${esc(k.ease)}" placeholder="${esc(k.dflt)}" spellcheck="false" ${ro}><button type="button" class="m-btn ic m-cvb" data-m="kease" ${ro} title="Easing">${curve(k.ease || k.dflt)}</button>`}
-    ${ro ? "" : `<button type="button" class="m-btn ic" data-m="rmkey" title="Delete (⌫)">${mi("trash")}</button>`}</div>`;
-}
-function drawCss() {
-  const area = cssEl.querySelector("textarea");
-  if (area && root.activeElement === area) return;
-  cssEl.innerHTML = `<textarea data-css spellcheck="false" autocomplete="off" ${openKf() ? "" : "readonly"}>${esc(cssText())}</textarea><div class="m-err" hidden></div>`;
+  if (M.on) wantView();
 }
 /** What the line under the timeline says while the last animation sent is a preview. */
 export function sentStatus() {
   const b = M.sent[M.sent.length - 1];
   return b ? `Sent · preview stays until ${b.n !== null ? `note ${b.n}` : "the note"} is done` : "";
 }
-/** The note that goes with the open animation, and Send; or what the line has to say. */
-export function drawFoot() {
-  if (!ftEl) return;
-  if (hosted("motion")) return wantView();
-  const o = M.open, can = !!o && (openDirty() || !!noteEl.value.trim());
-  const busy = root.activeElement === noteEl || !!noteEl.value;
-  const msg = M.msg || (busy ? "" : M.done || (o && openDirty() ? "" : sentStatus()));
-  noteEl.hidden = !!msg;
-  noteEl.placeholder = o ? (o.kind === "css" ? "Note… (optional)" : "Say what it should do…") : "Note…";
-  msgEl.hidden = !msg;
-  msgEl.textContent = msg;
-  msgEl.classList.toggle("warn", !!M.msg);
-  const go = ftEl.querySelector(".m-go");
-  go.disabled = !can;
-  go.title = can ? "Send this animation to the agent (↵)" : o ? "Change it, or say what it should do, first" : "Open an animation first";
-}
+/** The line under the timeline, the note and Send: in the view. */
+export const drawFoot = () => wantView();
 /** A message on the line under the timeline, for a moment. */
 export function flash(text) {
   M.msg = text;
@@ -265,17 +110,11 @@ export function flash(text) {
 }
 
 // ── one frame ────────────────────────────────────────────────────────────────────────────
-/** Every frame: the playhead, the time, the play button, the outlines on the page. */
+/** Every frame: Loop's repeat, the playhead's clock for the host's dock, the tag and the
+ *  outlines on the page. */
 export function frame(capturing) {
-  if (!dock) return null;
-  const on = M.on && S.enabled && !capturing, own = on && !hosted("motion");
-  if (dock._shown !== own) {
-    dock.hidden = !(dock._shown = own);
-    if (!own) {
-      closePop();
-      sugHide();
-    }
-  }
+  if (!tagEl) return null;
+  const on = M.on && S.enabled && !capturing;
   // (Nothing is written that is already so: an idle layer changes nothing, frame after frame.)
   const hide = (el, h) => el.hidden !== h && (el.hidden = h);
   if (!on) {
@@ -293,29 +132,8 @@ export function frame(capturing) {
       a.play();
     }
   }
-  const run = running(), p = position();
-  if (hosted("motion")) hostFrame();
-  const flag = tlEl.querySelector(".m-flag");
-  if (flag && M.T) {
-    hide(flag, p === null);
-    if (p !== null) {
-      flag.style.setProperty("--x", p.toFixed(4));
-      const text = secs(Math.round(p * M.T));
-      if (flag.firstChild.textContent !== text) flag.firstChild.textContent = text;
-    }
-  }
-  const time = tlEl.querySelector(".m-time");
-  if (time) {
-    const text = p === null ? "" : String(Math.round(p * M.T));
-    if (time.textContent !== text) time.textContent = text;
-  }
-  const state = `${run}|${M.ro && M.ro.on}`;
-  const pb = tlEl.querySelector(".play");
-  if (pb && pb._s !== state) {
-    pb._s = state;
-    pb.innerHTML = mi(run ? "pause" : "play");
-    pb.classList.toggle("on", !!(M.ro && M.ro.on));
-  }
+  const run = running();
+  hostFrame();
   // outlines: the element under the pointer, the list row's elements, the open one
   const out = [];
   if (M.hover && M.hover !== M.sel && M.hover.isConnected) out.push([rectOf(M.hover), "hover"]);

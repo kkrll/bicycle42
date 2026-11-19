@@ -16,7 +16,7 @@ request, the app's build and the benchmark build it themselves; it is not commit
 
 ```
 protocol.ts         the messages between the overlay and its host, and a note's shape: types only, shared with the app
-protocol-motion.ts  motion's dock when the host draws it: what it shows, what is done in it (types only)
+protocol-motion.ts  motion's dock, which only the host draws: what it shows, what is done in it (types only)
 protocol-canvas.ts  the same for canvas's inspector
 src/protocol.js     what the overlay is, its keys and its gestures (a comment: the built script starts with it)
 src/state.js        the host bridge, the transient state
@@ -54,14 +54,18 @@ src/globals.d.ts    what the type check cannot read from the .js files
   keyword values and popularity, from Blink and DevTools; licences in `css-data.NOTICE`). Re-run it
   after an Electron upgrade, with the Chromium tag and DevTools branch at the top of the script updated.
 
-- **A dock can be the host's.** Canvas's inspector and motion's dock are drawn here, at the bottom
-  of the page, unless the host says it draws one itself (`{ type: "docks", hosted }`, `Dock` in
-  `protocol.ts`). For such a dock a mode asks `hosted(name)` (`src/panel.js`) wherever it would
-  show its dock or measure it, sends the whole of what the dock shows with `sendView` (once a
-  frame at most) and takes what the host's dock asks with `onAct`. Everything that is the page's
-  stays here: the selection, the edits and their undo, playing, sending. Motion's side of it is
-  `src/motion/host.js`: where the dock would be drawn a view is built instead, and each act calls
-  what the in-page dock's gesture calls. In the harness,
+- **A dock can be the host's.** Canvas's inspector is drawn here, at the bottom of the page,
+  unless the host says it draws it itself (`{ type: "docks", hosted }`, `Dock` in `protocol.ts`).
+  Motion's dock is only ever the host's: the overlay draws none, and a host that does not say it
+  draws it has none (no views are sent; motion mode still works on the page). For a hosted dock
+  a mode asks `hosted(name)` (`src/panel.js`) wherever it would show its dock or measure it,
+  sends the whole of what the dock shows with `sendView` (once a frame at most) and takes what
+  the host's dock asks with `onAct`. Everything that is the page's stays here: the selection,
+  the edits and their undo, playing, sending. Motion's side of it is `src/motion/host.js`:
+  wherever what the dock shows changed a view is built, and each act calls `open.js`, `edit.js`
+  or `send.js`; the note's words are the overlay's too (`M.note`). On the page itself motion
+  mode keeps the tag on the open element, the outlines, a click that opens what was clicked, and
+  the keys while the page has the keyboard (space, ←/→, Delete, mod+Z, Enter, Esc). In the harness,
   `__harness.hostDocks(["motion"])` plays such a host, `__harness.act(panel, act)` its dock, and
   `__harness.panel` holds what the overlay sent. Canvas's is `src/canvas/host.js`: the view is
   made in the frames the layer's inspector would be drawn in, the acts call what its fields, rows
@@ -136,7 +140,7 @@ What the overlay costs the page under review, state by state (`bench/cells.mjs`)
 and idle, an element selected (on a still page and on one that changes), four strokes drawn,
 strokes while scrolling, a stroke being drawn, typing in the note card, the pointer moving,
 canvas mode (a selection, after a drag, during a resize drag), motion mode with an animation
-open, pins that are missing, scrolled past (twenty, then two hundred) or working. The pages are
+open (its dock the host's, so the views sent to it are counted), pins that are missing, scrolled past (twenty, then two hundred) or working. The pages are
 made in memory: `heavy` (5,000 elements) and `churn` (2,000, one text changing every frame).
 Each state settles, then is measured over three windows of 3 s; the table shows the median, per
 second: main-thread, script, layout, style-recalc, paint, raster and GPU milliseconds and counts
@@ -169,7 +173,8 @@ The `hover` state is the worst case, a different element under the pointer on ev
 
 - **Does:** picking, outlines, area and stroke selection, the note card, pins, canvas mode (the
   inspector and direct manipulation), motion mode (what moves on the page, one animation's
-  timeline, its preview, playback through the Web Animations API), element identity (selector, text, attributes, React/Vue
+  keyframes and timing changed, its preview, playback through the Web Animations API; the dock
+  with its timeline is the host's), element identity (selector, text, attributes, React/Vue
   component names and dev source location when present), blocking page input while active,
   holding clicks made during a capture, re-finding pins after a re-render or an agent's edit
   (selector → tag + text → last position, dimmed).

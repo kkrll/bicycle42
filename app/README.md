@@ -308,10 +308,11 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
 - **The bar's hints wait two seconds** (`HINT_DELAY`), and one that is up stays a moment after
   the pointer leaves its control (`HINT_LINGER`): on the way to the next control the same
   element gets new words, and is not taken down and put up again.
-- **A dock the window draws.** Edit mode's inspector and motion mode's dock are the overlay's,
-  drawn at the bottom of the page. A dock named in `HOSTED_PANES` (`shared/types.ts`) is drawn by
-  the window instead: the overlay is told after every "state" ("docks"), shows no dock of its own
-  and makes no room for one, sends what the dock shows (`PanelMessage`, the "panel" stream, kept
+- **A dock the window draws.** Edit mode's inspector is the overlay's, drawn at the bottom of the
+  page, unless the window draws it; motion mode's dock only the window draws (the overlay has
+  none of its own). A dock named in `HOSTED_PANES` (`shared/types.ts`) is drawn by the window:
+  the overlay is told after every "state" ("docks"), shows no dock of its own and makes no room
+  for one, sends what the dock shows (`PanelMessage`, the "panel" stream, kept
   in `dockViews` in `renderer/store.ts`) and does what the window's dock asks (the `panel`
   command, `dockAct`). Main carries both and reads neither. The dock's component goes into
   `DOCKS` in `renderer/dock.tsx`; the window puts it under the page (its top edge drags, as the
@@ -319,10 +320,14 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   What a view and an act carry is each pane's own file: `overlay/protocol-motion.ts`,
   `overlay/protocol-canvas.ts`, `overlay/protocol-facts.ts`.
 - **Motion's dock is the window's** (`renderer/motion-dock.tsx`, its own `motion-dock.css`):
-  the list, the open animation's header, timeline and keyframe, the note and Send, all of the
-  overlay's in-page dock. Its layout asks its own box (container queries): wide, the list beside
-  what is open; narrower than 720, one or the other with a way back; narrow and at least 600
-  tall (beside a phone's page), the list above what is open. Typing, a keyframe dragged and the
+  the list, the open animation's header, timeline and keyframe, the note and Send. It is motion
+  mode's only dock: the overlay draws none, and keeps what is on the page (the tag, the
+  outlines, a click that opens what was clicked, the keys while the page has the keyboard). Its
+  layout asks its own box (container queries, which style what is in the box, never the box):
+  wide, the list beside what is open; narrower than 720, one or the other with a way back and
+  narrower lane names; narrow and at least 600 tall (beside a phone's page), the list above
+  what is open. A field that comes with a view (a new animation's name, a new lane's or
+  keyframe's value) gets the caret once the view has drawn it. Typing, a keyframe dragged and the
   playhead scrubbed are drawn from the hand until the view agrees (an act's view comes back on
   the page's next frame, 20 to 35 ms headless; a ping is about 1 ms). Its popovers stay inside
   its box: the page view paints over the window wherever it sits.

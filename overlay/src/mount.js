@@ -74,13 +74,7 @@ function mount() {
     ${Notes.cardHtml}
     <div class="variants"></div><div class="tip" hidden></div><div class="sent" hidden></div>
     ${Canvas.html}
-    <div class="m-tag" hidden></div>
-    <div class="m-dock" hidden><div class="m-list" role="list" aria-label="What moves on the page"></div>
-      <div class="m-main"><div class="m-hd" hidden></div><div class="m-body"><div class="m-tl" tabindex="0"></div><div class="m-css" hidden></div></div>
-        <div class="m-kb" hidden></div>
-        <div class="m-ft"><input class="m-note" type="text" spellcheck="false" autocomplete="off" placeholder="Note…"><span class="m-msg" hidden></span>
-          <button type="button" class="m-go" data-m="send" disabled>Send</button></div></div></div>
-    <div class="m-pop" hidden></div><div class="m-sug" role="listbox" hidden></div>`;
+    <div class="m-tag" hidden></div>`;
   boxes = root.querySelector(".boxes");
   docHost = document.createElement("b42-marks");
   docHost.setAttribute("style", "all:initial;position:absolute;left:0;top:0;width:0;height:0;overflow:visible;z-index:2147483647;pointer-events:none;display:block");
@@ -188,7 +182,8 @@ window.__b42 = {
         showPin(msg.id);
         break;
       case "docks":
-        // A dock the host draws from now on, or gives back: the layer's own goes or comes, with its room.
+        // A dock the host draws from now on, or gives back: canvas's own goes or comes, with its
+        // room; motion's is the host's or none, and its views start or stop.
         if (!setHosted(msg.hosted)) break;
         Canvas.syncUi();
         Motion.syncUi();

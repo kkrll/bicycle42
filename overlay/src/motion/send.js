@@ -9,7 +9,6 @@ import { anyDirty, apply, entryCss, kfDirty, M, MAX_KF, mq, ms, openDirty, openK
 import { letGo, openCss, setSel, show } from "./open.js";
 import { sharedBy, snapshot, timing } from "./edit.js";
 import { draw, drawFoot, flash } from "./draw.js";
-import { noteEl } from "./input.js";
 
 // ── sending ──────────────────────────────────────────────────────────────────────────────
 /** The open animation, as the note says it (see `Motion` in ../../protocol.ts). */
@@ -37,7 +36,7 @@ function payload() {
 }
 export function submit(background) {
   if (S.pending) return;
-  const o = M.open, el = o && mq(o.rs), words = noteEl.value.trim();
+  const o = M.open, el = o && mq(o.rs), words = M.note.trim();
   if (!o || !el) return flash("Open an animation first: click something that moves, or a row of the list");
   if (!openDirty() && !words) return flash("Nothing to send yet: change it, or say what it should do");
   const k = openKf();
@@ -61,10 +60,9 @@ export function submit(background) {
   };
   // What it was, until the host takes it; then its rules move to a sheet of their own, and it
   // is no longer unsent.
-  M.unsent = { id: note.id, snap: M.snap, past: M.past, future: M.future, words: noteEl.value, open: o, sel: M.sel };
+  M.unsent = { id: note.id, snap: M.snap, past: M.past, future: M.future, words: M.note, open: o, sel: M.sel };
   if (o.kind === "css") moveToSent(note.id);
-  noteEl.value = "";
-  noteEl.blur(); // the line under the timeline says it was sent
+  M.note = ""; // the line under the timeline says it was sent
   S.quiet = note.id; // no "Sent" chip over the page: the dock's line says it
   S.sel = [el]; // its outline, in the screenshot
   draw();
@@ -125,7 +123,7 @@ export function refuse(id, say) {
   M.snap = u.snap;
   M.past = u.past;
   M.future = u.future;
-  noteEl.value = [u.words, noteEl.value].filter((w) => w.trim()).join(" ");
+  M.note = [u.words, M.note].filter((w) => w.trim()).join(" ");
   S.sel = [];
   apply();
   scan();
@@ -187,7 +185,7 @@ export function dropFinished() {
 export function draft() {
   const kf = [...M.kf].filter(([, k]) => kfDirty(k));
   const use = [...M.use].filter(([, u]) => useDirty(u) || playsDirty(u));
-  const words = noteEl ? noteEl.value : "";
+  const words = M.note;
   if (!kf.length && !use.length && !words) return null;
   return { kf, use, ...(words ? { note: words } : {}) };
 }
@@ -198,7 +196,7 @@ export function restore(d) {
     const use = (Array.isArray(d.use) ? d.use : []).filter((e) => Array.isArray(e) && typeof e[0] === "string" && e[1] && e[1].timing && Array.isArray(e[1].base));
     M.kf = new Map(kf);
     M.use = new Map(use);
-    if (noteEl && typeof d.note === "string" && !noteEl.value) noteEl.value = d.note;
+    if (typeof d.note === "string" && !M.note) M.note = d.note;
     M.snap = snapshot();
     apply();
   } catch {

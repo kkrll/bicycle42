@@ -1,5 +1,9 @@
-// End-to-end tests for motion mode (the dock, the timeline, sending one animation) on
-// harness/motion-page.html. Same set-up as overlay.test.mjs: a system Chromium, headless. Run: bun run test
+// End-to-end tests for motion mode on harness/motion-page.html: what it does on the page, driven
+// as the app drives it. The dock is the host's (the overlay has none of its own): the harness
+// plays a host that draws it (__harness.hostDocks), reads the views the overlay sends
+// (__harness.panel) and acts in it (__harness.act); clicks and keys go to the page itself.
+// motion-hosted.test.mjs has the dock's own acts one by one. Same set-up as overlay.test.mjs: a
+// system Chromium, headless. Run: bun run test
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
@@ -37,47 +41,59 @@ async function pageFrame(page) {
   await f.waitForFunction(() => document.querySelector("b42-review") && document.documentElement.hasAttribute("data-b42-review"));
   return f;
 }
-
-/** Open the motion test page; with `motion`, switch to motion mode as the host's switch does. */
-async function open({ delay = 150, motion = true } = {}) {
-  const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
-  const errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto(`${base}/?delay=${delay}&page=motion`);
-  const f = await pageFrame(page);
-  if (motion) await motionOn(f);
-  return { page, f, errors };
-}
-const motionOn = async (f) => {
-  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "motion" }));
-  await f.waitForFunction(() => !document.querySelector("b42-review").shadowRoot.querySelector(".m-dock").hidden);
-};
 const frames = (f, n = 2) => f.evaluate((k) => new Promise((done) => {
   const step = () => (k-- > 0 ? requestAnimationFrame(step) : done());
   step();
 }), n);
-/** Something in the layer's shadow root, as a locator. */
-const ui = (f, sel) => f.locator(`b42-review >> css=${sel}`);
 /** What the layer's shadow root says, read in the page. */
 const inLayer = (f, fn, arg) => f.evaluate(([src, a]) => new Function("r", "a", `return (${src})(r, a)`)(document.querySelector("b42-review").shadowRoot, a), [fn.toString(), arg]);
 /** Every rule the page has adopted from us (the unsent sheet and the sent ones), as text. */
 const adopted = (f) => f.evaluate(() => document.adoptedStyleSheets.map((s) => [...s.cssRules].map((r) => r.cssText).join("\n")).join("\n"));
+const host = (page) => page.evaluate(() => ({ mode: window.__harness.mode, draft: window.__harness.draft, notes: window.__harness.notes }));
+const views = (page) => page.evaluate(() => window.__harness.panel.filter((m) => m.panel === "motion" && m.view).length);
+/** The last view the overlay sent, once `fn` (its source, run on the view) holds for it. */
+async function view(page, fn = "true", timeout = 3000) {
+  await page.waitForFunction((src) => {
+    const v = window.__harness.view("motion");
+    return !!v && new Function("v", `return (${src})`)(v);
+  }, fn, { timeout });
+  return page.evaluate(() => window.__harness.view("motion"));
+}
+const act = (page, a) => page.evaluate((x) => window.__harness.act("motion", x), a);
+/** The names of the list's animations (not the elements under them). */
+const animNames = (v) => v.rows.filter((r) => !r.group && !r.sub).map((r) => r.text);
+/** A click on the page, where the element is. */
 const clickEl = async (page, f, sel) => {
   const b = await f.locator(sel).first().boundingBox();
   await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
   await frames(f);
 };
-const host = (page) => page.evaluate(() => ({ mode: window.__harness.mode, draft: window.__harness.draft, notes: window.__harness.notes }));
+/** The keyboard is the page's (as it is once the reviewer clicks into it): keys go to its window. */
+const focusPage = (page) => page.evaluate(() => document.getElementById("page").contentWindow.focus());
 
-test("motion mode: the host's switch opens the dock and the overlay says the mode back", async () => {
-  const { page, f, errors } = await open();
+/** The motion page in motion mode as the host's switch turns it on, its dock the host's (with
+ *  `hosted` false, a host that draws no dock). */
+async function open({ delay = 150, hosted = true } = {}) {
+  const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto(`${base}/?delay=${delay}&page=motion`);
+  const f = await pageFrame(page);
+  if (hosted) await page.evaluate(() => window.__harness.hostDocks(["motion"]));
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "motion" }));
+  const v = hosted ? await view(page, "v.on && v.rows.length > 0") : null;
+  return { page, f, errors, v };
+}
+
+test("motion mode: the host's switch turns it on, the overlay says the mode back, and the dock lists what moves", async () => {
+  const { page, f, errors, v } = await open();
   assert.equal((await host(page)).mode, "motion");
-  const rows = await inLayer(f, (r) => [...r.querySelectorAll(".m-list .m-grp, .m-list .m-it")].map((e) => (e.classList.contains("m-grp") ? `#${e.textContent}` : e.querySelector(".m-nm").textContent)));
+  const rows = v.rows.map((r) => (r.group ? `#${r.group}` : r.text));
   for (const want of ["#Animations", "spin", "rise", "pulse", "card-in", "#Transitions", "#Scripts", "bob", "#Unused", "wiggle"]) assert.ok(rows.includes(want), `${want} in ${rows.join(" ")}`);
   // rise is played by two elements: they are listed under it
   assert.ok(rows.indexOf("Ship calmer interfaces") === rows.indexOf("rise") + 1, rows.join(" | "));
   // the frame-by-frame bar is found once it has moved for a while
-  await f.waitForFunction(() => [...document.querySelector("b42-review").shadowRoot.querySelectorAll(".m-it.k-frames")].length > 0, null, { timeout: 3000 });
+  await view(page, "v.rows.some((r) => r.kind === 'frames')");
   // the canvas bar is not in the way
   assert.equal(await inLayer(f, (r) => r.querySelector(".bar").hidden), true);
   assert.deepEqual(errors, []);
@@ -87,75 +103,63 @@ test("motion mode: the host's switch opens the dock and the overlay says the mod
 test("a click on the page opens the first animation of what was clicked; its name is on a tag", async () => {
   const { page, f, errors } = await open();
   await clickEl(page, f, ".hero h2");
-  const s = await inLayer(f, (r) => ({ head: !r.querySelector(".m-hd").hidden, band: r.querySelector(".m-ghead b")?.textContent, lanes: [...r.querySelectorAll(".m-lane .m-lab span")].map((e) => e.textContent),
-    shared: r.querySelector(".m-shared")?.textContent.trim(), tag: r.querySelector(".m-tag").textContent, on: r.querySelector(".m-it.on .m-nm")?.textContent }));
-  assert.equal(s.head, true);
-  assert.equal(s.band, "rise");
-  assert.deepEqual(s.lanes, ["opacity", "transform"]);
-  assert.equal(s.shared, "2 elements");
-  assert.match(s.tag, /Heading · Ship calmer/);
-  assert.equal(s.on, "Ship calmer interfaces");
+  const w = await view(page, "v.open && v.open.name === 'rise'");
+  assert.deepEqual(w.open.lanes.map((l) => l.prop), ["opacity", "transform"]);
+  assert.equal(w.open.shared, 2);
+  assert.equal(w.rows.find((r) => r.on)?.text, "Ship calmer interfaces");
+  await frames(f, 2);
+  assert.match(await inLayer(f, (r) => r.querySelector(".m-tag").textContent), /Heading · Ship calmer/);
+  assert.equal(await inLayer(f, (r) => r.querySelector(".m-tag").hidden), false);
   // a click on something that does not move says so, and offers a new animation
   await clickEl(page, f, ".card h3");
-  assert.equal(await inLayer(f, (r) => !!r.querySelector(".m-empty [data-m=new]")), true);
+  const n = await view(page, "v.sel && !v.open");
+  assert.match(n.sel, /Review/);
   assert.deepEqual(errors, []);
   await page.close();
 });
 
-test("dragging a grip moves the keyframe, live and undoably; a value typed for it applies", async () => {
+test("dragging a grip moves the keyframe, live and undoably; a value typed for it applies; mod+Z on the page undoes", async () => {
   const { page, f, errors } = await open();
   await clickEl(page, f, ".hero h2");
-  const g = await ui(f, '.m-kspan[data-prop="opacity"] .m-key[data-at="100"]').boundingBox();
-  await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(g.x + g.width / 2 - 100, g.y + g.height / 2, { steps: 6 });
-  await page.mouse.up();
-  await frames(f);
+  await view(page, "v.open && v.open.name === 'rise'");
+  await act(page, { type: "select", key: { at: 100, prop: "opacity" }, grab: true });
+  for (const to of [96, 90, 82, 75]) await act(page, { type: "drag", to });
+  await act(page, { type: "drop" });
+  const at = (await view(page, "v.open.key && v.open.key.at < 100")).open.key.at;
+  assert.ok(at < 100 && at > 50, `moved to ${at}`);
   const css = await adopted(f);
   assert.match(css, /@keyframes rise \{[^]*?\d+% \{ opacity: 1; \}/, css);
-  const at = await inLayer(f, (r) => r.querySelector('.m-kspan[data-prop="opacity"] .m-key.on')?.dataset.at);
-  assert.ok(Number(at) < 100 && Number(at) > 50, `moved to ${at}`);
   // the selected keyframe's value
-  await ui(f, ".m-kb [data-k=val]").fill("0.6");
-  await ui(f, ".m-kb [data-k=val]").press("Enter");
+  await act(page, { type: "key", what: "val", value: "0.6", done: true });
+  await view(page, "v.open.key && v.open.key.value === '0.6'");
   assert.match(await adopted(f), new RegExp(`${at}% \\{ opacity: 0\\.6; \\}`));
-  // undo, twice: the page's own keyframes again
+  // undo, twice, with the page's keyboard: the page's own keyframes again
+  await focusPage(page);
   await page.keyboard.press(`${MOD}+z`);
   await page.keyboard.press(`${MOD}+z`);
-  await frames(f);
+  await view(page, "!v.undo");
   assert.doesNotMatch(await adopted(f), /@keyframes rise/);
+  // and mod+shift+Z does it again
+  await page.keyboard.press(`${MOD}+Shift+z`);
+  await view(page, "v.undo && v.redo");
+  assert.match(await adopted(f), /@keyframes rise/);
   assert.deepEqual(errors, []);
   await page.close();
 });
 
-test("timing belongs to the element: a duration typed writes its animation, not the keyframes", async () => {
-  const { page, f, errors } = await open();
-  await clickEl(page, f, ".hero p");
-  await ui(f, "[data-t=duration]").fill("900");
-  await ui(f, "[data-t=duration]").press("Enter");
-  const css = await adopted(f);
-  assert.match(css, /section\.hero|body > section/);
-  // (the browser writes the shorthand back in its own order)
-  assert.match(css, /animation: 900ms cubic-bezier\(0\.2, 0\.8, 0\.2, 1\) 120ms 1 normal both running rise;/, css);
-  assert.doesNotMatch(css, /@keyframes/);
-  // the more popover: chips set how it plays
-  await ui(f, "[data-m=more]").click();
-  await ui(f, '.m-pop [data-tkey=direction] [data-v=alternate]').click();
-  assert.match(await adopted(f), /alternate/);
-  assert.deepEqual(errors, []);
-  await page.close();
-});
-
-test("Enter sends the open animation as one note; it stays applied until the note is done", async () => {
+test("Enter on the page sends the open animation as one note; it stays applied until the note is done", async () => {
   const { page, f, errors } = await open({ delay: 700 });
   await clickEl(page, f, ".hero p");
-  await ui(f, "[data-t=duration]").fill("900");
-  await ui(f, "[data-t=duration]").press("Enter");
-  await ui(f, ".m-note").fill("calmer");
-  await ui(f, ".m-note").press("Enter");
+  await view(page, "v.open && v.open.name === 'rise'");
+  await act(page, { type: "timing", what: "duration", value: "900", done: true });
+  await act(page, { type: "note", text: "calmer" });
+  await view(page, "v.note === 'calmer'");
+  await focusPage(page);
+  await page.keyboard.press("Enter");
   await page.waitForFunction(() => window.__harness.notes.length === 1);
   const note = (await host(page)).notes[0];
   assert.equal(note.text, "calmer");
+  assert.equal(note.lane, undefined);
   assert.equal(note.motion.kind, "keyframes");
   assert.equal(note.motion.name, "rise");
   assert.equal(note.motion.shared, 2);
@@ -167,8 +171,8 @@ test("Enter sends the open animation as one note; it stays applied until the not
   assert.match(note.prompt, /Motion edit, made on the live page/);
   assert.match(note.prompt, /animation: rise 900ms/);
   // sent: the edits are no longer unsent, but the page still plays them
-  await frames(f, 4);
-  assert.equal(await inLayer(f, (r) => r.querySelector(".m-msg").textContent), "Sent · preview stays until note 1 is done");
+  const w = await view(page, "v.note === '' && v.status !== ''");
+  assert.equal(w.status, "Sent · preview stays until note 1 is done");
   assert.match(await adopted(f), /900ms[^;]* rise;/);
   const d = (await host(page)).draft;
   assert.ok(!d || !d.motion, JSON.stringify(d));
@@ -184,15 +188,14 @@ test("a refused note comes back unsent, with its edits and its words", async () 
   const { page, f, errors } = await open();
   await page.evaluate(() => (window.__harness.refuse = "the server is offline"));
   await clickEl(page, f, ".hero p");
-  await ui(f, "[data-t=duration]").fill("950");
-  await ui(f, "[data-t=duration]").press("Enter");
-  await ui(f, ".m-note").fill("slower");
-  await ui(f, ".m-go").click();
-  await frames(f, 6);
-  const s = await inLayer(f, (r) => ({ msg: r.querySelector(".m-msg").textContent, note: r.querySelector(".m-note").value, dur: r.querySelector("[data-t=duration]")?.value }));
-  assert.match(s.msg, /Not sent: the server is offline/);
-  assert.equal(s.note, "slower");
-  assert.equal(s.dur, "950");
+  await view(page, "v.open && v.open.name === 'rise'");
+  await act(page, { type: "timing", what: "duration", value: "950", done: true });
+  await act(page, { type: "note", text: "slower" });
+  await act(page, { type: "send", background: false });
+  const w = await view(page, "/Not sent/.test(v.msg)");
+  assert.match(w.msg, /Not sent: the server is offline/);
+  assert.equal(w.note, "slower");
+  assert.equal(w.open.timing.duration, 950);
   assert.match(await adopted(f), /950ms[^;]* rise;/);
   assert.equal((await host(page)).notes.length, 0);
   assert.deepEqual(errors, []);
@@ -210,17 +213,19 @@ test("a refusal of another note leaves the one being sent alone: refused itself,
   await page.route("**/overlay.js", (route) => route.fulfill({ contentType: "text/javascript", body: withMotion }));
   await page.goto(`${base}/?delay=150&page=motion`);
   const f = await pageFrame(page);
-  await motionOn(f);
+  await page.evaluate(() => window.__harness.hostDocks(["motion"]));
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "motion" }));
+  await view(page, "v.on && v.rows.length > 0");
   // The host holds the note: it is sent, and neither taken nor refused yet.
   await f.evaluate(() => {
     const real = window.__review;
     window.__review = (s) => (JSON.parse(s).type === "note" ? void (window.__held = JSON.parse(s).note) : real(s));
   });
   await clickEl(page, f, ".hero p");
-  await ui(f, "[data-t=duration]").fill("950");
-  await ui(f, "[data-t=duration]").press("Enter");
-  await ui(f, ".m-note").fill("slower");
-  await ui(f, ".m-note").press("Enter");
+  await view(page, "v.open && v.open.name === 'rise'");
+  await act(page, { type: "timing", what: "duration", value: "950", done: true });
+  await act(page, { type: "note", text: "slower" });
+  await act(page, { type: "send", background: false });
   // All in one go: the overlay gives up waiting for the host after two seconds.
   const stale = await f.evaluate(async () => {
     while (!window.__held) await new Promise(requestAnimationFrame);
@@ -234,47 +239,32 @@ test("a refusal of another note leaves the one being sent alone: refused itself,
     return out;
   });
   assert.equal(stale, false);
-  await frames(f, 6);
   // the note that was pending is refused now: it comes back unsent, with its edits and words
-  const s = await inLayer(f, (r) => ({ msg: r.querySelector(".m-msg").textContent, note: r.querySelector(".m-note").value, dur: r.querySelector("[data-t=duration]")?.value }));
-  assert.match(s.msg, /Not sent: the server is offline/);
-  assert.equal(s.note, "slower");
-  assert.equal(s.dur, "950");
+  const w = await view(page, "/Not sent/.test(v.msg)");
+  assert.match(w.msg, /Not sent: the server is offline/);
+  assert.equal(w.note, "slower");
+  assert.equal(w.open.timing.duration, 950);
   assert.match(await adopted(f), /950ms[^;]* rise;/);
   assert.deepEqual(errors, []);
   await page.close();
 });
 
-test("unsent edits survive a reload: the host keeps them, the page comes back in motion mode", async () => {
-  const { page, f: f1, errors } = await open();
-  await clickEl(page, f1, ".hero h2");
-  await ui(f1, "[data-t=duration]").fill("1200");
-  await ui(f1, "[data-t=duration]").press("Enter");
-  await page.waitForFunction(() => window.__harness.draft && window.__harness.draft.motion);
-  await page.click("#reload");
-  await page.waitForTimeout(300);
-  const f = await pageFrame(page);
-  await f.waitForFunction(() => !document.querySelector("b42-review").shadowRoot.querySelector(".m-dock").hidden);
-  assert.equal((await host(page)).mode, "motion");
-  await f.waitForFunction(() => document.adoptedStyleSheets.some((s) => [...s.cssRules].some((r) => /1200ms[^;]* rise;/.test(r.cssText))));
-  // the list marks what is changed and unsent
-  assert.equal(await inLayer(f, (r) => !!r.querySelector(".m-it.sub .m-ed")), true);
-  assert.deepEqual(errors, []);
-  await page.close();
-});
-
-test("Esc steps back: the keyframe, the animation, then notes mode; nothing is left stopped", async () => {
+test("Esc on the page steps back: the keyframe, the animation, then notes mode; nothing is left stopped", async () => {
   const { page, f, errors } = await open();
   await clickEl(page, f, ".sync .spinner");
-  await ui(f, '.m-kspan .m-key').first().click();
+  const o = (await view(page, "v.open && v.open.lanes.length > 0")).open;
+  await act(page, { type: "select", key: { at: o.lanes[0].keys[0].at, prop: o.lanes[0].prop } });
+  await view(page, "v.open.key");
   assert.equal(await f.evaluate(() => document.querySelector(".spinner").getAnimations()[0].playState), "paused");
+  await focusPage(page);
   await page.keyboard.press("Escape");
-  assert.equal(await inLayer(f, (r) => !!r.querySelector(".m-key.on")), false);
+  await view(page, "v.open && !v.open.key");
   await page.keyboard.press("Escape");
+  await view(page, "!v.open && !v.sel");
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => window.__harness.mode === "notes");
+  assert.equal((await view(page, "!v.on")).rows.length, 0);
   await frames(f);
-  assert.equal(await inLayer(f, (r) => r.querySelector(".m-dock").hidden), true);
   assert.equal(await f.evaluate(() => document.querySelector(".spinner").getAnimations()[0].playState), "running");
   assert.deepEqual(errors, []);
   await page.close();
@@ -283,16 +273,18 @@ test("Esc steps back: the keyframe, the animation, then notes mode; nothing is l
 test("shared keyframes: Duplicate gives the element its own copy; the note says so", async () => {
   const { page, f, errors } = await open();
   await clickEl(page, f, ".hero p");
-  await ui(f, '.m-kspan[data-prop="opacity"] .m-key[data-at="0"]').click();
-  await ui(f, ".m-kb [data-k=val]").fill("0.3");
-  await ui(f, ".m-kb [data-k=val]").press("Enter");
-  await ui(f, "[data-m=detach]").click();
-  await frames(f);
+  await view(page, "v.open && v.open.name === 'rise' && v.open.shared === 2");
+  await act(page, { type: "select", key: { at: 0, prop: "opacity" } });
+  await act(page, { type: "key", what: "val", value: "0.3", done: true });
+  await act(page, { type: "detach" });
+  const w = await view(page, "v.open.name === 'rise-2'");
   const css = await adopted(f);
   assert.match(css, /@keyframes rise-2 \{[^]*?0% \{ opacity: 0\.3;/, css);
   assert.doesNotMatch(css, /@keyframes rise \{/); // the heading keeps the page's own
   assert.match(css, /animation: 700ms[^;]* rise-2;/);
-  assert.equal(await inLayer(f, (r) => r.querySelector(".m-shared").textContent.trim()), "Copy of rise, for this element only");
+  assert.equal(w.open.from, "rise");
+  assert.equal(w.open.shared, 1);
+  await focusPage(page);
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => window.__harness.notes.length === 1);
   const m = (await host(page)).notes[0].motion;
@@ -307,35 +299,39 @@ test("shared keyframes: Duplicate gives the element its own copy; the note says 
 test("a new animation is named in its band; renamed in the CSS text, the list follows at once and no row is left under the old name", async () => {
   const { page, f, errors } = await open();
   await clickEl(page, f, ".card h3");
-  await ui(f, "[data-m=new]").click();
-  // the name has the caret, and says it is new (not a copy of anything)
-  assert.equal(await inLayer(f, (r) => r.activeElement?.dataset.name !== undefined && r.activeElement.value), "new-animation");
-  await page.keyboard.type("slide-in");
-  await page.keyboard.press("Enter");
-  const names = () => inLayer(f, (r) => [...r.querySelectorAll(".m-list .m-it:not(.sub) .m-nm")].map((e) => e.textContent));
-  assert.ok((await names()).includes("slide-in"));
-  // a name that is taken is refused, and the one it has comes back
-  await ui(f, ".m-ghead [data-name]").fill("rise");
-  await ui(f, ".m-ghead [data-name]").press("Enter");
-  assert.equal(await ui(f, ".m-ghead [data-name]").inputValue(), "slide-in");
+  await view(page, "v.sel && !v.open");
+  await act(page, { type: "new" });
+  // it says it is new (not a copy of anything), and can be renamed and removed
+  let w = await view(page, "v.open && v.open.renamable");
+  assert.equal(w.open.name, "new-animation");
+  assert.equal(w.open.from, null);
+  assert.equal(w.open.removable, true);
+  await act(page, { type: "name", value: "slide-in", done: true });
+  assert.ok(animNames(await view(page, "v.open.name === 'slide-in'")).includes("slide-in"));
+  // a name that is taken is refused, and the one it has stays
+  await act(page, { type: "name", value: "rise", done: true });
+  await frames(f, 3);
+  assert.equal((await view(page)).open.name, "slide-in");
   // renamed in the text, then back to the keyframes: one animation, under the new name
-  await ui(f, "[data-m=view][data-v=css]").click();
-  const area = ui(f, "textarea[data-css]");
-  await area.click();
-  await area.evaluate((t) => t.setSelectionRange(t.value.indexOf("slide-in"), t.value.indexOf("slide-in") + 8));
-  await page.keyboard.type("test-one");
-  assert.ok((await names()).includes("test-one"), "the list follows while typing");
-  await ui(f, "[data-m=view][data-v=keys]").click();
+  await act(page, { type: "view", view: "css" });
+  w = await view(page, "v.view === 'css'");
+  await act(page, { type: "css", text: w.open.css.replace("slide-in", "test-one"), done: false });
+  w = await view(page, "v.rows.some((r) => !r.sub && r.text === 'test-one')");
+  assert.ok(animNames(w).includes("test-one"), "the list follows while typing");
+  await act(page, { type: "view", view: "keys" });
   await clickEl(page, f, ".hero h2");
+  await view(page, "v.open && v.open.name === 'rise'");
   await clickEl(page, f, ".card h3");
-  const list = await names();
+  w = await view(page, "v.open && v.open.name === 'test-one'");
+  const list = animNames(w);
   assert.ok(list.includes("test-one") && !list.includes("slide-in"), list.join(" "));
   assert.match(await adopted(f), /animation: [^;]*test-one;/);
   assert.doesNotMatch(await adopted(f), /slide-in/);
   // Remove takes it off the element
-  await ui(f, ".m-ghead [data-m=discard]").click();
-  assert.ok(!(await names()).includes("test-one"));
-  assert.equal(await inLayer(f, (r) => !!r.querySelector(".m-empty [data-m=new]")), true);
+  await act(page, { type: "discard" });
+  w = await view(page, "v.sel && !v.open");
+  assert.ok(!animNames(w).includes("test-one"));
+  assert.doesNotMatch(await adopted(f), /test-one/);
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -343,121 +339,57 @@ test("a new animation is named in its band; renamed in the CSS text, the list fo
 test("something that does not move can play keyframes the page has, timed as the page times them", async () => {
   const { page, f, errors } = await open();
   await clickEl(page, f, ".card h3");
-  const chips = await inLayer(f, (r) => [...r.querySelectorAll(".m-empty [data-m=use]")].map((b) => b.dataset.v));
-  assert.ok(["rise", "spin", "wiggle"].every((n) => chips.includes(n)), chips.join(" "));
-  await ui(f, '.m-empty [data-m=use][data-v="spin"]').click();
-  const s = await inLayer(f, (r) => ({ band: r.querySelector(".m-ghead b")?.textContent, shared: r.querySelector(".m-shared")?.textContent.trim(), dur: r.querySelector("[data-t=duration]").value }));
-  assert.deepEqual(s, { band: "spin", shared: "2 elements", dur: "900" });
+  const names = (await view(page, "v.sel && !v.open && v.names.length > 0")).names;
+  assert.ok(["rise", "spin", "wiggle"].every((n) => names.includes(n)), names.join(" "));
+  await act(page, { type: "use", name: "spin" });
+  const o = (await view(page, "v.open && v.open.name === 'spin'")).open;
+  assert.deepEqual({ name: o.name, shared: o.shared, duration: o.timing.duration }, { name: "spin", shared: 2, duration: 900 });
+  assert.match(await adopted(f), /animation: [^;]*spin;/);
   assert.deepEqual(errors, []);
   await page.close();
 });
 
-test("the property and easing fields list their values in the dock's own list: ↑/↓ and Enter, or a click", async () => {
-  const { page, f, errors } = await open();
+test("a host that does not say it draws motion's dock has none: nothing over the page, no room, no views; said, the views come and a ping is answered; given back, they stop", async () => {
+  const { page, f, errors } = await open({ hosted: false });
+  await page.waitForFunction(() => window.__harness.mode === "motion");
   await clickEl(page, f, ".hero h2");
-  const list = () => inLayer(f, (r) => (r.querySelector(".m-sug").hidden ? null : [...r.querySelectorAll(".m-sug .m-sg")].map((e) => e.textContent)));
-  await ui(f, "[data-addp]").click();
-  const all = await list();
-  assert.ok(all && all.includes("color") && !all.includes("opacity"), `the lanes it has are not offered: ${all}`);
-  await page.keyboard.type("bo");
-  assert.deepEqual(await list(), ["border-color", "box-shadow", "border-radius"]);
-  await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("Enter");
-  await frames(f);
-  assert.deepEqual(await inLayer(f, (r) => [...r.querySelectorAll(".m-lane .m-lab span")].map((e) => e.textContent)), ["opacity", "transform", "box-shadow"]);
-  assert.equal(await list(), null);
-  // the easing: the one it has is marked; a click picks another
-  await ui(f, "[data-t=easing]").click();
-  assert.equal(await inLayer(f, (r) => r.querySelector(".m-sug .m-sg.on")?.textContent), "cubic-bezier(0.2, 0.8, 0.2, 1)");
-  const at = await inLayer(f, (r) => [...r.querySelectorAll(".m-sug .m-sg")].findIndex((e) => e.textContent === "ease-in"));
-  await ui(f, `.m-sug .m-sg[data-sg="${at}"]`).click();
-  assert.equal(await ui(f, "[data-t=easing]").inputValue(), "ease-in");
-  assert.match(await adopted(f), /ease-in /);
-  assert.equal(await list(), null);
-  assert.deepEqual(errors, []);
-  await page.close();
-});
-
-test("the dock gives the page its room: what is fixed to the window's bottom goes up above it, what is fixed to the top stays", async () => {
-  const { page, f, errors } = await open({ motion: false });
-  await f.evaluate(() => {
-    const add = (id, css) => document.body.insertAdjacentHTML("beforeend", `<div id="${id}" style="position:fixed;${css}">${id}</div>`);
-    add("fx-bar", "left:0;right:0;bottom:0;height:40px");
-    add("fx-chat", "right:16px;bottom:24px;width:40px;height:40px;transition:bottom 0.2s");
-    add("fx-head", "left:0;right:0;top:0;height:30px");
-  });
-  const where = () => f.evaluate(() => Object.fromEntries(["fx-bar", "fx-chat", "fx-head"].map((id) => [id, Math.round(innerHeight - document.getElementById(id).getBoundingClientRect().bottom)])));
-  const pad = () => f.evaluate(() => getComputedStyle(document.documentElement).paddingBottom);
-  const before = await where();
-  const head = before["fx-head"]; // the window's height less the header's
-  assert.deepEqual(before, { "fx-bar": 0, "fx-chat": 24, "fx-head": head });
-  await motionOn(f);
   await frames(f, 3);
-  await f.waitForFunction(() => getComputedStyle(document.getElementById("fx-chat")).bottom === "384px");
-  assert.deepEqual(await where(), { "fx-bar": 360, "fx-chat": 384, "fx-head": head });
-  assert.equal(await pad(), "360px");
-  // a box that comes later is lifted too, and the lifted ones are not lifted twice
-  await f.evaluate(() => document.body.insertAdjacentHTML("beforeend", `<div id="fx-late" style="position:fixed;bottom:8px;left:0;height:10px">late</div>`));
-  await f.waitForFunction(() => getComputedStyle(document.getElementById("fx-late")).bottom === "368px");
-  await frames(f, 3);
-  assert.deepEqual(await where(), { "fx-bar": 360, "fx-chat": 384, "fx-head": head });
-  // the dock closed: everything is where the page put it
-  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "notes" }));
-  await frames(f, 3);
-  await f.waitForFunction(() => getComputedStyle(document.getElementById("fx-chat")).bottom === "24px");
-  assert.deepEqual(await where(), before);
-  assert.equal(await pad(), "0px");
-  assert.deepEqual(errors, []);
-  await page.close();
-});
-
-test("a phone-width dock shows the list or what is open, with a way back to the list", async () => {
-  const { page, f, errors } = await open();
-  await page.evaluate(() => { const i = document.getElementById("page"); i.style.flex = "none"; i.style.width = i.style.maxWidth = "390px"; });
-  const shown = () => f.evaluate(() => {
-    const r = document.querySelector("b42-review").shadowRoot, vis = (s) => getComputedStyle(r.querySelector(s)).display !== "none";
-    return { list: vis(".m-list"), main: vis(".m-main"), back: !!r.querySelector(".m-back") && vis(".m-back") };
-  });
-  await page.waitForFunction(() => document.getElementById("page").getBoundingClientRect().width === 390);
-  assert.deepEqual(await shown(), { list: true, main: false, back: false });
-  await ui(f, ".m-it").first().click();
-  assert.deepEqual(await shown(), { list: false, main: true, back: true });
-  // The list's column gives the lanes its width: they start at the narrow label column.
-  const lab = await f.evaluate(() => getComputedStyle(document.querySelector("b42-review").shadowRoot.querySelector(".m-tl")).getPropertyValue("--lab").trim());
-  assert.equal(lab, "104px");
-  await ui(f, ".m-back").click();
-  assert.deepEqual(await shown(), { list: true, main: false, back: false });
-  assert.deepEqual(errors, []);
-  await page.close();
-});
-
-test("a dock the host draws itself: the layer shows none and makes no room; a ping is answered; given back, the dock returns", async () => {
-  const { page, f, errors } = await open();
-  const dock = () => f.evaluate(() => ({
-    shown: !document.querySelector("b42-review").shadowRoot.querySelector(".m-dock").hidden,
-    room: getComputedStyle(document.documentElement).paddingBottom,
-  }));
-  assert.deepEqual(await dock(), { shown: true, room: "360px" });
+  // Motion mode itself is on, on the page: the open element is tagged.
+  assert.equal(await inLayer(f, (r) => r.querySelector(".m-tag").hidden), false);
+  // Nothing of the layer's at the bottom of the window, and the page is given no room for a dock.
+  const bottom = await f.evaluate(() => ({ at: document.elementFromPoint(innerWidth / 2, innerHeight - 4)?.localName, room: getComputedStyle(document.documentElement).paddingBottom }));
+  assert.notEqual(bottom.at, "b42-review");
+  assert.equal(bottom.room, "0px");
+  assert.equal(await views(page), 0);
+  // Said: the host's dock is told what it shows, and a ping is answered.
   await page.evaluate(() => window.__harness.hostDocks(["motion"]));
-  await frames(f, 3);
-  assert.deepEqual(await dock(), { shown: false, room: "0px" });
-  // Motion mode itself is still on: only its dock is the host's.
-  assert.equal(await page.evaluate(() => window.__harness.mode), "motion");
+  await view(page, "v.on && v.open && v.open.name === 'rise'");
   await page.evaluate(() => window.__harness.act("motion", { type: "ping", id: 7 }));
   await page.waitForFunction(() => window.__harness.panel.some((m) => m.panel === "motion" && m.pong === 7));
-  // A dock that is not hosted is not answered: its acts are not for the layer's own dock.
+  // A dock that is not hosted is not answered.
   await page.evaluate(() => window.__harness.act("canvas", { type: "ping", id: 8 }));
   await frames(f, 3);
   assert.equal(await page.evaluate(() => window.__harness.panel.some((m) => m.pong === 8)), false);
-  // A reload: the host says it again after "state", and the new document has no dock either.
-  await page.evaluate(() => document.getElementById("page").contentWindow.location.reload());
+  // A reload: the host says it again after "state", and the new document sends views too.
+  const before = await views(page);
+  await page.evaluate(() => {
+    const w = document.getElementById("page").contentWindow;
+    w.__old = true; // (until the new document is there, the frame is still the old one's)
+    w.location.reload();
+  });
+  await page.waitForFunction(() => !document.getElementById("page").contentWindow.__old);
   const f2 = await pageFrame(page);
   await f2.evaluate(() => window.__b42.receive({ type: "mode", mode: "motion" }));
-  await frames(f2, 3);
-  assert.equal(await f2.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelector(".m-dock").hidden), true);
+  await page.waitForFunction((k) => window.__harness.panel.filter((m) => m.panel === "motion" && m.view).length > k, before);
+  await view(page, "v.on");
+  // Given back: no views any more, and motion mode still works on the page.
   await page.evaluate(() => window.__harness.hostDocks([]));
   await frames(f2, 3);
-  assert.equal(await f2.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelector(".m-dock").hidden), false);
+  const after = await views(page);
+  await clickEl(page, f2, ".hero p");
+  await frames(f2, 3);
+  assert.equal(await views(page), after);
+  assert.equal(await inLayer(f2, (r) => r.querySelector(".m-tag").hidden), false);
   assert.deepEqual(errors, []);
   await page.close();
 });
