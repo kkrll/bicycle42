@@ -14,7 +14,8 @@ import { createPage, WORLD, type PageMessage } from "../src/main/page"
 import { noteImages } from "../src/main/images"
 import { createReview, pageEdits, pageNote } from "../src/main/review"
 import { parseNote } from "../src/main/opencode"
-import { PHONE, PHONES } from "../src/shared/types"
+import { PHONE, PHONES, type Pane } from "../src/shared/types"
+import type { CanvasAct, CanvasView } from "../../overlay/protocol-canvas"
 import { notePrompt, noteWords } from "../../overlay/prompt.js"
 
 // dist/test/ → the repo's overlay/, which the harness page lives in.
@@ -63,14 +64,18 @@ async function main() {
   let changes = 0
   /** What the host hands back on "ready": the unsent note, as the overlay last reported it. */
   let draft: unknown = null
+  /** The panes the host says it draws, told after every "state" as the controller tells them. */
+  let docks: Pane[] = []
   const page = await createPage(win, {
     preload: path.join(__dirname, "../page-preload.cjs"), // dist/, built with this test
     partition: "page-e2e", // in memory: nothing kept between runs
     onMessage(msg) {
       messages.push(msg)
       // The one reply the overlay can't do without.
-      if (msg.type === "ready")
+      if (msg.type === "ready") {
         page.send({ type: "state", enabled: true, draft, pins: review.pins(), templates: [{ name: "variants", hint: "5 options" }, { name: "keep", hint: "keep the one shown" }, { name: "grade", hint: "a score" }] })
+        if (docks.length) page.send({ type: "docks", hosted: docks })
+      }
     },
     onChange: () => void changes++,
     onShortcut: (key) => void shortcuts.push(key),
@@ -511,9 +516,13 @@ async function main() {
   await key("Escape", "Escape", 27)
   await js("document.querySelector('#pop').remove()")
 
-  // ── canvas mode: the inspector and the mouse, sent as one note ─────────────────────────────
+  // ── canvas mode: the mouse on the page, the inspector's acts, sent as one note ──────────────
   // The page is overlay/harness/canvas.html: a flex row of three cards (#plans), a grid, a title.
+  // The inspector is the window's (app.e2e.ts drives it): here the test is its host, telling the
+  // overlay it draws it, sending its acts and reading its views, as the controller carries them.
   {
+    docks = ["canvas"]
+    page.send({ type: "docks", hosted: docks })
     const canvasUrl = moved.replace("page.html", "canvas.html")
     check("the canvas test page loads", (await readyAgain(() => page.load(canvasUrl))) && page.state().url === canvasUrl)
     await until(() => js(`${shadow}?.querySelector('.pins')?.classList.contains('live') ?? false`), 2000)
@@ -522,8 +531,13 @@ async function main() {
     type Box = { x: number; y: number; width: number; height: number }
     const boxOf = (expr: string) => js(`(() => { const r = (${expr}).getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height } })()`) as Promise<Box>
     const pageBox = (selector: string) => boxOf(`document.querySelector(${JSON.stringify(selector)})`)
-    /** A part of the overlay's own UI: the inspector's fields, the bar. */
+    /** A part of the overlay's own UI on the page: the selection's handles, notes mode's chip, the card. */
     const part = (cls: string) => `${shadow}.querySelector('.${cls}')`
+    /** The view the overlay sent the host's inspector last. */
+    const view = () => messages.filter((m) => m.type === "panel" && m.panel === "canvas" && "view" in m).at(-1)?.view as CanvasView | undefined
+    const act = (a: CanvasAct) => page.send({ type: "panel", panel: "canvas", act: a })
+    /** Canvas mode is on, as the layer last told the host. */
+    const inCanvas = () => messages.filter((m) => m.type === "mode").at(-1)?.mode === "canvas"
     const clickPt = async (at: Pt) => {
       await mouse("mouseMoved", at.x, at.y, { button: "none" })
       await mouse("mousePressed", at.x, at.y)
@@ -548,15 +562,17 @@ async function main() {
     const css = (selector: string, prop: string) => js(`getComputedStyle(document.querySelector(${JSON.stringify(selector)})).getPropertyValue(${JSON.stringify(prop)})`) as Promise<string>
     /** Something of the layer's own is on screen. */
     const shown = (cls: string) => js(`(() => { const e = ${part(cls)}; return !!e && e.checkVisibility({ visibilityProperty: true, opacityProperty: true }) })()`) as Promise<boolean>
-    const typeIn = async (cls: string, text: string) => {
-      await clickPt(centre(await boxOf(part(cls))))
-      await dbg.sendCommand("Input.insertText", { text })
+    /** A field of the inspector's, its whole text typed: for the selection the view names. */
+    const typeIn = async (field: "css" | "classes" | "sheet", text: string) => {
+      if ((field === "sheet") !== view()?.global) act({ type: "global", on: field === "sheet" })
+      act({ type: "text", field, text, ...(field === "sheet" ? {} : { id: view()?.sel?.id ?? 0 }) })
       await sleep(150)
     }
-    // mod+Enter as real input (the inspector's fields send with it); a CDP Enter is a new line there.
-    const modEnter = () => {
-      wc.sendInputEvent({ type: "keyDown", keyCode: "Enter", modifiers: [mod] })
-      wc.sendInputEvent({ type: "keyUp", keyCode: "Enter", modifiers: [mod] })
+    // Send from the inspector (its Send, mod+Enter in its fields): no key or click in the page comes
+    // with it, so the controller lets the next note through first (admitNote), as here.
+    const sendAct = () => {
+      page.admitNote()
+      act({ type: "send" })
     }
     const lastNote = () => messages.filter((m) => m.type === "note").at(-1)?.note as Record<string, unknown> | undefined
     const nextNote = async (send: () => void) => {
@@ -581,7 +597,7 @@ async function main() {
     }
 
     wc.sendInputEvent({ type: "keyDown", keyCode: "O", modifiers: [mod] })
-    check("mod+O reaches the page and turns canvas mode on: the inspector opens", (await until(() => shown("insp"), 2000)) === true)
+    check("mod+O reaches the page and turns canvas mode on: the host's inspector gets its view", (await until(() => inCanvas() && !!view(), 2000)) === true)
 
     // ── a gap drag and a hide, sent with Enter from the page ──────────────────────────────────
     await clickPt(centre(await pageBox(SECOND)))
@@ -593,7 +609,7 @@ async function main() {
     await key("Delete", "Delete", 46)
     await sleep(150)
     check("Delete hides the selection", (await css("#cta", "display")) === "none")
-    check("unsent edits keep the page busy, so an auto-reload waits", (await page.busy()) === true && (await js(`${part("count")}.textContent`)) === "2 edits", String(await js(`${part("count")}.textContent`)))
+    check("unsent edits keep the page busy, so an auto-reload waits", (await page.busy()) === true && (await until(() => view()?.batch.edits === 2, 1000)) === true, String(view()?.batch.edits))
     const hadDraft = (await until(() => messages.filter((m) => m.type === "draft").at(-1)?.draft as { edits?: unknown } | null | undefined, 2000))?.edits
     check("the draft carries the unsent edits", !!hadDraft, JSON.stringify(hadDraft)?.slice(0, 80))
 
@@ -614,12 +630,12 @@ async function main() {
 
     // The controller's part: a picture after, the edits off, a picture before, the edits on.
     await sleep(100)
-    check("nothing of the layer's own is in the picture taken on the note", !(await shown("bar")) && !(await shown("insp")) && !(await shown("card")) && (await js(`${shadow}.querySelectorAll('.pin').length`)) === 0)
+    check("nothing of the layer's own is in the picture taken on the note", !(await shown("cv")) && !(await shown("bar")) && !(await shown("card")) && (await js(`${shadow}.querySelectorAll('.pin').length`)) === 0)
     const after = await page.capture()
     const off = await showEdits(cn.id, false)
     check('"edits" show:false is answered with "edits-shown" well inside the host\'s second', off.ok && off.ms < 1000, `${off.ms} ms`)
     check("…and the page is as it was before the edits", (await css("#plans", "column-gap")) === "16px" && (await css("#cta", "display")) !== "none", `${await css("#plans", "column-gap")}, ${await css("#cta", "display")}`)
-    check("…with the layer's own parts still hidden", !(await shown("bar")) && !(await shown("insp")))
+    check("…with the layer's own parts still hidden", !(await shown("cv")) && !(await shown("bar")))
     const before = await page.capture()
     const on = await showEdits(cn.id, true)
     check('"edits" show:true puts them back and answers', on.ok && (await css("#plans", "column-gap")) === "32px" && (await css("#cta", "display")) === "none", `${on.ms} ms`)
@@ -637,7 +653,7 @@ async function main() {
 
     await done(cn.id)
     // The layer's own parts come back with its next frame.
-    check('after "captured" the edits stay on the page as a preview and the layer is free again', (await until(() => shown("bar"), 2000)) === true && (await css("#plans", "column-gap")) === "32px" && (await css("#cta", "display")) === "none" && (await page.busy()) === false)
+    check('after "captured" the edits stay on the page as a preview and the layer is free again', (await until(() => shown("cv"), 2000)) === true && (await css("#plans", "column-gap")) === "32px" && (await css("#cta", "display")) === "none" && (await page.busy()) === false)
     page.send({ type: "pins", pins: [{ id: cn.id, n: 5, status: "working", selector: "#plans" }] })
     await sleep(250)
     check("the preview stays while the note's pin is working", (await css("#plans", "column-gap")) === "32px")
@@ -645,23 +661,20 @@ async function main() {
     check("…and goes when the pin is done", (await until(async () => (await css("#plans", "column-gap")) === "16px" && (await css("#cta", "display")) !== "none", 2000)) === true)
     page.send({ type: "pins", pins: [] })
 
-    // ── the inspector: typed CSS and a resize drag on one element, sent with mod+Enter ────────
+    // ── the inspector: typed CSS and a resize drag on one element, sent from the inspector ─────
     await clickPt(centre(await pageBox(SECOND)))
-    await typeIn("css", "padding: 20px 40px;")
-    await key("Enter", "Enter", 13, "\r")
-    await dbg.sendCommand("Input.insertText", { text: "color: red;" })
-    await sleep(200)
+    await until(() => !!view()?.sel, 1000)
     had = count("note")
+    await typeIn("css", "padding: 20px 40px;\ncolor: red;")
+    await sleep(200)
     check("typing in Element styles applies as it is typed", (await css(SECOND, "padding-left")) === "40px" && (await css(SECOND, "color")) === "rgb(255, 0, 0)")
-    check("Enter in the box is a new line and sends nothing", (await js(`${part("css")}.value`)) === "padding: 20px 40px;\ncolor: red;" && count("note") === had, JSON.stringify(await js(`${part("css")}.value`)))
-    await snap("overlay-canvas-inspector")
+    check("…and sends nothing", view()?.css.text === "padding: 20px 40px;\ncolor: red;" && count("note") === had, JSON.stringify(view()?.css.text))
     const wide = await pageBox(SECOND)
     await drag({ x: wide.x + wide.width, y: wide.y + 30 }, { x: wide.x + wide.width + 57, y: wide.y + 30 })
-    const typed = String(await js(`${part("css")}.value`))
+    const typed = String(view()?.css.text)
     check("a resize drag writes the width into the same box", /width: \d+px;/.test(typed) && typed.startsWith("padding: 20px 40px;\ncolor: red;") && (await pageBox(SECOND)).width % 4 === 0, JSON.stringify(typed))
-    await clickPt(centre(await boxOf(part("css"))))
-    const styled = pageNote(await nextNote(modEnter))
-    check("mod+Enter from the box sends: the Enter check admits it", !!styled)
+    const styled = pageNote(await nextNote(sendAct))
+    check("a send act from the inspector sends, admitted as the controller admits it", !!styled)
     check(
       "typing and dragging on one element make one style edit, CSS as typed",
       styled?.edits?.length === 1 && styled.edits[0]!.kind === "style" && styled.edits[0]!.css === typed && same(styled.edits[0]!.changes?.map((c) => c.prop), ["padding", "color", "width"]) && same(pageEdits(lastNote()!.edits), lastNote()!.edits),
@@ -675,18 +688,14 @@ async function main() {
 
     // ── the class line and the stylesheet ─────────────────────────────────────────────────────
     await clickPt(centre(await pageBox(SECOND)))
-    await clickPt(centre(await boxOf(part("cls"))))
-    await key("End", "End", 35)
-    await dbg.sendCommand("Input.insertText", { text: " wide" })
-    await sleep(150)
+    await until(() => !!view()?.sel, 1000)
+    await typeIn("classes", `${view()?.classes.text} wide`)
     check("the class line edits the element's classes", (await js(`document.querySelector(${JSON.stringify(SECOND)}).className`)) === "card wide")
     const sheet = "/* ``` */\n.wide { outline: 2px solid rgb(255, 0, 0); }"
-    await clickPt(centre(await boxOf(part("t-gl")))) // the stylesheet is under the CSS side's "Global" tab
-    await typeIn("free", sheet)
+    await typeIn("sheet", sheet) // the stylesheet is under the CSS side's "Global" tab
     await sleep(150)
     check("a rule typed in Stylesheet applies", (await css(SECOND, "outline-style")) === "solid")
-    await clickPt(centre(await boxOf(part("free"))))
-    const classed = pageNote(await nextNote(modEnter))
+    const classed = pageNote(await nextNote(sendAct))
     const ce = classed?.edits?.[0]
     check("a class edit carries the attribute before and after; the stylesheet rides along verbatim", classed?.edits?.length === 1 && ce?.kind === "class" && ce.from === "card" && ce.to === "card wide" && classed.css === sheet, JSON.stringify([classed?.edits, classed?.css]))
     const classPrompt = classed ? notePrompt(classed, 7, {}) : ""
@@ -701,8 +710,8 @@ async function main() {
     page.send({ type: "pins", pins: [] })
 
     // ── new rules and nothing else ────────────────────────────────────────────────────────────
-    await typeIn("free", ".tile { border-radius: 20px; }")
-    const rules = pageNote(await nextNote(modEnter))
+    await typeIn("sheet", ".tile { border-radius: 20px; }")
+    const rules = pageNote(await nextNote(sendAct))
     check("a stylesheet alone is a note the host takes: no edits, no targets, bounds of what it matches", !!rules && rules.edits === undefined && rules.css === ".tile { border-radius: 20px; }" && rules.targets.length === 0 && !!rules.bounds && rules.text === "", JSON.stringify(rules && [rules.edits, rules.css, rules.targets.length, rules.bounds]))
     check("…named by what it is", !!rules && noteWords(rules) === "1 canvas edit: 1 new CSS rule")
     const rulesOff = await showEdits(rules!.id, false)
@@ -713,63 +722,8 @@ async function main() {
     await until(async () => (await css("#grid .tile", "border-radius")) === "8px", 2000)
     page.send({ type: "pins", pins: [] })
 
-    // ── the inspector's suggestions: names, values, the live preview, a computed row ──────────
-    {
-      type List = { items: string[]; on: string } | null
-      const sug = () => js(`(() => { const l = ${part("sug")}; return l.hidden || l.style.visibility === "hidden" ? null : { items: [...l.children].map((c) => c.textContent), on: l.querySelector(".on")?.textContent ?? "" } })()`) as Promise<List>
-      const field = (cls: string) => js(`${part(cls)}.value`) as Promise<string>
-      /** Letters as key presses: typing, as the list sees it. */
-      const letters = async (text: string) => {
-        for (const c of text) await key(c, `Key${c.toUpperCase()}`, c.toUpperCase().charCodeAt(0), c)
-        await sleep(200)
-      }
-      const press = async (k: string, vk: number, times = 1) => {
-        for (let i = 0; i < times; i++) await key(k, k, vk)
-        await sleep(200)
-      }
-      const plans = await pageBox("#plans")
-      await clickPt({ x: plans.x + plans.width - 6, y: plans.y + 6 }) // the row itself, not a card
-      await clickPt(centre(await boxOf(part("t-el")))) // (the stylesheet was typed in last: back to the element's side)
-      await clickPt(centre(await boxOf(part("css"))))
-      await letters("al")
-      const names = await sug()
-      check("typing al in Element styles offers align-items first", names?.items[0] === "align-items" && names.on === "align-items", JSON.stringify(names?.items.slice(0, 4)))
-      const inside = (await js(`(() => { const b = ${part("sug")}.getBoundingClientRect(), a = ${part("css")}.getBoundingClientRect(); return b.width > 0 && b.left >= 0 && b.top >= 0 && b.right <= innerWidth && b.bottom <= innerHeight && (b.top >= a.top || b.bottom <= a.bottom) && ${shadow}.elementFromPoint(b.left + 20, b.top + 10)?.closest(".sug") === ${part("sug")} })()`)) as boolean
-      check("…in a list of the layer's own, whole and on top, by the text", inside)
-      await snap("overlay-canvas-suggest")
-      await press("Tab", 9)
-      const values = await sug()
-      check("Tab takes it with its colon, keeps the focus and opens its values", (await field("css")) === "align-items: " && (await js(`${shadow}.activeElement === ${part("css")}`)) === true && values?.items[0] === "normal" && !!values.items.includes("center"), JSON.stringify([await field("css"), values?.items.slice(0, 4)]))
-      await letters("c")
-      check("…and c offers center", (await sug())?.on === "center", JSON.stringify(await sug()))
-      had = count("note")
-      await key("Enter", "Enter", 13, "\r")
-      await sleep(200)
-      check("Enter writes it and the page follows: no new line, nothing sent", (await field("css")) === "align-items: center" && (await css("#plans", "align-items")) === "center" && (await sug()) === null && count("note") === had, JSON.stringify([await field("css"), await css("#plans", "align-items")]))
-      await press("Backspace", 8, 6)
-      await letters("s")
-      const some = await sug()
-      await press("ArrowDown", 40)
-      const shown2 = (await sug())?.on ?? ""
-      check("↓ shows the next value on the page while the list is open", !!some && shown2 === some.items[1] && shown2 !== "" && (await field("css")) === `align-items: ${shown2}` && (await css("#plans", "align-items")) === shown2, JSON.stringify([some?.items.slice(0, 3), shown2, await field("css"), await css("#plans", "align-items")]))
-      await press("Escape", 27)
-      check("Esc closes the list and puts back what was typed, in the field still", (await sug()) === null && (await field("css")) === "align-items: s" && (await css("#plans", "align-items")) === "normal" && (await js(`${shadow}.activeElement === ${part("css")}`)) === true, JSON.stringify([await field("css"), await css("#plans", "align-items")]))
-      await press("Backspace", 8)
-      await letters("c")
-      await key("Enter", "Enter", 13, "\r")
-      await sleep(200)
-      // A computed row: its value is a keyword, and the arrows go through the property's keywords.
-      const row = `[...${shadow}.querySelectorAll(".crow")].find((r) => r.firstChild.textContent === "align-items").querySelector(".cval")`
-      await js(`${row}.scrollIntoView({ block: "nearest" })`)
-      await clickPt(centre(await boxOf(row)))
-      const was = (await js(`${row}.value`)) as string
-      await press("ArrowDown", 40)
-      check("in a computed row ↓ with the list closed goes from center to start, live", was === "center" && (await js(`${row}.value`)) === "start" && (await css("#plans", "align-items")) === "start" && (await field("css")) === "align-items: start" && (await sug()) === null, JSON.stringify([was, await js(`${row}.value`), await css("#plans", "align-items"), await field("css")]))
-      await press("Escape", 27) // out of the row
-      await clickPt(centre(await boxOf(part("reset"))))
-      check("…and Reset leaves the page as it was", (await until(async () => (await css("#plans", "align-items")) === "normal", 2000)) === true && (await field("css")) === "")
-      await clickPt(centre(await pageBox(SECOND))) // the selection as the next part found it before
-    }
+    // (The inspector's suggestions, number stepping and scrubbing are the window's: app.e2e.ts.)
+    act({ type: "global", on: false })
 
     // ── a move and a text edit; the draft brings them back after a reload ─────────────────────
     const order = () => js(`[...document.querySelectorAll("#plans article")].sort((a, b) => a.getBoundingClientRect().x - b.getBoundingClientRect().x).map((a) => a.querySelector("h3").textContent).join()`) as Promise<string>
@@ -790,7 +744,7 @@ async function main() {
     check("the draft holds both unsent edits", !!kept)
     draft = kept ?? null
     check("the page reloads with edits unsent", await readyAgain(() => page.reload()))
-    check("…and they are back from the draft, canvas mode still on", (await until(async () => (await order()) === "Scale,Free,Pro" && (await js("document.querySelector('#title').textContent")) === 'Say "hi"' && (await shown("insp")), 3000)) === true, `${await order()} / ${await js("document.querySelector('#title').textContent")}`)
+    check("…and they are back from the draft, canvas mode still on", (await until(async () => (await order()) === "Scale,Free,Pro" && (await js("document.querySelector('#title').textContent")) === 'Say "hi"' && inCanvas() && view()?.batch.edits === 2, 3000)) === true, `${await order()} / ${await js("document.querySelector('#title').textContent")}`)
     draft = null
     await clickPt(centre(await pageBox("h2")))
     const moved2 = pageNote(await nextNote(enter))
@@ -808,66 +762,14 @@ async function main() {
     page.send({ type: "pins", pins: [{ id: moved2!.id, n: 9, status: "failed", selector: "#title" }] })
     check("a failed note puts the order and the text back", (await until(async () => (await order()) === "Free,Pro,Scale" && (await js("document.querySelector('#title').textContent")) === "Simple pricing", 2000)) === true)
     page.send({ type: "pins", pins: [] })
-    // ── numbers: ↑ steps the one at the caret, a drag on a computed row's name scrubs it ──────
-    {
-      await clickPt(centre(await pageBox(SECOND)))
-      const rowOf = (prop: string) => `[...${shadow}.querySelectorAll('.crow')].find((c) => c.firstChild.textContent === ${JSON.stringify(prop)})`
-      const cssBox = () => js(`${part("css")}.value`) as Promise<string>
-      const widthNow = async () => Math.round((await pageBox(SECOND)).width * 10) / 10
-      const arrowUp = async (modifiers = 0) => {
-        await dbg.sendCommand("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowUp", code: "ArrowUp", windowsVirtualKeyCode: 38, modifiers })
-        await dbg.sendCommand("Input.dispatchKeyEvent", { type: "keyUp", key: "ArrowUp", code: "ArrowUp", windowsVirtualKeyCode: 38, modifiers })
-        await sleep(150)
-      }
-      const modZ = async () => {
-        const modifiers = mod === "meta" ? 4 : 2
-        await dbg.sendCommand("Input.dispatchKeyEvent", { type: "keyDown", key: "z", code: "KeyZ", windowsVirtualKeyCode: 90, modifiers })
-        await dbg.sendCommand("Input.dispatchKeyEvent", { type: "keyUp", key: "z", code: "KeyZ", windowsVirtualKeyCode: 90, modifiers })
-        await sleep(200)
-      }
-      await until(async () => !!(await js(`${rowOf("width")}?.querySelector(".cval").value`)), 2000)
-      const w0 = await widthNow()
-      await clickPt(centre(await boxOf(`${rowOf("width")}.querySelector(".cval")`)))
-      await arrowUp()
-      check("↑ in a computed value steps its number by 1, and the page follows", (await cssBox()) === `width: ${w0 + 1}px;` && (await widthNow()) === w0 + 1, `${await cssBox()} / ${await widthNow()} from ${w0}`)
-      await arrowUp(8)
-      check("shift+↑ steps by 10", (await cssBox()) === `width: ${w0 + 11}px;` && (await widthNow()) === w0 + 11, `${await cssBox()} / ${await widthNow()}`)
-      await sleep(800) // the burst becomes one edit after a pause
-      await modZ()
-      check("a burst of presses is one undo step", (await cssBox()) === "" && (await widthNow()) === w0, `${JSON.stringify(await cssBox())} / ${await widthNow()}`)
-      await typeIn("css", "padding: 20px") // (the caret is at the end, touching the number)
-      await arrowUp()
-      check("↑ in Element styles with a caret alone is the caret's: nothing is stepped", (await cssBox()) === "padding: 20px" && (await css(SECOND, "padding-left")) === "20px", `${await cssBox()} / ${await css(SECOND, "padding-left")}`)
-      await js(`${part("css")}.setSelectionRange(9, 13)`) // the number selected, as a double click on it leaves it
-      await arrowUp()
-      const picked = (await js(`(() => { const a = ${part("css")}; return a.value.slice(a.selectionStart, a.selectionEnd) })()`)) as string
-      check("↑ on a number selected in Element styles steps it, and it stays selected", (await cssBox()) === "padding: 21px" && (await css(SECOND, "padding-left")) === "21px" && picked === "21px", `${await cssBox()} / ${await css(SECOND, "padding-left")} / ${picked}`)
-      await sleep(800)
-      const name = await boxOf(`${rowOf("width")}.firstChild`)
-      const grab = { x: Math.round(name.x + 30), y: Math.round(name.y + name.height / 2) }
-      const w1 = await widthNow()
-      await drag(grab, { x: grab.x + 24, y: grab.y })
-      check("a drag on a computed row's name scrubs its number, 1 a pixel", (await cssBox()) === `padding: 21px;\nwidth: ${w1 + 24}px;` && (await widthNow()) === w1 + 24, `${JSON.stringify(await cssBox())} / ${await widthNow()} from ${w1}`)
-      await modZ()
-      check("…and the drag is one undo step", (await cssBox()) === "padding: 21px" && (await widthNow()) === w1, `${JSON.stringify(await cssBox())} / ${await widthNow()}`)
-      await clickPt(grab)
-      check("a click on the name without moving still copies the line", (await cssBox()) === `padding: 21px;\nwidth: ${w1}px;`, JSON.stringify(await cssBox()))
-      await clickPt(centre(await boxOf(part("reset"))))
-      check("(Reset takes these edits away again)", (await cssBox()) === "" && (await css(SECOND, "padding-left")) === "16px", JSON.stringify(await cssBox()))
-    }
-
-    // ── the bar's Send button: a real click sends the batch; the mode is the host's to switch ──
+    // ── what admits a note: a real click or Enter, once; the mode is the host's to switch ──────
     check("the layer says which mode it is in, for the host's switch", same(messages.filter((m) => m.type === "mode").at(-1), { type: "mode", mode: "canvas", brush: false }), JSON.stringify(messages.filter((m) => m.type === "mode").at(-1)))
-    await clickPt(centre(await pageBox(SECOND)))
-    await typeIn("css", "padding: 28px;")
-    await sleep(700) // the typing becomes an edit after a pause
     const realClick = async (at: Pt) => {
       // Real input, as Enter above: only that passes through before-mouse-event.
       wc.sendInputEvent({ type: "mouseMove", x: Math.round(at.x), y: Math.round(at.y) })
       wc.sendInputEvent({ type: "mouseDown", x: Math.round(at.x), y: Math.round(at.y), button: "left", clickCount: 1 })
       wc.sendInputEvent({ type: "mouseUp", x: Math.round(at.x), y: Math.round(at.y), button: "left", clickCount: 1 })
     }
-    const sendAt = centre(await boxOf(part("bsend")))
     await sleep(1100) // past any earlier click or Enter
     had = count("note")
     const plain = (id: string) =>
@@ -881,21 +783,16 @@ async function main() {
     await plain("after_click_2")
     await sleep(200)
     check("a real click admits one note, not two", count("note") === had + 1)
-    await sleep(1100)
-    had = count("note")
-    await sleep(1100)
-    const clicked = pageNote(await nextNote(() => void realClick(sendAt)))
-    check("a real click on Send sends the batch as one note", clicked?.edits?.length === 1 && clicked.edits[0]!.kind === "style" && clicked.edits[0]!.css === "padding: 28px;", JSON.stringify(clicked?.edits))
-    if (clicked) await done(clicked.id)
     page.send({ type: "pins", pins: [] })
     page.send({ type: "mode", mode: "notes" })
-    check("the host's switch goes back to notes, and the layer says so", (await until(async () => !(await shown("insp")), 2000)) === true && same(messages.filter((m) => m.type === "mode").at(-1), { type: "mode", mode: "notes", brush: false }))
+    check("the host's switch goes back to notes, and the layer says so", (await until(() => !inCanvas(), 2000)) === true && same(messages.filter((m) => m.type === "mode").at(-1), { type: "mode", mode: "notes", brush: false }))
     page.send({ type: "mode", brush: true })
     check("the host's brush is heard back", (await until(() => same(messages.filter((m) => m.type === "mode").at(-1), { type: "mode", mode: "notes", brush: true }), 2000)) === true)
     page.send({ type: "mode", mode: "canvas" })
-    check("…and edit mode turns it off", (await until(async () => (await shown("insp")) && same(messages.filter((m) => m.type === "mode").at(-1), { type: "mode", mode: "canvas", brush: false }), 2000)) === true)
+    check("…and edit mode turns it off", (await until(async () => inCanvas() && same(messages.filter((m) => m.type === "mode").at(-1), { type: "mode", mode: "canvas", brush: false }), 2000)) === true)
     wc.sendInputEvent({ type: "keyDown", keyCode: "P", modifiers: [mod] })
-    check("mod+P goes back to notes", (await until(async () => !(await shown("insp")), 2000)) === true)
+    check("mod+P goes back to notes", (await until(() => !inCanvas(), 2000)) === true)
+    docks = []
   }
 
   // The overlay needs no debugger: with the test's gone and the page's devtools open, the next
