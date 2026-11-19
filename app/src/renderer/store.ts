@@ -240,6 +240,13 @@ export function setNotesOpen(open: boolean): void {
   remember("notes.open", open ? "1" : "0")
 }
 
+/** The facts pane marks every element it lists on the phone's page (on unless turned off). */
+export const [factsMarks, setFactsMarksSignal] = createSignal(recall("facts.marks") !== "0")
+export function setFactsMarks(on: boolean): void {
+  setFactsMarksSignal(on)
+  remember("facts.marks", on ? "1" : "0")
+}
+
 /** The server is unreachable: nothing moves until it is back. */
 export const offline = () => state.connection.status === "offline"
 

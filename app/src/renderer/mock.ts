@@ -1279,6 +1279,7 @@ const FACTS: FactsView = {
   scrollY: 0,
   meta: true,
   partial: false,
+  marks: true,
   wide: { items: [{ id: 1, label: "table.compare", detail: "+134 px" }, { id: 2, label: "Trusted by 2,000 teams", detail: "+46 px" }], total: 2 },
   taps: {
     items: [
@@ -1290,22 +1291,29 @@ const FACTS: FactsView = {
     ],
     total: 5,
   },
-  small: { items: [{ id: 8, label: "Work email", detail: "14px" }, { id: 9, label: "Team size", detail: "13px" }], total: 2 },
+  small: { items: [{ id: 8, label: "Work email", detail: "14 px" }, { id: 9, label: "Team size", detail: "13 px" }], total: 2 },
 }
 const FACTS_CLEAR: FactsView = { ...FACTS, doc: { w: 360, h: 3240 }, wide: { items: [], total: 0 }, taps: { items: [], total: 0 }, small: { items: [], total: 0 } }
+let factsMarks = true
 /** The sample, at the size of the phone the mock shows. */
 function factsView(): FactsView {
   const q = new URLSearchParams(location.search)
   const phone = phoneOf(q.get("phone"))
-  return { ...structuredClone(q.get("facts") === "clear" ? FACTS_CLEAR : FACTS), viewport: { w: phone.width, h: phone.height } }
+  return { ...structuredClone(q.get("facts") === "clear" ? FACTS_CLEAR : FACTS), viewport: { w: phone.width, h: phone.height }, marks: factsMarks }
 }
 
 /** What the facts pane asks: its view when it is shown, nothing once it goes. */
 function factsAct(a: PanelAct, out: (m: PanelMessage) => void): void {
   if (a.panel !== "facts") return
-  if (a.act.type === "ping") out({ panel: "facts", pong: a.act.id })
-  else if (a.act.type === "view" || a.act.type === "refresh") setTimeout(() => out({ panel: "facts", view: factsView() }))
-  else if (a.act.type === "stop") out({ panel: "facts", view: null })
+  const act = a.act
+  if (act.type === "ping") out({ panel: "facts", pong: act.id })
+  else if (act.type === "view" || act.type === "refresh") {
+    if (act.type === "view" && act.marks !== undefined) factsMarks = act.marks
+    setTimeout(() => out({ panel: "facts", view: factsView() }))
+  } else if (act.type === "marks") {
+    factsMarks = act.on
+    out({ panel: "facts", view: factsView() })
+  } else if (act.type === "stop") out({ panel: "facts", view: null })
 }
 
 function motionAct(a: PanelAct, out: (m: PanelMessage) => void): void {
