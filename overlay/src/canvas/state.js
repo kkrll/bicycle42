@@ -55,6 +55,7 @@ export const C = {
   px: 0, py: 0, moved: false, over: false, last: null,
   drawn: false, msg: "", msgTimer: 0, typeTimer: 0, typeRaf: 0, hideTimer: 0,
   ph: 300, collapsed: false, compKey: "", compAt: 0,
+  forced: 0, // counts the fields' text put in by force (syncFields(true)): a host's inspector takes it then (host.js)
 };
 try {
   const p = JSON.parse(sessionStorage.getItem("b42-inspector") || "{}");

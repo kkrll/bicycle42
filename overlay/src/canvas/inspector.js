@@ -28,6 +28,7 @@ export function syncFields(force) {
   put(clsEl, el ? el.getAttribute("class") ?? "" : "");
   put(cssEl, e ? e.css : "");
   put(freeEl, C.draft.B.sheet);
+  if (force) C.forced++;
   clsEl.disabled = cssEl.disabled = !el;
   const hint = el ? "No classes · type to add" : "Select an element to edit its classes";
   if (clsEl.placeholder !== hint) clsEl.placeholder = hint;
@@ -109,7 +110,7 @@ export function typed(field) {
 
 /** The batch's text changed under the reviewer's hands: the page follows within a frame, and the
  *  undo step closes when they pause (unless `held`: a drag closes its own when it ends). */
-function follow(held) {
+export function follow(held) {
   hush();
   clearTimeout(C.typeTimer);
   C.typeTimer = held ? 0 : setTimeout(commit, 700);
@@ -134,7 +135,7 @@ function applyTimed() {
 }
 
 /** Computed values as a designer reads them: colours as hex, lengths to a tenth of a pixel. */
-const pretty = (v) =>
+export const pretty = (v) =>
   v.replace(/rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?\)/g, (_, r, g, b, a) =>
     `#${[r, g, b].map((x) => Number(x).toString(16).padStart(2, "0")).join("")}${a === undefined ? "" : Math.round(Number(a) * 255).toString(16).padStart(2, "0")}`)
     .replace(/(-?\d+\.\d\d+)px/g, (_, x) => `${Math.round(Number(x) * 10) / 10}px`);
@@ -248,7 +249,7 @@ export function setValue(field) {
   if (wrote === "full") flash(FULL);
 }
 
-const FULL = "This element's styles are full: shorten them first";
+export const FULL = "This element's styles are full: shorten them first";
 /** `prop: value;` into the selection's styles. False, and the field marked, when the browser
  *  would not take the value; "full" when there is no room left for it. */
 function writeValue(row, v) {

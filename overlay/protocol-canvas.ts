@@ -5,9 +5,132 @@
 // and the drags, the bar over the page, the batch, its undo and its previews, sending the note.
 // The host's inspector is a drawing of `CanvasView` and a source of `CanvasAct`s; it keeps
 // nothing the overlay does not also have, so a reload of either side loses nothing.
+//
+// One view is the whole inspector, sent whole whenever any of it changed (at most once a frame):
+// the header, the three fields with what the page made of them, the computed values, the page's
+// variables the suggestions offer, and the part of the tree around what the host shows. The tree
+// is the one part that could be large, so it is never all of it: only the rows the host says it
+// shows (the "tree" act), a screenful above and below them, and the selection's row; a view of a
+// selection on a real page is 5 to 20 kB, most of it rows and variables.
+//
+// What is typed is the host's own while it is typed: a field being typed in keeps its text and
+// sends it whole ("text"); the view answers with what the page made of it (the marks, the error
+// line, the computed values) and with the text as the batch has it, which the host takes once
+// the field is left, or at once when `force` changed (an undo, a value written elsewhere).
 
-/** Everything the inspector shows. (Not yet anything: the host draws no inspector.) */
-export type CanvasView = Record<string, never>
+/** One row of the tree: an element of the page. Its words are the page's: drawn as text. */
+export type CanvasRow = {
+  /** The overlay's number for the element, the same while it is in this document: acts name it. */
+  id: number
+  /** How far in it is: body is 0. */
+  depth: number
+  /** "div", "#hero" or "", ".card.pro" (four names at most) or "", and a few of its own words. */
+  tag: string
+  idName: string
+  cls: string
+  text: string
+  /** Whether it has children to show, and whether they are shown. */
+  kids: "none" | "shut" | "open"
+  /** The batch edits it (a dot), hides it (struck through). */
+  ed?: true
+  hid?: true
+}
 
-/** One thing done in the inspector. (None yet.) */
-export type CanvasAct = never
+export type CanvasTree = {
+  /** Every row that is open: the tree is this many rows tall. */
+  total: number
+  /** The index of `rows[0]`. */
+  first: number
+  rows: CanvasRow[]
+  /** The selection's row, -1 for none. When the selection changes to a row out of view, the host
+   *  brings it to the middle (first row shown: sel - half the rows it shows), as the overlay
+   *  expects when it chooses which rows to send. */
+  sel: number
+  /** The element under the pointer (on the page, or a row the host said it is on); 0 for none. */
+  hover: number
+}
+
+/** One of the two CSS boxes: its text as the batch has it, and what the browser would not take. */
+export type CanvasText = {
+  text: string
+  /** Ranges of `text` to underline, each with why. */
+  marks: Array<{ s: number; e: number; why: string }>
+  /** The line under the box ("Not applied: …", "Too long: …"); "" for none. */
+  error: string
+}
+
+/** A computed value of the selection, as a designer reads it (colours as hex, a tenth of a px). */
+export type CanvasComputed = {
+  prop: string
+  value: string
+  /** The page's variables the value is made of, when every part is one: a click writes them. */
+  tokens?: string[]
+  /** What the variables' button says when pointed at. */
+  tokenTitle?: string
+  /** This batch sets it on this element. */
+  mine?: true
+}
+
+/** One of the page's variables, for the suggestions: `size` is its px (or plain number) for
+ *  stepping along a scale, measured on the page; absent when it is no size. */
+export type CanvasToken = { name: string; value: string; size?: number }
+
+/** Everything the inspector shows. */
+export type CanvasView = {
+  /** Changes when the batch's text was changed by something else than the typing the view
+   *  answers (undo, redo, a value set from the computed list, a drag on the page, a new
+   *  selection): a field being typed in takes the view's text then. */
+  force: number
+  /** The selection: its id (the acts that edit it name it), its plain name for the header, and
+   *  whether this batch hides it. Null when nothing is selected. */
+  sel: { id: number; label: string; hidden: boolean } | null
+  /** The stylesheet is shown (Global), not the selection's styles (Element): nothing is selected,
+   *  or the reviewer chose Global. */
+  global: boolean
+  /** The selection's class attribute (as typed, while it is too long to apply). */
+  classes: { text: string; long: boolean }
+  /** Element styles: the selection's declarations. */
+  css: CanvasText
+  /** Global: the batch's own rules. */
+  sheet: CanvasText
+  computed: CanvasComputed[]
+  /** The page's variables for the suggestions: those that reach the selection, or the page's
+   *  root's while Global is shown. */
+  tokens: CanvasToken[]
+  tree: CanvasTree
+}
+
+/** One thing done in the inspector. `id` is a row's or the selection's (CanvasRow.id). */
+export type CanvasAct =
+  /** The rows the host's tree shows: from `first`, `count` of them. Sent when it scrolls or
+   *  changes size, and when it starts: then the whole view is sent again. */
+  | { type: "tree"; first: number; count: number }
+  /** A row's children shown or not; without `open`, the other way. */
+  | { type: "open"; id: number; open?: boolean }
+  | { type: "select"; id: number }
+  /** The pointer on a row (0: off the rows): its element is outlined on the page. */
+  | { type: "hover"; id: number }
+  /** An arrow on the tree: up and down the rows, right opens or goes in, left closes or goes out. */
+  | { type: "walk"; key: "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight" }
+  /** Element | Global. */
+  | { type: "global"; on: boolean }
+  /** A field's whole text, as typed. The page follows within a frame; the undo step closes when
+   *  the typing pauses, or with `hold` not until "commit" (a suggestion shown on the page). `id`:
+   *  the selection it was typed for (the stylesheet has none): typing for another is dropped. */
+  | { type: "text"; field: "classes" | "css" | "sheet"; text: string; id?: number; hold?: boolean }
+  /** `prop: value` written into the selection's styles, if the browser takes it. An undo step at
+   *  once; `live` as typing is (a step of ↑/↓), with `hold` until "commit" (a scrub). */
+  | { type: "value"; id: number; prop: string; value: string; live?: boolean; hold?: boolean }
+  /** Close the undo step now: a field left, a scrub ended, a suggestion taken. */
+  | { type: "commit" }
+  /** Back to the last undo step, dropping what came since (Esc during a scrub). */
+  | { type: "revert" }
+  | { type: "undo" }
+  | { type: "redo" }
+  /** Send the batch (mod+Enter); `bg` to the background lane (alt). */
+  | { type: "send"; bg?: boolean }
+  /** Esc outside a field: the bar's open list closes, else the selection goes, else Annotate. */
+  | { type: "escape" }
+  /** Delete and mod+D on the tree: the selection hidden (a copy taken out), or duplicated. */
+  | { type: "hide" }
+  | { type: "duplicate" }
