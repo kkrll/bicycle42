@@ -626,7 +626,7 @@ async function main() {
   const asideX = () => ui(`document.querySelector('.dock.fp').getBoundingClientRect().x`) as Promise<number>
   check("another phone is another box, in the middle of the same column: what is beside it does not move", (await until(() => shaped(page.view.getBounds(), 375, 667))) === true && Math.abs((await asideX()) - aside!.x) < 1 && state().page.phone === "iphone-se", `${JSON.stringify(page.view.getBounds())} ${await asideX()} was ${aside?.x}`)
   check("…and its name beside the switch", (await ui(`document.querySelector('.phone-pick .pick-long').textContent`)) === "iPhone SE")
-  await ui(`(() => { const s = document.querySelector('.phone-pick select'); s.value = "iphone-14"; s.dispatchEvent(new Event("change", { bubbles: true })) })()`)
+  await ui(`(() => { const s = document.querySelector('.phone-pick select'); s.value = "iphone-16e"; s.dispatchEvent(new Event("change", { bubbles: true })) })()`)
   await until(() => shaped(page.view.getBounds(), 390, 844) && page.view.getBounds().width === narrow.width)
   // Edit, beside a phone's page: the column is the inspector and nothing else; the page's facts
   // are not worked out there, and nothing of the pane is marked on the page.

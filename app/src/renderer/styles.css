@@ -940,8 +940,17 @@ details[open] > summary > .caret {
   width: calc(var(--phone-width) + 2px);
   height: calc(var(--phone-height) + 2px);
   margin: 0;
-  /* The phone's own screen corners (PHONES in shared/types.ts; main rounds the page view to match). */
+  /* The phone's own screen corners (PHONES in shared/types.ts; main rounds the page view to
+     them). No hairline around a phone's page: the page view's corners are the system's to
+     draw (on a Mac a continuous curve, not a circle's arc), and a line of CSS's around them
+     ran true at the sides and parted from them at every corner. The page is its own edge. */
+  border-color: transparent;
   border-radius: var(--phone-radius);
+}
+
+/* While the page is away (an edge dragged, a dialog open), its place is a card. */
+.stage.phone .page.veiled {
+  background: var(--card);
 }
 
 .device-bar {
@@ -1241,7 +1250,7 @@ details[open] > summary > .caret {
   /* At the window's left edge: 8px in, as the bar above it starts and the panes beside it end. */
   padding: 0 0 8px 8px;
   gap: 8px;
-  --gutter: 10px;
+  --gutter: 8px;
   flex: none;
   /* (--panel-max: half the window, or less beside a phone's page; maxWidth in app.tsx.) */
   width: clamp(320px, var(--panel-width), var(--panel-max, 50vw));
@@ -2856,13 +2865,14 @@ details[open] > summary > .caret {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* Inside the conversation's card, at its foot. */
-  padding: 8px;
+  /* Inside the conversation's card, at its foot: 4px from the card's edge, and the box's
+     corners the card's own less that (10 - 4). */
+  padding: 4px;
 }
 
 .composer-box {
   border: 1px solid var(--background-05);
-  border-radius: 8px;
+  border-radius: 6px;
   transition: border-color var(--duration-micro) var(--ease-micro);
   /* The window's own colour: set into the card, where the writing goes. */
   background: var(--background);

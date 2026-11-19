@@ -2136,17 +2136,17 @@ test("the page as a phone's: the page is told, the window is told, and the next 
     assert.equal(h.snap().page.phone, PHONE.id)
     // As a desktop's the choice is kept, and the page is not told until it is a phone's again.
     await h.cmd("setDevice", "desktop")
-    await h.cmd("setPhone", "pixel-8")
+    await h.cmd("setPhone", "pixel-11")
     assert.equal(phones(h.shell).at(-1), PHONE.id)
     await h.cmd("setDevice", "phone")
-    assert.equal(phones(h.shell).at(-1), "pixel-8")
+    assert.equal(phones(h.shell).at(-1), "pixel-11")
     // A second start on the same profile, as after a relaunch (once the setting is on disk).
-    await until(() => fs.existsSync(path.join(h.dir, "settings.json")) && /"phone":\s*"pixel-8"/.test(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")) && /"device":\s*"phone"/.test(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")))
+    await until(() => fs.existsSync(path.join(h.dir, "settings.json")) && /"phone":\s*"pixel-11"/.test(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")) && /"device":\s*"phone"/.test(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")))
     const again = testShell(h.dir)
     assert.equal(again.core.snapshot().page.device, "phone")
-    assert.equal(again.core.snapshot().page.phone, "pixel-8")
+    assert.equal(again.core.snapshot().page.phone, "pixel-11")
     assert.deepEqual(devices(again), ["phone"])
-    assert.deepEqual(phones(again), ["pixel-8"])
+    assert.deepEqual(phones(again), ["pixel-11"])
     await again.core.dispose()
   } finally {
     await h.close()

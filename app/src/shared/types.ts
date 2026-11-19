@@ -30,15 +30,19 @@ export type Device = "desktop" | "phone"
 /** A phone the page can be shown as: its screen in CSS px, upright, and how round the screen's
  *  corners are (the radius, in the same px: an iPhone's is large, an iPhone SE's screen is square). */
 export type Phone = { id: string; name: string; width: number; height: number; radius: number }
-/** The phones on offer, small to large. Sizes are what the phone's browser reports as its screen;
- *  the iPhones' corners are the screens' own, the others' are near enough. */
+/** The phones on offer, small to large: this year's, and the two small sizes still in many
+ *  pockets. Sizes are what the phone's browser reports as its screen: the iPhones' from Apple's
+ *  own pixel counts over 3 (402 by 874 is also an iPhone 17's and a 17 Pro's); the Android ones
+ *  are the usual figures for those screens, since Android publishes no one width per model.
+ *  The iPhones' corners are the screens' own, the others' are near enough. */
 export const PHONES: readonly Phone[] = [
-  { id: "galaxy-s24", name: "Galaxy S24", width: 360, height: 780, radius: 24 },
+  { id: "galaxy-s26", name: "Galaxy S26", width: 360, height: 780, radius: 24 },
   { id: "iphone-se", name: "iPhone SE", width: 375, height: 667, radius: 0 },
-  { id: "iphone-14", name: "iPhone 14", width: 390, height: 844, radius: 47 },
-  { id: "iphone-16", name: "iPhone 16", width: 393, height: 852, radius: 55 },
-  { id: "pixel-8", name: "Pixel 8", width: 412, height: 915, radius: 28 },
-  { id: "iphone-16-pro-max", name: "iPhone 16 Pro Max", width: 440, height: 956, radius: 62 },
+  { id: "iphone-16e", name: "iPhone 16e", width: 390, height: 844, radius: 47 },
+  { id: "iphone-18-pro", name: "iPhone 18 Pro", width: 402, height: 874, radius: 62 },
+  { id: "pixel-11", name: "Pixel 11", width: 412, height: 923, radius: 30 },
+  { id: "iphone-air", name: "iPhone Air", width: 420, height: 912, radius: 62 },
+  { id: "iphone-18-pro-max", name: "iPhone 18 Pro Max", width: 440, height: 956, radius: 62 },
 ]
 /** The phone a page is shown as until another is chosen. */
 export const PHONE: Phone = PHONES[2]!

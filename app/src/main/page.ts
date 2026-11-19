@@ -186,11 +186,11 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     return w > 0 && w < phone.width ? w / phone.width : 1
   }
   let fitted = 1
-  /** The view's corners: the pane's, or a phone's screen's own at the size it is drawn (inside
-   *  the 1px hairline the window draws around it). */
+  /** The view's corners: the pane's (inside its hairline), or a phone's screen's own at the size
+   *  it is drawn (no hairline is around those: the system draws them its own way). */
   const shape = () => {
     if (gone()) return
-    view.setBorderRadius(device === "phone" ? Math.max(0, Math.round(phone.radius * fit()) - 1) : PAGE_RADIUS)
+    view.setBorderRadius(device === "phone" ? Math.round(phone.radius * fit()) : PAGE_RADIUS)
   }
   const emulate = () => {
     shape()

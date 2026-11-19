@@ -111,7 +111,7 @@ const SHOTS = [
   // rows, the phone line's counts shortened, nothing cut.
   { name: "phone-least-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", run: [`document.querySelector(".resizer").dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }))`], wait: 300, report: FOOTER },
   { name: "phone-least", mock: "review", query: "&device=phone&mode=preview", run: [`document.querySelector(".resizer").dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }))`], wait: 300, report: PHONE_LINE },
-  { name: "phone-max-collapsed", mock: "review", query: "&device=phone&phone=iphone-16-pro-max&mode=preview", run: [click("[data-action=panel]")] },
+  { name: "phone-max-collapsed", mock: "review", query: "&device=phone&phone=iphone-18-pro-max&mode=preview", run: [click("[data-action=panel]")] },
   { name: "phone-wide", mock: "review", query: "&device=phone&mode=preview", size: [1984, 1276] },
   { name: "phone-clear", mock: "review", query: "&device=phone&mode=preview&facts=clear" },
   { name: "dock", mock: "review", query: "&docks=motion&mode=motion" },
