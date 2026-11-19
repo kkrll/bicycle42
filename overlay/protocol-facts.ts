@@ -20,6 +20,9 @@ export type FactItem = {
   detail: string
 }
 
+/** The three kinds of fact, as the view's lists are named. */
+export type FactKind = "wide" | "taps" | "small"
+
 /** Some of a kind of fact: the first few, and how many there are. */
 export type FactList = { items: FactItem[]; total: number }
 
@@ -45,20 +48,28 @@ export type FactsView = {
   /** Text fields and selects whose text is under 16 px (iOS zooms the page to one that takes
    *  focus), up to 8. Detail: "14 px". */
   small: FactList
+  /** In canvas mode: the inspector's selection, when it is one of the facts (listed or past the
+   *  list's end; its first kind in the order above), with the detail its row would have. Kept up to
+   *  date as the reviewer edits it: null once the edit fixed it, and in any other mode. */
+  own?: { kind: FactKind; detail: string } | null
 }
 
 /** What the host's pane asks. "view": it is shown, work the facts out and keep them up to date
  *  until "stop" (with `marks`, as "marks" says); "refresh": again now. "marks": while the facts
  *  are worked out, draw a quiet outline on every listed element, in its kind's tone, or not (off
  *  until asked; the outlines follow scroll and layout, take no pointer, are in no screenshot and
- *  go with "stop"). "hover": outline that element on the page, strongly (null: none);
- *  "show": scroll it into view and flash its outline; "note": in notes mode, make it the note's
- *  selection, as a click on it would. */
+ *  go with "stop"; in canvas and motion mode fainter, and never on canvas's selection).
+ *  "kind": while the pointer (or the focus) is on a kind's count, mark that kind's listed elements
+ *  on the page, in any mode, marks on or off (null: none). "hover": outline that element on the
+ *  page, strongly (null: none); "show": scroll it into view and flash its outline, and in canvas
+ *  mode select it in the inspector, as a click on it would; "note": in notes mode, make it the
+ *  note's selection, as a click on it would. */
 export type FactsAct =
   | { type: "view"; marks?: boolean }
   | { type: "marks"; on: boolean }
   | { type: "stop" }
   | { type: "refresh" }
+  | { type: "kind"; kind: FactKind | null }
   | { type: "hover"; id: number | null }
   | { type: "show"; id: number }
   | { type: "note"; id: number }
