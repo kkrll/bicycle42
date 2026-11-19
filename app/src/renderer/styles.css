@@ -1052,8 +1052,9 @@ details[open] > summary > .caret {
   width: 8px;
   margin-left: -8px;
   z-index: 1;
-  /* No line of its own: the page pane's border is the edge between page and panel. The handle,
-     a 2px line down the middle of the gap, shows when it is pointed at, dragged or focused. */
+  /* No line of its own: the page pane's border is the edge between page and panel. The handle is
+     a short pill in the middle of the gap: faint, and the accent when pointed at, dragged or
+     focused. The whole height of the gap still takes the drag. */
   position: relative;
   cursor: col-resize;
   touch-action: none;
@@ -1062,8 +1063,13 @@ details[open] > summary > .caret {
 .resizer::after {
   content: "";
   position: absolute;
-  inset: 0 3px;
-  background: transparent;
+  top: 50%;
+  left: 2px;
+  width: 4px;
+  height: 40px;
+  margin-top: -20px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--foreground) 18%, transparent);
   transition: background-color var(--duration-micro) var(--ease-micro);
 }
 
@@ -1099,7 +1105,7 @@ details[open] > summary > .caret {
 }
 
 /* Between the notes and the conversation. The notes' bottom rule is the visible line; the handle
-   is a few pixels of hit area on it. */
+   is a few pixels of hit area on it, with a short pill across the middle as the page's has. */
 .divider {
   flex: none;
   height: 7px;
@@ -1113,10 +1119,14 @@ details[open] > summary > .caret {
 .divider::after {
   content: "";
   position: absolute;
-  inset: 3px 0 auto;
-  height: 2px;
-  background: transparent;
-  transition: background var(--duration-micro) var(--ease-micro);
+  top: 1.5px;
+  left: 50%;
+  width: 40px;
+  height: 4px;
+  margin-left: -20px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--foreground) 18%, transparent);
+  transition: background-color var(--duration-micro) var(--ease-micro);
 }
 
 .divider:hover::after,
