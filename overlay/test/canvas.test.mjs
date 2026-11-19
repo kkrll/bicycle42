@@ -1,5 +1,8 @@
-// End-to-end tests for canvas mode (the inspector and the mouse gestures) on harness/canvas.html.
-// Same set-up as overlay.test.mjs: a system Chromium, headless. Run: bun run test
+// End-to-end tests for canvas mode (edit mode: the mouse gestures on the page, and what the
+// inspector's acts do to it) on harness/canvas.html. The inspector is the host's (the app's
+// window draws it): the harness says so, as the app does, and plays it with acts, reading what
+// the overlay sends back as the view (src/canvas/host.js; canvas-hosted.test.mjs has the view's
+// own tests). Same set-up as overlay.test.mjs: a system Chromium, headless. Run: bun run test
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
@@ -37,19 +40,20 @@ async function pageFrame(page) {
   return f;
 }
 
-/** Open the canvas test page; with `canvas`, switch to canvas mode with the bar's button. */
+/** Open the canvas test page, its inspector the host's; with `canvas`, in canvas mode. */
 async function open({ delay = 150, canvas = true } = {}) {
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(`${base}/?delay=${delay}&page=canvas`);
   const f = await pageFrame(page);
+  await page.evaluate(() => window.__harness.hostDocks(["canvas"]));
   if (canvas) await canvasOn(f);
   return { page, f, errors };
 }
 const canvasOn = async (f) => {
   await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
-  await f.waitForFunction(() => !document.querySelector("b42-review").shadowRoot.querySelector(".insp").hidden);
+  await f.page().waitForFunction(() => window.__harness.mode === "canvas" && !!window.__harness.view("canvas"));
 };
 
 const box = async (f, sel) => {
@@ -86,18 +90,57 @@ const settle = async (f) => {
   await frames(f, 2);
 };
 const ui = (f, fn, arg) => f.evaluate(`(${fn})(document.querySelector("b42-review").shadowRoot, ${JSON.stringify(arg ?? null)})`);
-/** One of the inspector's fields. The CSS side has two tabs (Element: classes and element styles;
- *  Global: the stylesheet), so filling or clicking a field first brings its tab to the front. */
+
+// ── the host's inspector ────────────────────────────────────────────────────────────────────
+/** What the host's inspector shows: the view the overlay sent last. */
+const view = (f) => f.page().evaluate(() => window.__harness.view("canvas"));
+/** …after the page's next frames, in which the view follows what was done. */
+const shown = async (f) => {
+  await frames(f);
+  return view(f);
+};
+/** Something done in the host's inspector. */
+const act = (f, a) => f.page().evaluate((x) => window.__harness.act("canvas", x), a);
+/** One of the inspector's fields, as the host's has them: typing sends the field's whole text
+ *  (for the selection the view names); what it holds is the view's text. The stylesheet is under
+ *  Global, the class line and Element styles under Element: filling one shows its side first. */
+const FIELDS = { css: "css", cls: "classes", free: "sheet" };
 const field = (f, cls) => {
-  const loc = f.locator(`b42-review .${cls}`);
-  const tab = cls === "free" ? "t-gl" : cls === "css" || cls === "cls" ? "t-el" : null;
-  const front = () => (tab ? ui(f, (r, t) => { const b = r.querySelector(`.${t}`); if (!b.classList.contains("on") && !b.disabled) b.click(); }, tab) : null);
+  const k = FIELDS[cls];
   return {
-    fill: async (v) => (await front(), loc.fill(v)),
-    click: async () => (await front(), loc.click()),
-    inputValue: () => loc.inputValue(),
+    fill: async (text) => {
+      const v = await shown(f);
+      if (k === "sheet" ? !v.global : v.global && v.sel) await act(f, { type: "global", on: k === "sheet" });
+      await act(f, { type: "text", field: k, text, ...(k === "sheet" ? {} : { id: v.sel?.id ?? 0 }) });
+    },
+    /** What the field shows now: the batch's text (the class attribute, for the class line). */
+    inputValue: async () => {
+      const v = await shown(f);
+      return k === "classes" ? v.classes.text : v[k].text;
+    },
+    /** The field left: the typing's undo step closes. */
+    leave: () => act(f, { type: "commit" }),
   };
 };
+/** What the footer's count says. */
+const count = async (f) => {
+  const n = (await shown(f)).batch.edits;
+  return n ? `${n} edit${n === 1 ? "" : "s"}` : "No edits";
+};
+/** What the footer says in place of the note: a refusal, else the state. */
+const said = async (f) => {
+  const b = (await shown(f)).batch;
+  return b.msg || b.status;
+};
+/** The selection as the tree names it ("article.card"), or null. */
+const selTag = async (f) => (await shown(f)).sel?.tag ?? null;
+/** The id the view gives the row of the element with this id or tree name. */
+const rowId = async (f, name) => {
+  const r = (await shown(f)).tree.rows.find((x) => x.idName === name || `${x.tag}${x.idName}${x.cls}` === name);
+  assert.ok(r, `no row for ${name}`);
+  return r.id;
+};
+const sendNow = (f, bg) => act(f, { type: "send", ...(bg ? { bg: true } : {}) });
 const sentNotes = (page) => page.evaluate(() => window.__harness.notes.map(({ prompt, ...n }) => n));
 const waitNotes = (page, count) => page.waitForFunction((c) => window.__harness.notes.length >= c, count);
 const send = async (page, count = 1) => {
@@ -114,10 +157,10 @@ const pageState = (f) =>
   }));
 const SECOND = "#plans article:nth-of-type(2)";
 
-test("canvas is off by default: the bar shows only the switch, notes work as before", async () => {
+test("canvas is off by default: no inspector view, nothing adopted, notes work as before", async () => {
   const { page, f } = await open({ canvas: false });
-  const s = await ui(f, (r) => ({ bar: !r.querySelector(".bar").hidden, insp: r.querySelector(".insp").hidden, sheets: document.adoptedStyleSheets.length }));
-  assert.deepEqual(s, { bar: true, insp: true, sheets: 0 });
+  await frames(f, 3);
+  assert.deepEqual([await view(f), await f.evaluate(() => document.adoptedStyleSheets.length)], [undefined, 0], "the host is told nothing of an inspector, and the page has no rule of edit mode's");
   await clickAt(page, f, "#cta");
   await page.keyboard.type("bigger");
   const n = await send(page);
@@ -133,52 +176,46 @@ test("mod+O / mod+P switch modes; a note in progress hands over its element and 
   await page.keyboard.type("rounder");
   await page.keyboard.press(`${MOD}+KeyO`);
   await settle(f);
-  const s = await ui(f, (r) => ({ card: !r.querySelector(".card").hidden, insp: !r.querySelector(".insp").hidden, path: r.querySelector(".ipath").textContent, note: r.querySelector(".cnote").value, cursor: getComputedStyle(document.body).cursor }));
-  assert.deepEqual(s, { card: false, insp: true, path: "Button · Start free trial", note: "rounder", cursor: "default" });
+  const v = await shown(f);
+  const s = await ui(f, (r) => ({ card: !r.querySelector(".card").hidden, cursor: getComputedStyle(document.body).cursor }));
+  assert.deepEqual({ ...s, mode: await page.evaluate(() => window.__harness.mode), sel: v.sel?.tag, note: v.batch.note }, { card: false, cursor: "default", mode: "canvas", sel: "button#cta.primary", note: "rounder" });
   await page.keyboard.press(`${MOD}+KeyP`);
   await settle(f);
-  assert.deepEqual(await ui(f, (r) => [r.querySelector(".insp").hidden, getComputedStyle(document.body).cursor, document.adoptedStyleSheets.length]), [true, "crosshair", 0]);
+  assert.deepEqual([await page.evaluate(() => window.__harness.mode), await ui(f, () => getComputedStyle(document.body).cursor), await f.evaluate(() => document.adoptedStyleSheets.length)], ["notes", "crosshair", 0]);
   await page.close();
 });
 
-test("tree: a click on the page selects its row; rows select, expand and outline; arrows walk", async () => {
+test("tree: a click on the page selects its row, its ancestors open; page arrows walk; rows select, expand and outline", async () => {
   const { page, f, errors } = await open();
   await clickAt(page, f, `${SECOND} h3`);
-  let s = await ui(f, (r) => ({
-    on: r.querySelector(".trow.on")?.textContent,
-    rows: [...r.querySelectorAll(".trow")].map((x) => x.textContent),
-    open: [...r.querySelectorAll(".trow")].filter((x) => x.querySelector(".tw.open")).map((x) => x.textContent),
-    path: r.querySelector(".ipath").textContent,
-  }));
-  assert.equal(s.on, "h3Pro");
-  assert.equal(s.path, "Heading · Pro");
-  assert.ok(s.rows.includes("section#plans.row") && s.open.includes("section#plans.row"), `ancestors are open: ${s.rows} / ${s.open}`);
-  assert.ok(!s.rows.some((x) => /^(script|style|head|b42-review)([#.\s]|$)/.test(x)), "no script, style or overlay rows");
+  let v = await shown(f);
+  const name = (r) => `${r.tag}${r.idName}${r.cls}${r.text}`;
+  const on = (x) => x.tree.rows[x.tree.sel - x.tree.first];
+  assert.equal(name(on(v)), "h3Pro");
+  assert.equal(v.sel.tag, "h3");
+  const plans = v.tree.rows.find((r) => name(r) === "section#plans.row");
+  assert.ok(plans && plans.kids === "open", "ancestors are open");
+  assert.ok(!v.tree.rows.some((r) => /^(script|style|head|b42-review)$/.test(r.tag)), "no script, style or overlay rows");
   // with the keyboard on the page: ↑ is the parent, ↓ the first child
   await page.keyboard.press("ArrowUp");
-  await frames(f);
-  assert.equal(await ui(f, (r) => r.querySelector(".ipath").textContent), "Card · Pro For small teams");
+  assert.equal(await selTag(f), "article.card");
   await page.keyboard.press("ArrowDown");
-  await frames(f);
-  assert.equal(await ui(f, (r) => r.querySelector(".ipath").textContent), "Heading · Pro");
-  // click a row: the element is selected on the page
-  await f.locator("b42-review .trow", { hasText: "section#grid" }).locator(".tt").click();
-  await frames(f);
-  s = await ui(f, (r) => ({ path: r.querySelector(".ipath").textContent, sel: r.querySelectorAll(".box.csel").length, focus: r.activeElement?.className }));
-  assert.deepEqual(s, { path: "Section · 1 2 3 4 5 6", sel: 1, focus: "tree" });
-  // arrows: right opens, down goes to the first child, left twice closes and goes up
-  await page.keyboard.press("ArrowRight");
-  await page.keyboard.press("ArrowDown");
-  await frames(f);
-  assert.equal(await ui(f, (r) => r.querySelector(".trow.on").textContent), "div.tile1");
-  await page.keyboard.press("ArrowLeft");
-  await page.keyboard.press("ArrowLeft");
-  await frames(f);
-  assert.deepEqual(await ui(f, (r) => [r.querySelector(".trow.on").textContent, r.querySelector(".trow.on .tw").className]), ["section#grid.grid", "tw shut"]);
-  // hovering a row outlines its element on the page
-  const row = await f.locator("b42-review .trow", { hasText: "header" }).first().boundingBox();
-  await page.mouse.move(row.x + 60, row.y + 10);
-  await page.mouse.move(row.x + 62, row.y + 10);
+  assert.equal(await selTag(f), "h3");
+  // a row selected: the element is selected on the page
+  await act(f, { type: "select", id: await rowId(f, "#grid") });
+  v = await shown(f);
+  assert.deepEqual([v.sel.tag, await ui(f, (r) => r.querySelectorAll(".box.csel").length)], ["section#grid.grid", 1]);
+  // the tree's arrows: right opens, down goes to the first child, left twice closes and goes up
+  await act(f, { type: "walk", key: "ArrowRight" });
+  await act(f, { type: "walk", key: "ArrowDown" });
+  v = await shown(f);
+  assert.equal(name(on(v)), "div.tile1");
+  await act(f, { type: "walk", key: "ArrowLeft" });
+  await act(f, { type: "walk", key: "ArrowLeft" });
+  v = await shown(f);
+  assert.deepEqual([name(on(v)), on(v).kids], ["section#grid.grid", "shut"]);
+  // a row under the pointer outlines its element on the page
+  await act(f, { type: "hover", id: await rowId(f, "header") });
   await settle(f);
   const hov = await ui(f, (r) => {
     const b = r.querySelector(".box.hover")?.getBoundingClientRect();
@@ -199,30 +236,27 @@ test("tree stays small on a large page and follows DOM changes", async () => {
     document.body.appendChild(big);
   });
   await page.waitForTimeout(300);
-  await f.locator("b42-review .trow", { hasText: "ul#big" }).locator(".tw").click();
+  await act(f, { type: "open", id: await rowId(f, "#big") });
   await page.waitForTimeout(300);
-  const n = await ui(f, (r) => ({ rows: r.querySelectorAll(".trow").length, tall: r.querySelector(".tspace").offsetHeight }));
-  assert.ok(n.rows < 40, `only a window of rows is in the DOM (${n.rows})`);
-  assert.ok(n.tall > 5000 * 20, "the scroll height stands for all rows");
+  const v = await shown(f);
+  assert.ok(v.tree.rows.length < 100, `only the rows the host shows, and a screenful around them, are sent (${v.tree.rows.length})`);
+  assert.ok(v.tree.total > 5000, "the tree's length stands for all rows");
   await f.evaluate(() => document.getElementById("big").remove());
   await page.waitForTimeout(500);
-  assert.ok((await ui(f, (r) => r.querySelector(".tspace").offsetHeight)) < 1000, "rows of removed elements are gone");
+  assert.ok((await shown(f)).tree.total < 50, "rows of removed elements are gone");
   await page.close();
 });
 
-test("element styles: typing applies live; Enter is a new line; mod+Enter sends one style edit", async () => {
+test("element styles: typing applies live; mod+Enter sends one style edit", async () => {
   const { page, f } = await open();
   await clickAt(page, f, "#cta");
-  await field(f, "css").click();
-  await page.keyboard.type("padding: 20px 40px;");
-  await page.keyboard.press("Enter");
-  await page.keyboard.type("&:hover { opacity: 0.5; }");
+  await field(f, "css").fill("padding: 20px 40px;\n&:hover { opacity: 0.5; }");
   await settle(f);
   assert.equal(await style(f, "#cta", "padding-left"), "40px");
   assert.equal(await field(f, "css").inputValue(), "padding: 20px 40px;\n&:hover { opacity: 0.5; }");
-  assert.equal(await page.evaluate(() => window.__harness.notes.length), 0, "Enter in the box does not send");
+  assert.equal(await page.evaluate(() => window.__harness.notes.length), 0, "typing does not send");
   assert.equal(await f.evaluate(() => window.pageKeys), 0, "the page saw no keys");
-  await page.keyboard.press(`${MOD}+Enter`);
+  await sendNow(f);
   await waitNotes(page, 1);
   const [n] = await sentNotes(page);
   assert.equal(n.text, "");
@@ -238,20 +272,18 @@ test("element styles: typing applies live; Enter is a new line; mod+Enter sends 
 test("a rejected declaration is marked and said, the rest still applies", async () => {
   const { page, f } = await open();
   await clickAt(page, f, "#cta");
-  await field(f, "css").click();
-  await page.keyboard.type("colr: red; width: banana; height: 60px; --mine: 1;");
+  const text = "colr: red; width: banana; height: 60px; --mine: 1;";
+  await field(f, "css").fill(text);
   await settle(f);
-  const s = await ui(f, (r) => ({
-    marks: [...r.querySelectorAll(".css").values()].length && [...r.querySelector(".css").previousElementSibling.querySelectorAll("u")].map((u) => [u.textContent, u.title]),
-    err: r.querySelector(".css").parentElement.nextElementSibling.textContent,
-  }));
-  assert.deepEqual(s.marks, [["colr: red", "unknown property “colr”"], ["width: banana", "invalid value for width"]]);
-  assert.match(s.err, /^Not applied: unknown property “colr” · invalid value for width$/);
+  let v = await shown(f);
+  assert.deepEqual(v.css.marks.map((m) => [text.slice(m.s, m.e), m.why]), [["colr: red", "unknown property “colr”"], ["width: banana", "invalid value for width"]]);
+  assert.match(v.css.error, /^Not applied: unknown property “colr” · invalid value for width$/);
   assert.equal(await style(f, "#cta", "height"), "60px");
   // unbalanced braces are said; what was complete before stays applied (see the P5 test)
-  await page.keyboard.type(" }");
+  await field(f, "css").fill(`${text} }`);
   await settle(f);
-  assert.match(await ui(f, (r) => r.querySelector(".css").parentElement.nextElementSibling.textContent), /unbalanced braces: the last complete version stays applied/);
+  v = await shown(f);
+  assert.match(v.css.error, /unbalanced braces: the last complete version stays applied/);
   assert.equal(await style(f, "#cta", "height"), "60px");
   await page.close();
 });
@@ -266,15 +298,13 @@ test("stylesheet + class line: the owner's example; sent as note.css and a class
 }`;
   await clickAt(page, f, `${SECOND}`, 100, 80);
   await field(f, "free").fill(css);
-  await field(f, "cls").click();
   assert.equal(await field(f, "cls").inputValue(), "card");
-  await page.keyboard.press("End");
-  await page.keyboard.type(" bg-stripes");
+  await field(f, "cls").fill("card bg-stripes");
   await settle(f);
   assert.equal(await f.evaluate((s) => document.querySelector(s).className, SECOND), "card bg-stripes");
   assert.match(await style(f, SECOND, "background-image"), /repeating-linear-gradient/);
-  assert.equal(await ui(f, (r) => r.querySelector(".free").parentElement.nextElementSibling.hidden), true, "nothing is marked in the example");
-  await page.keyboard.press(`${MOD}+Enter`);
+  assert.equal((await shown(f)).sheet.error, "", "nothing is marked in the example");
+  await sendNow(f);
   await waitNotes(page, 1);
   const [n] = await sentNotes(page);
   assert.equal(n.css, css);
@@ -285,12 +315,11 @@ test("stylesheet + class line: the owner's example; sent as note.css and a class
 
 test("a stylesheet alone is a note; an invalid selector in it is marked", async () => {
   const { page, f } = await open();
-  await field(f, "free").click();
-  await page.keyboard.type(".tile { border-radius: 20px; }\n..oops { color: red; }");
+  await field(f, "free").fill(".tile { border-radius: 20px; }\n..oops { color: red; }");
   await settle(f);
   assert.equal(await style(f, "#grid .tile", "border-radius"), "20px");
-  assert.match(await ui(f, (r) => r.querySelector(".free").parentElement.nextElementSibling.textContent), /invalid selector “\.\.oops”/);
-  await page.keyboard.press(`${MOD}+Enter`);
+  assert.match((await shown(f)).sheet.error, /invalid selector “\.\.oops”/);
+  await sendNow(f);
   await waitNotes(page, 1);
   const [n] = await sentNotes(page);
   assert.equal(n.edits, undefined);
@@ -301,13 +330,15 @@ test("a stylesheet alone is a note; an invalid selector in it is marked", async 
   await page.close();
 });
 
-test("computed list shows current values; a click copies the line into element styles", async () => {
+test("computed list shows current values; one copied is written into element styles", async () => {
   const { page, f } = await open();
   await clickAt(page, f, "#plans", 2, 2);
   await page.waitForTimeout(250);
-  const rows = await ui(f, (r) => [...r.querySelectorAll(".crow")].map((x) => `${x.firstChild.textContent}: ${x.querySelector(".cval").value}`));
+  const v = await shown(f);
+  const rows = v.computed.map((c) => `${c.prop}: ${c.value}`);
   assert.ok(rows.includes("display: flex") && rows.includes("gap: 16px"), rows.join("; "));
-  await f.locator("b42-review .crow .cp", { hasText: "gap" }).click();
+  // (a click on a row's name copies its value: the host's "value" act with what the row shows)
+  await act(f, { type: "value", id: v.sel.id, prop: "gap", value: v.computed.find((c) => c.prop === "gap").value });
   assert.equal(await field(f, "css").inputValue(), "gap: 16px;");
   await page.close();
 });
@@ -336,10 +367,8 @@ test("resize: an edge drag writes width into element styles, snapped to 4px; mod
   await drag(page, f, c.x + c.width + 2, c.y + c.height + 2, c.x + 201, c.y + c.height + 30);
   assert.match(await field(f, "css").inputValue(), /^width: 200px;\nheight: \d+px;$/);
   // typing more on the same element: still one style edit
-  await field(f, "css").click();
-  await page.keyboard.press(`${MOD}+End`);
-  await page.keyboard.type("\ncolor: red;");
-  await page.keyboard.press(`${MOD}+Enter`);
+  await field(f, "css").fill(`${await field(f, "css").inputValue()}\ncolor: red;`);
+  await sendNow(f);
   await waitNotes(page, 1);
   const [n] = await sentNotes(page);
   assert.equal(n.edits.length, 1);
@@ -375,7 +404,7 @@ test("a style edit set with the page's variables says which: the note's change n
   await clickAt(page, f, SECOND, 100, 80);
   await page.waitForTimeout(250);
   await field(f, "css").fill("padding: var(--space-2) var(--space-4);\ncolor: var(--brand);\nmargin: 0;\nborder-color: var(--nope, red);");
-  await page.keyboard.press(`${MOD}+Enter`);
+  await sendNow(f);
   await waitNotes(page, 1);
   const [n] = await sentNotes(page);
   assert.deepEqual(n.edits[0].changes, [
@@ -391,7 +420,7 @@ test("a style edit set with the page's variables says which: the note's change n
 
 test("a computed value the page has a variable for names it; a click writes it as var(); a length only under a name of its kind", async () => {
   const { page, f, errors } = await open();
-  const hints = () => ui(f, (r) => Object.fromEntries([...r.querySelectorAll(".crow")].map((x) => [x.firstChild.textContent, x.querySelector(".ctok").hidden ? "" : x.querySelector(".ctok").textContent])));
+  const hints = async () => Object.fromEntries((await shown(f)).computed.map((c) => [c.prop, (c.tokens ?? []).join(" ")]));
   await clickAt(page, f, SECOND, 100, 80);
   await page.waitForTimeout(250);
   let h = await hints();
@@ -402,8 +431,9 @@ test("a computed value the page has a variable for names it; a click writes it a
   await page.waitForTimeout(1100);
   h = await hints();
   assert.deepEqual([h.color, h.padding], ["--brand", "--space-2 --space-4"]);
-  // a click on it writes the value as those variables
-  await ui(f, (r) => [...r.querySelectorAll(".crow")].find((x) => x.firstChild.textContent === "padding").querySelector(".ctok").click());
+  // a click on it writes the value as those variables (the host's "value" act with them)
+  const v = await shown(f);
+  await act(f, { type: "value", id: v.sel.id, prop: "padding", value: v.computed.find((c) => c.prop === "padding").tokens.map((n) => `var(${n})`).join(" ") });
   await settle(f);
   assert.equal(await field(f, "css").inputValue(), "color: var(--brand);\npadding: var(--space-2) var(--space-4);");
   assert.equal(await style(f, SECOND, "padding"), "8px 16px");
@@ -437,7 +467,7 @@ test("padding and margin: their bands are dragged like a gap, written into eleme
   // its sides in the row are the gap's; above it, no margin: a bar to grab, 14px out
   assert.deepEqual(await hover(b.x + b.width / 2, b.y - 11), { label: "margin-top 0", band: "band mar" });
   assert.equal(await field(f, "css").inputValue(), "padding-top: 24px;\npadding-left: 24px;\npadding-right: 24px;");
-  // a block's margin below it, dragged down (scrolled up from under the inspector first)
+  // a block's margin below it, dragged down (scrolled up first)
   await f.evaluate(() => document.querySelector("#stack").scrollIntoView({ block: "start" }));
   await frames(f);
   await clickAt(page, f, "#stack p:nth-of-type(1)");
@@ -467,7 +497,7 @@ test("padding: a child laid over the selection's padding (a badge in its corner)
   assert.equal(await ui(f, (r) => r.querySelector(".band").hidden), true);
   await page.mouse.click(g.x + 20, g.y + 5);
   await settle(f);
-  assert.doesNotMatch(await ui(f, (r) => r.querySelector(".ipath").textContent), /^Card/);
+  assert.equal(await selTag(f), "span#badge");
   assert.equal(await f.evaluate(() => document.querySelector("#badge").hasAttribute("data-b42e")), false);
   // beside it, the padding is still the band's
   const b = await box(f, SECOND);
@@ -490,7 +520,7 @@ test("duplicate: mod+D puts a copy right after the selection and selects it; edi
   assert.equal(await names(), "Free Pro Pro Scale");
   const third = "#plans article:nth-of-type(3)";
   assert.equal(await f.evaluate((s) => document.querySelector(s).hasAttribute("data-b42e") && document.querySelector(s).getAttribute("data-b42e") !== document.querySelector("#plans article:nth-of-type(2)").getAttribute("data-b42e"), third), true);
-  assert.equal(await ui(f, (r) => r.querySelector(".count .cn").textContent), "1 edit");
+  assert.equal(await count(f), "1 edit");
   // the copy is the selection: styles typed now are its own, and it shows its source's too
   await field(f, "css").fill("border-color: rgb(255, 0, 0);");
   await settle(f);
@@ -526,10 +556,9 @@ test("duplicate: mod+D puts a copy right after the selection and selects it; edi
   await settle(f);
   await field(f, "css").fill("opacity: 0.5;");
   await settle(f);
-  await page.keyboard.press("Escape");
   await page.keyboard.press("Delete");
   await settle(f);
-  assert.equal(await ui(f, (r) => r.querySelector(".count .cn").textContent), "No edits");
+  assert.equal(await count(f), "No edits");
   assert.deepEqual(errors, []);
   await page.close();
   // Reset: nothing of it stays in the page
@@ -539,7 +568,7 @@ test("duplicate: mod+D puts a copy right after the selection and selects it; edi
   await settle(p2.f);
   await field(p2.f, "css").fill("color: red;");
   await settle(p2.f);
-  await ui(p2.f, (r) => r.querySelector(".reset").click());
+  await act(p2.f, { type: "reset" });
   await settle(p2.f);
   assert.deepEqual(await pageState(p2.f), start);
   await p2.page.close();
@@ -554,7 +583,6 @@ test("duplicate, a chain: a copy of a copy shows the source's edits, its descend
   await clickAt(page, f, SECOND, 100, 80);
   await field(f, "css").fill("border-top-color: rgb(0, 128, 0);");
   await settle(f);
-  await page.keyboard.press("Escape");
   await page.keyboard.press(`${MOD}+KeyD`);
   await settle(f);
   await page.keyboard.press(`${MOD}+KeyD`);
@@ -567,13 +595,12 @@ test("duplicate, a chain: a copy of a copy shows the source's edits, its descend
   // the second copy (selected) gets an outline; then the first copy goes
   await field(f, "css").fill("outline: 3px solid rgb(255, 0, 0);");
   await settle(f);
-  await page.keyboard.press("Escape");
   await clickAt(page, f, "#plans article:nth-of-type(3)", 100, 80);
   await page.keyboard.press("Delete");
   await settle(f);
   assert.equal(await names(), "Free Pro Scale");
   assert.deepEqual(await f.evaluate(() => [...document.querySelectorAll("#plans article")].map((a) => getComputedStyle(a).outlineStyle + (a.hasAttribute("data-b42e") ? "*" : ""))), ["none", "none*", "none"]);
-  assert.equal(await ui(f, (r) => r.querySelector(".count .cn").textContent), "2 edits");
+  assert.equal(await count(f), "2 edits");
   const n = await send(page);
   assert.deepEqual(n.edits.map((e) => [e.kind, e.tag]), [["style", "h3"], ["style", "article"]]);
   assert.deepEqual(errors, []);
@@ -585,7 +612,6 @@ test("duplicate: a copy has no id (the source's edits and its own stay apart); a
   await clickAt(page, f, "#cta");
   await field(f, "css").fill("background-color: rgb(255, 0, 0);");
   await settle(f);
-  await page.keyboard.press("Escape");
   await page.keyboard.press(`${MOD}+KeyD`);
   await settle(f);
   const copy = "header button:nth-of-type(2)";
@@ -594,7 +620,6 @@ test("duplicate: a copy has no id (the source's edits and its own stay apart); a
   await settle(f);
   assert.equal(await style(f, "#cta", "background-color"), "rgb(255, 0, 0)");
   assert.equal(await style(f, copy, "background-color"), "rgb(0, 0, 255)");
-  await page.keyboard.press("Escape");
   const n1 = await send(page);
   assert.deepEqual(n1.edits.map((e) => [e.kind, e.copyOf]), [["style", undefined], ["style", 2], ["duplicate", undefined]]);
   assert.deepEqual(n1.targets.map((t) => t.selector), ["#cta"]);
@@ -602,11 +627,9 @@ test("duplicate: a copy has no id (the source's edits and its own stay apart); a
   await clickAt(page, f, copy);
   await field(f, "css").fill("color: rgb(0, 255, 0);");
   await settle(f);
-  await page.keyboard.press("Escape");
   await clickAt(page, f, "#title");
   await field(f, "css").fill("letter-spacing: 2px;");
   await settle(f);
-  await page.keyboard.press("Escape");
   const n2 = await send(page, 2);
   assert.match(n2.edits[0].inCopy, /Start free trial/);
   assert.equal(n2.edits[1].inCopy, undefined);
@@ -614,11 +637,10 @@ test("duplicate: a copy has no id (the source's edits and its own stay apart); a
   await clickAt(page, f, copy);
   await field(f, "css").fill("opacity: 0.5;");
   await settle(f);
-  await page.keyboard.press("Escape");
   await f.evaluate((id) => window.__b42.receive({ type: "pins", pins: [{ id, n: 1, status: "done", selector: "#cta" }] }), n1.id);
   await settle(f);
   assert.equal(await f.evaluate(() => document.querySelectorAll("header button").length), 1);
-  assert.equal(await ui(f, (r) => r.querySelector(".count .cn").textContent), "No edits");
+  assert.equal(await count(f), "No edits");
   assert.equal(await style(f, "#cta", "opacity"), "1");
   assert.deepEqual(errors, []);
   await page.close();
@@ -661,8 +683,8 @@ test("move in block flow: the shifts follow a box that grows; a stack with a gra
   await frames(f);
   const p1 = await box(f, "#stack p:nth-of-type(1)"), p3 = await box(f, "#stack p:nth-of-type(3)");
   await drag(page, f, p1.x + 30, p1.y + 15, p3.x + 30, p3.y + p3.height + 4);
-  assert.match(await ui(f, (r) => r.querySelector(".bmsg").textContent), /graphics/);
-  assert.equal(await ui(f, (r) => r.querySelector(".count .cn").textContent), "No edits");
+  assert.match(await said(f), /graphics/);
+  assert.equal(await count(f), "No edits");
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -731,7 +753,7 @@ test("move: in block flow the stack is shown in its new order (shifted, the DOM 
   await clickAt(page, f, "#open-dialog");
   const b = await box(f, "#open-dialog");
   await drag(page, f, b.x + b.width / 2, b.y + b.height / 2, b.x + b.width / 2, b.y + 80);
-  assert.match(await ui(f, (r) => r.querySelector(".bmsg").textContent), /among text, side-by-side/);
+  assert.match(await said(f), /among text, side-by-side/);
   const n = await send(page);
   const e = n.edits[0];
   assert.deepEqual([n.edits.length, e.kind, e.fromIndex, e.toIndex, e.parent.selector, e.parent.layout, e.before.label], [1, "move", 0, 2, "#stack", "block", "Text · Repeat"]);
@@ -785,7 +807,7 @@ test("hide: Delete on a selection; undo, redo and Reset; the page ends exactly a
   await page.keyboard.press("Delete"); // hide
   await frames(f);
   assert.equal(await style(f, "#cta", "display"), "none");
-  assert.equal(await ui(f, (r) => r.querySelector(".count").textContent), "6 edits");
+  assert.equal(await count(f), "6 edits");
   // undo the hide, redo it, undo again
   await page.keyboard.press(`${MOD}+z`);
   assert.notEqual(await style(f, "#cta", "display"), "none");
@@ -795,10 +817,10 @@ test("hide: Delete on a selection; undo, redo and Reset; the page ends exactly a
   await page.keyboard.press(`${MOD}+z`); // the text
   assert.equal(await f.evaluate(() => document.getElementById("title").textContent), "Simple pricing");
   // Reset takes the rest away; nothing is left of any of it
-  await f.locator("b42-review .reset").click();
+  await act(f, { type: "reset" });
   await frames(f);
   assert.deepEqual(await pageState(f), start);
-  assert.equal(await ui(f, (r) => r.querySelector(".count").textContent), "No edits");
+  assert.equal(await count(f), "No edits");
   // …and Reset is itself a step: undo brings the edits back, undoing them all clears the page again
   await page.keyboard.press(`${MOD}+z`);
   assert.equal(await f.evaluate((s) => document.querySelector(s).className, SECOND), "card wide");
@@ -816,7 +838,7 @@ test("edits survive a re-render that replaces nodes and patches attributes and t
   await field(f, "cls").fill("card roomy");
   const b1 = await box(f, "#plans article:nth-of-type(1)");
   await drag(page, f, b1.x + 100, b1.y + 60, b1.x + 700, b1.y + 60); // "Free" to the end
-  await f.evaluate(() => window.scrollTo(0, 320)); // the stack sits under the inspector: scroll it out
+  await f.evaluate(() => window.scrollTo(0, 320)); // (the stack nearer the middle)
   await settle(f);
   await clickAt(page, f, "#stack p:nth-of-type(2)");
   await field(f, "cls").fill("item picked");
@@ -852,7 +874,7 @@ test("the draft carries unsent edits across a reload", async () => {
   await field(f, "free").fill(".tile { color: red; }");
   await clickAt(page, f, "#cta");
   await page.keyboard.press("Delete");
-  await f.locator("b42-review .cnote").fill("tighten this up");
+  await act(f, { type: "note", text: "tighten this up" });
   await page.waitForFunction(() => window.__harness.draft?.note === "tighten this up" && window.__harness.draft.edits?.ops.length === 1);
   await page.click("#reload");
   await page.waitForTimeout(150);
@@ -860,9 +882,11 @@ test("the draft carries unsent edits across a reload", async () => {
   await f2.waitForFunction(() => getComputedStyle(document.querySelector("#cta")).display === "none");
   assert.equal((await box(f2, SECOND)).width, 320);
   assert.equal(await style(f2, "#grid .tile", "color"), "rgb(255, 0, 0)");
-  // canvas mode itself is still on, the fields are filled, and the batch can be sent or undone
-  const s = await ui(f2, (r) => ({ insp: !r.querySelector(".insp").hidden, count: r.querySelector(".count").textContent, note: r.querySelector(".cnote").value, free: r.querySelector(".free").value }));
-  assert.deepEqual(s, { insp: true, count: "3 edits", note: "tighten this up", free: ".tile { color: red; }" });
+  // canvas mode itself is still on, the host's fields are filled again, and the batch can be sent or undone
+  await page.waitForFunction(() => window.__harness.mode === "canvas");
+  await f2.page().waitForFunction(() => window.__harness.view("canvas")?.batch.edits === 3);
+  const v = await shown(f2);
+  assert.deepEqual({ count: await count(f2), note: v.batch.note, free: v.sheet.text }, { count: "3 edits", note: "tighten this up", free: ".tile { color: red; }" });
   await clickAt(page, f2, "#title");
   const n = await send(page);
   assert.equal(n.text, "tighten this up");
@@ -881,7 +905,7 @@ test("sent edits stay as a preview until the note's pin is done, then go", async
   const n = await send(page);
   assert.equal(n.edits.length, 2);
   // sent: the bar is clean, the preview is still on the page
-  await f.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelector(".count").textContent === "No edits");
+  await page.waitForFunction(() => window.__harness.view("canvas").batch.edits === 0);
   assert.equal((await box(f, SECOND)).width, 320);
   assert.equal(await f.evaluate(() => window.__b42.busy()), false);
   await page.waitForFunction(() => window.__harness.notes[0].status === "done");
@@ -929,7 +953,7 @@ test("edits show/hide: everything of the batch goes and comes back; the reply ec
     const a = document.querySelector("#plans article:nth-of-type(2)");
     const r = document.querySelector("b42-review").shadowRoot;
     return { w: a.getBoundingClientRect().width, cls: a.className, outline: getComputedStyle(a).outlineStyle, cta: getComputedStyle(document.querySelector("#cta")).display !== "none",
-      chrome: !r.querySelector(".bar").hidden || !r.querySelector(".insp").hidden || r.querySelectorAll(".pin").length > 0 };
+      chrome: r.querySelectorAll(".pin").length > 0 };
   });
   const replies = () => page.evaluate(() => window.__seen);
   await page.evaluate(() => {
@@ -958,27 +982,23 @@ test("edits show/hide: everything of the batch goes and comes back; the reply ec
   await page.close();
 });
 
-test("Esc: leaves the field, deselects, leaves canvas mode (edits stay), then review mode", async () => {
+test("Esc: deselects, leaves canvas mode (edits stay, said in notes mode), then review mode", async () => {
   const { page, f } = await open();
   await clickAt(page, f, SECOND, 100, 80);
-  await field(f, "css").click();
-  await page.keyboard.type("width: 300px;");
-  const s = () => ui(f, (r) => ({ field: r.activeElement?.className ?? null, sel: r.querySelectorAll(".box.csel").length, insp: !r.querySelector(".insp").hidden, count: r.querySelector(".count").textContent }));
+  await field(f, "css").fill("width: 300px;");
+  // (Esc in one of the host's fields leaves the field: the window's, app.e2e.ts.)
+  const s = () => ui(f, (r) => ({ sel: r.querySelectorAll(".box.csel").length, chip: r.querySelector(".bar").checkVisibility() ? r.querySelector(".bar .count").textContent : "" }));
   await page.keyboard.press("Escape");
   await frames(f);
-  assert.deepEqual(await s(), { field: null, sel: 1, insp: true, count: "1 edit" });
+  assert.deepEqual({ ...(await s()), mode: await page.evaluate(() => window.__harness.mode), count: await count(f) }, { sel: 0, chip: "", mode: "canvas", count: "1 edit" });
   await page.keyboard.press("Escape");
   await frames(f);
-  assert.deepEqual(await s(), { field: null, sel: 0, insp: true, count: "1 edit" });
-  await page.keyboard.press("Escape");
-  await frames(f);
-  assert.deepEqual(await s(), { field: null, sel: 0, insp: false, count: "1 unsent edit" });
+  assert.deepEqual({ ...(await s()), mode: await page.evaluate(() => window.__harness.mode) }, { sel: 0, chip: "1 unsent edit", mode: "notes" });
   assert.equal((await box(f, SECOND)).width, 300, "the edit is still applied, and still in the draft");
   await page.waitForFunction(() => window.__harness.draft?.edits && Object.keys(window.__harness.draft.edits.els).length === 1);
   assert.equal(await page.evaluate(() => window.__harness.enabled), true);
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => window.__harness.enabled === false);
-  // a drag is cancelled by Esc without an edit
   await page.close();
 });
 
@@ -1009,9 +1029,9 @@ test("Esc cancels a drag; nothing is ever sent without Enter", async () => {
   assert.equal((await box(f, SECOND)).width, 200, "pointercancel puts the width back");
   assert.equal(await field(f, "css").inputValue(), "");
   assert.equal(await f.evaluate((s) => document.querySelector(s).getAttribute("style"), SECOND), null, "no style attribute or live property is left behind");
-  // every other way of making edits, and the bar's buttons: no note
+  // every other way of making edits, and the footer's buttons: no note
   await drag(page, f, b.x + b.width, b.y + 30, b.x + b.width + 40, b.y + 30);
-  await f.locator("b42-review .undo").click();
+  await act(f, { type: "undo" });
   await field(f, "css").fill("color: red;");
   await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "notes" }));
   await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
@@ -1019,11 +1039,11 @@ test("Esc cancels a drag; nothing is ever sent without Enter", async () => {
   assert.equal(await page.evaluate(() => window.__harness.notes.length), 0);
   assert.ok(!(await page.evaluate(() => window.__harness.log)).includes("note"));
   // Enter with nothing to send says so and sends nothing
-  await f.locator("b42-review .reset").click();
+  await act(f, { type: "reset" });
   await clickAt(page, f, "#title");
   await page.keyboard.press("Enter");
   await page.waitForTimeout(200);
-  assert.match(await ui(f, (r) => r.querySelector(".bmsg").textContent), /Nothing to send/);
+  assert.match(await said(f), /Nothing to send/);
   assert.equal(await page.evaluate(() => window.__harness.notes.length), 0);
   assert.equal(await f.evaluate(() => window.pageClicks), 0, "the page saw no clicks");
   await page.close();
@@ -1035,16 +1055,15 @@ test("works inside an open modal dialog and on a scrolled page", async () => {
   await settle(f);
   await canvasOn(f);
   await clickAt(page, f, "#db");
-  assert.equal(await ui(f, (r) => r.querySelector(".ipath").textContent), "Button · Beta");
+  assert.equal(await selTag(f), "button#db");
   const b = await box(f, "#db");
   await drag(page, f, b.x + b.width, b.y + 10, b.x + b.width + 32, b.y + 10);
   const w = (await box(f, "#db")).width;
   assert.equal(w % 4, 0);
   assert.equal(await field(f, "css").inputValue(), `width: ${w}px;`);
-  await field(f, "css").click();
-  await page.keyboard.type(" color: red;");
+  await field(f, "css").fill(`width: ${w}px; color: red;`);
   await settle(f);
-  assert.equal(await style(f, "#db", "color"), "rgb(255, 0, 0)", "typing reaches the box although the dialog makes the page inert");
+  assert.equal(await style(f, "#db", "color"), "rgb(255, 0, 0)", "what is typed reaches the element in the dialog");
   const a = await box(f, "#da");
   await drag(page, f, a.x + 10, a.y + 10, (await box(f, "#dc")).x + 200, a.y + 10);
   assert.deepEqual(await f.evaluate(() => [...document.querySelectorAll("#dlg-row button")].sort((x, y) => x.getBoundingClientRect().x - y.getBoundingClientRect().x).map((x) => x.id)), ["db", "dc", "da"]);
@@ -1074,11 +1093,11 @@ test("limits: over-long text is marked, not applied and not sent; more than 40 e
   await clickAt(page, f, "#cta");
   await field(f, "css").fill(`color: red; /* ${"x".repeat(4000)} */`);
   await settle(f);
-  assert.match(await ui(f, (r) => r.querySelector(".css").parentElement.nextElementSibling.textContent), /^Too long: 4018 \/ 4000/);
+  assert.match((await shown(f)).css.error, /^Too long: 4018 \/ 4000/);
   assert.notEqual(await style(f, "#cta", "color"), "rgb(255, 0, 0)");
-  await page.keyboard.press(`${MOD}+Enter`);
+  await sendNow(f);
   await page.waitForTimeout(200);
-  assert.match(await ui(f, (r) => r.querySelector(".bmsg").textContent), /Too long to send/);
+  assert.match(await said(f), /Too long to send/);
   assert.equal(await page.evaluate(() => window.__harness.notes.length), 0);
   await field(f, "css").fill("");
   // 41 elements
@@ -1089,74 +1108,32 @@ test("limits: over-long text is marked, not applied and not sent; more than 40 e
     document.body.prepend(d);
   });
   for (let i = 1; i <= 41; i++) {
-    await f.locator("b42-review .tree").evaluate((t) => (t.scrollTop = 0));
     await clickAt(page, f, `#many i:nth-of-type(${i})`);
     await field(f, "css").fill("color: red;");
-    await field(f, "cls").click(); // blur: the step closes
+    await field(f, "css").leave(); // the step closes
   }
-  assert.equal(await ui(f, (r) => r.querySelector(".count").textContent), "40 edits");
-  assert.match(await ui(f, (r) => r.querySelector(".bmsg").textContent), /40 edits is the limit/);
+  assert.equal(await count(f), "40 edits");
+  assert.match(await said(f), /40 edits is the limit/);
   assert.notEqual(await style(f, "#many i:nth-of-type(41)", "color"), "rgb(255, 0, 0)");
   await page.close();
 });
 
-test("U1 the batch can be read: the count opens a list; rows select, × removes one edit; the tree marks edited and hidden", async () => {
-  const { page, f } = await open();
-  await clickAt(page, f, SECOND, 100, 80);
-  const b = await box(f, SECOND);
-  await drag(page, f, b.x + b.width, b.y + 30, b.x + b.width + 60, b.y + 30);
-  await field(f, "free").fill(".tile { color: red; }");
-  await clickAt(page, f, "#cta");
-  await page.keyboard.press("Delete");
-  await settle(f);
-  const rows = () => ui(f, (r) => (r.querySelector(".pop").hidden ? null : [...r.querySelectorAll(".erow")].map((x) => x.title)));
-  assert.equal(await rows(), null);
-  await f.locator("b42-review .count").click();
-  assert.deepEqual(await rows(), ["Card · Pro For small teams — width 200 → 260", "Button · Start free trial — hidden", "Stylesheet — 1 rule"]);
-  // a row selects its element, hidden or not
-  await f.locator("b42-review .erow", { hasText: "hidden" }).locator(".el").click();
-  await settle(f);
-  const tree = await ui(f, (r) => ({
-    path: r.querySelector(".ipath").textContent,
-    hid: [...r.querySelectorAll(".trow.hid")].map((x) => x.textContent),
-    ed: [...r.querySelectorAll(".trow.ed")].map((x) => x.textContent),
-    struck: getComputedStyle(r.querySelector(".trow.hid .tt")).textDecorationLine,
-  }));
-  assert.deepEqual(tree, { path: "Button · Start free trial · hidden", hid: ["button#cta.primaryStart free trial"], ed: ["article.card"], struck: "line-through" });
-  // × takes that one edit away, and that is a step like any other
-  await f.locator("b42-review .erow", { hasText: "hidden" }).locator(".ex").click();
-  await settle(f);
-  assert.notEqual(await style(f, "#cta", "display"), "none");
-  assert.deepEqual([await ui(f, (r) => r.querySelector(".count").textContent), (await rows()).length], ["2 edits", 2]);
-  await page.keyboard.press(`${MOD}+z`);
-  await settle(f);
-  assert.equal(await style(f, "#cta", "display"), "none");
-  assert.equal((await rows()).length, 3);
-  // Esc closes the list before anything else
-  await page.keyboard.press("Escape");
-  assert.equal(await rows(), null);
-  // the keys are one click away
-  await f.locator("b42-review .help").click();
-  assert.match(await ui(f, (r) => r.querySelector(".corner .pop").textContent), /double-click text.*Delete.*drag the space between items|drag the space between items.*double-click text.*Delete/s);
-  await page.close();
-});
 
-test("U2 the bar says what sending did: preview stays until note N is done, then that it was removed; no chip over the page", async () => {
+test("U2 the footer says what sending did: preview stays until note N is done, then that it was removed; no chip over the page", async () => {
   const { page, f } = await open({ delay: 900 });
-  const msg = () => ui(f, (r) => (r.querySelector(".bmsg").hidden ? "" : r.querySelector(".bmsg").textContent));
   await clickAt(page, f, SECOND, 100, 80);
   await field(f, "css").fill("width: 320px;");
   await clickAt(page, f, "#title");
   await send(page);
-  await f.waitForFunction(() => /^Sent · preview stays until note 1 is done$/.test(document.querySelector("b42-review").shadowRoot.querySelector(".bmsg").textContent));
+  await page.waitForFunction(() => /^Sent · preview stays until note 1 is done$/.test(window.__harness.view("canvas").batch.status));
   assert.equal(await ui(f, (r) => r.querySelector(".sent").hidden), true, "no detached Sent chip in canvas mode");
   assert.equal((await box(f, SECOND)).width, 320);
   await page.waitForFunction(() => window.__harness.notes[0].status === "done");
   await settle(f);
-  assert.equal(await msg(), "Note 1 done · preview removed");
+  assert.equal(await said(f), "Note 1 done · preview removed");
   assert.equal((await box(f, SECOND)).width, 200);
   await page.waitForTimeout(4300);
-  assert.equal(await msg(), "", "idle again: controls only, no standing text");
+  assert.equal(await said(f), "", "idle again: controls only, no standing text");
   // a failed note says the edits were put back
   await clickAt(page, f, SECOND, 100, 80);
   await field(f, "css").fill("width: 320px;");
@@ -1165,103 +1142,54 @@ test("U2 the bar says what sending did: preview stays until note N is done, then
   await f.waitForFunction(() => !window.__b42.busy());
   await f.evaluate((id) => window.__b42.receive({ type: "pins", pins: [{ id, n: 2, status: "failed", selector: "#title" }] }), n.id);
   await settle(f);
-  assert.equal(await msg(), "Note 2 failed · edits put back");
+  assert.equal(await said(f), "Note 2 failed · edits put back");
   await page.close();
 });
 
 test("U3 a refusal never outlives the next thing done; in notes mode unsent canvas edits are a button back", async () => {
   const { page, f } = await open();
-  const msg = () => ui(f, (r) => [r.querySelector(".bmsg").textContent, r.querySelector(".bmsg").classList.contains("warn")]);
+  const msg = async () => (await shown(f)).batch.msg;
   await clickAt(page, f, "#title");
   await page.keyboard.press("Enter");
   await frames(f);
-  assert.deepEqual(await msg(), ["Nothing to send yet: edit something first", true]);
+  assert.equal(await msg(), "Nothing to send yet: edit something first");
   await clickAt(page, f, "#cta");
-  assert.deepEqual(await ui(f, (r) => [r.querySelector(".bmsg").hidden, r.querySelector(".cnote").hidden]), [true, false], "idle: the note field, no message");
+  assert.equal(await msg(), "", "gone with the next click");
   // a refused reorder (a button in a line of a paragraph), then an edit: the refusal is gone at once
   await f.evaluate(() => document.querySelector("#stack").scrollIntoView({ block: "start" }));
   await frames(f);
   await clickAt(page, f, "#open-dialog");
   const s1 = await box(f, "#open-dialog");
   await drag(page, f, s1.x + s1.width / 2, s1.y + s1.height / 2, s1.x + s1.width / 2, s1.y + 60);
-  assert.match((await msg())[0], /among text, side-by-side/);
+  assert.match(await msg(), /among text, side-by-side/);
   await field(f, "css").fill("color: red;");
   await settle(f);
-  assert.equal(await ui(f, (r) => r.querySelector(".bmsg").hidden), true);
-  // back in notes mode the edit is not forgotten: a button says so and leads back
+  assert.equal(await msg(), "");
+  // back in notes mode the edit is not forgotten: a button on the page says so and leads back
   await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "notes" }));
-  const count = f.locator("b42-review .count");
-  assert.equal(await count.textContent(), "1 unsent edit");
-  await count.click();
+  const chip = f.locator("b42-review .bar .count");
+  assert.equal(await chip.textContent(), "1 unsent edit");
+  await chip.click();
   await settle(f);
-  assert.deepEqual(await ui(f, (r) => [r.querySelector(".insp").hidden, r.querySelector(".count").textContent]), [false, "1 edit"]);
+  assert.deepEqual([await page.evaluate(() => window.__harness.mode), await count(f), await ui(f, (r) => r.querySelector(".bar .count").checkVisibility())], ["canvas", "1 edit", false]);
   await page.close();
 });
 
-test("U6 the bar keeps its width and place through every state; U5 Send is off with nothing to send, and names the key that does the same", async () => {
-  const { page, f } = await open({ delay: 60000 });
-  const seen = [];
-  const look = async (what) => seen.push([what, ...(await ui(f, (r) => {
-    const b = r.querySelector(".bar").getBoundingClientRect();
-    const send = r.querySelector(".bsend");
-    return [Math.round(b.left), Math.round(b.width), r.querySelector(".undo").disabled, r.querySelector(".reset").disabled, send.disabled ? "off" : (send.title.match(/\(([^)]*)\)$/) || [])[1]];
-  }))]);
-  await look("entered");
-  await clickAt(page, f, SECOND, 100, 80);
-  await look("selected");
-  await page.keyboard.press("Enter");
-  await frames(f);
-  await look("refused");
-  await field(f, "css").click();
-  await page.keyboard.type("width: 300px;");
-  await settle(f);
-  await look("typing in the inspector");
-  await clickAt(page, f, "#cta");
-  await page.keyboard.press("Delete");
-  await settle(f);
-  await look("two edits");
-  const t = await box(f, "#title");
-  await page.mouse.click(t.x + 40, t.y + 20);
-  await page.mouse.click(t.x + 40, t.y + 20);
-  await settle(f);
-  assert.equal(await ui(f, (r) => r.querySelector(".bmsg").textContent), "Editing text"); // the keys are behind the bar's "?", not in its message
-  await look("editing text");
-  await page.keyboard.press("Escape");
-  await send(page);
-  await f.waitForFunction(() => !window.__b42.busy());
-  await settle(f);
-  await look("sent");
-  const mod = MOD === "Meta" ? "⌘" : "ctrl+";
-  assert.deepEqual(seen, [
-    ["entered", 348, 340, true, true, "off"],
-    ["selected", 348, 340, true, true, "off"],
-    ["refused", 348, 340, true, true, "off"],
-    ["typing in the inspector", 348, 340, true, false, `${mod}↵`],
-    ["two edits", 348, 340, false, false, "↵"],
-    ["editing text", 348, 340, false, false, "↵"],
-    ["sent", 348, 340, true, true, "off"],
-  ]);
-
-  assert.equal(await ui(f, (r) => r.querySelector(".ihead").textContent.includes("send")), false, "no second send hint in the inspector's header");
-  // a long refusal is cut with an ellipsis and kept whole in the title
-  await page.keyboard.press("Enter");
-  await frames(f);
-  assert.deepEqual(await ui(f, (r) => { const m = r.querySelector(".bmsg"); return [m.title, m.scrollWidth >= m.clientWidth, Math.round(r.querySelector(".bar").getBoundingClientRect().width)]; }), ["Nothing to send yet: edit something first", true, 340]);
-  await page.close();
-});
 
 test("U8 labels join the texts of children with a space, and leave a word split by inline markup whole", async () => {
   const { page, f } = await open();
   await f.evaluate(() => document.querySelector("header").insertAdjacentHTML("beforebegin", '<p id="w">un<b>believ</b>able <i>deal</i></p><div id="x"><div>Label</div><div>Value</div></div><nav id="nv"><a>Home</a><a>Docs</a></nav>'));
   await page.waitForTimeout(300);
+  // (the label is what an edit is named by: in the edits list, and in the note)
   await clickAt(page, f, SECOND, 100, 80);
-  assert.equal(await ui(f, (r) => r.querySelector(".ipath").textContent), "Card · Pro For small teams");
-  await f.locator("b42-review .trow", { hasText: "p#w" }).locator(".tt").click();
-  assert.equal(await ui(f, (r) => r.querySelector(".ipath").textContent), "Text · unbelievable deal");
-  await f.locator("b42-review .trow", { hasText: "div#x" }).locator(".tt").click();
-  assert.equal(await ui(f, (r) => r.querySelector(".ipath").textContent), "Block · Label Value");
-  await f.locator("b42-review .trow", { hasText: "nav#nv" }).locator(".tt").click();
-  assert.equal(await ui(f, (r) => r.querySelector(".ipath").textContent), "Navigation · Home Docs");
+  await page.keyboard.press(`${MOD}+KeyD`);
+  for (const id of ["#w", "#x", "#nv"]) {
+    await act(f, { type: "select", id: await rowId(f, id) });
+    await act(f, { type: "hide" });
+  }
+  await act(f, { type: "edits", open: true });
+  await settle(f);
+  assert.deepEqual((await shown(f)).batch.list.map((r) => r.label), ["Card · Pro For small teams", "Text · unbelievable deal", "Block · Label Value", "Navigation · Home Docs"]);
   await page.close();
 });
 
@@ -1272,9 +1200,11 @@ test("U9 an edit's selector is anchored at the nearest id, or is the shortest th
   await page.waitForTimeout(300);
   await clickAt(page, f, SECOND, 100, 80);
   await field(f, "css").fill("width: 300px;");
-  await f.locator("b42-review .trow", { hasText: "div.twins" }).locator(".tw").click();
-  await f.locator("b42-review .trow", { hasText: "ul.list" }).nth(1).locator(".tw").click();
-  await f.locator("b42-review .trow", { hasText: "liB" }).nth(0).locator(".tt").click();
+  await act(f, { type: "open", id: await rowId(f, "div.twins") });
+  const lists = (await shown(f)).tree.rows.filter((r) => r.tag === "ul");
+  await act(f, { type: "open", id: lists[1].id });
+  const rows = (await shown(f)).tree.rows, at = rows.findIndex((r) => r.id === lists[1].id);
+  await act(f, { type: "select", id: rows.slice(at + 1).find((r) => r.tag === "li" && r.text === "B").id });
   await field(f, "css").fill("color: red;");
   await clickAt(page, f, "#grid .tile:nth-child(3)");
   await field(f, "cls").fill("tile hot");
@@ -1291,70 +1221,32 @@ test("U9 an edit's selector is anchored at the nearest id, or is the shortest th
 
 test("P5 while a brace is open, what was complete stays applied; the open rule is marked, not the box switched off", async () => {
   const { page, f } = await open();
-  await field(f, "free").click();
-  await page.keyboard.type(".tile { border-radius: 20px; }");
+  let text = ".tile { border-radius: 20px; }";
+  await field(f, "free").fill(text);
   await settle(f);
-  const state = () => f.evaluate(() => {
-    const r = document.querySelector("b42-review").shadowRoot;
-    return [getComputedStyle(document.querySelector("#grid .tile")).borderRadius, getComputedStyle(document.querySelector("#cta")).letterSpacing, r.querySelector(".free").parentElement.nextElementSibling.textContent];
-  });
+  const state = async () => [await style(f, "#grid .tile", "border-radius"), await style(f, "#cta", "letter-spacing"), (await shown(f)).sheet.error];
   assert.deepEqual(await state(), ["20px", "normal", ""]);
-  await page.keyboard.type("\n#cta {");
-  await settle(f);
-  assert.deepEqual(await state(), ["20px", "normal", "Not applied: unbalanced braces: the last complete version stays applied"]);
-  await page.keyboard.type(" letter-spacing: 2px;");
-  await settle(f);
-  assert.equal((await state())[0], "20px");
-  await page.keyboard.type(" }");
+  for (const more of ["\n#cta {", " letter-spacing: 2px;"]) {
+    await field(f, "free").fill((text += more));
+    await settle(f);
+    assert.deepEqual(await state(), ["20px", "normal", "Not applied: unbalanced braces: the last complete version stays applied"]);
+  }
+  await field(f, "free").fill((text += " }"));
   await settle(f);
   assert.deepEqual(await state(), ["20px", "2px", ""]);
   // the same in Element styles
   await clickAt(page, f, "#cta");
-  await field(f, "css").click();
   // What stays applied is the last complete text a frame saw, so the declaration has to reach
-  // the page before the brace opens, as it does at a person's speed. Keys sent with no pause
-  // can share one frame, and then the complete text was never seen.
-  await page.keyboard.type("height: 60px;");
+  // the page before the brace opens, as it does at a person's speed.
+  await field(f, "css").fill("height: 60px;");
   await f.waitForFunction(() => getComputedStyle(document.querySelector("#cta")).height === "60px");
-  await page.keyboard.type(" &:hover {");
-  await f.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelector(".css").parentElement.nextElementSibling.textContent.includes("unbalanced braces"));
+  await field(f, "css").fill("height: 60px; &:hover {");
+  await page.waitForFunction(() => window.__harness.view("canvas").css.error.includes("unbalanced braces"));
   await settle(f);
   assert.equal(await style(f, "#cta", "height"), "60px");
   await page.close();
 });
 
-test("the bar's Send button sends the batch as one note, with the words typed under it; off while there is nothing to send", async () => {
-  const { page, f } = await open();
-  const sendBtn = f.locator("b42-review .bsend");
-  assert.deepEqual([await sendBtn.textContent(), await sendBtn.isDisabled()], ["Send", true]);
-  await clickAt(page, f, SECOND, 100, 80);
-  await field(f, "css").fill("padding: 30px;");
-  await settle(f);
-  assert.equal(await sendBtn.isDisabled(), false);
-  // the card: the count, undo, reset and Send on one row, the note under them
-  const rows = await ui(f, (r) => { const q = (s) => r.querySelector(s).getBoundingClientRect(); const c = q(".count"), s = q(".bsend"), n = q(".cnote"), b = q(".bar"); return [Math.abs((c.top + c.bottom) / 2 - (s.top + s.bottom) / 2) < 1, n.top >= s.bottom, Math.round(b.right - s.right), r.querySelector(".cnote").placeholder]; });
-  assert.deepEqual(rows, [true, true, 4, "Add a note…"]);
-  // undo and redo are icons there, named for a screen reader and with their keys on hover
-  const step = (cls) => ui(f, (r, c) => { const b = r.querySelector(`.${c}`), q = b.getBoundingClientRect(); return [b.getAttribute("aria-label"), /Z\)$/.test(b.title), b.textContent, b.disabled, q.width >= 24 && q.height >= 24]; }, cls);
-  await f.locator("b42-review .cnote").focus(); // leaving the styles box makes what was typed a step
-  await settle(f);
-  assert.deepEqual([await step("undo"), await step("redo")], [["Undo", true, "", false, true], ["Redo", true, "", true, true]]);
-  await f.locator("b42-review .undo").click();
-  await settle(f);
-  const pad = () => f.locator(SECOND).evaluate((el) => getComputedStyle(el).paddingLeft);
-  assert.deepEqual([await pad(), (await step("undo"))[3], (await step("redo"))[3], await sendBtn.isDisabled()], ["16px", true, false, true]);
-  await f.locator("b42-review .redo").click();
-  await settle(f);
-  assert.deepEqual([await pad(), (await step("redo"))[3], await sendBtn.isDisabled()], ["30px", true, false]);
-  await f.locator("b42-review .cnote").fill("roomier");
-  await sendBtn.click();
-  await waitNotes(page, 1);
-  const n = await page.evaluate(() => { const x = window.__harness.notes[0]; return [x.text, x.edits.length, x.edits[0].kind]; });
-  assert.deepEqual(n, ["roomier", 1, "style"]);
-  await f.waitForFunction(() => !window.__b42.busy());
-  assert.deepEqual([await sendBtn.isDisabled(), await f.locator("b42-review .cnote").inputValue()], [true, ""]);
-  await page.close();
-});
 
 test("brush: on, a plain drag draws a stroke; off, it selects an area; alt+drag draws either way", async () => {
   const { page, f } = await open({ canvas: false });
@@ -1412,7 +1304,7 @@ test("brush: on, a plain drag draws a stroke; off, it selects an area; alt+drag 
   await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
   await brush.click();
   await frames(f);
-  assert.deepEqual([await pressed(), await ui(f, (r) => r.querySelector(".insp").hidden), await page.evaluate(() => window.__harness.mode)], ["true", true, "notes"]);
+  assert.deepEqual([await pressed(), await page.evaluate(() => window.__harness.mode)], ["true", "notes"]);
   await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
   assert.deepEqual([await pressed(), await page.evaluate(() => window.__harness.mode)], ["false", "canvas"]);
   // the layer's own key changes the mode too, and the host hears it
@@ -1422,246 +1314,38 @@ test("brush: on, a plain drag draws a stroke; off, it selects an area; alt+drag 
   await page.close();
 });
 
-test("the “?” is a bubble of its own in the corner: level with the bar, its key list above it and inside the window; notes mode has no bar", async () => {
+test("notes mode's “?” is a bubble of its own in the corner: its keys above it and inside the window; none in canvas mode or during a capture", async () => {
   const { page, f } = await open({ canvas: false });
   const geo = () => ui(f, (r) => {
-    const q = r.querySelector(".help").getBoundingClientRect(), b = r.querySelector(".bar").getBoundingClientRect();
+    const q = r.querySelector(".help").getBoundingClientRect();
     const p = r.querySelector(".corner .pop"), pr = p.getBoundingClientRect();
-    // (the bar is not drawn in notes mode: null)
-    return { right: Math.round(innerWidth - q.right), size: [q.width, q.height], row: b.width ? q.bottom === b.bottom : null, clear: b.width ? q.left - b.right >= 8 : null, inBar: !!r.querySelector(".bar .help"),
-      pop: p.hidden ? null : { above: pr.bottom <= q.top, rightAligned: Math.round(pr.right) === Math.round(q.right), inside: pr.left >= 0 && pr.top >= 0 }, shown: !r.querySelector(".corner").hidden };
+    return { right: Math.round(innerWidth - q.right), size: [q.width, q.height], pop: p.hidden ? null : { above: pr.bottom <= q.top, rightAligned: Math.round(pr.right) === Math.round(q.right), inside: pr.left >= 0 && pr.top >= 0 }, shown: !r.querySelector(".corner").hidden };
   });
-  // notes mode: there too, with the keys of notes mode
-  assert.deepEqual(await geo(), { right: 12, size: [36, 36], row: null, clear: null, inBar: false, pop: null, shown: true });
+  assert.deepEqual(await geo(), { right: 12, size: [36, 36], pop: null, shown: true });
   await f.locator("b42-review .help").click();
   assert.deepEqual((await geo()).pop, { above: true, rightAligned: true, inside: true });
   assert.match(await ui(f, (r) => r.querySelector(".corner .pop").textContent), /the pencil.*templates/s);
   await page.keyboard.press("Escape");
   assert.equal((await geo()).pop, null);
   assert.equal(await page.evaluate(() => window.__harness.enabled), true, "Esc closed the list, not review mode");
-  // canvas mode: it rides above the dock, and follows it when it folds
-  await canvasOn(f);
-  assert.deepEqual(await geo(), { right: 12, size: [36, 36], row: true, clear: true, inBar: false, pop: null, shown: true });
-  const above = () => ui(f, (r) => Math.round(r.querySelector(".insp").getBoundingClientRect().top - r.querySelector(".help").getBoundingClientRect().bottom));
-  assert.equal(await above(), 10);
-  await f.locator("b42-review .ifold").click();
-  assert.equal(await above(), 10);
-  await f.locator("b42-review .ifold").click();
   await f.locator("b42-review .help").click();
-  assert.match(await ui(f, (r) => r.querySelector(".corner .pop").textContent), /double-click text.*Delete/s);
   await clickAt(page, f, "#title");
   assert.equal((await geo()).pop, null, "a click on the page closes it");
-  // a narrow window: nothing overlaps, the bar is the one that shrinks
-  await page.evaluate(() => { const fr = document.getElementById("page"); fr.style.width = "600px"; fr.style.flex = "none"; });
-  await clickAt(page, f, "#plans article:nth-of-type(2)", 60, 60);
-  await field(f, "css").fill("width: 180px;");
-  await settle(f);
-  const narrow = await ui(f, (r) => {
-    const q = r.querySelector(".help").getBoundingClientRect(), b = r.querySelector(".bar").getBoundingClientRect();
-    return { vw: innerWidth, barIn: b.left >= 0, gap: q.left - b.right >= 8, right: Math.round(innerWidth - q.right), note: r.querySelector(".cnote").getBoundingClientRect().width > 20 };
-  });
-  assert.deepEqual(narrow, { vw: 600, barIn: true, gap: true, right: 12, note: true });
-  // hidden with the bar during a capture
+  await page.keyboard.press("Escape");
+  // canvas mode: the host's inspector has its own (app.e2e.ts)
+  await canvasOn(f);
+  await frames(f);
+  assert.equal((await geo()).shown, false);
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "notes" }));
+  await frames(f);
+  assert.equal((await geo()).shown, true);
+  // hidden during a capture
   await page.evaluate(() => { const fw = document.getElementById("page").contentWindow; const real = fw.__b42.receive; fw.__b42.receive = (m) => (m.type === "captured" ? 0 : real(m)); });
   await clickAt(page, f, "#title");
+  await page.keyboard.type("hello");
   await page.keyboard.press("Enter");
   await waitNotes(page, 1);
-  assert.equal(await ui(f, (r) => r.querySelector(".corner").hidden && r.querySelector(".bar").hidden), true);
-  await page.close();
-});
-
-// What the tree pane shows: every row slot between its top and bottom edge must hold a rendered,
-// non-empty row (no blank stretch), and the selected row must be among them.
-const treeFill = (f) =>
-  ui(f, (r) => {
-    const pane = r.querySelector(".tree").getBoundingClientRect();
-    const rows = [...r.querySelectorAll(".trow")].map((x) => ({ t: x.getBoundingClientRect().top, text: x.textContent, on: x.classList.contains("on") }));
-    const total = parseInt(r.querySelector(".tspace").style.height) / 20;
-    let blank = 0;
-    for (let y = pane.top + 10; y < pane.bottom - 10; y += 20) if (!rows.some((x) => x.text && y >= x.t && y < x.t + 20)) blank++;
-    const sel = rows.find((x) => x.on);
-    return { blank, total, selVisible: !!sel && sel.t >= pane.top && sel.t + 20 <= pane.bottom + 1, scrollTop: r.querySelector(".tree").scrollTop };
-  });
-
-test("tree: after a far-down element is selected from the page, the pane is full of rows without any scroll", async () => {
-  const { page, f } = await open();
-  // a long subtree, its last element deep and far down the tree
-  await f.evaluate(() => {
-    const d = document.createElement("div");
-    d.id = "deep";
-    d.style.cssText = "font-size:0;line-height:0";
-    for (let i = 0; i < 600; i++) d.appendChild(document.createElement("i")).textContent = "x";
-    let at = d;
-    for (let i = 0; i < 6; i++) at = at.appendChild(document.createElement("div"));
-    const p = at.appendChild(document.createElement("p"));
-    p.id = "far-down";
-    p.textContent = "target";
-    p.style.cssText = "font-size:14px;line-height:20px;margin:0";
-    document.body.prepend(d);
-  });
-  await page.waitForTimeout(350);
-  await clickAt(page, f, "#far-down");
-  await frames(f, 3);
-  let s = await treeFill(f);
-  assert.ok(s.total > 600, `the tree is long (${s.total} rows)`);
-  assert.deepEqual([s.blank, s.selVisible], [0, true], `selected from the page: ${JSON.stringify(s)}`);
-  assert.ok(s.scrollTop > 600 * 20 - 400, "the pane really scrolled down to it");
-  // a node above the viewport collapses and expands: still full
-  await page.keyboard.press("ArrowUp");
-  await frames(f, 3);
-  await f.locator("b42-review .tree").focus();
-  for (const k of ["ArrowLeft", "ArrowRight", "ArrowDown"]) {
-    await page.keyboard.press(k);
-    await frames(f, 3);
-    s = await treeFill(f);
-    assert.deepEqual([s.blank, s.selVisible], [0, true], `after ${k}: ${JSON.stringify(s)}`);
-  }
-  await clickAt(page, f, "#far-down");
-  // the dock resized, folded and opened again: still full, the selection still in view
-  const grip = await f.locator("b42-review .grip").boundingBox();
-  await page.mouse.move(grip.x + 300, grip.y + 4);
-  await page.mouse.down();
-  await page.mouse.move(grip.x + 300, grip.y - 120, { steps: 5 });
-  await page.mouse.up();
-  await frames(f, 3);
-  s = await treeFill(f);
-  assert.deepEqual([s.blank, s.selVisible], [0, true], `after resizing the dock: ${JSON.stringify(s)}`);
-  await f.locator("b42-review .ifold").click();
-  await frames(f, 3);
-  await f.locator("b42-review .ifold").click();
-  await frames(f, 3);
-  s = await treeFill(f);
-  assert.deepEqual([s.blank, s.selVisible], [0, true], `after folding and opening the dock: ${JSON.stringify(s)}`);
-  // leaving canvas mode and coming back
-  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "notes" }));
-  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
-  await clickAt(page, f, "#far-down");
-  await frames(f, 3);
-  s = await treeFill(f);
-  assert.deepEqual([s.blank, s.selVisible], [0, true], `after leaving and re-entering canvas mode: ${JSON.stringify(s)}`);
-  // the DOM changes while scrolled: rows above go away, the pane stays full
-  await f.evaluate(() => { for (let i = 0; i < 300; i++) document.querySelector("#deep i").remove(); });
-  await page.waitForTimeout(400);
-  s = await treeFill(f);
-  assert.equal(s.blank, 0, `after a DOM change while scrolled: ${JSON.stringify(s)}`);
-  await page.close();
-});
-
-test("↑ ↓ step the number at the caret: its unit kept, the page following, a burst one undo step", async () => {
-  const { page, f, errors } = await open();
-  await clickAt(page, f, SECOND, 100, 80);
-  await page.waitForTimeout(250);
-  const val = (prop) => f.locator("b42-review .crow", { has: f.locator(".cp", { hasText: new RegExp(`^${prop}$`) }) }).locator(".cval");
-  const row = (prop) => ui(f, (r, p) => {
-    const x = [...r.querySelectorAll(".crow")].find((c) => c.firstChild.textContent === p).querySelector(".cval");
-    return { value: x.value, sel: x.value.slice(x.selectionStart, x.selectionEnd), bad: x.classList.contains("bad"), focus: r.activeElement === x };
-  }, prop);
-  const area = (cls) => ui(f, (r, c) => { const x = r.querySelector(`.${c}`); return { value: x.value, sel: x.value.slice(x.selectionStart, x.selectionEnd), at: x.selectionStart }; }, cls);
-  const caret = (cls, at) => ui(f, (r, [c, i]) => r.querySelector(`.${c}`).setSelectionRange(i, i), [cls, at]);
-  const pick = (cls, a, b) => ui(f, (r, [c, i, j]) => r.querySelector(`.${c}`).setSelectionRange(i, j), [cls, a, b]);
-  const pad = () => f.evaluate((s) => getComputedStyle(document.querySelector(s)).padding, SECOND);
-  // a computed row: the number at the caret, live
-  await val("padding").fill("8px 12px"); // (the caret is at the end)
-  await page.keyboard.press("ArrowUp");
-  assert.deepEqual(await row("padding"), { value: "8px 13px", sel: "13px", bad: false, focus: true });
-  await settle(f);
-  assert.equal(await pad(), "8px 13px", "the page follows without Enter");
-  assert.equal(await field(f, "css").inputValue(), "padding: 8px 13px;");
-  await page.keyboard.press("Home");
-  await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("ArrowDown");
-  assert.equal((await row("padding")).value, "6px 13px");
-  await page.keyboard.press("Shift+ArrowUp");
-  await page.keyboard.press("Alt+ArrowUp");
-  assert.equal((await row("padding")).value, "16.1px 13px");
-  await page.keyboard.press(`${MOD}+ArrowUp`);
-  assert.deepEqual(await row("padding"), { value: "116.1px 13px", sel: "116.1px", bad: false, focus: true });
-  await settle(f);
-  assert.equal(await pad(), "116.1px 13px");
-  // …and the whole burst is one undo step
-  await page.waitForTimeout(800);
-  await page.keyboard.press(`${MOD}+z`);
-  await settle(f);
-  assert.deepEqual([await field(f, "css").inputValue(), await pad()], ["", "16px"]);
-  assert.deepEqual(await row("padding"), { value: "16px", sel: "16px", bad: false, focus: true }, "the field shows what the page has again");
-  await page.keyboard.press(`${MOD}+Shift+z`);
-  await settle(f);
-  assert.deepEqual([await pad(), (await row("padding")).value], ["116.1px 13px", "116.1px 13px"]);
-  await page.keyboard.press(`${MOD}+z`);
-  await page.keyboard.press("Tab"); // leaving the field writes nothing back
-  await settle(f);
-  assert.deepEqual([await field(f, "css").inputValue(), await pad()], ["", "16px"]);
-  // the whole value selected (as Tab leaves it), or the caret on no number: the first number
-  await val("padding").fill("8px 12px");
-  await val("padding").selectText();
-  await page.keyboard.press("ArrowUp");
-  assert.deepEqual(await row("padding"), { value: "9px 12px", sel: "9px", bad: false, focus: true });
-  // a keyword: ↑ ↓ go to the property's keyword before and after it (suggest.js), so up then down is
-  // where it started (left declared, as DevTools leaves it); a colour's digits are not a number
-  await val("display").click();
-  await page.keyboard.press("ArrowUp");
-  await page.keyboard.press("ArrowDown");
-  assert.deepEqual([(await row("display")).value, (await row("display")).focus], ["block", true]);
-  const colour = (await row("color")).value;
-  await val("color").click();
-  await page.keyboard.press("ArrowUp");
-  assert.deepEqual([(await row("color")).value, (await row("color")).focus], [colour, true]);
-  // a step the browser will not take is marked and not written; the next one back is
-  await val("width").fill("0px");
-  await page.keyboard.press("ArrowDown");
-  assert.deepEqual(await row("width"), { value: "-1px", sel: "-1px", bad: true, focus: true });
-  await page.keyboard.press("ArrowUp");
-  assert.deepEqual(await row("width"), { value: "0px", sel: "0px", bad: false, focus: true });
-  await settle(f);
-  assert.equal(await field(f, "css").inputValue(), "padding: 9px 12px;\ndisplay: block;\nwidth: 0px;");
-  await page.keyboard.press("Escape");
-
-  // Element styles: the arrows move the caret from line to line, as in any text box; they step
-  // only a number that is selected (a double click), and only one of a declaration's value
-  const text = "margin: 4px 8px;\ncolor: #102030;";
-  await field(f, "css").fill(text);
-  await page.waitForTimeout(800);
-  await caret("css", 9); // in "4px": a caret alone
-  await page.keyboard.press("ArrowDown");
-  const down = await area("css");
-  assert.deepEqual([down.value, down.sel, down.at > 17], [text, "", true], "the caret went a line down and nothing changed");
-  await page.keyboard.press("ArrowUp");
-  assert.deepEqual([(await area("css")).value, (await area("css")).at < 17], [text, true]);
-  await pick("css", 8, 11); // "4px" selected
-  await page.keyboard.press("ArrowUp");
-  await page.keyboard.press("Shift+ArrowUp");
-  assert.deepEqual(await area("css"), { value: "margin: 15px 8px;\ncolor: #102030;", sel: "15px", at: 8 });
-  await settle(f);
-  assert.equal(await f.evaluate((s) => getComputedStyle(document.querySelector(s)).margin, SECOND), "15px 8px");
-  await pick("css", 26, 32); // the colour's digits, selected: still no number
-  await page.keyboard.press("ArrowUp");
-  const up = await area("css");
-  assert.deepEqual([up.value, up.at < 17], ["margin: 15px 8px;\ncolor: #102030;", true]);
-  await pick("css", 0, 6); // the property's name
-  await page.keyboard.press("ArrowDown");
-  assert.deepEqual([(await area("css")).value, (await area("css")).at > 17], ["margin: 15px 8px;\ncolor: #102030;", true]);
-  await pick("css", 8, 16); // two numbers: the keys are the field's
-  await page.keyboard.press("ArrowDown");
-  assert.equal((await area("css")).value, "margin: 15px 8px;\ncolor: #102030;");
-  await page.waitForTimeout(800);
-  await page.keyboard.press(`${MOD}+z`);
-  assert.equal(await field(f, "css").inputValue(), text, "the two presses were one step");
-
-  // the stylesheet: a rule's values, never its selector
-  await field(f, "free").fill("h2 { margin: 4px }");
-  await pick("free", 1, 2);
-  await page.keyboard.press("ArrowUp");
-  assert.equal((await area("free")).value, "h2 { margin: 4px }");
-  await caret("free", 14);
-  await page.keyboard.press("ArrowUp");
-  assert.equal((await area("free")).value, "h2 { margin: 4px }", "a caret alone steps nothing");
-  await pick("free", 13, 14); // a part of "4px": the whole number
-  await page.keyboard.press("ArrowUp");
-  await settle(f);
-  assert.deepEqual([(await area("free")).value, (await area("free")).sel], ["h2 { margin: 5px }", "5px"]);
-  assert.equal(await f.evaluate(() => getComputedStyle(document.querySelector("h2")).marginTop), "5px");
-  assert.equal(await f.evaluate(() => window.pageKeys), 0, "the page saw none of the keys");
-  assert.deepEqual(errors, []);
+  assert.equal(await ui(f, (r) => r.querySelector(".corner").hidden), true);
   await page.close();
 });
 
@@ -1676,18 +1360,20 @@ test("undo and redo of an element's first style edit: Element styles shows the e
   await page.waitForTimeout(800); // the pause that makes it an undo step
   await settle(f);
   assert.equal(await colour(), "rgb(255, 0, 0)");
+  const force = (await shown(f)).force;
   await page.keyboard.press(`${MOD}+z`);
   await settle(f);
   assert.deepEqual([await css(), await colour()], ["", before], "undo takes it off");
   await page.keyboard.press(`${MOD}+Shift+z`);
   await settle(f);
   assert.deepEqual([await css(), await colour()], ["color: rgb(255, 0, 0);", "rgb(255, 0, 0)"], "redo shows it in Element styles again");
+  assert.ok((await shown(f)).force > force, "and the host's field takes it, typed in or not");
   // and what is typed now is the same edit, not a second one for the same element
   await field(f, "css").fill("color: rgb(0, 0, 255);");
   await page.waitForTimeout(800);
   await settle(f);
   assert.equal(await colour(), "rgb(0, 0, 255)");
-  assert.equal(await ui(f, (r) => r.querySelector(".count").textContent), "1 edit");
+  assert.equal(await count(f), "1 edit");
   await page.keyboard.press(`${MOD}+z`);
   await settle(f);
   assert.deepEqual([await css(), await colour()], ["color: rgb(255, 0, 0);", "rgb(255, 0, 0)"]);
@@ -1695,292 +1381,28 @@ test("undo and redo of an element's first style edit: Element styles shows the e
   await page.close();
 });
 
-test("a drag on a computed row's name scrubs its number: one undo step, Esc puts it back, a click still copies", async () => {
-  const { page, f, errors } = await open();
-  await clickAt(page, f, SECOND, 100, 80);
-  await page.waitForTimeout(250);
-  const name = (prop) => f.locator("b42-review .crow .cp", { hasText: new RegExp(`^${prop}$`) });
-  const at = async (prop) => { const b = await name(prop).boundingBox(); return { x: Math.round(b.x + 30), y: Math.round(b.y + b.height / 2) }; };
-  const value = (prop) => ui(f, (r, p) => [...r.querySelectorAll(".crow")].find((c) => c.firstChild.textContent === p).querySelector(".cval").value, prop);
-  const width = async () => (await box(f, SECOND)).width;
-  const w = await at("width");
-  // one unit a pixel, live; the cursor says so wherever the pointer goes
-  await page.mouse.move(w.x, w.y);
-  await page.mouse.down();
-  await page.mouse.move(w.x + 2, w.y);
-  await frames(f);
-  assert.equal(await field(f, "css").inputValue(), "", "under three pixels nothing moves");
-  await page.mouse.move(w.x + 20, w.y + 40, { steps: 5 });
-  await settle(f);
-  assert.deepEqual([await field(f, "css").inputValue(), await width()], ["width: 220px;", 220]);
-  assert.equal(await name("width").evaluate((b) => getComputedStyle(b).cursor), "ew-resize");
-  // shift: ten a pixel; alt: a tenth
-  await page.keyboard.down("Shift");
-  await page.mouse.move(w.x + 23, w.y, { steps: 3 });
-  await page.keyboard.up("Shift");
-  await page.keyboard.down("Alt");
-  await page.mouse.move(w.x + 18, w.y, { steps: 5 });
-  await page.keyboard.up("Alt");
-  await settle(f);
-  assert.equal(await field(f, "css").inputValue(), "width: 249.5px;");
-  await page.mouse.move(w.x - 30, w.y, { steps: 4 });
-  await page.waitForTimeout(800); // a pause in the drag does not end the step
-  await page.mouse.move(w.x - 40, w.y, { steps: 2 });
-  await page.mouse.up();
-  await settle(f);
-  assert.deepEqual([await field(f, "css").inputValue(), await width()], ["width: 191.5px;", 191.5], "the click that ends the drag copies nothing");
-  assert.equal(await name("width").evaluate((b) => getComputedStyle(b).cursor), "pointer");
-  await page.waitForTimeout(250);
-  assert.equal(await value("width"), "191.5px");
-  // the drag was one step
-  await page.keyboard.press(`${MOD}+z`);
-  await settle(f);
-  assert.deepEqual([await field(f, "css").inputValue(), await width()], ["", 200]);
-  // Esc during a drag: the value from before it, and no step
-  await page.mouse.move(w.x, w.y);
-  await page.mouse.down();
-  await page.mouse.move(w.x + 30, w.y, { steps: 5 });
-  await settle(f);
-  assert.equal(await width(), 230);
-  await page.keyboard.press("Escape");
-  await settle(f);
-  assert.deepEqual([await field(f, "css").inputValue(), await width(), await value("width")], ["", 200, "200px"]);
-  await page.mouse.move(w.x + 60, w.y, { steps: 3 });
-  await page.mouse.up();
-  await settle(f);
-  assert.deepEqual([await field(f, "css").inputValue(), await width()], ["", 200], "the drag is over");
-  assert.equal(await ui(f, (r) => r.querySelector(".insp").hidden), false, "Esc ended the drag and nothing else");
-  assert.equal(await ui(f, (r) => r.querySelector(".undo").disabled), true, "and it left no step");
-  // a value typed in the row and dragged at once: the drag starts from it, not from what the
-  // row last read from the page (it reads every 150 ms at best)
-  await f.locator("b42-review .crow", { has: f.locator(".cp", { hasText: /^width$/ }) }).locator(".cval").fill("240px");
-  await page.mouse.move(w.x, w.y);
-  await page.mouse.down();
-  await page.mouse.move(w.x + 10, w.y, { steps: 2 });
-  await page.mouse.up();
-  await settle(f);
-  assert.deepEqual([await field(f, "css").inputValue(), await width()], ["width: 250px;", 250]);
-  // …and so does one on a row whose value had no number until it was typed
-  const ls = await at("letter-spacing");
-  assert.equal(await value("letter-spacing"), "normal");
-  await f.locator("b42-review .crow", { has: f.locator(".cp", { hasText: /^letter-spacing$/ }) }).locator(".cval").fill("2px");
-  await page.mouse.move(ls.x, ls.y);
-  await page.mouse.down();
-  await page.mouse.move(ls.x + 5, ls.y, { steps: 2 });
-  await page.mouse.up();
-  await settle(f);
-  assert.equal(await field(f, "css").inputValue(), "width: 250px;\nletter-spacing: 7px;");
-  await ui(f, (r) => r.querySelector(".reset").click());
-  await settle(f);
-  assert.deepEqual([await field(f, "css").inputValue(), await width()], ["", 200]);
-  // a click without moving copies the line, as before; so does one on a value with no number
-  await page.mouse.click(w.x, w.y);
-  await settle(f);
-  assert.equal(await field(f, "css").inputValue(), "width: 200px;");
-  const d = await at("display");
-  await page.mouse.move(d.x, d.y);
-  await page.mouse.down();
-  await page.mouse.move(d.x + 20, d.y, { steps: 4 });
-  await page.mouse.up();
-  await settle(f);
-  assert.equal(await field(f, "css").inputValue(), "width: 200px;\ndisplay: block;");
-  assert.deepEqual(errors, []);
-  await page.close();
-});
-
-test("computed values are fields: a typed value goes into element styles; invalid is marked, Esc reverts, arrows step", async () => {
-  const { page, f } = await open();
-  await clickAt(page, f, SECOND, 100, 80);
-  await page.waitForTimeout(250);
-  const val = (prop) => f.locator("b42-review .crow", { has: f.locator(".cp", { hasText: new RegExp(`^${prop}$`) }) }).locator(".cval");
-  const row = (prop) => ui(f, (r, p) => {
-    const x = [...r.querySelectorAll(".crow")].find((c) => c.firstChild.textContent === p);
-    return { value: x.querySelector(".cval").value, bad: x.querySelector(".cval").classList.contains("bad"), title: x.querySelector(".cval").title, mine: x.classList.contains("mine"), focus: r.activeElement === x.querySelector(".cval") };
-  }, prop);
-  assert.match(await ui(f, (r) => r.querySelector(".p-el div.sec").textContent), /^Computed edit a value to add it to Element styles$/);
-  assert.deepEqual(await row("width"), { value: "200px", bad: false, title: "200px", mine: false, focus: false });
-  // Enter writes it
-  await val("width").fill("260px");
-  await page.keyboard.press("Enter");
-  await settle(f);
-  assert.equal(await field(f, "css").inputValue(), "width: 260px;");
-  assert.equal((await box(f, SECOND)).width, 260);
-  assert.equal(await page.evaluate(() => window.__harness.notes.length), 0, "Enter in a value does not send");
-  // …blur too, replacing the declaration that is there
-  await val("width").fill("300px");
-  await page.keyboard.press("Tab");
-  await settle(f);
-  assert.equal(await field(f, "css").inputValue(), "width: 300px;");
-  assert.equal((await row("height")).focus, true, "Tab goes to the next value");
-  await page.waitForTimeout(200);
-  assert.deepEqual([(await row("width")).value, (await row("width")).mine], ["300px", true]);
-  // a value the browser rejects is marked and not written; Esc puts the old one back
-  await val("width").fill("banana");
-  await page.keyboard.press("Enter");
-  assert.deepEqual(await row("width"), { value: "banana", bad: true, title: "invalid value for width: not written", mine: true, focus: true });
-  assert.equal(await field(f, "css").inputValue(), "width: 300px;");
-  await page.keyboard.press("Escape");
-  assert.deepEqual(await row("width"), { value: "300px", bad: false, title: "300px", mine: true, focus: false });
-  // ↑ ↓ step the number (shift: by 10) and stay in the row: Tab is what moves between rows
-  await val("width").click();
-  await page.keyboard.press("ArrowUp");
-  await page.keyboard.press("Shift+ArrowUp");
-  assert.equal((await row("width")).focus, true);
-  await settle(f);
-  assert.equal(await field(f, "css").inputValue(), "width: 311px;");
-  // a second property is appended; the name still copies the line as it is
-  await val("border-radius").fill("20px");
-  await page.keyboard.press("Enter");
-  await f.locator("b42-review .crow .cp", { hasText: /^display$/ }).click();
-  await settle(f);
-  assert.equal(await field(f, "css").inputValue(), "width: 311px;\nborder-radius: 20px;\ndisplay: block;");
-  assert.equal(await f.evaluate(() => window.pageKeys), 0, "the page saw none of the typing");
-  // a long value is cut with an ellipsis, whole in its title
-  const ff = await ui(f, (r) => { const x = [...r.querySelectorAll(".crow")].find((c) => c.firstChild.textContent === "font-family").querySelector(".cval"); return [x.title === x.value, getComputedStyle(x).textOverflow, x.getBoundingClientRect().right <= r.querySelector(".side").getBoundingClientRect().right]; });
-  assert.deepEqual(ff, [true, "ellipsis", true]);
-  // still one style edit for the element
-  await clickAt(page, f, "#title");
-  const n = await send(page);
-  assert.deepEqual([n.edits.length, n.edits[0].kind, n.edits[0].changes.map((c) => c.prop)], [1, "style", ["width", "border-radius", "display"]]);
-  await page.close();
-});
-
-test("Element | Global: the stylesheet has its own tab; nothing selected shows it; a chosen Global stays; a dot says it has rules", async () => {
-  const { page, f } = await open();
-  const tabs = () => ui(f, (r) => ({
-    on: r.querySelector(".tab.on").textContent, elOff: r.querySelector(".t-el").disabled, elTitle: r.querySelector(".t-el").title,
-    shown: [...r.querySelectorAll(".pane")].filter((p) => !p.hidden).map((p) => [...p.querySelectorAll(".sec")].map((x) => x.firstChild.textContent.trim()).join(",")).join("|"),
-    dot: !r.querySelector(".t-gl .dot").hidden,
-  }));
-  assert.deepEqual(await tabs(), { on: "Global", elOff: true, elTitle: "Select an element", shown: "Stylesheet", dot: false });
-  // the stylesheet box fills the pane
-  const fill = await ui(f, (r) => { const a = r.querySelector(".free").getBoundingClientRect(), p = r.querySelector(".p-gl").getBoundingClientRect(); return p.bottom - a.bottom < 24 && a.height > 150; });
-  assert.equal(fill, true);
-  // selecting an element shows Element
-  await clickAt(page, f, SECOND, 100, 80);
-  assert.deepEqual(await tabs(), { on: "Element", elOff: false, elTitle: "Classes, styles and computed values of the selection", shown: "Classes,Element styles,Computed", dot: false });
-  // Global, chosen by hand, stays through the next selection; rules in it show as a dot
-  await f.locator("b42-review .t-gl").click();
-  await f.locator("b42-review .free").fill(".tile { color: red; }");
-  await clickAt(page, f, "#title");
-  assert.deepEqual(await tabs(), { on: "Global", elOff: false, elTitle: "Classes, styles and computed values of the selection", shown: "Stylesheet", dot: true });
-  await f.locator("b42-review .t-el").click();
-  assert.deepEqual([(await tabs()).on, (await tabs()).dot], ["Element", true]);
-  // by keyboard: the switch takes focus, arrows and Enter work it, and Enter there does not send
-  await f.locator("b42-review .t-el").focus();
-  await page.keyboard.press("ArrowRight");
-  assert.equal((await tabs()).on, "Global");
-  await page.keyboard.press("ArrowLeft");
-  assert.equal((await tabs()).on, "Element");
-  await f.locator("b42-review .t-gl").focus();
-  await page.keyboard.press("Enter");
-  await page.waitForTimeout(200);
-  assert.deepEqual([(await tabs()).on, await page.evaluate(() => window.__harness.notes.length)], ["Global", 0]);
-  // the edits list's "Stylesheet" row opens Global and puts the caret in the box
-  await f.locator("b42-review .t-el").click();
-  await f.locator("b42-review .count").click();
-  await f.locator("b42-review .erow", { hasText: "Stylesheet" }).locator(".el").click();
-  assert.deepEqual([(await tabs()).on, await ui(f, (r) => r.activeElement?.className)], ["Global", "free"]);
-  // with the selection gone, Global again
-  await page.keyboard.press("Escape");
-  await page.keyboard.press("Escape");
-  await page.keyboard.press("Escape");
-  assert.deepEqual([(await tabs()).on, (await tabs()).elOff], ["Global", true]);
-  await page.close();
-});
-
-test("wide, the inspector is three equal columns: the tree, computed, the fields, each scrolling by itself; narrow, the fields are above the values. The Element | Global switch is in the header", async () => {
-  const { page, f } = await open();
-  await clickAt(page, f, SECOND, 100, 80);
-  await page.waitForTimeout(250);
-  const lay = () => ui(f, (r) => {
-    const q = (s) => r.querySelector(s).getBoundingClientRect();
-    const body = q(".ibody"), tree = q(".tree"), comp = q(".c-comp"), inp = q(".c-in"), css = q(".css"), pane = r.querySelector(".p-el");
-    const head = q(".ihead"), tabs = q(".tabs"), path = q(".ipath"), fold = q(".ifold");
-    const same = (a, b) => Math.abs(a - b) <= 1;
-    return {
-      wide: body.width >= 900,
-      thirds: same(tree.width, comp.width) && same(comp.width, inp.width),
-      order: same(tree.right, comp.left) && same(comp.right, inp.left) && same(inp.right, body.right),
-      sameTop: same(comp.top, inp.top) && same(comp.top, body.top),
-      stacked: inp.bottom <= comp.top + 1,
-      scrolls: [pane, r.querySelector(".c-comp"), r.querySelector(".c-in")].map((x) => x.scrollHeight > x.clientHeight + 1),
-      fills: inp.bottom - css.bottom < 24 && css.height > 100,
-      // the switch: in the header, after the selection's name, before the fold button
-      tabs: r.querySelector(".ihead .tabs") !== null && tabs.top >= head.top && tabs.bottom <= head.bottom && path.right <= tabs.left && tabs.right <= fold.left,
-    };
-  });
-  assert.deepEqual(await lay(), { wide: true, thirds: true, order: true, sameTop: true, stacked: false, scrolls: [false, true, false], fills: true, tabs: true });
-  // Tab still goes to the fields first, then down the values
-  await f.locator("b42-review .cls").focus();
-  await page.keyboard.press("Tab");
-  assert.equal(await ui(f, (r) => r.activeElement.className), "css");
-  // the fields work from there as they did
-  await f.locator("b42-review .css").fill("padding: 20px;");
-  await settle(f);
-  assert.equal(await f.locator(SECOND).evaluate((el) => getComputedStyle(el).paddingLeft), "20px");
-  // the header has room for the selection's words: they are not cut at a note's 32 characters
-  await f.locator(SECOND).evaluate((el) => (el.querySelector("p").textContent = "For small teams that have grown out of the free plan and need more"));
-  await page.waitForTimeout(300);
-  await clickAt(page, f, "#title");
-  await clickAt(page, f, SECOND, 100, 80);
-  await page.waitForTimeout(250);
-  assert.match(await ui(f, (r) => r.querySelector(".ipath").textContent), /For small teams that have grown out of the free plan and need more$/);
-  // folded, the switch is not shown
-  await f.locator("b42-review .ifold").click();
-  assert.equal(await ui(f, (r) => r.querySelector(".tabs").getBoundingClientRect().width), 0);
-  await f.locator("b42-review .ifold").click();
-  // narrow: the tree and one column beside it, the fields above the values, the pane scrolling as a whole
-  await page.setViewportSize({ width: 900, height: 900 });
-  await page.waitForTimeout(250);
-  assert.deepEqual(await lay(), { wide: false, thirds: false, order: false, sameTop: false, stacked: true, scrolls: [true, false, false], fills: false, tabs: true });
-  await page.close();
-});
-
-test("icons are SVG: no glyph stands in for one, and what is clicked is at least 24px", async () => {
-  const { page, f } = await open();
-  await clickAt(page, f, SECOND, 100, 80);
-  const b = await box(f, SECOND);
-  await drag(page, f, b.x + b.width, b.y + 30, b.x + b.width + 40, b.y + 30);
-  await f.locator("b42-review .count").click();
-  const seen = await ui(f, (r) => {
-    const size = (s) => { const q = r.querySelector(s).getBoundingClientRect(); return [Math.round(q.width), Math.round(q.height)]; };
-    const svg = (s) => !!r.querySelector(`${s} svg`) && getComputedStyle(r.querySelector(`${s} svg`)).stroke !== "none" && r.querySelector(`${s} svg`).getAttribute("viewBox") === "0 0 16 16";
-    const text = [".bar", ".insp", ".corner"].map((s) => r.querySelector(s).textContent).join(" ");
-    return {
-      svg: [".ifold", ".help", ".undo", ".redo", ".trow .tw", ".ex", ".count"].filter((s) => !svg(s)),
-      glyphs: (text.match(/[▾▸▴▲▼◂✕✖×●•‹›❮❯?]/g) || []).join(""),
-      fold: size(".ifold"), ex: size(".ex"), help: size(".help"), twisty: size(".trow .tw"),
-      foldTitle: r.querySelector(".ifold").title,
-    };
-  });
-  assert.deepEqual(seen, { svg: [], glyphs: "", fold: [28, 24], ex: [24, 24], help: [36, 36], twisty: [16, 20], foldTitle: "Collapse the inspector" });
-  await f.locator("b42-review .ifold").click();
-  assert.deepEqual(await ui(f, (r) => [r.querySelector(".ifold").title, r.querySelector(".ifold svg path").getAttribute("d")]), ["Open the inspector", "m4 10 4-4 4 4"]);
-  await page.close();
-});
-
-test("a canvas note the host refuses is the unsent batch again: its edits, its words and its undo steps, and the bar says why", async () => {
+test("a canvas note the host refuses is the unsent batch again: its edits, its words and its undo steps, and the footer says why", async () => {
   const { page, f } = await open();
   await page.evaluate(() => (window.__harness.refuse = "the app could not read the note"));
   await clickAt(page, f, SECOND, 100, 80);
   await field(f, "css").fill("width: 320px;");
   await field(f, "free").fill(".tile { color: red; }");
-  await f.locator("b42-review .cnote").fill("wider, and red tiles");
+  await act(f, { type: "note", text: "wider, and red tiles" });
   await clickAt(page, f, "#title");
   await page.keyboard.press("Enter");
-  await f.waitForFunction(() => /^Not sent/.test(document.querySelector("b42-review").shadowRoot.querySelector(".bmsg").textContent));
+  await page.waitForFunction(() => /^Not sent/.test(window.__harness.view("canvas").batch.msg));
   await frames(f);
-  let s = await ui(f, (r) => ({ msg: r.querySelector(".bmsg").textContent, count: r.querySelector(".count").textContent, free: r.querySelector(".free").value, sel: r.querySelectorAll(".box.sel").length, undo: r.querySelector(".undo").disabled, busy: window.__b42.busy() }));
-  assert.deepEqual(s, { msg: "Not sent: the app could not read the note", count: "2 edits", free: ".tile { color: red; }", sel: 0, undo: false, busy: true });
+  let v = await shown(f);
+  const s = { msg: v.batch.msg, count: await count(f), free: v.sheet.text, sel: await ui(f, (r) => r.querySelectorAll(".box.sel").length), undo: v.batch.undo, busy: await f.evaluate(() => window.__b42.busy()) };
+  assert.deepEqual(s, { msg: "Not sent: the app could not read the note", count: "2 edits", free: ".tile { color: red; }", sel: 0, undo: true, busy: true });
   assert.equal((await box(f, SECOND)).width, 320);
   assert.equal(await style(f, "#grid .tile", "color"), "rgb(255, 0, 0)");
   assert.equal(await page.evaluate(() => window.__harness.notes.length), 0);
   await page.waitForFunction(() => window.__harness.draft?.note === "wider, and red tiles" && !!window.__harness.draft.edits?.sheet);
   // Not sent after all by the two-second timer, no pin-less preview left behind, and the reason goes.
   await page.waitForTimeout(2800);
-  s = await ui(f, (r) => ({ count: r.querySelector(".count").textContent, note: r.querySelector(".cnote").value, msg: r.querySelector(".bmsg").textContent }));
-  assert.deepEqual(s, { count: "2 edits", note: "wider, and red tiles", msg: "" });
+  v = await shown(f);
+  assert.deepEqual({ count: await count(f), note: v.batch.note, msg: v.batch.msg }, { count: "2 edits", note: "wider, and red tiles", msg: "" });
   // Its undo steps are its own again.
   await page.keyboard.press(`${MOD}+z`);
   await settle(f);
@@ -2006,13 +1428,13 @@ test("a text edit too long for the host is said before sending, and stays to be 
   await page.keyboard.insertText("x".repeat(2001));
   await page.keyboard.press("Enter");
   await frames(f);
-  assert.equal(await ui(f, (r) => r.querySelector(".count").textContent), "1 edit");
+  assert.equal(await count(f), "1 edit");
   await page.keyboard.press("Enter");
   await page.waitForTimeout(200);
-  assert.match(await ui(f, (r) => r.querySelector(".bmsg").textContent), /^Too long to send: a text edit holds 2000 characters at most/);
+  assert.match(await said(f), /^Too long to send: a text edit holds 2000 characters at most/);
   assert.equal(await page.evaluate(() => window.__harness.notes.length), 0);
   assert.equal(await f.evaluate(() => document.getElementById("title").textContent.length), 2001);
-  assert.equal(await ui(f, (r) => r.querySelector(".count").textContent), "1 edit");
+  assert.equal(await count(f), "1 edit");
   await page.close();
 });
 
@@ -2026,13 +1448,12 @@ test("busy() is true from the first key typed into a field, and a note's words a
   await field(f, "free").fill("");
   await page.waitForFunction(() => window.__harness.draft === null);
   // Words for the batch, and no edits.
-  await f.locator("b42-review .cnote").fill("tighten this up");
+  await act(f, { type: "note", text: "tighten this up" });
   await page.waitForFunction(() => window.__harness.draft?.note === "tighten this up" && !window.__harness.draft.edits);
   await page.click("#reload");
   await page.waitForTimeout(150);
-  const f2 = await pageFrame(page);
-  await f2.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelector(".cnote").value === "tighten this up");
-  assert.equal(await ui(f2, (r) => !r.querySelector(".insp").hidden), true);
+  await pageFrame(page);
+  await page.waitForFunction(() => window.__harness.mode === "canvas" && window.__harness.view("canvas")?.batch.note === "tighten this up");
   await page.close();
 });
 
@@ -2040,23 +1461,23 @@ test("the inspector follows a class the page itself changes: the class line and 
   const { page, f } = await open();
   await clickAt(page, f, "#cta");
   await settle(f);
-  const read = () => ui(f, (r) => ({ cls: r.querySelector(".cls").value, size: [...r.querySelectorAll(".crow")].find((x) => x.firstChild.textContent === "font-size").querySelector(".cval").value }));
+  const read = async () => { const v = await shown(f); return { cls: v.classes.text, size: v.computed.find((c) => c.prop === "font-size").value }; };
   assert.deepEqual(await read(), { cls: "primary", size: "15px" });
   // What an agent's edit, hot-reloaded, looks like from here: an attribute changes, no node does.
   await f.evaluate(() => {
     document.head.appendChild(document.createElement("style")).textContent = ".big { font-size: 30px; }";
     document.getElementById("cta").className = "primary big";
   });
-  await f.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelector(".cls").value === "primary big", null, { timeout: 1500 });
+  await page.waitForFunction(() => window.__harness.view("canvas").classes.text === "primary big", null, { timeout: 1500 });
   assert.deepEqual(await read(), { cls: "primary big", size: "30px" });
   // An inline style set by the page shows too.
   await f.evaluate(() => (document.getElementById("cta").style.fontSize = "12px"));
-  await f.waitForFunction(() => [...document.querySelector("b42-review").shadowRoot.querySelectorAll(".crow")].find((x) => x.firstChild.textContent === "font-size").querySelector(".cval").value === "12px", null, { timeout: 1500 });
+  await page.waitForFunction(() => window.__harness.view("canvas").computed.find((c) => c.prop === "font-size").value === "12px", null, { timeout: 1500 });
   await f.evaluate(() => (document.getElementById("cta").style.fontSize = ""));
   // A class added now is added to what the page has.
   await field(f, "cls").fill("primary big wide");
   await settle(f);
-  await page.keyboard.press(`${MOD}+Enter`);
+  await sendNow(f);
   await waitNotes(page, 1);
   const n = (await sentNotes(page))[0];
   assert.deepEqual(n.edits.map((e) => [e.kind, e.from, e.to]), [["class", "primary big", "primary big wide"]]);
@@ -2068,7 +1489,7 @@ test("one chain of frames: a drag that selects its element does not leave the la
   const b = await box(f, SECOND);
   // Not selected yet: the drag selects it, from inside a frame.
   await drag(page, f, b.x + 100, b.y + 80, b.x - 150, b.y + 80);
-  assert.equal(await ui(f, (r) => r.querySelector(".ipath").textContent), "Card · Pro For small teams");
+  assert.equal(await selTag(f), "article.card");
   await frames(f, 40); // past the half second in which the pointer still counts as moving
   const perFrame = () => f.evaluate(() => new Promise((done) => {
     const real = window.requestAnimationFrame;
@@ -2115,7 +1536,7 @@ test("an edit stays on its element when the page adds or removes the ones around
   await field(f, "css").fill("background: red;");
   await settle(f);
   assert.deepEqual(await red(), ["2"]);
-  assert.equal(await ui(f, (r) => r.querySelector(".trow.on")?.textContent.trim().startsWith("div")), true);
+  assert.equal(await selTag(f), "div.tile");
   // Typed, and then the page changes around it: one more in front, then the first two gone.
   await f.evaluate(() => document.getElementById("grid").insertAdjacentHTML("afterbegin", '<div class="tile">-1</div>'));
   await settle(f);
