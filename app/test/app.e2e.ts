@@ -535,16 +535,24 @@ async function main() {
   // ── the page as a phone's: the switch beside the address ───────────────────────────────────
   const wide = page.view.getBounds()
   await ui(`document.querySelector('[data-device="phone"]').click()`)
-  await until(() => page.view.getBounds().width === 390)
+  // (The phone's shape, as large as life or as large as fits this window: never cut.)
+  const shaped = (b: { width: number; height: number }, w: number, h: number) => b.width <= w && b.width > 100 && Math.abs(b.width / b.height - w / h) < 0.01
+  await until(() => shaped(page.view.getBounds(), 390, 844))
   const narrow = page.view.getBounds()
   // (Edit mode is still on: its inspector, the window's, is the column beside the page, which keeps left.)
   const column = (await ui(`(() => { const r = document.querySelector('.dock .cd').getBoundingClientRect(); return { x: r.x, width: r.width, height: r.height, stacked: getComputedStyle(document.querySelector('.cd-body')).flexDirection === "column" } })()`)) as { x: number; width: number; height: number; stacked: boolean }
-  check("the phone switch gives the page a phone's box, and Edit's inspector the column beside it", narrow.width === 390 && narrow.height <= 844 && state().page.device === "phone" && column.x >= narrow.x + narrow.width && column.height > 600, `${JSON.stringify(narrow)} ${JSON.stringify(column)}`)
+  check("the phone switch gives the page a phone's box, and Edit's inspector the column beside it", shaped(narrow, 390, 844) && state().page.device === "phone" && column.x >= narrow.x + narrow.width && column.height > 600, `${JSON.stringify(narrow)} ${JSON.stringify(column)}`)
   check("…tall and narrow: the tree above the styles", column.stacked, JSON.stringify(column))
   win.setSize(1440, 900) // (headless: the view's renderer hears of its size with the window's)
   await sleep(200)
   win.setSize(1441, 900)
   check("and the page is laid out as a phone's", (await until(() => js("document.documentElement.clientWidth === 390"), 3000)) === true, String(await js("document.documentElement.clientWidth")))
+  // A phone taller than its room is drawn smaller, whole: the page's own size is the phone's.
+  // (The harness page has something wider than the phone, which a phone shows zoomed out to
+  // fit: innerWidth is then that wider width, and the height in the phone's proportion to it.)
+  const fitted = page.view.getBounds()
+  const label = (await ui(`document.querySelector('.phone-size').textContent`)) as string
+  check("…and as tall as the phone, whatever room the window has: drawn smaller, and said so", (await until(() => js("Math.abs(innerHeight / innerWidth - 844 / 390) < 0.01 && innerHeight >= 844"), 3000)) === true && (fitted.width === 390 ? !label.includes("%") : label.includes(`${Math.round((fitted.width / 390) * 100)}%`)), `${JSON.stringify(fitted)} ${label} ${await js("innerWidth + 'x' + innerHeight")}`)
   // The panel is at the left, and the phone's page next to it in every mode: a mode with no
   // dock has a column of its own there (the keys), so the page does not move.
   const panelRight = (await ui(`document.querySelector('.panel').getBoundingClientRect().right`)) as number
@@ -553,13 +561,14 @@ async function main() {
   await until(() => state().review.mode === "notes")
   const aside = (await until(() => ui(`(() => { const r = document.querySelector('.dock.aside')?.getBoundingClientRect(); return r ? { x: r.x, text: document.querySelector('.aside-title').textContent } : null })()`))) as { x: number; text: string } | undefined
   await sleep(200) // (a frame or two: where the page is goes to main once a frame)
-  check("in Annotate the phone's page stays where it was, with the keys beside it", !!aside && page.view.getBounds().x === narrow.x && page.view.getBounds().width === 390 && aside.x >= narrow.x + 390 && aside.text === "Annotate", `${JSON.stringify(page.view.getBounds())} ${JSON.stringify(aside)}`)
+  check("in Annotate the phone's page stays where it was, with the keys beside it", !!aside && page.view.getBounds().x === narrow.x && page.view.getBounds().width === narrow.width && aside.x >= narrow.x + narrow.width && aside.text === "Annotate", `${JSON.stringify(page.view.getBounds())} ${JSON.stringify(aside)}`)
   // Which phone: the list beside the switch.
   await ui(`(() => { const s = document.querySelector('.phone-pick select'); s.value = "iphone-se"; s.dispatchEvent(new Event("change", { bubbles: true })) })()`)
-  check("another phone is another box, at the same place", (await until(() => page.view.getBounds().width === 375 && page.view.getBounds().height === 667)) === true && page.view.getBounds().x === narrow.x && state().page.phone === "iphone-se", JSON.stringify(page.view.getBounds()))
+  const asideX = () => ui(`document.querySelector('.dock.aside').getBoundingClientRect().x`) as Promise<number>
+  check("another phone is another box, in the middle of the same column: what is beside it does not move", (await until(() => shaped(page.view.getBounds(), 375, 667))) === true && Math.abs((await asideX()) - aside!.x) < 1 && state().page.phone === "iphone-se", `${JSON.stringify(page.view.getBounds())} ${await asideX()} was ${aside?.x}`)
   check("…and its name beside the switch", (await ui(`document.querySelector('.phone-pick .pick-long').textContent`)) === "iPhone SE")
   await ui(`(() => { const s = document.querySelector('.phone-pick select'); s.value = "iphone-14"; s.dispatchEvent(new Event("change", { bubbles: true })) })()`)
-  await until(() => page.view.getBounds().width === 390)
+  await until(() => shaped(page.view.getBounds(), 390, 844) && page.view.getBounds().width === narrow.width)
   await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
   await until(() => state().review.mode === "edit")
   await ui(`document.querySelector('[data-device="desktop"]').click()`)

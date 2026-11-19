@@ -163,10 +163,15 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   // ── the page as a phone's ────────────────────────────────────────────────────────────────────
   // Chromium's own emulation, the kind its developer tools use: the viewport tag counts and
   // scrollbars lie over the page, so a view 390 px wide is a layout 390 px wide (a desktop's
-  // scrollbar would leave it 375). The view's own size stays the size (no override), and the
-  // pointer stays a mouse: the overlay's gestures are a mouse's. It belongs to the renderer, and
-  // a navigation to another site starts a new one: asked for again once each navigation commits,
-  // which is before the new document's first script runs.
+  // scrollbar would leave it 375). The pointer stays a mouse: the overlay's gestures are a
+  // mouse's. It belongs to the renderer, and a navigation to another site starts a new one: asked
+  // for again once each navigation commits, which is before the new document's first script runs.
+  //
+  // The page's viewport is the phone's screen whatever room the window has for it: a view
+  // narrower than the phone (the window gives it the phone's shape, smaller, when the phone is
+  // taller than its room) shows the same page drawn smaller, by the view's width over the
+  // phone's. So 100vh is the phone's height in a short window too, and the pointer still lands
+  // where it points (Chromium maps it).
   //
   // Not before the first document, though: a view that has loaded nothing has no widget to
   // emulate, and Chromium does not refuse the call, it crashes on it (SIGSEGV, the whole app:
@@ -175,11 +180,19 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   let device: Device = "desktop"
   let phone: Phone = PHONE
   let committed = false
+  /** How much smaller than life the phone is drawn: the view's width over the phone's, 1 at most. */
+  const fit = () => {
+    const w = view.getBounds().width
+    return w > 0 && w < phone.width ? w / phone.width : 1
+  }
+  let fitted = 1
   const emulate = () => {
     if (gone() || !committed || wc.isCrashed()) return
-    if (device === "phone")
-      wc.enableDeviceEmulation({ screenPosition: "mobile", screenSize: { width: phone.width, height: phone.height }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: { width: 0, height: 0 }, scale: 1 })
-    else wc.disableDeviceEmulation()
+    if (device === "phone") {
+      const size = { width: phone.width, height: phone.height }
+      fitted = fit()
+      wc.enableDeviceEmulation({ screenPosition: "mobile", screenSize: size, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: size, scale: fitted })
+    } else wc.disableDeviceEmulation()
   }
   wc.on("did-navigate", () => {
     committed = true
@@ -436,6 +449,8 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       if (!b) return view.setVisible(false)
       view.setBounds({ x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height) })
       view.setVisible(true)
+      // A phone's page in a box of another width is drawn at another size.
+      if (device === "phone" && fit() !== fitted) emulate()
     },
     setDevice(d, p) {
       if (d === device && p.id === phone.id) return

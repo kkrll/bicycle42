@@ -37,6 +37,15 @@ const DOCK_MIN = 160
 const DOCK_DEFAULT = 360
 /** What stays of the page above a dock, whatever the dock is dragged to. */
 const PAGE_MIN = 120
+/** What a phone's column holds besides the page, top to bottom: 12px of air above and below, the
+ *  picker's row (28) and the gap under it (12), and the page's own hairline (2). The same
+ *  numbers as `.stage.phone > .device-col` and `.device-bar` in styles.css. */
+const PHONE_AROUND = 12 + 28 + 12 + 2 + 12
+/** A phone is never drawn smaller than this: under it the window is too small to review in. */
+const PHONE_FIT_MIN = 0.4
+/** The column at a phone's right is never left less than this by the panel: a dock's narrowest
+ *  shape (`.stage.phone > .dock` in styles.css has the same number). */
+const COLUMN_MIN = 300
 
 // ── top bar ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -239,14 +248,23 @@ function DeviceSwitch(props: { disabled: boolean }) {
 
 /** Which phone, above a phone's page: a native list under words (as the composer's model is),
  *  because the list opens over the page, where nothing of this document's would show. */
-function PhonePick() {
+function PhonePick(props: { fit: number }) {
   const phone = () => phoneOf(state.page.phone)
   const size = (p: { width: number; height: number }) => `${p.width} × ${p.height}`
+  /** Drawn smaller than life (the phone is taller than its room): by how much. The page's own
+   *  size is the phone's all the same. */
+  const percent = () => (props.fit < 1 ? `${Math.round(props.fit * 100)}%` : "")
+  const title = () =>
+    `Shown as an ${phone().name}: ${size(phone())} px`.replace(/ an (?=[^AEIOUaeiou])/, " a ") +
+    (percent() ? `, drawn at ${percent()} to fit the window` : "")
   return (
-    <label class="pick phone-pick" title={`Shown as an ${phone().name}: ${size(phone())} px`.replace(/ an (?=[^AEIOUaeiou])/, " a ")}>
+    <label class="pick phone-pick" title={title()}>
       <span class="pick-text">
         <span class="pick-long">{phone().name}</span>
-        <span class="phone-size">{size(phone())}</span>
+        <span class="phone-size">
+          {size(phone())}
+          <Show when={percent()}> · {percent()}</Show>
+        </span>
       </span>
       <Icon name="down" />
       <select class="pick-native" aria-label="Phone" onChange={(e) => act("setPhone", e.currentTarget.value)}>
@@ -504,6 +522,22 @@ export function App() {
   })
   let pageEl!: HTMLDivElement
   let stageEl!: HTMLDivElement
+  // ── a phone's page: as large as life, or as large as fits ──
+  // The phone's column is as tall as the window allows; above the page it has the picker's row.
+  // A phone taller than what is left is drawn smaller, whole (main draws the page at the box's
+  // width over the phone's, and the page's own size stays the phone's): never cut, which would
+  // be another phone than the one named.
+  const [colHeight, setColHeight] = createSignal(0)
+  const [winWidth, setWinWidth] = createSignal(window.innerWidth)
+  const fit = () => {
+    const room = colHeight() - PHONE_AROUND
+    const h = phoneOf(state.page.phone).height
+    return room <= 0 || room >= h ? 1 : Math.max(PHONE_FIT_MIN, room / h)
+  }
+  const pageBox = () => {
+    const p = phoneOf(state.page.phone)
+    return { width: Math.round(p.width * fit()), height: Math.round(p.height * fit()) }
+  }
   // A dock the window draws: under the page at this height, or beside a phone's page.
   const [dockHeight, setDockHeight] = createSignal(Math.max(DOCK_MIN, Number(recall("dock.height")) || DOCK_DEFAULT))
   // (With no page open the box holds the window's own words, at its whole width.)
@@ -553,13 +587,20 @@ export function App() {
     // As a desktop's the box only moves when it also changes size (a strip appears, the panel
     // resizes, the window resizes). As a phone's it keeps its size and moves with the room it is
     // centred in: that room is observed too.
-    const observer = new ResizeObserver(schedule)
+    const observer = new ResizeObserver(() => {
+      setColHeight(stageEl.clientHeight)
+      schedule()
+    })
     observer.observe(pageEl)
     observer.observe(stageEl)
-    window.addEventListener("resize", schedule)
+    const resized = () => {
+      setWinWidth(window.innerWidth)
+      schedule()
+    }
+    window.addEventListener("resize", resized)
     onCleanup(() => {
       observer.disconnect()
-      window.removeEventListener("resize", schedule)
+      window.removeEventListener("resize", resized)
       cancelAnimationFrame(frame)
     })
   })
@@ -594,7 +635,13 @@ export function App() {
       else document.querySelector(".notes-list")?.scrollTo({ top: 0 })
     })
   }
-  const maxWidth = () => Math.max(PANEL_MIN, Math.floor(window.innerWidth / 2))
+  // Half the window at most; beside a phone's page, no more than leaves the column at the
+  // page's right the 300px a dock needs (COLUMN_MIN), with the page's own column and the gaps.
+  const maxWidth = () => {
+    const half = Math.floor(winWidth() / 2)
+    const room = phone() ? winWidth() - (pageBox().width + 18) - COLUMN_MIN - 8 : half
+    return Math.max(PANEL_MIN, Math.min(half, room))
+  }
   const clampWidth = (w: number) => Math.min(maxWidth(), Math.max(PANEL_MIN, Math.round(w)))
 
   let dragFrom: { x: number; width: number } | undefined
@@ -622,7 +669,9 @@ export function App() {
   }
 
   // ── the dock under the page: its height, dragged by its top edge as the panel is by its side ──
-  const clampDock = (h: number) => Math.min(Math.max(DOCK_MIN, stageEl.clientHeight - PAGE_MIN), Math.max(DOCK_MIN, Math.round(h)))
+  // (The 16 are the page's and the dock's own margins: PAGE_MIN is the page, not its share of the stage.)
+  const dockMax = () => Math.max(DOCK_MIN, stageEl.clientHeight - PAGE_MIN - 16)
+  const clampDock = (h: number) => Math.min(dockMax(), Math.max(DOCK_MIN, Math.round(h)))
   let dockFrom: { y: number; height: number } | undefined
   const dockDragStart = (e: PointerEvent) => {
     if (e.button !== 0) return
@@ -705,9 +754,10 @@ export function App() {
       class="app"
       style={{
         "--panel-width": `${panelWidth()}px`,
+        "--panel-max": `${maxWidth()}px`,
         "--dock-height": `${dockHeight()}px`,
-        "--phone-width": `${phoneOf(state.page.phone).width}px`,
-        "--phone-height": `${phoneOf(state.page.phone).height}px`,
+        "--phone-width": `${pageBox().width}px`,
+        "--phone-height": `${pageBox().height}px`,
       }}
     >
       <TopBar
@@ -735,7 +785,7 @@ export function App() {
             aria-label="Resize the panel"
             aria-valuemin={PANEL_MIN}
             aria-valuemax={maxWidth()}
-            aria-valuenow={panelWidth()}
+            aria-valuenow={clampWidth(panelWidth())}
             tabindex="0"
             onPointerDown={dragStart}
             onPointerMove={dragMove}
@@ -758,7 +808,7 @@ export function App() {
         <div class="device-col">
         <Show when={phone()}>
           <div class="device-bar">
-            <PhonePick />
+            <PhonePick fit={fit()} />
           </div>
         </Show>
         {/* While a dialog is open or the panel is resized the page view is away: a quiet surface

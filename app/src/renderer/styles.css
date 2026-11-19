@@ -609,7 +609,8 @@ details[open] > summary > .caret {
   gap: 1px;
   height: 28px;
   padding: 2px;
-  margin: 0 4px 0 2px;
+  /* (No margin at the right: the switch ends where the panes under it end.) */
+  margin: 0 0 0 2px;
   border-radius: var(--radius);
   background: var(--surface);
 }
@@ -636,11 +637,17 @@ details[open] > summary > .caret {
   color: var(--foreground);
 }
 
-.mode[aria-checked="true"],
-.device[aria-checked="true"] {
+.mode[aria-checked="true"] {
   background: var(--accent);
   color: var(--background);
   font-weight: 600;
+}
+
+/* The accent is the mode's alone: it says what a click on the page does. Which device the page
+   is shown as is a quieter fact. */
+.device[aria-checked="true"] {
+  background: var(--surface-strong);
+  color: var(--foreground);
 }
 
 .mode[aria-checked="true"],
@@ -902,24 +909,28 @@ details[open] > summary > .caret {
 }
 
 /* …and around a phone's it is the phone's column: the page in the middle of it, top to bottom
-   and side to side, with air around (less of it in a small window, where the page needs the
-   room), and which phone it is above. A phone taller than its room is as tall as fits: the
-   page scrolls inside, as it does in a hand. */
+   and side to side, with which phone it is above. The column is wide enough for the widest
+   phone with air at its sides, so another phone, or the same one drawn smaller, moves nothing
+   beside it; in a wide window it takes what the column at its right does not (that one stops
+   at 720px). The page's box is the phone's size, or smaller in the same shape when the phone
+   is taller than the column (app.tsx works that out: PHONE_AROUND is this padding, the row
+   and the gap). */
 .stage.phone > .device-col {
-  flex: none;
+  flex: 1 1 calc(442px + 2 * clamp(16px, 3vw, 40px));
+  min-width: calc(var(--phone-width) + 18px);
   min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  padding: clamp(12px, 3vh, 32px) clamp(16px, 3vw, 40px);
+  padding: 12px 0;
 }
 
 .stage.phone .page {
-  flex: 0 1 calc(var(--phone-height) + 2px);
+  flex: none;
   width: calc(var(--phone-width) + 2px);
-  min-height: 240px;
+  height: calc(var(--phone-height) + 2px);
   margin: 0;
 }
 
@@ -936,7 +947,8 @@ details[open] > summary > .caret {
 .dock {
   flex: none;
   height: var(--dock-height);
-  max-height: calc(100% - 128px);
+  /* (PAGE_MIN in app.tsx, and the two panes' margins.) */
+  max-height: calc(100% - 136px);
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -946,8 +958,12 @@ details[open] > summary > .caret {
   overflow: hidden;
 }
 
+/* The column at a phone's right: the room that is left, 300px at least (under that a dock
+   has no shape that fits) and 720 at most (wider, its rows are only longer). */
 .stage.phone > .dock {
-  flex: 1;
+  flex: 1 1 480px;
+  min-width: 300px;
+  max-width: 720px;
   height: auto;
   max-height: none;
   margin-left: 0;
@@ -1253,8 +1269,11 @@ details[open] > summary > .caret {
 }
 
 .panel {
+  /* At the window's left edge: 8px in, as the bar above it starts and the panes beside it end. */
+  padding-left: 8px;
   flex: none;
-  width: clamp(320px, var(--panel-width), 50vw);
+  /* (--panel-max: half the window, or less beside a phone's page; maxWidth in app.tsx.) */
+  width: clamp(320px, var(--panel-width), var(--panel-max, 50vw));
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -1451,8 +1470,9 @@ details[open] > summary > .caret {
   align-items: center;
   gap: 4px;
   padding: 0 calc(var(--gutter) + 2px);
-  font-size: var(--text-micro);
-  text-transform: uppercase;
+  /* A section's name as every pane writes one: in sentence case, the size of the controls. */
+  font-size: var(--text-control);
+  font-weight: 600;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -2845,8 +2865,8 @@ details[open] > summary > .caret {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* No left padding: the page pane's 8px margin is already the gap on that side. */
-  padding: 8px 8px 8px 0;
+  /* No padding at the sides: the panel's own at the left, the page pane's 8px margin at the right. */
+  padding: 8px 0;
 }
 
 .composer-box {

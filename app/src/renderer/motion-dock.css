@@ -136,9 +136,8 @@
 .mdock-grp {
   margin: 20px 16px 6px;
   color: var(--muted);
-  font-size: var(--text-micro);
+  font-size: var(--text-control);
   font-weight: 600;
-  text-transform: uppercase;
 }
 
 .mdock-grp:first-child {

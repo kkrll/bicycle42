@@ -910,6 +910,11 @@ async function main() {
   place({ x: 0, y: 0, width: small.width, height: 700 })
   page.setDevice("phone", small)
   check("a smaller phone is a narrower layout", (await until(async () => (await laidOut()) === small.width, 2000)) === true, `${small.name}: ${await laidOut()}`)
+  // A box narrower than the phone (the window's, when the phone is taller than its room) is the
+  // same phone drawn smaller: the page's own size stays the phone's.
+  page.setDevice("phone", PHONE)
+  place({ x: 0, y: 0, width: PHONE.width / 2, height: PHONE.height / 2 })
+  check("a box half the phone's size is the whole phone at half size", (await until(() => js(`innerWidth === ${PHONE.width} && innerHeight === ${PHONE.height}`), 2000)) === true, String(await js("innerWidth + 'x' + innerHeight")))
   place({ x: 0, y: 0, width: 390, height: 700 })
   page.setDevice("desktop", PHONE)
   check("as a desktop's again, the scrollbar is back", (await until(async () => (await laidOut()) < 390, 2000)) === true, String(await laidOut()))
