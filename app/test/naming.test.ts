@@ -16,7 +16,9 @@ test("a name from what was said: the first line with words, tidied, cut at a wor
   assert.equal(titleFrom("\n\n  - too   much space here.\nand there"), "Too much space here")
   assert.equal(titleFrom("## 2. Hero: tighter!"), "Hero: tighter")
   assert.equal(titleFrom("---\nреже отступы"), "Реже отступы")
-  const long = titleFrom("the heading and the paragraph under it are too far apart on narrow screens, and the button wraps")
+  const long = titleFrom(
+    "the heading and the paragraph under it are too far apart on narrow screens, and the button wraps",
+  )
   assert.equal(long, "The heading and the paragraph under it are too far…")
   assert.ok(long!.length <= 57)
   assert.equal(titleFrom("a".repeat(80)), `A${"a".repeat(55)}…`)

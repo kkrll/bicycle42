@@ -36,7 +36,8 @@ export function testShell(dataDir: string): TestShell {
     secrets: { available: () => false, encrypt: (secret) => Buffer.from(secret), decrypt: String },
     emit: (stream, value) => void sent.push([stream, value]),
     dialog: (box) => void dialogs.push(box),
-    log: (level, msg, data) => console[level === "info" ? "log" : level](`[bicycle42] ${msg}`, data === undefined ? "" : data),
+    log: (level, msg, data) =>
+      console[level === "info" ? "log" : level](`[bicycle42] ${msg}`, data === undefined ? "" : data),
   })
 
   let url = ""
@@ -62,10 +63,12 @@ export function testShell(dataDir: string): TestShell {
       stub.sent.push(msg)
       // The overlay answers a "frame" a moment later, as it does two frames on.
       const viewport = stub.viewport
-      if (msg.type === "frame" && viewport) setImmediate(() => core.pageEvents.onMessage({ type: "frame-shown", id: msg.id, viewport }))
+      if (msg.type === "frame" && viewport)
+        setImmediate(() => core.pageEvents.onMessage({ type: "frame-shown", id: msg.id, viewport }))
     },
     // No pixels here: the controller sends the note without a screenshot, unless the test gives one.
-    capture: () => (stub.capture ? Promise.resolve(stub.capture()) : Promise.reject(new Error("no screenshots in this test"))),
+    capture: () =>
+      stub.capture ? Promise.resolve(stub.capture()) : Promise.reject(new Error("no screenshots in this test")),
     reloadWhenIdle: () => void stub.sent.push({ type: "RELOAD" }),
     // The overlay is never mid-note here.
     busy: async () => false,

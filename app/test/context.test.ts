@@ -6,7 +6,10 @@ import assert from "node:assert/strict"
 import { meter, tokens } from "../src/renderer/context"
 
 test("tokens: a count as a person says it", () => {
-  assert.deepEqual([0, 950, 1000, 1499, 123_600, 200_000, 999_499, 999_500, 1_000_000, 1_048_576, 1_500_000].map(tokens), ["0", "950", "1k", "1k", "124k", "200k", "999k", "1M", "1M", "1M", "1.5M"])
+  assert.deepEqual(
+    [0, 950, 1000, 1499, 123_600, 200_000, 999_499, 999_500, 1_000_000, 1_048_576, 1_500_000].map(tokens),
+    ["0", "950", "1k", "1k", "124k", "200k", "999k", "1M", "1M", "1M", "1.5M"],
+  )
 })
 
 test("meter: nothing under half, quiet from half, a warning from 80%", () => {

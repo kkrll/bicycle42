@@ -36,9 +36,33 @@ const marked = new Marked({
 
 const CLEAN = {
   ALLOWED_TAGS: [
-    "p", "br", "hr", "strong", "em", "del", "code", "pre", "blockquote", "span",
-    "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6",
-    "table", "thead", "tbody", "tr", "th", "td", "input", "a",
+    "p",
+    "br",
+    "hr",
+    "strong",
+    "em",
+    "del",
+    "code",
+    "pre",
+    "blockquote",
+    "span",
+    "ul",
+    "ol",
+    "li",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "th",
+    "td",
+    "input",
+    "a",
   ],
   ALLOWED_ATTR: ["class", "title", "start", "align", "type", "checked", "disabled", "href"],
   // Links are never followed in this window (main.tsx hands them to main); only web addresses
@@ -255,7 +279,10 @@ function itemMark(line: string): string {
  *
  *  undefined when the tail is not that, or not yet. A blank line with more after it makes a list
  *  loose, which changes every item, or ends a table: such a tail is parsed whole, as before. */
-export function splitItems(text: string, from: number): { kind: "list" | "table"; head: string; body: number; live: number } | undefined {
+export function splitItems(
+  text: string,
+  from: number,
+): { kind: "list" | "table"; head: string; body: number; live: number } | undefined {
   const first = text.indexOf("\n", from)
   if (first < 0) return undefined
   const mark = itemMark(text.slice(from, first))
@@ -519,7 +546,7 @@ export function Markdown(props: { text: string; streaming: boolean }) {
     void props.text
     void props.streaming
     // The first paint is immediate, so a loaded conversation has its real height at once.
-    if (!view) return (view = markdownView(root, props)), view.paint(true)
+    if (!view) return ((view = markdownView(root, props)), view.paint(true))
     view.schedule()
   })
   onCleanup(() => view?.dispose())

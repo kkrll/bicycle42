@@ -31,5 +31,9 @@ export function meter(context: AppState["context"]): Meter | undefined {
   if (!context?.limit || context.limit <= 0 || !(context.used >= 0)) return undefined
   const share = context.used / context.limit
   if (share < SHOWN_FROM) return undefined
-  return { percent: Math.floor(share * 100), warn: share >= WARN_FROM, numbers: `${tokens(context.used)} of ${tokens(context.limit)} tokens` }
+  return {
+    percent: Math.floor(share * 100),
+    warn: share >= WARN_FROM,
+    numbers: `${tokens(context.used)} of ${tokens(context.limit)} tokens`,
+  }
 }

@@ -74,7 +74,8 @@ export function restoreEdits(d) {
     const paths = d.paths && typeof d.paths === "object" ? d.paths : {};
     for (const rs in paths) {
       const v = paths[rs];
-      if (stampOf(rs) && !C.paths.has(rs) && Array.isArray(v) && typeof v[0] === "string" && typeof v[1] === "string") C.paths.set(rs, { path: v[0], tag: v[1] });
+      if (stampOf(rs) && !C.paths.has(rs) && Array.isArray(v) && typeof v[0] === "string" && typeof v[1] === "string")
+        C.paths.set(rs, { path: v[0], tag: v[1] });
     }
     C.draft.B = { els: B.els, sheet: typeof B.sheet === "string" ? B.sheet : "", ops: B.ops };
     C.snap = JSON.stringify(C.draft.B);
@@ -106,4 +107,3 @@ export function draft() {
   if (!edits && !words) return null;
   return { ...(edits ? { edits, paths: pathsOf(edits) } : {}), ...(words ? { note: words } : {}) };
 }
-

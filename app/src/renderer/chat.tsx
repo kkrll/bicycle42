@@ -1,5 +1,17 @@
 // The conversation with the agent: switcher, transcript, things that need an answer, composer.
-import { For, Match, Show, Switch, createEffect, createMemo, createRoot, createSignal, on, onCleanup, onMount } from "solid-js"
+import {
+  For,
+  Match,
+  Show,
+  Switch,
+  createEffect,
+  createMemo,
+  createRoot,
+  createSignal,
+  on,
+  onCleanup,
+  onMount,
+} from "solid-js"
 import type { JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import type {
@@ -23,7 +35,19 @@ import { Icon, Kbd, toolIcon } from "./icons"
 import { openLightbox } from "./lightbox"
 import { Markdown } from "./markdown"
 import { RepoBar } from "./repo"
-import { act, chat, focusedNote, keys, mac, message, b42, setNotice, setOpenedNote, setSwitcherOpen, state } from "./store"
+import {
+  act,
+  chat,
+  focusedNote,
+  keys,
+  mac,
+  message,
+  b42,
+  setNotice,
+  setOpenedNote,
+  setSwitcherOpen,
+  state,
+} from "./store"
 
 // ── diffs ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -139,7 +163,7 @@ function Tool(props: { part: ToolPart; quiet: boolean }) {
   const totals = createMemo(() => {
     let additions = 0
     let deletions = 0
-    for (const c of props.part.changes ?? []) (additions += c.additions), (deletions += c.deletions)
+    for (const c of props.part.changes ?? []) ((additions += c.additions), (deletions += c.deletions))
     return { additions, deletions, files: props.part.changes?.length ?? 0 }
   })
   const expandable = () => !!props.part.detail || totals().files > 0 || (props.quiet && !!props.part.error)
@@ -209,7 +233,6 @@ function Tool(props: { part: ToolPart; quiet: boolean }) {
   )
 }
 
-
 function Output(props: { text: string }) {
   const [all, setAll] = createSignal(false)
   const lines = createMemo(() => props.text.replace(/\n+$/, "").split("\n"))
@@ -255,13 +278,23 @@ function Summary(props: { item: ChatAssistant }) {
     return part && part.kind === "text" ? part.text : ""
   }
   const title = () =>
-    !props.item.done ? "Summarising the conversation" : props.item.summary === "auto" ? "Conversation summarised: the context was full" : "Conversation summarised"
+    !props.item.done
+      ? "Summarising the conversation"
+      : props.item.summary === "auto"
+        ? "Conversation summarised: the context was full"
+        : "Conversation summarised"
   return (
-    <details class="thinking" data-summary={props.item.done ? "done" : "running"} onToggle={(e) => setOpen(e.currentTarget.open)}>
+    <details
+      class="thinking"
+      data-summary={props.item.done ? "done" : "running"}
+      onToggle={(e) => setOpen(e.currentTarget.open)}
+    >
       <summary>
         <Icon name={props.item.done ? "list" : "spinner"} />
         <span>{title()}</span>
-        <span class="thinking-preview">{props.item.done ? "The agent goes on from this summary" : text().slice(-80)}</span>
+        <span class="thinking-preview">
+          {props.item.done ? "The agent goes on from this summary" : text().slice(-80)}
+        </span>
         <Icon name="right" class="caret" />
       </summary>
       <Show when={open()}>
@@ -322,7 +355,12 @@ function User(props: { item: ChatUser }) {
         <div class="thumbs">
           <For each={props.item.images}>
             {(img, i) => (
-              <button class="thumb" title={`Open ${img.name}`} aria-label={`Open picture ${i() + 1} of ${props.item.images.length}`} onClick={() => openLightbox(props.item.images, i())}>
+              <button
+                class="thumb"
+                title={`Open ${img.name}`}
+                aria-label={`Open picture ${i() + 1} of ${props.item.images.length}`}
+                onClick={() => openLightbox(props.item.images, i())}
+              >
                 <img src={img.src} alt="" loading="lazy" decoding="async" />
               </button>
             )}
@@ -338,7 +376,13 @@ function User(props: { item: ChatUser }) {
             onClick={() =>
               b42
                 .invoke("cancelQueued", props.item.id)
-                .then(() => mark(props.item.note ? `Note ${props.item.note.n} is out of the queue` : "Your message is out of the queue"))
+                .then(() =>
+                  mark(
+                    props.item.note
+                      ? `Note ${props.item.note.n} is out of the queue`
+                      : "Your message is out of the queue",
+                  ),
+                )
                 .catch((err) => setNotice(message(err)))
             }
           >
@@ -482,7 +526,9 @@ function Turn(props: { items: ChatAssistant[]; last: boolean }) {
           }}
         >
           {/* No spinner of its own: the line under the transcript already says it works, and on what. */}
-          <span class="turn-took">{live() ? `Working for ${took(elapsed())}` : elapsed() >= 1000 ? `Worked for ${took(elapsed())}` : "Worked"}</span>
+          <span class="turn-took">
+            {live() ? `Working for ${took(elapsed())}` : elapsed() >= 1000 ? `Worked for ${took(elapsed())}` : "Worked"}
+          </span>
           <Show when={counts()}>
             <span class="turn-counts">{counts()}</span>
           </Show>
@@ -493,9 +539,13 @@ function Turn(props: { items: ChatAssistant[]; last: boolean }) {
             <For each={steps()}>
               {(part) => (
                 <Switch>
-                  <Match when={part.kind === "text" && part}>{(p) => <Markdown text={p().text} streaming={false} />}</Match>
+                  <Match when={part.kind === "text" && part}>
+                    {(p) => <Markdown text={p().text} streaming={false} />}
+                  </Match>
                   {/* A part has no end of its own: a thought is still going while nothing has come after it. */}
-                  <Match when={part.kind === "reasoning" && part}>{(p) => <Thinking text={p().text} live={live() && lastPart() === p()} />}</Match>
+                  <Match when={part.kind === "reasoning" && part}>
+                    {(p) => <Thinking text={p().text} live={live() && lastPart() === p()} />}
+                  </Match>
                   <Match when={part.kind === "tool" && part}>{(p) => <Tool part={p()} quiet={!failed()} />}</Match>
                 </Switch>
               )}
@@ -530,9 +580,22 @@ function suggestions(): Suggestion[] {
   const works = !!url && !state.page.error
   return [
     ...(works ? [] : [{ label: "Start the dev server here", start: true as const }]),
-    ...(works ? [{ label: "Find the code for this page", text: `Which files make up the page at ${url}? List the route, its components and its styles, in a few lines.` }] : []),
-    { label: "Show me around this repo", text: "Give me a short tour of this repo: what the site is built with, where pages, components and styles live, and how to run it." },
-    { label: "Where are the colours, type and spacing defined?", text: "Where does this project define its design tokens (colours, type, spacing, radii)? Name the files and how components use them." },
+    ...(works
+      ? [
+          {
+            label: "Find the code for this page",
+            text: `Which files make up the page at ${url}? List the route, its components and its styles, in a few lines.`,
+          },
+        ]
+      : []),
+    {
+      label: "Show me around this repo",
+      text: "Give me a short tour of this repo: what the site is built with, where pages, components and styles live, and how to run it.",
+    },
+    {
+      label: "Where are the colours, type and spacing defined?",
+      text: "Where does this project define its design tokens (colours, type, spacing, radii)? Name the files and how components use them.",
+    },
   ]
 }
 
@@ -549,7 +612,12 @@ function Suggestions() {
     <div class="suggestions" role="group" aria-label="Ways to start">
       <For each={suggestions()}>
         {(s) => (
-          <button class="btn suggestion" disabled={busy() || state.connection.status !== "online" || (s.start && state.startingSite)} title={s.start ? "The agent starts it and the app opens it" : s.text} onClick={() => run(s)}>
+          <button
+            class="btn suggestion"
+            disabled={busy() || state.connection.status !== "online" || (s.start && state.startingSite)}
+            title={s.start ? "The agent starts it and the app opens it" : s.text}
+            onClick={() => run(s)}
+          >
             {s.label}
           </button>
         )}
@@ -630,7 +698,8 @@ function focusAfterAsk(): void {
   requestAnimationFrame(() => {
     const active = document.activeElement
     if (active && active !== document.body && active.isConnected) return
-    const next = document.querySelector<HTMLElement>(".asks .ask") ?? document.querySelector<HTMLElement>(".composer textarea")
+    const next =
+      document.querySelector<HTMLElement>(".asks .ask") ?? document.querySelector<HTMLElement>(".composer textarea")
     next?.focus()
   })
 }
@@ -689,7 +758,7 @@ function Permission(props: { ask: PermissionAsk; count: number }) {
   const totals = createMemo(() => {
     let additions = 0
     let deletions = 0
-    for (const c of props.ask.changes ?? []) (additions += c.additions), (deletions += c.deletions)
+    for (const c of props.ask.changes ?? []) ((additions += c.additions), (deletions += c.deletions))
     return { additions, deletions }
   })
   // A path the diff below already names is not repeated in the title.
@@ -756,10 +825,20 @@ function Permission(props: { ask: PermissionAsk; count: number }) {
         <p class="form-error">{error()}</p>
       </Show>
       <div class="ask-actions">
-        <button class="btn primary" disabled={busy()} title={`Allow once (${keys("enter")})`} onClick={() => reply("once")}>
+        <button
+          class="btn primary"
+          disabled={busy()}
+          title={`Allow once (${keys("enter")})`}
+          onClick={() => reply("once")}
+        >
           Allow once
         </button>
-        <button class="btn" disabled={busy()} title={`Always allow (${keys("mod", "enter")})`} onClick={() => reply("always")}>
+        <button
+          class="btn"
+          disabled={busy()}
+          title={`Always allow (${keys("mod", "enter")})`}
+          onClick={() => reply("always")}
+        >
           Always allow
         </button>
         <button class="btn" disabled={busy()} title="Deny" onClick={() => reply("reject")}>
@@ -899,7 +978,12 @@ function Ask(props: { question: Question; count: number }) {
       onKeyDown={(e) => {
         if (busy() || e.isComposing) return
         // Enter answers from anywhere in the form (a text field already does so by itself).
-        if (e.key === "Enter" && !e.shiftKey && !(e.target instanceof HTMLButtonElement) && !(e.target instanceof HTMLInputElement && e.target.type !== "checkbox" && e.target.type !== "radio"))
+        if (
+          e.key === "Enter" &&
+          !e.shiftKey &&
+          !(e.target instanceof HTMLButtonElement) &&
+          !(e.target instanceof HTMLInputElement && e.target.type !== "checkbox" && e.target.type !== "radio")
+        )
           e.currentTarget.requestSubmit()
         else return
         e.preventDefault()
@@ -972,7 +1056,10 @@ function CheckpointLine(props: { id: string; name: string }) {
     b42
       .invoke("returnToCheckpoint", props.id)
       .then(
-        (n) => setNotice(`Took back ${n === 1 ? "1 message" : `${n} messages`} and what the agent changed since. /redo brings it back until you say something new.`),
+        (n) =>
+          setNotice(
+            `Took back ${n === 1 ? "1 message" : `${n} messages`} and what the agent changed since. /redo brings it back until you say something new.`,
+          ),
         (err) => setNotice(message(err)),
       )
       .finally(() => (setBusy(false), setSure(false)))
@@ -987,10 +1074,19 @@ function CheckpointLine(props: { id: string; name: string }) {
         when={sure()}
         fallback={
           <>
-            <button class="text-btn" title="Take the conversation, and the files, back to this point" onClick={() => setSure(true)}>
+            <button
+              class="text-btn"
+              title="Take the conversation, and the files, back to this point"
+              onClick={() => setSure(true)}
+            >
               Return here
             </button>
-            <button class="icon-btn small" title="Remove this checkpoint" aria-label="Remove this checkpoint" onClick={() => act("removeCheckpoint", props.id)}>
+            <button
+              class="icon-btn small"
+              title="Remove this checkpoint"
+              aria-label="Remove this checkpoint"
+              onClick={() => act("removeCheckpoint", props.id)}
+            >
               <Icon name="close" />
             </button>
           </>
@@ -1064,16 +1160,25 @@ function Conversations(props: { openSettings: () => void }) {
     setArchived(undefined)
     setError("")
     act("refreshSessions")
-    ;(menu?.querySelector<HTMLElement>(".menu-search input") ?? menu?.querySelector<HTMLElement>("[aria-checked=true]") ?? stops()[0])?.focus()
+    ;(
+      menu?.querySelector<HTMLElement>(".menu-search input") ??
+      menu?.querySelector<HTMLElement>("[aria-checked=true]") ??
+      stops()[0]
+    )?.focus()
   })
 
   const q = () => query().trim().toLowerCase()
-  const found = createMemo(() => state.sessions.filter((s) => !q() || s.title.toLowerCase().includes(q()) || !!s.said?.includes(q())))
+  const found = createMemo(() =>
+    state.sessions.filter((s) => !q() || s.title.toLowerCase().includes(q()) || !!s.said?.includes(q())),
+  )
   const foundArchived = createMemo(() => (archived() ?? []).filter((s) => !q() || s.title.toLowerCase().includes(q())))
   const searchable = () => state.sessions.length >= SEARCH_FROM || !!query()
 
   /** A command whose failure is said in the menu, where it was asked for. */
-  const run = <K extends "renameSession" | "archiveSession" | "deleteSession">(name: K, ...args: Parameters<Commands[K]>) => {
+  const run = <K extends "renameSession" | "archiveSession" | "deleteSession">(
+    name: K,
+    ...args: Parameters<Commands[K]>
+  ) => {
     setError("")
     return b42.invoke(name, ...args).then(
       () => true,
@@ -1149,7 +1254,10 @@ function Conversations(props: { openSettings: () => void }) {
                 if (!current()) act("openSession", s().id)
               }}
             >
-              <Show when={s().pinned} fallback={<span class="dot" classList={{ busy: s().busy }} title={s().busy ? "Working" : undefined} />}>
+              <Show
+                when={s().pinned}
+                fallback={<span class="dot" classList={{ busy: s().busy }} title={s().busy ? "Working" : undefined} />}
+              >
                 <span class="menu-pin" classList={{ busy: s().busy }} title={s().busy ? "Pinned · working" : "Pinned"}>
                   <Icon name="pin" />
                 </span>
@@ -1170,7 +1278,13 @@ function Conversations(props: { openSettings: () => void }) {
               <Show
                 when={!s().archived}
                 fallback={
-                  <button class="icon-btn small" title="Bring back" aria-label="Bring back" data-do="restore" onClick={() => putAway(s(), false)}>
+                  <button
+                    class="icon-btn small"
+                    title="Bring back"
+                    aria-label="Bring back"
+                    data-do="restore"
+                    onClick={() => putAway(s(), false)}
+                  >
                     <Icon name="restore" />
                   </button>
                 }
@@ -1185,14 +1299,32 @@ function Conversations(props: { openSettings: () => void }) {
                 >
                   <Icon name="pin" />
                 </button>
-                <button class="icon-btn small" title="Rename" aria-label="Rename" data-do="rename" onClick={() => swap(() => (setConfirming(""), setRenaming(s().id)), `${row(s().id)} .menu-rename`)}>
+                <button
+                  class="icon-btn small"
+                  title="Rename"
+                  aria-label="Rename"
+                  data-do="rename"
+                  onClick={() => swap(() => (setConfirming(""), setRenaming(s().id)), `${row(s().id)} .menu-rename`)}
+                >
                   <Icon name="pencil" />
                 </button>
-                <button class="icon-btn small" title="Archive (it can be brought back)" aria-label="Archive" data-do="archive" onClick={() => putAway(s(), true)}>
+                <button
+                  class="icon-btn small"
+                  title="Archive (it can be brought back)"
+                  aria-label="Archive"
+                  data-do="archive"
+                  onClick={() => putAway(s(), true)}
+                >
                   <Icon name="archive" />
                 </button>
               </Show>
-              <button class="icon-btn small" title="Delete" aria-label="Delete" data-do="ask-delete" onClick={() => swap(() => (setRenaming(""), setConfirming(s().id)), `${row(s().id)} [data-do=delete]`)}>
+              <button
+                class="icon-btn small"
+                title="Delete"
+                aria-label="Delete"
+                data-do="ask-delete"
+                onClick={() => swap(() => (setRenaming(""), setConfirming(s().id)), `${row(s().id)} [data-do=delete]`)}
+              >
                 <Icon name="trash" />
               </button>
             </span>
@@ -1276,7 +1408,12 @@ function Conversations(props: { openSettings: () => void }) {
               {error()}
             </p>
           </Show>
-          <For each={found()} fallback={<p class="menu-empty">{q() ? "No conversation matches." : "No other conversations yet."}</p>}>{(s) => <Row s={s} />}</For>
+          <For
+            each={found()}
+            fallback={<p class="menu-empty">{q() ? "No conversation matches." : "No other conversations yet."}</p>}
+          >
+            {(s) => <Row s={s} />}
+          </For>
           <button
             class="menu-archived"
             aria-expanded={!!archived()}
@@ -1289,7 +1426,10 @@ function Conversations(props: { openSettings: () => void }) {
             Archived
           </button>
           <Show when={archived()}>
-            <For each={foundArchived()} fallback={<p class="menu-empty">{q() ? "Nothing archived matches." : "Nothing is archived."}</p>}>
+            <For
+              each={foundArchived()}
+              fallback={<p class="menu-empty">{q() ? "Nothing archived matches." : "Nothing is archived."}</p>}
+            >
               {(s) => <Row s={s} />}
             </For>
           </Show>
@@ -1333,7 +1473,10 @@ export function Chat(props: {
     // A waiting note is a row of the notes list already, and its own view has its Cancel: it is
     // not said a second time here. One taken off the list has no other place, so it stays.
     const listed = noteByNumber()
-    return [...chat.items.filter((item) => !(item.kind === "user" && item.pending)), ...waiting.filter((item) => !(item.kind === "user" && item.note && listed.has(item.note.n)))]
+    return [
+      ...chat.items.filter((item) => !(item.kind === "user" && item.pending)),
+      ...waiting.filter((item) => !(item.kind === "user" && item.note && listed.has(item.note.n))),
+    ]
   })
 
   /** The transcript as rows: a run of assistant items (the steps of one turn) is one row, under
@@ -1347,7 +1490,7 @@ export function Chat(props: {
     for (const item of ordered()) {
       if (item.kind === "assistant" && !item.summary) {
         if (run) run.push(item)
-        else (run = [item]), turns.set(item.id, run), out.push(item), (last = item.id)
+        else ((run = [item]), turns.set(item.id, run), out.push(item), (last = item.id))
         continue
       }
       run = undefined
@@ -1357,7 +1500,9 @@ export function Chat(props: {
   })
   /** A turn's steps, as one array as long as they are the same steps: its row is not redrawn. */
   const stepsOf = (lead: ChatAssistant) =>
-    createMemo(() => rows().turns.get(lead.id) ?? [lead], undefined, { equals: (a, b) => a.length === b.length && a.every((x, i) => x === b[i]) })
+    createMemo(() => rows().turns.get(lead.id) ?? [lead], undefined, {
+      equals: (a, b) => a.length === b.length && a.every((x, i) => x === b[i]),
+    })
 
   /** The reader opened or closed something in the transcript. The growth that follows is theirs,
    *  not the agent's: following it would scroll what they just opened out of view. */
@@ -1398,8 +1543,12 @@ export function Chat(props: {
     el.scrollIntoView({ block: "center", behavior })
     const done = new AbortController()
     const stop = () => done.abort()
-    for (const type of ["wheel", "pointerdown", "keydown", "touchstart"]) addEventListener(type, stop, { capture: true, passive: true, signal: done.signal })
-    scroller.addEventListener("scrollend", () => (stop(), el.scrollIntoView({ block: "center", behavior })), { once: true, signal: done.signal })
+    for (const type of ["wheel", "pointerdown", "keydown", "touchstart"])
+      addEventListener(type, stop, { capture: true, passive: true, signal: done.signal })
+    scroller.addEventListener("scrollend", () => (stop(), el.scrollIntoView({ block: "center", behavior })), {
+      once: true,
+      signal: done.signal,
+    })
     setTimeout(stop, 3000)
   }
   /** The main-lane note the agent is on now, named in the "Working" line. */
@@ -1437,7 +1586,13 @@ export function Chat(props: {
     ),
   )
 
-  createEffect(on(() => state.session?.id, () => setMarks([]), { defer: true }))
+  createEffect(
+    on(
+      () => state.session?.id,
+      () => setMarks([]),
+      { defer: true },
+    ),
+  )
 
   // A hidden scroller forgets where it was: put it back when the cover goes.
   createEffect(
@@ -1486,7 +1641,9 @@ export function Chat(props: {
               {(item) => (
                 <Switch>
                   <Match when={item.kind === "user" && item}>{(i) => <User item={i()} />}</Match>
-                  <Match when={item.kind === "assistant" && item.summary && item}>{(i) => <Assistant item={i()} />}</Match>
+                  <Match when={item.kind === "assistant" && item.summary && item}>
+                    {(i) => <Assistant item={i()} />}
+                  </Match>
                   <Match when={item.kind === "assistant" && item}>
                     {(i) => {
                       const steps = stepsOf(i())

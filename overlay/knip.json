@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/mount.js",
+    "src/lookup.js",
+    "src/protocol.js",
+    "protocol.ts",
+    "scripts/*.mjs",
+    "test/*.test.mjs",
+    "harness/*.html",
+    "harness/host.js"
+  ],
+  "project": ["src/**", "test/**", "scripts/**", "bench/**", "harness/**", "*.ts", "*.js"],
+  "ignoreDependencies": ["esbuild"]
+}

@@ -21,7 +21,8 @@ const PENCIL = `<filter id="b42-pencil" filterUnits="userSpaceOnUse">
 
 /** The ink's part of the layer, under the outlines. mount.js puts it in its place; mount() finds it.
  *  The stroke being drawn is in .live, under a pencil of its own (frame() says why). */
-export const INK_HTML = `<svg class="ink" xmlns="${SVG}"><defs>${PENCIL}${PENCIL.replace('id="b42-pencil"', 'id="b42-pencil-live"')}</defs>` +
+export const INK_HTML =
+  `<svg class="ink" xmlns="${SVG}"><defs>${PENCIL}${PENCIL.replace('id="b42-pencil"', 'id="b42-pencil-live"')}</defs>` +
   `<g class="areas"></g><g class="strokes" filter="url(#b42-pencil)"></g><g class="live" filter="url(#b42-pencil-live)"></g></svg>`;
 
 const pathOf = (pts) => `M${pts.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L")}`;
@@ -47,7 +48,15 @@ function fit(filter, b) {
 
 /** Its outline, the hover's (only while notes mode is on), for render.js to draw with the others. */
 export function outlines(capturing) {
-  if (S.enabled && !capturing && !S.drag && modeOn() === "notes" && S.hover && S.hover.isConnected && !S.sel.includes(S.hover))
+  if (
+    S.enabled &&
+    !capturing &&
+    !S.drag &&
+    modeOn() === "notes" &&
+    S.hover &&
+    S.hover.isConnected &&
+    !S.sel.includes(S.hover)
+  )
     return [[rectOf(S.hover), "hover"]];
   return [];
 }
@@ -69,10 +78,17 @@ export function frame(capturing) {
   const show = S.enabled || capturing;
   const paths = show ? S.strokes : [];
   const drawing = d && d.mode === "draw" ? d.pts : null;
-  const sx = VP.sx, sy = VP.sy;
+  const sx = VP.sx,
+    sy = VP.sy;
   const areas = [];
   if (show && S.area) areas.push(S.area);
-  if (d && d.mode === "area") areas.push({ x: Math.min(d.x0, d.x) + sx, y: Math.min(d.y0, d.y) + sy, w: Math.abs(d.x - d.x0), h: Math.abs(d.y - d.y0) });
+  if (d && d.mode === "area")
+    areas.push({
+      x: Math.min(d.x0, d.x) + sx,
+      y: Math.min(d.y0, d.y) + sy,
+      w: Math.abs(d.x - d.x0),
+      h: Math.abs(d.y - d.y0),
+    });
   const drawn = paths.length + areas.length > 0 || !!drawing;
   if (ink._on !== drawn) ink.classList.toggle("on", (ink._on = drawn)); // a layer only while there is ink
   // With nothing drawn, scrolling writes nothing here.
@@ -92,17 +108,20 @@ export function frame(capturing) {
   };
   const liveEl = ink._live || (ink._live = ink.querySelector(".live"));
   const [live] = pool(liveEl, drawing ? 1 : 0, () => document.createElementNS(SVG, "path"));
-  if (live && write(live, drawing)) fit(ink._pencil || (ink._pencil = ink.querySelector("#b42-pencil-live")), bboxOf(drawing));
+  if (live && write(live, drawing))
+    fit(ink._pencil || (ink._pencil = ink.querySelector("#b42-pencil-live")), bboxOf(drawing));
   const pathEls = pool(strokesEl, paths.length, () => document.createElementNS(SVG, "path"));
   let redrawn = pathEls.length !== strokesEl._n;
   strokesEl._n = pathEls.length;
   paths.forEach((pts, i) => {
     if (write(pathEls[i], pts)) redrawn = true;
   });
-  if (redrawn && paths.length) fit(pencil, union(paths.map((pts) => strokeBox.get(pts) || strokeBox.set(pts, bboxOf(pts)).get(pts))));
+  if (redrawn && paths.length)
+    fit(pencil, union(paths.map((pts) => strokeBox.get(pts) || strokeBox.set(pts, bboxOf(pts)).get(pts))));
   const rectEls = pool(ink.querySelector(".areas"), areas.length, () => document.createElementNS(SVG, "rect"));
   areas.forEach((r, i) => {
-    const el = rectEls[i], key = `${r.x}|${r.y}|${r.w}|${r.h}`;
+    const el = rectEls[i],
+      key = `${r.x}|${r.y}|${r.w}|${r.h}`;
     if (el._k === key) return; // (an area that stays is not written again either)
     el._k = key;
     el.setAttribute("x", r.x);

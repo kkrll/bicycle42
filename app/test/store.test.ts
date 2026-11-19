@@ -70,7 +70,10 @@ test("reviews round-trip, one file per origin", (t) => {
   assert.deepEqual(store.loadReview(ORIGIN), review.toJSON(), "readable before it is written")
   store.flush()
 
-  assert.deepEqual(fs.readdirSync(reviews).sort(), ["http%3A%2F%2Flocalhost%3A3000.json", "https%3A%2F%2Fexample.com.json"])
+  assert.deepEqual(fs.readdirSync(reviews).sort(), [
+    "http%3A%2F%2Flocalhost%3A3000.json",
+    "https%3A%2F%2Fexample.com.json",
+  ])
   const again = open()
   assert.deepEqual(again.loadReview(ORIGIN), review.toJSON())
   assert.deepEqual(createReview(again.loadReview(ORIGIN)).draft, { text: "half" })
@@ -81,7 +84,8 @@ test("reviews round-trip, one file per origin", (t) => {
 test("an origin can't name a file outside the reviews folder", (t) => {
   const { dir, open, reviews } = setup(t)
   const store = open()
-  for (const origin of ["../../escape", "/etc/passwd", "..", "a/b\\c*"]) store.saveReview(origin, { version: 1, origin })
+  for (const origin of ["../../escape", "/etc/passwd", "..", "a/b\\c*"])
+    store.saveReview(origin, { version: 1, origin })
   store.flush()
   assert.deepEqual(fs.readdirSync(dir), ["reviews"])
   assert.equal(fs.readdirSync(reviews).length, 4)
@@ -128,7 +132,10 @@ test("settings from a newer bicycle 42: left alone, never written, changes kept 
   const store = open()
   assert.equal(store.readOnly, true)
   assert.deepEqual(store.settings(), { version: 1, sites: {} }, "a shape we don't know is not read as ours")
-  assert.deepEqual(logs.map((l) => [l.level, l.msg]), [["error", "store: settings.json was written by a newer bicycle 42 (version 2); this version won't change it"]])
+  assert.deepEqual(
+    logs.map((l) => [l.level, l.msg]),
+    [["error", "store: settings.json was written by a newer bicycle 42 (version 2); this version won't change it"]],
+  )
 
   store.update((s) => (s.lastUrl = "http://x/"))
   store.saveReview(ORIGIN, { version: 1, notes: [] })
@@ -136,7 +143,11 @@ test("settings from a newer bicycle 42: left alone, never written, changes kept 
   store.flush()
   assert.equal(store.settings().lastUrl, "http://x/", "usable for this run")
   assert.equal(fs.readFileSync(settingsFile, "utf8"), content, "byte for byte")
-  assert.deepEqual(fs.readdirSync(dir).sort(), ["reviews", "settings.json"], "not moved aside either; other files still save")
+  assert.deepEqual(
+    fs.readdirSync(dir).sort(),
+    ["reviews", "settings.json"],
+    "not moved aside either; other files still save",
+  )
   assert.equal(logs.length, 1, "said once, not on every save")
 })
 
@@ -150,7 +161,10 @@ test("a review from a newer bicycle 42: left alone, this run's notes stay in mem
   assert.equal(store.readOnly, false, "nothing newer met yet")
   assert.equal(store.loadReview(ORIGIN), undefined)
   assert.equal(store.readOnly, true)
-  assert.match(logs[0]!.msg, /http%3A%2F%2Flocalhost%3A3000\.json was written by a newer bicycle 42 \(version 3\); this version won't change it/)
+  assert.match(
+    logs[0]!.msg,
+    /http%3A%2F%2Flocalhost%3A3000\.json was written by a newer bicycle 42 \(version 3\); this version won't change it/,
+  )
   assert.equal(logs[0]!.level, "error")
 
   store.saveReview(ORIGIN, { version: 1, notes: ["mine"] })
@@ -186,7 +200,10 @@ test("a broken review file is moved aside and the site starts fresh", (t) => {
   }
   const aside = fs.readdirSync(reviews).filter((f) => f.includes(".corrupt-"))
   assert.ok(aside.length >= 1)
-  assert.deepEqual(logs.map((l) => l.level), ["warn", "warn"])
+  assert.deepEqual(
+    logs.map((l) => l.level),
+    ["warn", "warn"],
+  )
 })
 
 test("a file that can't be read at all is reported and left alone", (t) => {
@@ -279,7 +296,11 @@ test("a write replaces the file whole: readers see the old one or the new one", 
   const renamed: Array<[string, string, string]> = []
   const realOpen = fs.openSync
   const realRename = fs.renameSync
-  t.mock.method(fs, "openSync", (...args: Parameters<typeof fs.openSync>) => (opened.push(String(args[0])), realOpen(...args)))
+  t.mock.method(
+    fs,
+    "openSync",
+    (...args: Parameters<typeof fs.openSync>) => (opened.push(String(args[0])), realOpen(...args)),
+  )
   t.mock.method(fs, "renameSync", (from: string, to: string) => {
     // At the moment of the swap: the temp file is complete, the real one still the old version.
     renamed.push([from, to, fs.readFileSync(from, "utf8")])
@@ -374,7 +395,11 @@ test("writes of one file never overlap, and the last state is the one left", asy
   t.mock.restoreAll()
   assert.equal(most, 1, "one write of the file at a time")
   assert.equal(readJSON(file).i, 40)
-  assert.deepEqual(fs.readdirSync(reviews).filter((f) => f.includes(".tmp-")), [], "no temp file left")
+  assert.deepEqual(
+    fs.readdirSync(reviews).filter((f) => f.includes(".tmp-")),
+    [],
+    "no temp file left",
+  )
   assert.deepEqual(open().loadReview(ORIGIN), readJSON(file))
 })
 
@@ -411,5 +436,8 @@ test("quit while a write is under way: flush puts the newest state on disk, and 
   assert.deepEqual(readJSON(file), { version: 1, text: "only" })
   await store.idle()
   assert.deepEqual(readJSON(file), { version: 1, text: "only" })
-  assert.deepEqual(fs.readdirSync(reviews).filter((f) => f.includes(".tmp-")), [])
+  assert.deepEqual(
+    fs.readdirSync(reviews).filter((f) => f.includes(".tmp-")),
+    [],
+  )
 })

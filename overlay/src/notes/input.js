@@ -105,10 +105,13 @@ function walk(dir) {
     if (next === document.body || next === document.documentElement) next = null;
   } else {
     const kids = [...el.children];
-    next = kids.find((k) => {
-      const r = k.getBoundingClientRect();
-      return r.width > 0 && r.height > 0;
-    }) || kids[0] || null;
+    next =
+      kids.find((k) => {
+        const r = k.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      }) ||
+      kids[0] ||
+      null;
   }
   if (!next) return;
   S.sel = [next];
@@ -135,8 +138,7 @@ export function key(e) {
       clearDraft();
       setBrush(false);
       if (kept) offerUndo(kept);
-    }
-    else send({ type: "toggle", enabled: false });
+    } else send({ type: "toggle", enabled: false });
     return;
   }
   if (S.undo && mod(e) && !e.shiftKey && e.key.toLowerCase() === "z") {

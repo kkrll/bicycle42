@@ -93,7 +93,12 @@ const KIND = {
 };
 const LOCAL = /\d(?:em|ex|ch|lh|ic|cap)\b|currentcolor|light-dark\(|\dcq(?:[whib]|min|max)\b/i;
 const PLAIN = /^[+-]?(\d+\.?\d*|\.\d+)$/;
-const family = (v) => v.replace(/["']/g, "").replace(/\s*,\s*/g, ",").trim().toLowerCase();
+const family = (v) =>
+  v
+    .replace(/["']/g, "")
+    .replace(/\s*,\s*/g, ",")
+    .trim()
+    .toLowerCase();
 const byName = (a, b) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
 
 /** The page's variables a computed value is made of: `padding: 8px 16px` with --space-2: .5rem
@@ -121,12 +126,17 @@ export function tokenMatch(prop, computed, toks, host) {
   } else {
     parts = v.split(/\s+/);
     if (parts.length > 4 || !parts.every((x) => /^-?(\d+\.?\d*|\.\d+)px$/.test(x))) return null;
-    same = (t, x) => kind.test(t.name) && !PLAIN.test(t.value) && Math.abs(sizeOf(t.value, host) - parseFloat(x)) < 0.05;
+    same = (t, x) =>
+      kind.test(t.name) && !PLAIN.test(t.value) && Math.abs(sizeOf(t.value, host) - parseFloat(x)) < 0.05;
   }
-  const best = new Map(), others = new Set();
+  const best = new Map(),
+    others = new Set();
   for (const x of new Set(parts)) {
     // (a colour: one named for colours first)
-    const found = toks.filter((t) => same(t, x)).map((t) => t.name).sort((a, b) => Number(kind.test(b)) - Number(kind.test(a)) || byName(a, b));
+    const found = toks
+      .filter((t) => same(t, x))
+      .map((t) => t.name)
+      .sort((a, b) => Number(kind.test(b)) - Number(kind.test(a)) || byName(a, b));
     if (!found.length) return null;
     best.set(x, found[0]);
     found.slice(1, 4).forEach((n) => others.add(n));

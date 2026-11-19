@@ -14,7 +14,10 @@ window.addEventListener(
     try {
       c = componentOf(el);
     } catch {}
-    if (c) el.dispatchEvent(new CustomEvent("b42:component-is", { detail: JSON.stringify(c), bubbles: true, composed: true }));
+    if (c)
+      el.dispatchEvent(
+        new CustomEvent("b42:component-is", { detail: JSON.stringify(c), bubbles: true, composed: true }),
+      );
   },
   true,
 );

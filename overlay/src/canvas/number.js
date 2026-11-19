@@ -31,7 +31,7 @@ export const continues = (above) => /[,:(]\s*$/.test(above);
  *  of a string, a url or a comment; and not a number with an exponent (`1e3`, `1.5e2px`). */
 export function numbers(text, from = 0, to = text.length) {
   const out = [];
-  for (let i = from; i < to; ) {
+  for (let i = from; i < to;) {
     const ch = text[i];
     if (ch === "/" && text[i + 1] === "*") {
       const j = text.indexOf("*/", i + 2);
@@ -40,7 +40,7 @@ export function numbers(text, from = 0, to = text.length) {
       for (i++; i < to && text[i] !== ch; i++) if (text[i] === "\\") i++;
       i++;
     } else if (ch === "#") {
-      for (i++; i < to && /[\w-]/.test(text[i]); ) i++; // a hex colour (or an id): its digits are not a number
+      for (i++; i < to && /[\w-]/.test(text[i]);) i++; // a hex colour (or an id): its digits are not a number
     } else {
       IDENT.lastIndex = i;
       const id = IDENT.exec(text);
@@ -68,7 +68,13 @@ export function numbers(text, from = 0, to = text.length) {
       const u = UNIT.exec(text);
       const unit = u && UNIT.lastIndex <= to ? u[0] : "";
       end += unit.length;
-      out.push({ start: i, end, value: Number(text.slice(i, end - unit.length)), unit, dp: (m[1] || m[2] || "").length });
+      out.push({
+        start: i,
+        end,
+        value: Number(text.slice(i, end - unit.length)),
+        unit,
+        dp: (m[1] || m[2] || "").length,
+      });
       i = end;
     }
   }
@@ -94,7 +100,10 @@ function closing(text, i, to) {
  *  continues the declaration above it where that ends with a comma (`transition: a 1s,⏎ b 2s`). */
 function valueAt(text, caret, sheet) {
   const stack = [sheet ? "rules" : "decls"]; // what the blocks around the caret hold
-  let start = 0, paren = 0, end = -1, last = "";
+  let start = 0,
+    paren = 0,
+    end = -1,
+    last = "";
   for (let i = 0; i <= text.length; i++) {
     const ch = text[i];
     if (ch === "/" && text[i + 1] === "*") {
@@ -117,7 +126,16 @@ function valueAt(text, caret, sheet) {
       last = ch;
       break;
     }
-    if (ch === "{") stack.push(opens(text.slice(start, i).replace(/\/\*[\s\S]*?\*\//g, "").trim(), stack[stack.length - 1]));
+    if (ch === "{")
+      stack.push(
+        opens(
+          text
+            .slice(start, i)
+            .replace(/\/\*[\s\S]*?\*\//g, "")
+            .trim(),
+          stack[stack.length - 1],
+        ),
+      );
     else if (ch === "}" && stack.length > 1) stack.pop();
     start = i + 1;
   }
@@ -131,7 +149,7 @@ function valueAt(text, caret, sheet) {
   if (own) return caret >= ls + own[0].length ? [ls + own[0].length, le] : null;
   // A line of its own with no name: a value only when it goes on from the lines above it, back
   // to one that has a name.
-  for (let s = ls; s > start; ) {
+  for (let s = ls; s > start;) {
     const e = s - 1;
     s = Math.max(start, text.lastIndexOf("\n", e - 1) + 1);
     const above = text.slice(s, e);

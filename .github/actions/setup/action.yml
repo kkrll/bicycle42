@@ -1,0 +1,25 @@
+name: setup
+description: Node, Bun, the three installs, and Linux allowing Electron's sandbox
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: 1.4.4
+    - uses: actions/cache@v4
+      with:
+        path: |
+          ~/.bun/install/cache
+          ~/.cache/electron
+        key: deps-${{ runner.os }}-${{ hashFiles('bun.lock', 'app/bun.lock', 'overlay/bun.lock') }}
+    - shell: bash
+      run: |
+        bun install --frozen-lockfile
+        (cd app && bun install --frozen-lockfile)
+        (cd overlay && bun install --frozen-lockfile)
+    # Ubuntu 24.04's AppArmor blocks the user namespaces Chromium's sandbox needs
+    - shell: bash
+      run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0

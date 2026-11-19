@@ -28,11 +28,20 @@ export function RunningButton() {
     const n = state.running.length
     const m = mine().length
     const what = m === 1 ? mine()[0]!.command : `${n} commands`
-    return m ? `Still running here: ${what}. Stop, or see all` : `Still running in other projects: ${n}. Stop, or see all`
+    return m
+      ? `Still running here: ${what}. Stop, or see all`
+      : `Still running in other projects: ${n}. Stop, or see all`
   }
   return (
     <Show when={state.running.length && state.connection.status === "online"}>
-      <button class="icon-btn running-btn" data-action="running" aria-haspopup="dialog" aria-label={label()} title={label()} onClick={() => setRunningOpen(true)}>
+      <button
+        class="icon-btn running-btn"
+        data-action="running"
+        aria-haspopup="dialog"
+        aria-label={label()}
+        title={label()}
+        onClick={() => setRunningOpen(true)}
+      >
         <Icon name="stop" />
         <span class="running-count">{state.running.length}</span>
       </button>
@@ -66,7 +75,13 @@ export function RunningList(props: { onClose: () => void }) {
   }
   const url = () => ("url" in state.connection ? state.connection.url : "")
   return (
-    <dialog class="dialog running" ref={dialog} aria-labelledby="running-title" onClose={props.onClose} onClick={(e) => e.target === dialog && dialog.close()}>
+    <dialog
+      class="dialog running"
+      ref={dialog}
+      aria-labelledby="running-title"
+      onClose={props.onClose}
+      onClick={(e) => e.target === dialog && dialog.close()}
+    >
       <header class="running-head">
         <h2 id="running-title">Still running on {serverLabel(url())}</h2>
         <Show when={state.running.length > 1}>
@@ -101,7 +116,9 @@ export function RunningList(props: { onClose: () => void }) {
           </For>
         </ul>
       </Show>
-      <p class="running-foot">Commands the server keeps running in your projects, such as a dev server the agent started.</p>
+      <p class="running-foot">
+        Commands the server keeps running in your projects, such as a dev server the agent started.
+      </p>
     </dialog>
   )
 }

@@ -5,7 +5,24 @@ import { S } from "../state.js";
 import { adopt, BOOST, describe, editSel, plainLabel, vp } from "../page.js";
 import { draftChanged } from "../draft.js";
 import { dispatch } from "../sent.js";
-import { anyDirty, apply, entryCss, kfDirty, M, MAX_KF, mq, ms, openDirty, openKf, openUse, playsDirty, readList, scan, serialize, useDirty } from "./model.js";
+import {
+  anyDirty,
+  apply,
+  entryCss,
+  kfDirty,
+  M,
+  MAX_KF,
+  mq,
+  ms,
+  openDirty,
+  openKf,
+  openUse,
+  playsDirty,
+  readList,
+  scan,
+  serialize,
+  useDirty,
+} from "./model.js";
 import { letGo, openCss, setSel, show } from "./open.js";
 import { sharedBy, snapshot, timing } from "./edit.js";
 import { draw, drawFoot, flash } from "./draw.js";
@@ -14,34 +31,54 @@ import { noteEl } from "./input.js";
 // ── sending ──────────────────────────────────────────────────────────────────────────────
 /** The open animation, as the note says it (see `Motion` in ../../protocol.ts). */
 function payload() {
-  const o = M.open, el = mq(o.rs);
+  const o = M.open,
+    el = mq(o.rs);
   const who = { selector: editSel(el), label: plainLabel(el) };
   if (o.kind !== "css") {
     const t = timing();
-    const current = o.kind === "transition"
-      ? `transition: ${M.ro.items.map((x) => `${x.prop} ${ms(x.duration)} ${x.easing}${x.delay ? ` ${ms(x.delay)}` : ""}`).join(", ")}${M.ro.state ? ` (on ${M.ro.state.pseudo})` : ""}`
-      : `animate(): ${ms(t.duration)} ${t.easing}${t.delay ? ` ${ms(t.delay)}` : ""}${t.count !== "1" ? `, ${t.count === "infinite" ? "forever" : `${t.count} times`}` : ""}${t.direction !== "normal" ? `, ${t.direction}` : ""}`;
-    return { kind: o.kind, name: o.kind === "transition" ? "transition" : o.name.slice(0, 64), ...who, current: current.slice(0, 400) };
+    const current =
+      o.kind === "transition"
+        ? `transition: ${M.ro.items.map((x) => `${x.prop} ${ms(x.duration)} ${x.easing}${x.delay ? ` ${ms(x.delay)}` : ""}`).join(", ")}${M.ro.state ? ` (on ${M.ro.state.pseudo})` : ""}`
+        : `animate(): ${ms(t.duration)} ${t.easing}${t.delay ? ` ${ms(t.delay)}` : ""}${t.count !== "1" ? `, ${t.count === "infinite" ? "forever" : `${t.count} times`}` : ""}${t.direction !== "normal" ? `, ${t.direction}` : ""}`;
+    return {
+      kind: o.kind,
+      name: o.kind === "transition" ? "transition" : o.name.slice(0, 64),
+      ...who,
+      current: current.slice(0, 400),
+    };
   }
-  const u = openUse(), k = openKf();
+  const u = openUse(),
+    k = openKf();
   const out = /** @type {any} */ ({ kind: "keyframes", name: k.name, ...who, shared: sharedBy() });
   if (u.isNew) out.isNew = true;
   if (u.from) out.from = u.from;
-  if (useDirty(u)) out.animation = { to: entryCss({ name: u.name, ...u.timing }), ...(u.isNew ? {} : { from: entryCss({ name: u.from || u.name, ...u.orig }) }) };
+  if (useDirty(u))
+    out.animation = {
+      to: entryCss({ name: u.name, ...u.timing }),
+      ...(u.isNew ? {} : { from: entryCss({ name: u.from || u.name, ...u.orig }) }),
+    };
   if (kfDirty(k)) out.keyframes = { to: serialize(k.name, k.frames), ...(k.isNew ? {} : { from: k.orig }) };
   if (!u.isNew)
-    out.changes = ["duration", "delay", "easing", "count", "direction", "fill"].filter((p) => String(u.timing[p]) !== String(u.orig[p]))
-      .map((p) => ({ prop: p, from: p === "duration" || p === "delay" ? ms(u.orig[p]) : String(u.orig[p]), to: p === "duration" || p === "delay" ? ms(u.timing[p]) : String(u.timing[p]) }));
+    out.changes = ["duration", "delay", "easing", "count", "direction", "fill"]
+      .filter((p) => String(u.timing[p]) !== String(u.orig[p]))
+      .map((p) => ({
+        prop: p,
+        from: p === "duration" || p === "delay" ? ms(u.orig[p]) : String(u.orig[p]),
+        to: p === "duration" || p === "delay" ? ms(u.timing[p]) : String(u.timing[p]),
+      }));
   if (u.plays.how !== "asnow") out.starts = u.plays.how;
   return out;
 }
 export function submit(background) {
   if (S.pending) return;
-  const o = M.open, el = o && mq(o.rs), words = noteEl.value.trim();
+  const o = M.open,
+    el = o && mq(o.rs),
+    words = noteEl.value.trim();
   if (!o || !el) return flash("Open an animation first: click something that moves, or a row of the list");
   if (!openDirty() && !words) return flash("Nothing to send yet: change it, or say what it should do");
   const k = openKf();
-  if (k && serialize(k.name, k.frames).length > MAX_KF) return flash("Too long to send: the keyframes are over 4000 characters");
+  if (k && serialize(k.name, k.frames).length > MAX_KF)
+    return flash("Too long to send: the keyframes are over 4000 characters");
   letGo(); // the screenshot shows the element as it plays, not stopped at a frame
   const motion = payload();
   const target = describe(el);
@@ -73,7 +110,8 @@ export function submit(background) {
 /** The open animation's rules go into a sheet of their own, under the note's id; the draft
  *  keeps everything else. */
 function moveToSent(id) {
-  const u = openUse(), k = openKf();
+  const u = openUse(),
+    k = openKf();
   const out = [];
   if (kfDirty(k)) out.push(serialize(k.name, k.frames));
   const entry = { name: u.name, ...u.timing };
@@ -160,7 +198,11 @@ export function dropFinished() {
     changed = true;
     dropSent(b);
     const nm = b.n !== null ? `Note ${b.n}` : "Note";
-    M.done = !p ? `${nm} removed · preview removed` : p.status === "done" ? `${nm} done · preview removed` : `${nm} ${p.status} · preview removed`;
+    M.done = !p
+      ? `${nm} removed · preview removed`
+      : p.status === "done"
+        ? `${nm} done · preview removed`
+        : `${nm} ${p.status} · preview removed`;
     clearTimeout(M.doneTimer);
     M.doneTimer = setTimeout(() => {
       M.done = "";
@@ -174,7 +216,8 @@ export function dropFinished() {
   scan();
   if (M.on) {
     // what is open is read again, as the page plays it now
-    const o = M.open, el = o && mq(o.rs);
+    const o = M.open,
+      el = o && mq(o.rs);
     if (o && o.kind === "css" && el && !M.use.has(`${o.rs}|${o.name}`) && readList(el).some((e) => e.name === o.name)) {
       M.kf.delete(o.name);
       openCss(el, o.name);
@@ -194,8 +237,12 @@ export function draft() {
 export function restore(d) {
   if (!d || typeof d !== "object" || anyDirty()) return;
   try {
-    const kf = (Array.isArray(d.kf) ? d.kf : []).filter((e) => Array.isArray(e) && typeof e[0] === "string" && e[1] && Array.isArray(e[1].frames));
-    const use = (Array.isArray(d.use) ? d.use : []).filter((e) => Array.isArray(e) && typeof e[0] === "string" && e[1] && e[1].timing && Array.isArray(e[1].base));
+    const kf = (Array.isArray(d.kf) ? d.kf : []).filter(
+      (e) => Array.isArray(e) && typeof e[0] === "string" && e[1] && Array.isArray(e[1].frames),
+    );
+    const use = (Array.isArray(d.use) ? d.use : []).filter(
+      (e) => Array.isArray(e) && typeof e[0] === "string" && e[1] && e[1].timing && Array.isArray(e[1].base),
+    );
     M.kf = new Map(kf);
     M.use = new Map(use);
     if (noteEl && typeof d.note === "string" && !noteEl.value) noteEl.value = d.note;

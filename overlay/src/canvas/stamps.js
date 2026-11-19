@@ -20,7 +20,9 @@ function pathSel(el) {
       break;
     }
     let seg = CSS.escape(cur.localName);
-    const same = cur.parentElement ? [...cur.parentElement.children].filter((c) => c.tagName === cur.tagName && (c === cur || !ours.has(c))) : [];
+    const same = cur.parentElement
+      ? [...cur.parentElement.children].filter((c) => c.tagName === cur.tagName && (c === cur || !ours.has(c)))
+      : [];
     if (same.length > 1) seg += `:nth-of-type(${same.indexOf(cur) + 1})`;
     parts.unshift(seg);
   }
@@ -84,7 +86,8 @@ export const stableSel = (el) => (el.hasAttribute(STAMP) ? stampSel(el.getAttrib
 /** The same for an element that is being edited: it gets its stamp now. */
 export function stamp(el) {
   if (!el.hasAttribute(STAMP)) {
-    if (el === document.body || el === document.documentElement || (el.id && unique(`#${CSS.escape(el.id)}`))) return pathSel(el);
+    if (el === document.body || el === document.documentElement || (el.id && unique(`#${CSS.escape(el.id)}`)))
+      return pathSel(el);
     el.setAttribute(STAMP, freshStamp());
   }
   const rs = stampSel(el.getAttribute(STAMP));
@@ -109,7 +112,8 @@ export function elOf(rs) {
   }
   // (one in a copy that is out of the page with its batch comes back with it: in its place now is
   // the element the copy was made from, or the one after it)
-  if (el && C.copies.size) for (const node of C.copies.values()) if (!node.isConnected && node.contains(el)) return null;
+  if (el && C.copies.size)
+    for (const node of C.copies.values()) if (!node.isConnected && node.contains(el)) return null;
   el = q(rs);
   // (a copy is never found by where it was: in its place now may be the element it copies)
   if (!el && id && !C.copyRs.has(rs)) {
@@ -134,7 +138,8 @@ function readPaths() {
   let changed = false;
   for (const [rs, el] of C.found) {
     if (!stampOf(rs) || !el.isConnected) continue;
-    const path = placeOf(el), p = C.paths.get(rs);
+    const path = placeOf(el),
+      p = C.paths.get(rs);
     if (!path || (p && p.path === path)) continue;
     C.paths.set(rs, { path, tag: el.localName });
     changed = true;
@@ -162,7 +167,9 @@ export function meta(el) {
   const c = component(el);
   if (c) m.component = line(c.name);
   const cls = el.getAttribute("class");
-  const n = el.parentElement ? kids(el.parentElement).filter((k) => k.tagName === el.tagName && k.getAttribute("class") === cls).length : 1;
+  const n = el.parentElement
+    ? kids(el.parentElement).filter((k) => k.tagName === el.tagName && k.getAttribute("class") === cls).length
+    : 1;
   if (n > 1) m.repeated = n;
   C.found.set(m.rs, el);
   return m;
@@ -170,6 +177,9 @@ export function meta(el) {
 
 export function entry(el) {
   const els = C.draft.B.els;
-  return (el.hasAttribute(STAMP) && els[stampSel(el.getAttribute(STAMP))]) || els[stamp(el)] || (els[stamp(el)] = { ...meta(el), css: "" });
+  return (
+    (el.hasAttribute(STAMP) && els[stampSel(el.getAttribute(STAMP))]) ||
+    els[stamp(el)] ||
+    (els[stamp(el)] = { ...meta(el), css: "" })
+  );
 }
-

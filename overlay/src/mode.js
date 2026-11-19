@@ -43,7 +43,8 @@ export function setBrush(on) {
 /** The host has the mode switch and the brush: it is told whenever either changes here (a key,
  *  Esc, a note sent, a reload that comes back in edit mode). */
 export function tellMode() {
-  const mode = modeOn(), key = `${mode}|${S.brush}`;
+  const mode = modeOn(),
+    key = `${mode}|${S.brush}`;
   if (modeTold === undefined || key === modeTold) return; // nothing before the host's first "state"
   modeTold = key;
   send({ type: "mode", mode, brush: !!S.brush });

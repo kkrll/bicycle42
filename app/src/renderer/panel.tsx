@@ -1,7 +1,19 @@
 // The right panel: what is wrong with the connection, the notes list, a divider, the
 // conversation. Before the site has a code folder, the folder picker takes the whole panel; before
 // there is a site, the panel shows how far setup has come.
-import { For, Match, Show, Switch, createEffect, createMemo, createResource, createSelector, createSignal, on, onCleanup } from "solid-js"
+import {
+  For,
+  Match,
+  Show,
+  Switch,
+  createEffect,
+  createMemo,
+  createResource,
+  createSelector,
+  createSignal,
+  on,
+  onCleanup,
+} from "solid-js"
 import type { NoteRow } from "../shared/types"
 import { Chat } from "./chat"
 import { ServerButton, SetupSteps, serverLabel } from "./connect"
@@ -55,7 +67,9 @@ export const countNotes = tallyNotes
 
 /** "1 failed", "2 working", … for every state that has notes, most urgent first. */
 export function countWords(c: Counts): string[] {
-  return (["failed", "working", "paused", "waiting", "stopped", "done"] as const).filter((k) => c[k]).map((k) => `${c[k]} ${k}`)
+  return (["failed", "working", "paused", "waiting", "stopped", "done"] as const)
+    .filter((k) => c[k])
+    .map((k) => `${c[k]} ${k}`)
 }
 
 /** The same in one short phrase, for tight spots: "1 failed · 8 left", or "all done". Nothing is
@@ -85,7 +99,13 @@ const GROUPS: Array<{ key: Group; name: string }> = [
   { key: "done", name: "Done" },
 ]
 export const groupOf = (note: NoteRow): Group =>
-  note.takenBack || note.status === "done" ? "done" : note.status === "failed" ? "needs" : note.status === "queued" ? "waiting" : "working"
+  note.takenBack || note.status === "done"
+    ? "done"
+    : note.status === "failed"
+      ? "needs"
+      : note.status === "queued"
+        ? "waiting"
+        : "working"
 
 /** Rows the list shows before it scrolls, unless the reviewer drags the divider. */
 const ROW = 32
@@ -124,7 +144,14 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
   onCleanup(() => observer.disconnect())
   createEffect(
     on(
-      () => [state.review.notes.length, props.listHeight, props.open, state.review.notes.filter((n) => n.status === "failed").length, doneOpen(), GROUPS.map((g) => grouped()[g.key].length).join()],
+      () => [
+        state.review.notes.length,
+        props.listHeight,
+        props.open,
+        state.review.notes.filter((n) => n.status === "failed").length,
+        doneOpen(),
+        GROUPS.map((g) => grouped()[g.key].length).join(),
+      ],
       () => requestAnimationFrame(measure),
     ),
   )
@@ -208,7 +235,9 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
     })
   })
   const lostLabel = () =>
-    state.review.unplaced === 1 ? "1 pin can't find its element" : `${state.review.unplaced} pins can't find their element`
+    state.review.unplaced === 1
+      ? "1 pin can't find its element"
+      : `${state.review.unplaced} pins can't find their element`
 
   return (
     <section class="notes" aria-label="Notes" hidden={props.hidden}>
@@ -240,7 +269,13 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
           </span>
         </button>
         <Show when={state.review.unplaced > 0}>
-          <button class="lost-btn" aria-expanded={why()} title={lostLabel()} aria-label={lostLabel()} onClick={() => setWhy(!why())}>
+          <button
+            class="lost-btn"
+            aria-expanded={why()}
+            title={lostLabel()}
+            aria-label={lostLabel()}
+            onClick={() => setWhy(!why())}
+          >
             <Icon name="alert" />
             {state.review.unplaced}
           </button>
@@ -287,7 +322,11 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
                         </span>
                       }
                     >
-                      <button class="note-group-name" aria-expanded={doneOpen()} onClick={() => setDoneOpen(!doneOpen())}>
+                      <button
+                        class="note-group-name"
+                        aria-expanded={doneOpen()}
+                        onClick={() => setDoneOpen(!doneOpen())}
+                      >
                         <Icon name="right" class="caret" />
                         {g.name} · {grouped()[g.key].length}
                       </button>
@@ -296,81 +335,85 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
                   <Show when={g.key !== "done" || doneOpen()}>
                     <For each={grouped()[g.key]}>
                       {(note) => {
-                const shown = () => shownStatus(note)
-                onCleanup(() => rows.delete(note.id))
-                return (
-                  <li
-                    class="note"
-                    data-group={g.key}
-                    ref={(el) => rows.set(note.id, el)}
-                    aria-current={focused(note.id) ? "true" : undefined}
-                  >
-                    <div class="note-line">
-                      <button
-                        class="note-main"
-                        title={noteTitle(note)}
-                        onClick={() => {
-                          act("showNote", note.id)
-                          setOpenedNote(note.id)
-                        }}
-                      >
-                        <span
-                          class="badge"
-                          data-status={note.takenBack ? "stopped" : shown()}
-                          data-lane={note.lane}
-                          title={note.lane === "bg" ? "Runs in parallel with the main queue" : undefined}
-                        >
-                          {note.n}
-                        </span>
-                        <span class="note-text">{note.text}</span>
-                        <Show when={note.motion}>
-                          <span class="note-lost" title="Motion note: one animation, changed on the page">
-                            <Icon name="motion" />
-                          </span>
-                        </Show>
-                        <Show when={!note.motion && note.edits}>
-                          {(edits) => (
-                            <span class="note-lost" title={`Canvas note: ${editCount(edits().length)} made on the page`}>
-                              <Icon name="mode" />
-                            </span>
-                          )}
-                        </Show>
-                        <Show when={note.lost}>
-                          <span class="note-lost" title="Its pin can't find its element on the page">
-                            <Icon name="alert" />
-                          </span>
-                        </Show>
-                        {/* The group says waiting, working and done; a word is kept for what says more. */}
-                        <Show when={note.takenBack || !["queued", "working", "done"].includes(shown())}>
-                          <span class="note-status" data-status={shown()}>
-                            {noteWord(note)}
-                          </span>
-                        </Show>
-                      </button>
-                      {/* A failed note's two ways out sit in its own row, not behind a hover. */}
-                      <Show when={note.status === "failed"}>
-                        <button class="text-btn" onClick={() => act("retryNote", note.id)}>
-                          Retry
-                        </button>
-                        <button
-                          class="icon-btn small"
-                          aria-label={`Remove note ${note.n}`}
-                          title="Remove note"
-                          onClick={() => act("removeNote", note.id)}
-                        >
-                          <Icon name="close" />
-                        </button>
-                      </Show>
-                    </div>
-                    <Show when={note.status === "failed"}>
-                      <p class="note-error" classList={{ quiet: shown() === "stopped" }} title={note.error}>
-                        {note.error || (shown() === "stopped" ? "Stopped before it finished." : "Could not be sent.")}
-                      </p>
-                    </Show>
-                  </li>
-                )
-              }}
-            </For>
+                        const shown = () => shownStatus(note)
+                        onCleanup(() => rows.delete(note.id))
+                        return (
+                          <li
+                            class="note"
+                            data-group={g.key}
+                            ref={(el) => rows.set(note.id, el)}
+                            aria-current={focused(note.id) ? "true" : undefined}
+                          >
+                            <div class="note-line">
+                              <button
+                                class="note-main"
+                                title={noteTitle(note)}
+                                onClick={() => {
+                                  act("showNote", note.id)
+                                  setOpenedNote(note.id)
+                                }}
+                              >
+                                <span
+                                  class="badge"
+                                  data-status={note.takenBack ? "stopped" : shown()}
+                                  data-lane={note.lane}
+                                  title={note.lane === "bg" ? "Runs in parallel with the main queue" : undefined}
+                                >
+                                  {note.n}
+                                </span>
+                                <span class="note-text">{note.text}</span>
+                                <Show when={note.motion}>
+                                  <span class="note-lost" title="Motion note: one animation, changed on the page">
+                                    <Icon name="motion" />
+                                  </span>
+                                </Show>
+                                <Show when={!note.motion && note.edits}>
+                                  {(edits) => (
+                                    <span
+                                      class="note-lost"
+                                      title={`Canvas note: ${editCount(edits().length)} made on the page`}
+                                    >
+                                      <Icon name="mode" />
+                                    </span>
+                                  )}
+                                </Show>
+                                <Show when={note.lost}>
+                                  <span class="note-lost" title="Its pin can't find its element on the page">
+                                    <Icon name="alert" />
+                                  </span>
+                                </Show>
+                                {/* The group says waiting, working and done; a word is kept for what says more. */}
+                                <Show when={note.takenBack || !["queued", "working", "done"].includes(shown())}>
+                                  <span class="note-status" data-status={shown()}>
+                                    {noteWord(note)}
+                                  </span>
+                                </Show>
+                              </button>
+                              {/* A failed note's two ways out sit in its own row, not behind a hover. */}
+                              <Show when={note.status === "failed"}>
+                                <button class="text-btn" onClick={() => act("retryNote", note.id)}>
+                                  Retry
+                                </button>
+                                <button
+                                  class="icon-btn small"
+                                  aria-label={`Remove note ${note.n}`}
+                                  title="Remove note"
+                                  onClick={() => act("removeNote", note.id)}
+                                >
+                                  <Icon name="close" />
+                                </button>
+                              </Show>
+                            </div>
+                            <Show when={note.status === "failed"}>
+                              <p class="note-error" classList={{ quiet: shown() === "stopped" }} title={note.error}>
+                                {note.error ||
+                                  (shown() === "stopped" ? "Stopped before it finished." : "Could not be sent.")}
+                              </p>
+                            </Show>
+                          </li>
+                        )
+                      }}
+                    </For>
                   </Show>
                 </Show>
               )}
@@ -448,7 +491,12 @@ export function RepoScreen() {
 
 /** `open` is what choosing a folder does; without it, the folder becomes the one the site on
  *  screen works in (`setDirectory`). With `onCancel` it is not a first-run step: no step line. */
-export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void; open?: (directory: string) => Promise<unknown>; browse?: boolean }) {
+export function FolderPicker(props: {
+  onCancel?: () => void
+  onDone?: () => void
+  open?: (directory: string) => Promise<unknown>
+  browse?: boolean
+}) {
   const [recent, { refetch: reloadRecent }] = createResource(() => b42.invoke("projects"))
   // Reading a failed resource throws; the error has its own branch below.
   const recentList = () => (recent.error ? undefined : recent())
@@ -471,7 +519,10 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
   }
   const crumbs = () => {
     const parts = (path() ?? "").split("/").filter(Boolean)
-    return [{ name: "/", path: "/" }, ...parts.map((name, i) => ({ name, path: "/" + parts.slice(0, i + 1).join("/") }))]
+    return [
+      { name: "/", path: "/" },
+      ...parts.map((name, i) => ({ name, path: "/" + parts.slice(0, i + 1).join("/") })),
+    ]
   }
 
   return (
@@ -491,8 +542,8 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
             when={!props.open && state.site?.origin}
             fallback={<>Pick the folder on your server that holds the site's code. The agent works there.</>}
           >
-            Pick the folder on your server that holds the code of <strong>{host(state.site?.origin ?? "")}</strong>.
-            The agent works there.
+            Pick the folder on your server that holds the code of <strong>{host(state.site?.origin ?? "")}</strong>. The
+            agent works there.
           </Show>
         </p>
       </div>
@@ -554,7 +605,11 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
         <nav class="crumbs" aria-label="Folder path">
           <For each={crumbs()}>
             {(c, i) => (
-              <button class="crumb" aria-current={i() === crumbs().length - 1 ? "location" : undefined} onClick={() => setPath(c.path)}>
+              <button
+                class="crumb"
+                aria-current={i() === crumbs().length - 1 ? "location" : undefined}
+                onClick={() => setPath(c.path)}
+              >
                 {c.name}
               </button>
             )}
@@ -692,7 +747,13 @@ function Place(props: { openSettings: () => void }) {
     <div class="place">
       <ServerButton onClick={props.openSettings} />
       <span class="place-server">{server()}</span>
-      <Show when={state.site?.directory}>{(dir) => <span class="place-folder" title={dir()}>{tail(dir())}</span>}</Show>
+      <Show when={state.site?.directory}>
+        {(dir) => (
+          <span class="place-folder" title={dir()}>
+            {tail(dir())}
+          </span>
+        )}
+      </Show>
     </div>
   )
 }

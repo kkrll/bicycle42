@@ -26,7 +26,10 @@ export type Outbox = {
   idle(): Promise<void>
 }
 
-export function createOutbox(dir: string, log: (level: "warn", msg: string, data?: unknown) => void = () => undefined): Outbox {
+export function createOutbox(
+  dir: string,
+  log: (level: "warn", msg: string, data?: unknown) => void = () => undefined,
+): Outbox {
   const folder = path.join(dir, "outbox")
   const file = (id: string) => path.join(folder, `${crypto.createHash("sha1").update(id).digest("hex")}.json`)
   const queue = createQueue()

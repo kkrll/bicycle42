@@ -19,23 +19,70 @@ import { hostEl, root } from "../mount.js";
 //
 // The files of motion/ share one scope. This one holds the constants, the state M, and the model:
 // elements of the page, keyframes as text, how an element plays them, applying, what moves here.
-export const EASINGS = ["linear", "ease", "ease-in", "ease-out", "ease-in-out", "cubic-bezier(0.2, 0.8, 0.2, 1)", "cubic-bezier(0.34, 1.56, 0.64, 1)", "steps(4, end)"];
-export const PROPS = ["opacity", "transform", "translate", "scale", "rotate", "background-color", "color", "border-color", "box-shadow", "filter", "backdrop-filter", "clip-path",
-  "width", "height", "max-height", "top", "left", "border-radius", "letter-spacing", "background-position", "stroke-dashoffset"];
+export const EASINGS = [
+  "linear",
+  "ease",
+  "ease-in",
+  "ease-out",
+  "ease-in-out",
+  "cubic-bezier(0.2, 0.8, 0.2, 1)",
+  "cubic-bezier(0.34, 1.56, 0.64, 1)",
+  "steps(4, end)",
+];
+export const PROPS = [
+  "opacity",
+  "transform",
+  "translate",
+  "scale",
+  "rotate",
+  "background-color",
+  "color",
+  "border-color",
+  "box-shadow",
+  "filter",
+  "backdrop-filter",
+  "clip-path",
+  "width",
+  "height",
+  "max-height",
+  "top",
+  "left",
+  "border-radius",
+  "letter-spacing",
+  "background-position",
+  "stroke-dashoffset",
+];
 // What starts it: the agent wires this up in code; here it plays when Play is pressed.
-export const HOW = { asnow: "As now", load: "On load", view: "In view", hover: "On hover", click: "On click", appear: "On appear", scroll: "On scroll" };
+export const HOW = {
+  asnow: "As now",
+  load: "On load",
+  view: "In view",
+  hover: "On hover",
+  click: "On click",
+  appear: "On appear",
+  scroll: "On scroll",
+};
 // The choices for how it plays, as [label, what it means]; the key is the CSS value.
 export const COUNT = { 1: ["Once"], 2: ["2×"], 3: ["3×"], infinite: ["Forever"] };
-export const DIRECTION = { normal: ["Forward"], reverse: ["Backward", "From the last keyframe to the first"], alternate: ["Alternate", "Forward, then backward, and so on"],
-  "alternate-reverse": ["Alt. reverse", "Backward, then forward, and so on"] };
-export const FILL = { none: ["None", "Before it starts and after it ends, the element looks as it does without it"], forwards: ["Hold end", "After it ends, it stays on the last keyframe"],
-  backwards: ["Hold start", "During the delay, it waits on the first keyframe"], both: ["Hold both", "Waits on the first keyframe, stays on the last"] };
+export const DIRECTION = {
+  normal: ["Forward"],
+  reverse: ["Backward", "From the last keyframe to the first"],
+  alternate: ["Alternate", "Forward, then backward, and so on"],
+  "alternate-reverse": ["Alt. reverse", "Backward, then forward, and so on"],
+};
+export const FILL = {
+  none: ["None", "Before it starts and after it ends, the element looks as it does without it"],
+  forwards: ["Hold end", "After it ends, it stays on the last keyframe"],
+  backwards: ["Hold start", "During the delay, it waits on the first keyframe"],
+  both: ["Hold both", "Waits on the first keyframe, stays on the last"],
+};
 export const RATES = [1, 0.5, 0.25, 0.1];
 export const RATE_TEXT = { 1: "1×", 0.5: "½×", 0.25: "¼×", 0.1: "⅒×" };
 export const MAJOR = [50, 100, 200, 250, 500, 1000, 2000, 5000];
 export const DOCK_H = 360;
 export const MAX_KF = 4000; // the keyframes' text, as the host takes it
-export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+export const esc = (s) =>
+  String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 export const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
 export const r1 = (n) => Math.round(n * 10) / 10;
 export const ms = (n) => `${Math.round(n)}ms`;
@@ -51,8 +98,10 @@ const MI = {
   trash: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.5 8.5h6l.5-8.5"/>',
   link: '<path d="M7 9a2.5 2.5 0 0 0 3.5 0l2-2A2.5 2.5 0 0 0 9 3.5l-.5.5"/><path d="M9 7a2.5 2.5 0 0 0-3.5 0l-2 2A2.5 2.5 0 0 0 7 12.5l.5-.5"/>',
 };
-export const mi = (name, size = 16) => (ICONS[name] ? icon(name, size)
-  : `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${MI[name]}</svg>`);
+export const mi = (name, size = 16) =>
+  ICONS[name]
+    ? icon(name, size)
+    : `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${MI[name]}</svg>`;
 // What kind of motion a row is (24 grid, drawn at 16): a keyframe animation is a ball leaving
 // echoes; a transition goes from one state to another; a script's ball is in braces; frame by
 // frame is three discrete steps; keyframes nothing plays are the ball as an outline.
@@ -67,12 +116,21 @@ const KIND = {
   script: `<path d="M6 5.5c-1.7 0-2.5.8-2.5 2.5v1.5c0 1.3-.7 2.5-2 2.5 1.3 0 2 1.2 2 2.5V16c0 1.7.8 2.5 2.5 2.5M18 5.5c1.7 0 2.5.8 2.5 2.5v1.5c0 1.3.7 2.5 2 2.5-1.3 0-2 1.2-2 2.5V16c0 1.7-.8 2.5-2.5 2.5" stroke="${K}" stroke-linecap="round"/><circle cx="12" cy="12" r="4" fill="${K}"/>`,
   frames: `<circle cx="4.5" cy="12" r="3" stroke="${K}"/><circle cx="12" cy="12" r="3" stroke="${K}"/><circle cx="19.5" cy="12" r="3" fill="${K}" stroke="${K}"/>`,
 };
-export const KIND_TITLE = { css: "Keyframes", unused: "Keyframes nothing plays", transition: "Transition", script: "Script (animate())", frames: "Moved by a script, frame by frame" };
-export const kindIcon = (kind) => `<svg class="m-kind" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">${KIND[kind] || KIND.css}</svg>`;
+export const KIND_TITLE = {
+  css: "Keyframes",
+  unused: "Keyframes nothing plays",
+  transition: "Transition",
+  script: "Script (animate())",
+  frames: "Moved by a script, frame by frame",
+};
+export const kindIcon = (kind) =>
+  `<svg class="m-kind" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">${KIND[kind] || KIND.css}</svg>`;
 
 export const M = {
   on: false,
-  sel: null, selRs: "", hover: null,
+  sel: null,
+  selRs: "",
+  hover: null,
   kf: new Map(), // name → { name, frames: [{ at, ease, vals: { prop: value } }], orig, isNew }
   use: new Map(), // "selector|name" → { rs, name, timing, orig, plays: { how, words }, base, index, isNew, from? }
   open: null, // what is open: { kind: "css" | "script" | "transition", rs, name }
@@ -80,8 +138,14 @@ export const M = {
   key: null, // the selected keyframe: { at, prop } (prop null: the whole keyframe)
   lanes: [], // the properties, in the order their lanes were first drawn
   T: 0, // the open animation's duration in ms (at least 1), as the timeline was last drawn: the playhead's time
-  isolate: false, rate: 1, loop: false, loopAt: 0, pos: 0,
-  past: [], future: [], snap: "",
+  isolate: false,
+  rate: 1,
+  loop: false,
+  loopAt: 0,
+  pos: 0,
+  past: [],
+  future: [],
+  snap: "",
   held: null, // the page's Animation object for what is open
   scan: { anims: [], unused: [], transitions: [], scripts: [], rules: new Map() },
   suspects: new Set(), // elements whose inline style changes many times a second
@@ -93,8 +157,14 @@ export const M = {
   unsent: null, // what the animation being sent was, until the host takes it
   view: "keys", // the timeline, or the keyframes as text
   rowEls: null, // the elements of the list row under the pointer
-  drag: null, last: null, findUntil: 0, obs: null,
-  msg: "", msgTimer: 0, done: "", doneTimer: 0,
+  drag: null,
+  last: null,
+  findUntil: 0,
+  obs: null,
+  msg: "",
+  msgTimer: 0,
+  done: "",
+  doneTimer: 0,
 };
 
 // ── elements of the page ─────────────────────────────────────────────────────────────────
@@ -136,7 +206,8 @@ export const name = (el, short = false) => {
 };
 export const splitTop = (s, sep = ",") => {
   const out = [];
-  let depth = 0, start = 0;
+  let depth = 0,
+    start = 0;
   for (let i = 0; i < s.length; i++) {
     if (s[i] === "(") depth++;
     else if (s[i] === ")") depth--;
@@ -157,9 +228,11 @@ export function parseKf(text) {
   const m = /@keyframes\s+([^\s{]+)\s*\{/.exec(t);
   if (!m) return { error: "No @keyframes rule" };
   const at = new Map();
-  let i = m.index + m[0].length, closed = false;
+  let i = m.index + m[0].length,
+    closed = false;
   while (i < t.length) {
-    const open = t.indexOf("{", i), close = t.indexOf("}", i);
+    const open = t.indexOf("{", i),
+      close = t.indexOf("}", i);
     if (close >= 0 && (open < 0 || close < open)) {
       closed = true;
       break;
@@ -167,14 +240,20 @@ export function parseKf(text) {
     if (open < 0) break;
     const end = t.indexOf("}", open);
     if (end < 0) return { error: "A brace is open" };
-    const offsets = t.slice(i, open).split(",").map((s) => s.trim()).map((s) => (s === "from" ? 0 : s === "to" ? 100 : /^\d*\.?\d+%$/.test(s) ? parseFloat(s) : NaN));
-    if (!offsets.length || offsets.some((o) => !(o >= 0 && o <= 100))) return { error: `“${t.slice(i, open).trim().slice(0, 24)}” is not a keyframe` };
+    const offsets = t
+      .slice(i, open)
+      .split(",")
+      .map((s) => s.trim())
+      .map((s) => (s === "from" ? 0 : s === "to" ? 100 : /^\d*\.?\d+%$/.test(s) ? parseFloat(s) : NaN));
+    if (!offsets.length || offsets.some((o) => !(o >= 0 && o <= 100)))
+      return { error: `“${t.slice(i, open).trim().slice(0, 24)}” is not a keyframe` };
     for (const o of offsets) {
       const f = at.get(o) || at.set(o, { at: o, ease: "", vals: {} }).get(o);
       for (const d of splitTop(t.slice(open + 1, end), ";")) {
         const c = d.indexOf(":");
         if (c < 1) return { error: `“${d.slice(0, 24)}” is not a declaration` };
-        const prop = d.slice(0, c).trim().toLowerCase(), value = d.slice(c + 1).trim();
+        const prop = d.slice(0, c).trim().toLowerCase(),
+          value = d.slice(c + 1).trim();
         if (prop === "animation-timing-function") f.ease = value;
         else if (value) f.vals[prop] = value;
       }
@@ -197,7 +276,8 @@ export function fromApi(list) {
   const kebab = (s) => (s === "cssFloat" ? "float" : s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`));
   return list.map((k) => {
     const vals = {};
-    for (const p in k) if (!["offset", "computedOffset", "easing", "composite"].includes(p)) vals[kebab(p)] = String(k[p]);
+    for (const p in k)
+      if (!["offset", "computedOffset", "easing", "composite"].includes(p)) vals[kebab(p)] = String(k[p]);
     return { at: r1(k.computedOffset * 100), ease: k.easing && k.easing !== "linear" ? k.easing : "", vals };
   });
 }
@@ -220,7 +300,9 @@ function curvePoints(easing, w, h, pad) {
     const pts = [];
     for (let i = 0; i <= 30; i++) {
       a.currentTime = (i / 30) * 99.999;
-      pts.push(`${(pad + (i / 30) * (w - 2 * pad)).toFixed(1)},${(h - pad - (fx.getComputedTiming().progress || 0) * (h - 2 * pad)).toFixed(1)}`);
+      pts.push(
+        `${(pad + (i / 30) * (w - 2 * pad)).toFixed(1)},${(h - pad - (fx.getComputedTiming().progress || 0) * (h - 2 * pad)).toFixed(1)}`,
+      );
     }
     a.cancel();
     return pts.join(" ");
@@ -228,7 +310,8 @@ function curvePoints(easing, w, h, pad) {
     return "";
   }
 }
-export const curve = (easing) => `<svg class="m-cv" viewBox="0 0 28 28" aria-hidden="true"><polyline points="${curvePoints(easing, 28, 28, 6)}" fill="none" stroke="#fffaa0" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+export const curve = (easing) =>
+  `<svg class="m-cv" viewBox="0 0 28 28" aria-hidden="true"><polyline points="${curvePoints(easing, 28, 28, 6)}" fill="none" stroke="#fffaa0" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
 
 // ── how an element plays its animations ──────────────────────────────────────────────────
 export function readList(el) {
@@ -236,11 +319,22 @@ export function readList(el) {
   const names = splitTop(cs.animationName);
   if (names.length === 1 && names[0] === "none") return [];
   const col = (p) => splitTop(cs.getPropertyValue(p));
-  const dur = col("animation-duration"), del = col("animation-delay"), ease = col("animation-timing-function"), n = col("animation-iteration-count"),
-    dir = col("animation-direction"), fill = col("animation-fill-mode");
+  const dur = col("animation-duration"),
+    del = col("animation-delay"),
+    ease = col("animation-timing-function"),
+    n = col("animation-iteration-count"),
+    dir = col("animation-direction"),
+    fill = col("animation-fill-mode");
   const at = (list, i) => list[i % list.length];
-  return names.map((nm, i) => ({ name: nm, duration: Math.round(parseFloat(at(dur, i)) * 1000) || 0, delay: Math.round(parseFloat(at(del, i)) * 1000) || 0,
-    easing: at(ease, i), count: at(n, i), direction: at(dir, i), fill: at(fill, i) }));
+  return names.map((nm, i) => ({
+    name: nm,
+    duration: Math.round(parseFloat(at(dur, i)) * 1000) || 0,
+    delay: Math.round(parseFloat(at(del, i)) * 1000) || 0,
+    easing: at(ease, i),
+    count: at(n, i),
+    direction: at(dir, i),
+    fill: at(fill, i),
+  }));
 }
 export const kfDirty = (k) => !!k && (k.isNew || serialize(k.name, k.frames) !== k.orig);
 export const useDirty = (u) => !!u && (u.isNew || !!u.from || JSON.stringify(u.timing) !== JSON.stringify(u.orig));
@@ -250,7 +344,8 @@ export const openUse = () => (M.open && M.open.kind === "css" ? M.use.get(`${M.o
 export const frames = () => (openKf() ? openKf().frames : M.ro ? M.ro.frames : []);
 export const readOnly = () => !!M.open && M.open.kind !== "css";
 /** Anything unsent: an edit, or how it starts. */
-export const anyDirty = () => [...M.kf.values()].some(kfDirty) || [...M.use.values()].some((u) => useDirty(u) || playsDirty(u));
+export const anyDirty = () =>
+  [...M.kf.values()].some(kfDirty) || [...M.use.values()].some((u) => useDirty(u) || playsDirty(u));
 /** The open animation has something to send. */
 export const openDirty = () => {
   const u = openUse();
@@ -274,7 +369,11 @@ function rulesText() {
     out.push(`${rs}${BOOST} { animation: ${entries.filter(Boolean).map(entryCss).join(", ")}; }`);
   }
   if (M.on && M.ro && M.ro.on && M.ro.state) out.push(`${M.open.rs}${BOOST} { ${M.ro.state.css} }`);
-  if (M.on && M.isolate && M.selRs) out.push(`body *:not(${M.selRs}, ${M.selRs} *) { visibility: hidden !important; }`, `${M.selRs} { visibility: visible !important; }`);
+  if (M.on && M.isolate && M.selRs)
+    out.push(
+      `body *:not(${M.selRs}, ${M.selRs} *) { visibility: hidden !important; }`,
+      `${M.selRs} { visibility: visible !important; }`,
+    );
   return out.join("\n");
 }
 export function apply() {
@@ -308,14 +407,17 @@ export function scan() {
     } catch {} // another origin's stylesheet: its animations are still read, through the API
   }
   for (const b of M.sent) walk(b.sheet.cssRules); // what was sent is what the page plays now
-  const anims = new Map(), transitions = [];
+  const anims = new Map(),
+    transitions = [];
   const all = document.body ? document.body.getElementsByTagName("*") : [];
   for (let i = 0; i < all.length && i < 4000; i++) {
     const el = all[i];
     if (el === hostEl || SKIP.test(el.tagName)) continue;
     const cs = getComputedStyle(el);
-    if (cs.animationName !== "none") for (const nm of splitTop(cs.animationName)) (anims.get(nm) || anims.set(nm, []).get(nm)).push(el);
-    if (cs.transitionProperty !== "none" && splitTop(cs.transitionDuration).some((d) => parseFloat(d) > 0)) transitions.push(el);
+    if (cs.animationName !== "none")
+      for (const nm of splitTop(cs.animationName)) (anims.get(nm) || anims.set(nm, []).get(nm)).push(el);
+    if (cs.transitionProperty !== "none" && splitTop(cs.transitionDuration).some((d) => parseFloat(d) > 0))
+      transitions.push(el);
   }
   const live = /** @type {any[]} */ (document.getAnimations());
   const running = new Set(live.filter((a) => a.playState === "running" && a.animationName).map((a) => a.animationName));
@@ -324,6 +426,13 @@ export function scan() {
     anims: [...anims].map(([nm, els]) => ({ name: nm, els, running: running.has(nm) })),
     unused: [...rules.keys()].filter((n) => !anims.has(n)),
     transitions,
-    scripts: live.filter((a) => !(a instanceof CSSAnimation) && !(a instanceof CSSTransition) && a.effect && a.effect.target && a.effect.target.getRootNode() !== root),
+    scripts: live.filter(
+      (a) =>
+        !(a instanceof CSSAnimation) &&
+        !(a instanceof CSSTransition) &&
+        a.effect &&
+        a.effect.target &&
+        a.effect.target.getRootNode() !== root,
+    ),
   };
 }

@@ -34,5 +34,8 @@
     "vite": "^7.0.0",
     "vite-plugin-solid": "^2.11.0"
   },
-  "trustedDependencies": ["electron", "esbuild"]
+  "trustedDependencies": [
+    "electron",
+    "esbuild"
+  ]
 }

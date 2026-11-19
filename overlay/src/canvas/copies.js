@@ -47,7 +47,8 @@ export function syncCopies() {
       // (Ids are the source's: two of one would make #id name both, and its edits land on the
       // copy too. Radios keep a group of their own, or a checked one unchecks the source's.)
       for (const x of [node, ...node.querySelectorAll("[id]")]) x.removeAttribute("id");
-      for (const x of node.querySelectorAll("input[type=radio][name]")) x.setAttribute("name", `${x.getAttribute("name")}~${id}`);
+      for (const x of node.querySelectorAll("input[type=radio][name]"))
+        x.setAttribute("name", `${x.getAttribute("name")}~${id}`);
       node.removeAttribute("contenteditable");
       node.setAttribute(STAMP, id);
       C.copies.set(rs, node);
@@ -64,7 +65,8 @@ export function syncCopies() {
 
 /** The copy an element is, or is inside: its stamp, or "". */
 export function copyAround(el) {
-  let best = "", depth = Infinity;
+  let best = "",
+    depth = Infinity;
   for (const [rs, node] of C.copies) {
     if (!node.isConnected || !node.contains(el)) continue;
     let d = 0;
@@ -78,7 +80,8 @@ export function copyAround(el) {
 export function duplicateSel() {
   const src = C.sel;
   if (!src) return;
-  if (src === document.body || !src.parentElement || src.parentElement === document.documentElement) return flash("This element can't be duplicated");
+  if (src === document.body || !src.parentElement || src.parentElement === document.documentElement)
+    return flash("This element can't be duplicated");
   const op = { kind: "duplicate", ...meta(src), copy: stampSel(freshStamp()) };
   C.draft.B.ops.push(op);
   commit(); // (applyAll makes the copy)
@@ -91,7 +94,8 @@ export function duplicateSel() {
  *  goes with its note: left in, such an edit would be found again by a place that is no more.
  *  How many edits went. */
 export function dropInside(rss) {
-  const B = C.draft.B, gone = new Set(rss);
+  const B = C.draft.B,
+    gone = new Set(rss);
   const nodes = () => [...gone].map((r) => C.copies.get(r)).filter(Boolean);
   const inside = (x) => {
     if (!x) return false;
@@ -99,7 +103,7 @@ export function dropInside(rss) {
     const el = elOf(x) || C.found.get(x); // (in a copy that is out with its batch: still in it)
     return !!el && nodes().some((n) => n.contains(el));
   };
-  for (let more = true; more; ) {
+  for (let more = true; more;) {
     more = false;
     for (const o of B.ops)
       if (o.kind === "duplicate" && !gone.has(o.copy) && inside(o.rs)) {
@@ -108,7 +112,9 @@ export function dropInside(rss) {
       }
   }
   const n0 = B.ops.length + Object.keys(B.els).length;
-  B.ops = B.ops.filter((o) => !(o.kind === "duplicate" && gone.has(o.copy)) && !inside(o.rs) && !inside(o.parent && o.parent.rs));
+  B.ops = B.ops.filter(
+    (o) => !(o.kind === "duplicate" && gone.has(o.copy)) && !inside(o.rs) && !inside(o.parent && o.parent.rs),
+  );
   for (const k in B.els) if (inside(k)) delete B.els[k];
   if (C.sel && nodes().some((n) => n.contains(C.sel))) select(null);
   return n0 - B.ops.length - Object.keys(B.els).length;

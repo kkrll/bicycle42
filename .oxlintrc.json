@@ -1,0 +1,75 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import", "promise", "node"],
+  "jsPlugins": ["eslint-plugin-solid"],
+  "categories": { "correctness": "error", "suspicious": "warn" },
+  "options": { "typeAware": true, "reportUnusedDisableDirectives": "error" },
+  "ignorePatterns": ["**/node_modules/**", "**/dist/**", "**/release/**", "**/shots/**", "overlay/overlay.js"],
+  "rules": {
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+    "eslint/no-underscore-dangle": "off",
+    "eslint/no-shadow": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/no-array-sort": "off",
+    "unicorn/no-array-reverse": "off",
+    "typescript/no-unnecessary-boolean-literal-compare": "off"
+  },
+  "overrides": [
+    {
+      "files": ["app/src/main/**"],
+      "rules": {
+        "eslint/no-restricted-properties": [
+          "error",
+          {
+            "property": "debugger",
+            "message": "The page has no debugger: the overlay goes in as page-preload.ts and talks to main over IPC (.agents/guides/main-process.md)."
+          },
+          {
+            "property": "executeJavaScript",
+            "message": "Scripts run in the page from app/src/main/page.ts only (.agents/guides/main-process.md)."
+          }
+        ]
+      }
+    },
+    {
+      "files": ["app/src/main/page.ts"],
+      "rules": { "eslint/no-restricted-properties": "off" }
+    },
+    {
+      "files": ["app/src/renderer/**"],
+      "rules": {
+        "solid/reactivity": "error",
+        "solid/no-destructure": "error",
+        "solid/components-return-once": "error",
+        "solid/prefer-for": "error",
+        "solid/jsx-no-undef": "error",
+        "solid/no-react-specific-props": "error",
+        "solid/no-innerhtml": "error",
+        "eslint/no-unassigned-vars": "off",
+        "eslint/no-restricted-properties": [
+          "error",
+          {
+            "property": "innerHTML",
+            "message": "Markup from the agent or the page goes through markdown.tsx and DOMPurify (.agents/guides/renderer.md)."
+          }
+        ]
+      }
+    },
+    {
+      "files": ["app/src/renderer/markdown.tsx", "app/src/renderer/mock.ts"],
+      "rules": { "eslint/no-restricted-properties": "off" }
+    },
+    {
+      "files": ["overlay/**"],
+      "rules": { "eslint/no-unused-expressions": "off" }
+    },
+    {
+      "files": ["app/test/**", "overlay/test/**", "overlay/bench/**"],
+      "rules": {
+        "typescript/no-floating-promises": "off",
+        "typescript/no-unsafe-type-assertion": "off"
+      }
+    }
+  ]
+}

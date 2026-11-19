@@ -14,10 +14,15 @@ async function paced(n, ms, fn) {
     if (wait > 0) await sleep(wait);
   }
 }
-const frames = (page, n = 2) => page.evaluate((k) => new Promise((done) => {
-  const step = () => (k-- > 0 ? requestAnimationFrame(step) : done());
-  step();
-}), n);
+const frames = (page, n = 2) =>
+  page.evaluate(
+    (k) =>
+      new Promise((done) => {
+        const step = () => (k-- > 0 ? requestAnimationFrame(step) : done());
+        step();
+      }),
+    n,
+  );
 const centre = async (page, sel) => {
   const b = await page.locator(sel).first().boundingBox();
   if (!b) throw new Error(`no box for ${sel}`);
@@ -45,7 +50,15 @@ async function strokes({ page }) {
     await page.mouse.move(120, y);
     await page.mouse.down();
     await page.evaluate((y0) => {
-      for (let i = 1; i <= 300; i++) window.dispatchEvent(new PointerEvent("pointermove", { clientX: 120 + i * 3.8, clientY: y0 + Math.sin(i / 9) * 14, altKey: true, buttons: 1 }));
+      for (let i = 1; i <= 300; i++)
+        window.dispatchEvent(
+          new PointerEvent("pointermove", {
+            clientX: 120 + i * 3.8,
+            clientY: y0 + Math.sin(i / 9) * 14,
+            altKey: true,
+            buttons: 1,
+          }),
+        );
     }, y);
     await page.mouse.up();
   }
@@ -69,7 +82,8 @@ async function canvasDrag({ page }) {
   await frames(page);
 }
 const wheel = ({ page }) => paced(90, WINDOW_MS, () => page.mouse.wheel(0, 40));
-const sweep = ({ page }) => paced(180, WINDOW_MS, (i) => page.mouse.move(80 + ((i * 29) % 1240), 100 + ((i * 4) % 700)));
+const sweep = ({ page }) =>
+  paced(180, WINDOW_MS, (i) => page.mouse.move(80 + ((i * 29) % 1240), 100 + ((i * 4) % 700)));
 /** The page scrolled by its own script: no input event, only scroll events. */
 const scrolls = ({ page }) => paced(90, WINDOW_MS, () => page.evaluate(() => window.scrollBy(0, 40)));
 /** One stroke drawn live, 150 real moves over the window (alt+drag). Each window draws a new
@@ -90,7 +104,8 @@ const typing = ({ page }) => paced(45, WINDOW_MS, (i) => page.keyboard.press(i %
  *  and back, so every window starts from the same width. Each frame of it changes the preview. */
 async function resizeDrag({ page }) {
   const b = await page.locator("#c7").boundingBox();
-  const x = b.x + b.width, y = b.y + b.height / 2;
+  const x = b.x + b.width,
+    y = b.y + b.height / 2;
   await page.mouse.move(x, y);
   await frames(page); // the handle under the pointer is the layer's, placed by a frame
   await page.mouse.down();
@@ -102,7 +117,11 @@ const motionOn = async (page) => {
   await page.waitForFunction(() => !document.querySelector("b42-review").shadowRoot.querySelector(".m-dock").hidden);
 };
 /** A card that bobs forever (the none+bob baseline is the page with it and no overlay). */
-const bob = ({ page }) => page.addStyleTag({ content: "#c7 { animation: bob 1.2s ease-in-out infinite; } @keyframes bob { 50% { transform: translateY(-6px); } }" });
+const bob = ({ page }) =>
+  page.addStyleTag({
+    content:
+      "#c7 { animation: bob 1.2s ease-in-out infinite; } @keyframes bob { 50% { transform: translateY(-6px); } }",
+  });
 /** The bobbing card opened in motion mode. */
 async function motionSelected(t) {
   const { page } = t;
@@ -112,12 +131,34 @@ async function motionSelected(t) {
 }
 
 // ── cells ───────────────────────────────────────────────────────────────────────────────────────
-const MISSING = Array.from({ length: 5 }, (_, i) => ({ id: `gone${i}`, n: i + 1, status: "queued", selector: `#gone${i}`, tag: "article", text: `No such words ${i}`, at: [100, 100 + i * 30] }));
+const MISSING = Array.from({ length: 5 }, (_, i) => ({
+  id: `gone${i}`,
+  n: i + 1,
+  status: "queued",
+  selector: `#gone${i}`,
+  tag: "article",
+  text: `No such words ${i}`,
+  at: [100, 100 + i * 30],
+}));
 // Twenty pins on cards down the page: several are in view wherever the wheel has got to.
-const PLACED = Array.from({ length: 20 }, (_, i) => ({ id: `on${i}`, n: i + 1, status: i % 3 ? "done" : "queued", selector: `#c${i * 12 + 2} h3`, tag: "h3", at: [0, 0] }));
+const PLACED = Array.from({ length: 20 }, (_, i) => ({
+  id: `on${i}`,
+  n: i + 1,
+  status: i % 3 ? "done" : "queued",
+  selector: `#c${i * 12 + 2} h3`,
+  tag: "h3",
+  at: [0, 0],
+}));
 const WORKING = [{ id: "w1", n: 1, status: "working", selector: "#c7 h3", tag: "h3", at: [0, 0] }];
 // Two hundred pins, one every fifth card: a review that has gone on for a while.
-const MANY = Array.from({ length: 200 }, (_, i) => ({ id: `m${i}`, n: i + 1, status: "done", selector: `#c${i * 5} h3`, tag: "h3", at: [0, 0] }));
+const MANY = Array.from({ length: 200 }, (_, i) => ({
+  id: `m${i}`,
+  n: i + 1,
+  status: "done",
+  selector: `#c${i * 5} h3`,
+  tag: "h3",
+  at: [0, 0],
+}));
 const cardOpen = (r) => !r.querySelector(".card").hidden;
 const fourStrokes = (r) => {
   const points = [...r.querySelectorAll(".strokes path")].map((p) => p.getAttribute("d").split("L").length);
@@ -146,25 +187,108 @@ export const CELLS = [
   { id: "selected", page: "heavy", enabled: true, setup: ({ page }) => click(page, "#c7 h3"), ready: cardOpen },
   { id: "strokes", page: "heavy", enabled: true, setup: strokes, ready: fourStrokes },
   { id: "churn-selected", page: "churn", enabled: true, setup: ({ page }) => click(page, "#c7 h3"), ready: cardOpen },
-  { id: "strokes-scroll", page: "heavy", enabled: true, setup: strokes, ready: fourStrokes, run: wheel, base: "none-wheel", after: () => window.scrollY > 3000 },
-  { id: "drawing", page: "heavy", enabled: true, run: drawLive, after: (r) => r.querySelectorAll(".strokes path").length === 3 },
-  { id: "typing", page: "heavy", enabled: true, setup: ({ page }) => click(page, "#c7 h3"), ready: cardOpen, run: typing, after: (r) => r.querySelector(".card textarea").value.length === 135 },
-  { id: "hover", page: "heavy", enabled: true, run: sweep, base: "none-sweep", after: (r) => r.querySelectorAll(".box.hover").length === 1 },
-  { id: "canvas-selected", page: "heavy", enabled: true, setup: async ({ page }) => (await canvasOn(page), await click(page, "#c7")), ready: inspecting },
+  {
+    id: "strokes-scroll",
+    page: "heavy",
+    enabled: true,
+    setup: strokes,
+    ready: fourStrokes,
+    run: wheel,
+    base: "none-wheel",
+    after: () => window.scrollY > 3000,
+  },
+  {
+    id: "drawing",
+    page: "heavy",
+    enabled: true,
+    run: drawLive,
+    after: (r) => r.querySelectorAll(".strokes path").length === 3,
+  },
+  {
+    id: "typing",
+    page: "heavy",
+    enabled: true,
+    setup: ({ page }) => click(page, "#c7 h3"),
+    ready: cardOpen,
+    run: typing,
+    after: (r) => r.querySelector(".card textarea").value.length === 135,
+  },
+  {
+    id: "hover",
+    page: "heavy",
+    enabled: true,
+    run: sweep,
+    base: "none-sweep",
+    after: (r) => r.querySelectorAll(".box.hover").length === 1,
+  },
+  {
+    id: "canvas-selected",
+    page: "heavy",
+    enabled: true,
+    setup: async ({ page }) => (await canvasOn(page), await click(page, "#c7")),
+    ready: inspecting,
+  },
   { id: "canvas-after-drag", page: "heavy", enabled: true, setup: canvasDrag, ready: inspecting },
-  { id: "canvas-drag", page: "heavy", enabled: true, setup: async ({ page }) => (await canvasOn(page), await clickPad(page, "#c7")), ready: inspecting, run: resizeDrag },
-  { id: "motion-selected", page: "heavy", enabled: true, setup: motionSelected, base: "none+bob", ready: (r) => !r.querySelector(".m-hd").hidden },
-  { id: "pins-scroll", page: "heavy", pins: PLACED, ready: (r) => r.querySelectorAll(".pin:not(.approx)").length === 20, run: wheel, base: "none-wheel", after: () => window.scrollY > 3000 },
-  { id: "pins200-scroll", page: "heavy", pins: MANY, ready: (r) => r.querySelectorAll(".pin:not(.approx)").length > 5, run: wheel, base: "none-wheel", after: () => window.scrollY > 3000 },
-  { id: "pin-working", page: "heavy", pins: WORKING, ready: (r) => r.querySelectorAll(".pin.working:not(.approx)").length === 1 },
+  {
+    id: "canvas-drag",
+    page: "heavy",
+    enabled: true,
+    setup: async ({ page }) => (await canvasOn(page), await clickPad(page, "#c7")),
+    ready: inspecting,
+    run: resizeDrag,
+  },
+  {
+    id: "motion-selected",
+    page: "heavy",
+    enabled: true,
+    setup: motionSelected,
+    base: "none+bob",
+    ready: (r) => !r.querySelector(".m-hd").hidden,
+  },
+  {
+    id: "pins-scroll",
+    page: "heavy",
+    pins: PLACED,
+    ready: (r) => r.querySelectorAll(".pin:not(.approx)").length === 20,
+    run: wheel,
+    base: "none-wheel",
+    after: () => window.scrollY > 3000,
+  },
+  {
+    id: "pins200-scroll",
+    page: "heavy",
+    pins: MANY,
+    ready: (r) => r.querySelectorAll(".pin:not(.approx)").length > 5,
+    run: wheel,
+    base: "none-wheel",
+    after: () => window.scrollY > 3000,
+  },
+  {
+    id: "pin-working",
+    page: "heavy",
+    pins: WORKING,
+    ready: (r) => r.querySelectorAll(".pin.working:not(.approx)").length === 1,
+  },
 ];
 /** The baseline a cell's own milliseconds are measured against. */
 export const baseOf = (cell) => cell.base || (cell.page === "churn" ? "none+churn" : "none");
 
 // ── columns: [key in what measure() returns, heading]. All are per second of the window. ────────
 export const METRICS = [
-  ["busyMs", "busy ms"], ["scriptMs", "script ms"], ["layouts", "layouts"], ["layoutMs", "layout ms"], ["recalcs", "recalcs"], ["recalcMs", "recalc ms"],
-  ["frames", "frames"], ["timers", "timers"], ["writes", "writes"], ["searches", "searches"], ["paints", "paints"], ["paintMs", "paint ms"], ["rasterMs", "raster ms"], ["gpuMs", "gpu ms"],
+  ["busyMs", "busy ms"],
+  ["scriptMs", "script ms"],
+  ["layouts", "layouts"],
+  ["layoutMs", "layout ms"],
+  ["recalcs", "recalcs"],
+  ["recalcMs", "recalc ms"],
+  ["frames", "frames"],
+  ["timers", "timers"],
+  ["writes", "writes"],
+  ["searches", "searches"],
+  ["paints", "paints"],
+  ["paintMs", "paint ms"],
+  ["rasterMs", "raster ms"],
+  ["gpuMs", "gpu ms"],
 ];
 
 // ── invariants: [cell, metric, at most, over?]. Counts only: milliseconds depend on the machine. ─

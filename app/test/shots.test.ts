@@ -21,7 +21,10 @@ test("a note's pictures are saved, read back and dropped; the id never becomes a
     assert.equal(await shots.save(id, "after", "data:text/html,<script>"), false, "only a JPEG data URI is a picture")
     const files = fs.readdirSync(path.join(dir, "shots"))
     assert.equal(files.length, 2)
-    assert.ok(files.every((f) => /^[0-9a-f]{40}-(before|after)\.jpg$/.test(f)), files.join(" "))
+    assert.ok(
+      files.every((f) => /^[0-9a-f]{40}-(before|after)\.jpg$/.test(f)),
+      files.join(" "),
+    )
     await shots.drop(id)
     assert.deepEqual(await shots.read(id), {})
   } finally {

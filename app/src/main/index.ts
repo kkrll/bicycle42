@@ -24,7 +24,9 @@ app.setPath("userData", process.env.BICYCLE42_DATA || path.join(app.getPath("app
 
 // The conversation's pictures have an address of their own (pictures.ts), in the app window's
 // session only: the page's session does not know the scheme.
-protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } }])
+protocol.registerSchemesAsPrivileged([
+  { scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
+])
 
 let window: BrowserWindow | undefined
 let page: PageView | undefined
@@ -59,7 +61,11 @@ function menu() {
         submenu: [
           { role: "togglefullscreen" },
           { type: "separator" },
-          { label: "Developer Tools: App", accelerator: "Alt+CmdOrCtrl+I", click: () => window?.webContents.openDevTools({ mode: "detach" }) },
+          {
+            label: "Developer Tools: App",
+            accelerator: "Alt+CmdOrCtrl+I",
+            click: () => window?.webContents.openDevTools({ mode: "detach" }),
+          },
           { label: "Developer Tools: Page", accelerator: "Alt+CmdOrCtrl+J", click: () => page?.openDevTools() },
         ],
       },

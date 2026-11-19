@@ -29,9 +29,22 @@ export function cvDown(e, z) {
   // The click is kept from the page, so it does not bring the keyboard here by itself: Delete,
   // Enter and the arrows must work after a click in a frame that did not have the focus.
   if (!document.hasFocus()) window.focus();
-  const x = e.clientX, y = e.clientY, r = C.r;
+  const x = e.clientX,
+    y = e.clientY,
+    r = C.r;
   const body = !z && r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
-  C.drag = { x0: x, y0: y, x, y, zone: z || (body ? { t: "body" } : null), mode: null, free: mod(e), both: e.shiftKey, sx: window.scrollX, sy: window.scrollY };
+  C.drag = {
+    x0: x,
+    y0: y,
+    x,
+    y,
+    zone: z || (body ? { t: "body" } : null),
+    mode: null,
+    free: mod(e),
+    both: e.shiftKey,
+    sx: window.scrollX,
+    sy: window.scrollY,
+  };
 }
 
 export function cvMove(e) {
@@ -75,7 +88,8 @@ export function cvUp(e) {
   if (d.zone && d.zone.t !== "body") return; // a click on a handle or a gap changes nothing
   const el = pick(d.x0, d.y0);
   const now = performance.now();
-  const twice = C.last && el && el === C.sel && now - C.last.t < 400 && Math.hypot(d.x0 - C.last.x, d.y0 - C.last.y) < 5;
+  const twice =
+    C.last && el && el === C.sel && now - C.last.t < 400 && Math.hypot(d.x0 - C.last.x, d.y0 - C.last.y) < 5;
   C.last = twice ? null : { t: now, x: d.x0, y: d.y0 };
   if (twice) startEdit(el);
   else if (el !== C.sel) select(el);
@@ -98,9 +112,24 @@ function beginDrag(d) {
   if (z && z.t === "resize") return startResize(d, z);
   if (z && z.t === "space") {
     const cs = getComputedStyle(z.el);
-    const near = ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "rowGap", "columnGap", ...(z.box ? ["marginTop", "marginRight", "marginBottom", "marginLeft"] : [])];
-    Object.assign(d, { mode: "space", el: z.el, sel: stableSel(z.el) + BOOST, v0: z.value, val: z.value, k: 1,
-      near: [...new Set(near.map((k) => num(cs[k])).filter(Boolean))] });
+    const near = [
+      "paddingTop",
+      "paddingRight",
+      "paddingBottom",
+      "paddingLeft",
+      "rowGap",
+      "columnGap",
+      ...(z.box ? ["marginTop", "marginRight", "marginBottom", "marginLeft"] : []),
+    ];
+    Object.assign(d, {
+      mode: "space",
+      el: z.el,
+      sel: stableSel(z.el) + BOOST,
+      v0: z.value,
+      val: z.value,
+      k: 1,
+      near: [...new Set(near.map((k) => num(cs[k])).filter(Boolean))],
+    });
     if (z.box) startBox(d, z, cs);
     return;
   }
@@ -115,12 +144,13 @@ function beginDrag(d) {
       for (let a = el; a && a.parentElement && a !== document.body; a = a.parentElement) if (ok(a)) return a;
       return null;
     };
-    el = up((a) => /flex|grid/.test(getComputedStyle(a.parentElement).display))
-      || up((a) => {
+    el =
+      up((a) => /flex|grid/.test(getComputedStyle(a.parentElement).display)) ||
+      up((a) => {
         const st = stackOf(a.parentElement);
         return !!st && st.length > 1 && st.some((s) => s.el === a);
-      })
-      || el;
+      }) ||
+      el;
     if (el !== C.sel) select(el);
   }
   startMove(d, el);
@@ -131,7 +161,8 @@ function beginDrag(d) {
  *  grows inward, an auto one outward; a margin pushes the element itself), so it is tried once:
  *  16px more, measured, put back. Shift drags the opposite side with it (if it is a number). */
 function startBox(d, z, cs) {
-  const opp = (z.side + 2) % 4, oprop = `${z.box === "pad" ? "padding" : "margin"}-${SIDES[opp]}`;
+  const opp = (z.side + 2) % 4,
+    oprop = `${z.box === "pad" ? "padding" : "margin"}-${SIDES[opp]}`;
   let auto = false;
   try {
     auto = String(z.el.computedStyleMap().get(oprop)) === "auto";
@@ -142,7 +173,8 @@ function startBox(d, z, cs) {
   const now = boxBand(z);
   liveSet(z.el, d.sel, z.prop, px(z.value));
   const [p, s] = z.axis === "x" ? ["x", "w"] : ["y", "h"];
-  const lo = now[p] - was[p], hi = now[p] + now[s] - was[p] - was[s];
+  const lo = now[p] - was[p],
+    hi = now[p] + now[s] - was[p] - was[s];
   const m = Math.abs(hi) >= Math.abs(lo) ? hi : lo;
   // (outward is down or right for the bottom and right sides; a padding grows inward)
   const out = z.side === 1 || z.side === 2 ? 1 : -1;
@@ -151,14 +183,31 @@ function startBox(d, z, cs) {
 }
 
 function startResize(d, z) {
-  const el = C.sel, cs = getComputedStyle(el), P = el.parentElement, r0 = C.r || C.geo.r;
+  const el = C.sel,
+    cs = getComputedStyle(el),
+    P = el.parentElement,
+    r0 = C.r || C.geo.r;
   const pcs = P ? getComputedStyle(P) : null;
   const dir = pcs && pcs.display.includes("flex") ? (pcs.flexDirection.startsWith("column") ? "y" : "x") : "";
-  Object.assign(d, { mode: "resize", el, sel: C.selRs + BOOST, r0, w0: num(cs.width) || r0.w, h0: num(cs.height) || r0.h, kx: 1, ky: 1,
+  Object.assign(d, {
+    mode: "resize",
+    el,
+    sel: C.selRs + BOOST,
+    r0,
+    w0: num(cs.width) || r0.w,
+    h0: num(cs.height) || r0.h,
+    kx: 1,
+    ky: 1,
     // In a flex parent the main size is flex's to decide: say so in the same edit, or the drag does nothing.
     unflex: (dir === "x" && z.hx) || (dir === "y" && z.hy) ? cs.flexGrow !== "0" || cs.flexBasis !== "auto" : false,
     // Sizes of the siblings, to snap to: "as wide as the one next to it".
-    peers: P ? flow(P).filter((it) => it.el !== el).slice(0, 40).map((it) => it.r) : [] });
+    peers: P
+      ? flow(P)
+          .filter((it) => it.el !== el)
+          .slice(0, 40)
+          .map((it) => it.r)
+      : [],
+  });
   d.w = d.w0;
   d.h = d.h0;
   if (d.unflex) liveSet(el, d.sel, "flex", "none");
@@ -178,7 +227,13 @@ function startMove(d, el) {
   const P = el.parentElement;
   if (!P || P === document.documentElement) return flash("Nothing here to reorder it with");
   const cs = getComputedStyle(P);
-  const layout = cs.display.includes("flex") ? (cs.flexDirection.startsWith("column") ? "flex-column" : "flex-row") : cs.display.includes("grid") ? "grid" : "block";
+  const layout = cs.display.includes("flex")
+    ? cs.flexDirection.startsWith("column")
+      ? "flex-column"
+      : "flex-row"
+    : cs.display.includes("grid")
+      ? "grid"
+      : "block";
   let items = flow(P);
   if (layout === "block") {
     const st = stackOf(P);
@@ -198,7 +253,8 @@ function startMove(d, el) {
     let run = [];
     const flush = () => {
       if (!run.length) return;
-      const top = Math.min(...run.map(([it]) => it.r.y)), bot = Math.max(...run.map(([it]) => it.r.y + it.r.h));
+      const top = Math.min(...run.map(([it]) => it.r.y)),
+        bot = Math.max(...run.map(([it]) => it.r.y + it.r.h));
       run.forEach(([it, k], j) => {
         const prev = j ? run[j - 1][0].r : null;
         lines.push({ k, x: prev ? (prev.x + prev.w + it.r.x) / 2 : it.r.x - 5, y: top, w: 0, h: bot - top });
@@ -213,7 +269,8 @@ function startMove(d, el) {
     });
     flush();
   } else {
-    const x1 = Math.min(...others.map((it) => it.r.x)), x2 = Math.max(...others.map((it) => it.r.x + it.r.w));
+    const x1 = Math.min(...others.map((it) => it.r.x)),
+      x2 = Math.max(...others.map((it) => it.r.x + it.r.w));
     others.forEach((it, k) => {
       const prev = k ? others[k - 1].r : null;
       lines.push({ k, x: x1, y: prev ? (prev.y + prev.h + it.r.y) / 2 : it.r.y - 5, w: x2 - x1, h: 0 });
@@ -221,12 +278,25 @@ function startMove(d, el) {
     const end = others[others.length - 1].r;
     lines.push({ k: others.length, x: x1, y: end.y + end.h + 5, w: x2 - x1, h: 0 });
   }
-  Object.assign(d, { mode: "move", el, P, pr: rectOf(P), layout, others, self, lines, r0: items[self].r, k: self, at: null });
+  Object.assign(d, {
+    mode: "move",
+    el,
+    P,
+    pr: rectOf(P),
+    layout,
+    others,
+    self,
+    lines,
+    r0: items[self].r,
+    k: self,
+    at: null,
+  });
   liveSet(el, C.selRs, "opacity", "0.35");
 }
 
 export function stepDrag(d) {
-  const dx = d.x - d.x0 + VP.sx - d.sx, dy = d.y - d.y0 + VP.sy - d.sy;
+  const dx = d.x - d.x0 + VP.sx - d.sx,
+    dy = d.y - d.y0 + VP.sy - d.sy;
   const key = `${dx}|${dy}|${d.free}|${d.both}`;
   if (key === d.key) return;
   d.key = key;
@@ -244,9 +314,36 @@ export function stepDrag(d) {
   const n = (v) => String(Math.round(v));
   if (d.mode === "resize") {
     const z = d.zone;
-    if (z.hx) liveSet(d.el, d.sel, "width", px((d.w = snap(d.w0 + (z.hx * dx) / d.kx, d.peers.map((r) => d.w0 + r.w - d.r0.w)))));
-    if (z.hy) liveSet(d.el, d.sel, "height", px((d.h = snap(d.h0 + (z.hy * dy) / d.ky, d.peers.map((r) => d.h0 + r.h - d.r0.h)))));
-    d.label = z.hx && z.hy ? `${n(d.w0)} × ${n(d.h0)} → ${n(d.w)} × ${n(d.h)}` : z.hx ? `width ${n(d.w0)} → ${n(d.w)}` : `height ${n(d.h0)} → ${n(d.h)}`;
+    if (z.hx)
+      liveSet(
+        d.el,
+        d.sel,
+        "width",
+        px(
+          (d.w = snap(
+            d.w0 + (z.hx * dx) / d.kx,
+            d.peers.map((r) => d.w0 + r.w - d.r0.w),
+          )),
+        ),
+      );
+    if (z.hy)
+      liveSet(
+        d.el,
+        d.sel,
+        "height",
+        px(
+          (d.h = snap(
+            d.h0 + (z.hy * dy) / d.ky,
+            d.peers.map((r) => d.h0 + r.h - d.r0.h),
+          )),
+        ),
+      );
+    d.label =
+      z.hx && z.hy
+        ? `${n(d.w0)} × ${n(d.h0)} → ${n(d.w)} × ${n(d.h)}`
+        : z.hx
+          ? `width ${n(d.w0)} → ${n(d.w)}`
+          : `height ${n(d.h0)} → ${n(d.h)}`;
   } else if (d.mode === "space") {
     const z = d.zone;
     d.val = snap(d.v0 + (z.axis === "x" ? dx : dy) / d.k, d.near);
@@ -257,10 +354,13 @@ export function stepDrag(d) {
     d.label = `${both ? `${z.prop}/${SIDES[(z.side + 2) % 4]}` : z.prop} ${n(d.v0)} → ${n(d.val)}`;
   } else if (d.mode === "move") {
     // The nearest insertion line, in the coordinates the lines were measured in.
-    const x = d.x + VP.sx - d.sx, y = d.y + VP.sy - d.sy;
-    let best = null, bd = Infinity;
+    const x = d.x + VP.sx - d.sx,
+      y = d.y + VP.sy - d.sy;
+    let best = null,
+      bd = Infinity;
     for (const l of d.lines) {
-      const cx = Math.min(Math.max(x, l.x), l.x + l.w), cy = Math.min(Math.max(y, l.y), l.y + l.h);
+      const cx = Math.min(Math.max(x, l.x), l.x + l.w),
+        cy = Math.min(Math.max(y, l.y), l.y + l.h);
       const dist = Math.hypot(x - cx, y - cy);
       if (dist < bd) {
         bd = dist;
@@ -288,7 +388,8 @@ function endDrag(d, keep) {
     if (d.val !== d.v0) css = setDecl(css, d.zone.prop, px(d.val));
     if (d.zone.box && d.both && d.opp && d.val !== d.opp.v0) css = setDecl(css, d.opp.prop, px(d.val));
   } else {
-    const w = d.zone.hx && px(d.w) !== px(d.w0), h = d.zone.hy && px(d.h) !== px(d.h0);
+    const w = d.zone.hx && px(d.w) !== px(d.w0),
+      h = d.zone.hy && px(d.h) !== px(d.h0);
     if ((w || h) && d.unflex) css = setDecl(css, "flex", "none");
     if (w) css = setDecl(css, "width", px(d.w));
     if (h) css = setDecl(css, "height", px(d.h));
@@ -301,11 +402,21 @@ function endDrag(d, keep) {
 }
 
 function commitMove(el, P, beforeEl, layout) {
-  const prs = stamp(P), B = C.draft.B;
-  const prior = [...C.sent.filter((b) => !C.hide.has(b.id)), C.draft].flatMap((b) => b.B.ops.filter((o) => o.kind === "move" && o.parent.rs === prs));
+  const prs = stamp(P),
+    B = C.draft.B;
+  const prior = [...C.sent.filter((b) => !C.hide.has(b.id)), C.draft].flatMap((b) =>
+    b.B.ops.filter((o) => o.kind === "move" && o.parent.rs === prs),
+  );
   const from = ordered(kids(P), prior).indexOf(el);
   const side = (x) => ({ selector: editSel(x), rs: stamp(x), label: line(plainLabel(x)) });
-  const op = { kind: "move", ...meta(el), parent: { ...side(P), layout }, before: beforeEl ? side(beforeEl) : null, fromIndex: from, toIndex: from };
+  const op = {
+    kind: "move",
+    ...meta(el),
+    parent: { ...side(P), layout },
+    before: beforeEl ? side(beforeEl) : null,
+    fromIndex: from,
+    toIndex: from,
+  };
   op.toIndex = ordered(kids(P), [...prior, op]).indexOf(el);
   const last = B.ops[B.ops.length - 1];
   if (last && last.kind === "move" && last.rs === op.rs) {
@@ -316,4 +427,3 @@ function commitMove(el, P, beforeEl, layout) {
   if (op.toIndex !== op.fromIndex) B.ops.push(op);
   commit();
 }
-

@@ -34,7 +34,9 @@ after(async () => {
 async function pageFrame(page) {
   await page.waitForFunction(() => document.getElementById("page").contentWindow?.__b42);
   const f = page.frames().find((fr) => fr.url().endsWith("/harness/motion-page.html"));
-  await f.waitForFunction(() => document.querySelector("b42-review") && document.documentElement.hasAttribute("data-b42-review"));
+  await f.waitForFunction(
+    () => document.querySelector("b42-review") && document.documentElement.hasAttribute("data-b42-review"),
+  );
   return f;
 }
 
@@ -52,32 +54,63 @@ const motionOn = async (f) => {
   await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "motion" }));
   await f.waitForFunction(() => !document.querySelector("b42-review").shadowRoot.querySelector(".m-dock").hidden);
 };
-const frames = (f, n = 2) => f.evaluate((k) => new Promise((done) => {
-  const step = () => (k-- > 0 ? requestAnimationFrame(step) : done());
-  step();
-}), n);
+const frames = (f, n = 2) =>
+  f.evaluate(
+    (k) =>
+      new Promise((done) => {
+        const step = () => (k-- > 0 ? requestAnimationFrame(step) : done());
+        step();
+      }),
+    n,
+  );
 /** Something in the layer's shadow root, as a locator. */
 const ui = (f, sel) => f.locator(`b42-review >> css=${sel}`);
 /** What the layer's shadow root says, read in the page. */
-const inLayer = (f, fn, arg) => f.evaluate(([src, a]) => new Function("r", "a", `return (${src})(r, a)`)(document.querySelector("b42-review").shadowRoot, a), [fn.toString(), arg]);
+const inLayer = (f, fn, arg) =>
+  f.evaluate(
+    ([src, a]) => new Function("r", "a", `return (${src})(r, a)`)(document.querySelector("b42-review").shadowRoot, a),
+    [fn.toString(), arg],
+  );
 /** Every rule the page has adopted from us (the unsent sheet and the sent ones), as text. */
-const adopted = (f) => f.evaluate(() => document.adoptedStyleSheets.map((s) => [...s.cssRules].map((r) => r.cssText).join("\n")).join("\n"));
+const adopted = (f) =>
+  f.evaluate(() => document.adoptedStyleSheets.map((s) => [...s.cssRules].map((r) => r.cssText).join("\n")).join("\n"));
 const clickEl = async (page, f, sel) => {
   const b = await f.locator(sel).first().boundingBox();
   await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
   await frames(f);
 };
-const host = (page) => page.evaluate(() => ({ mode: window.__harness.mode, draft: window.__harness.draft, notes: window.__harness.notes }));
+const host = (page) =>
+  page.evaluate(() => ({ mode: window.__harness.mode, draft: window.__harness.draft, notes: window.__harness.notes }));
 
 test("motion mode: the host's switch opens the dock and the overlay says the mode back", async () => {
   const { page, f, errors } = await open();
   assert.equal((await host(page)).mode, "motion");
-  const rows = await inLayer(f, (r) => [...r.querySelectorAll(".m-list .m-grp, .m-list .m-it")].map((e) => (e.classList.contains("m-grp") ? `#${e.textContent}` : e.querySelector(".m-nm").textContent)));
-  for (const want of ["#Animations", "spin", "rise", "pulse", "card-in", "#Transitions", "#Scripts", "bob", "#Unused", "wiggle"]) assert.ok(rows.includes(want), `${want} in ${rows.join(" ")}`);
+  const rows = await inLayer(f, (r) =>
+    [...r.querySelectorAll(".m-list .m-grp, .m-list .m-it")].map((e) =>
+      e.classList.contains("m-grp") ? `#${e.textContent}` : e.querySelector(".m-nm").textContent,
+    ),
+  );
+  for (const want of [
+    "#Animations",
+    "spin",
+    "rise",
+    "pulse",
+    "card-in",
+    "#Transitions",
+    "#Scripts",
+    "bob",
+    "#Unused",
+    "wiggle",
+  ])
+    assert.ok(rows.includes(want), `${want} in ${rows.join(" ")}`);
   // rise is played by two elements: they are listed under it
   assert.ok(rows.indexOf("Ship calmer interfaces") === rows.indexOf("rise") + 1, rows.join(" | "));
   // the frame-by-frame bar is found once it has moved for a while
-  await f.waitForFunction(() => [...document.querySelector("b42-review").shadowRoot.querySelectorAll(".m-it.k-frames")].length > 0, null, { timeout: 3000 });
+  await f.waitForFunction(
+    () => [...document.querySelector("b42-review").shadowRoot.querySelectorAll(".m-it.k-frames")].length > 0,
+    null,
+    { timeout: 3000 },
+  );
   // the canvas bar is not in the way
   assert.equal(await inLayer(f, (r) => r.querySelector(".bar").hidden), true);
   assert.deepEqual(errors, []);
@@ -87,8 +120,14 @@ test("motion mode: the host's switch opens the dock and the overlay says the mod
 test("a click on the page opens the first animation of what was clicked; its name is on a tag", async () => {
   const { page, f, errors } = await open();
   await clickEl(page, f, ".hero h2");
-  const s = await inLayer(f, (r) => ({ head: !r.querySelector(".m-hd").hidden, band: r.querySelector(".m-ghead b")?.textContent, lanes: [...r.querySelectorAll(".m-lane .m-lab span")].map((e) => e.textContent),
-    shared: r.querySelector(".m-shared")?.textContent.trim(), tag: r.querySelector(".m-tag").textContent, on: r.querySelector(".m-it.on .m-nm")?.textContent }));
+  const s = await inLayer(f, (r) => ({
+    head: !r.querySelector(".m-hd").hidden,
+    band: r.querySelector(".m-ghead b")?.textContent,
+    lanes: [...r.querySelectorAll(".m-lane .m-lab span")].map((e) => e.textContent),
+    shared: r.querySelector(".m-shared")?.textContent.trim(),
+    tag: r.querySelector(".m-tag").textContent,
+    on: r.querySelector(".m-it.on .m-nm")?.textContent,
+  }));
   assert.equal(s.head, true);
   assert.equal(s.band, "rise");
   assert.deepEqual(s.lanes, ["opacity", "transform"]);
@@ -140,7 +179,7 @@ test("timing belongs to the element: a duration typed writes its animation, not 
   assert.doesNotMatch(css, /@keyframes/);
   // the more popover: chips set how it plays
   await ui(f, "[data-m=more]").click();
-  await ui(f, '.m-pop [data-tkey=direction] [data-v=alternate]').click();
+  await ui(f, ".m-pop [data-tkey=direction] [data-v=alternate]").click();
   assert.match(await adopted(f), /alternate/);
   assert.deepEqual(errors, []);
   await page.close();
@@ -168,7 +207,10 @@ test("Enter sends the open animation as one note; it stays applied until the not
   assert.match(note.prompt, /animation: rise 900ms/);
   // sent: the edits are no longer unsent, but the page still plays them
   await frames(f, 4);
-  assert.equal(await inLayer(f, (r) => r.querySelector(".m-msg").textContent), "Sent · preview stays until note 1 is done");
+  assert.equal(
+    await inLayer(f, (r) => r.querySelector(".m-msg").textContent),
+    "Sent · preview stays until note 1 is done",
+  );
   assert.match(await adopted(f), /900ms[^;]* rise;/);
   const d = (await host(page)).draft;
   assert.ok(!d || !d.motion, JSON.stringify(d));
@@ -189,7 +231,11 @@ test("a refused note comes back unsent, with its edits and its words", async () 
   await ui(f, ".m-note").fill("slower");
   await ui(f, ".m-go").click();
   await frames(f, 6);
-  const s = await inLayer(f, (r) => ({ msg: r.querySelector(".m-msg").textContent, note: r.querySelector(".m-note").value, dur: r.querySelector("[data-t=duration]")?.value }));
+  const s = await inLayer(f, (r) => ({
+    msg: r.querySelector(".m-msg").textContent,
+    note: r.querySelector(".m-note").value,
+    dur: r.querySelector("[data-t=duration]")?.value,
+  }));
   assert.match(s.msg, /Not sent: the server is offline/);
   assert.equal(s.note, "slower");
   assert.equal(s.dur, "950");
@@ -236,7 +282,11 @@ test("a refusal of another note leaves the one being sent alone: refused itself,
   assert.equal(stale, false);
   await frames(f, 6);
   // the note that was pending is refused now: it comes back unsent, with its edits and words
-  const s = await inLayer(f, (r) => ({ msg: r.querySelector(".m-msg").textContent, note: r.querySelector(".m-note").value, dur: r.querySelector("[data-t=duration]")?.value }));
+  const s = await inLayer(f, (r) => ({
+    msg: r.querySelector(".m-msg").textContent,
+    note: r.querySelector(".m-note").value,
+    dur: r.querySelector("[data-t=duration]")?.value,
+  }));
   assert.match(s.msg, /Not sent: the server is offline/);
   assert.equal(s.note, "slower");
   assert.equal(s.dur, "950");
@@ -256,7 +306,9 @@ test("unsent edits survive a reload: the host keeps them, the page comes back in
   const f = await pageFrame(page);
   await f.waitForFunction(() => !document.querySelector("b42-review").shadowRoot.querySelector(".m-dock").hidden);
   assert.equal((await host(page)).mode, "motion");
-  await f.waitForFunction(() => document.adoptedStyleSheets.some((s) => [...s.cssRules].some((r) => /1200ms[^;]* rise;/.test(r.cssText))));
+  await f.waitForFunction(() =>
+    document.adoptedStyleSheets.some((s) => [...s.cssRules].some((r) => /1200ms[^;]* rise;/.test(r.cssText))),
+  );
   // the list marks what is changed and unsent
   assert.equal(await inLayer(f, (r) => !!r.querySelector(".m-it.sub .m-ed")), true);
   assert.deepEqual(errors, []);
@@ -266,7 +318,7 @@ test("unsent edits survive a reload: the host keeps them, the page comes back in
 test("Esc steps back: the keyframe, the animation, then notes mode; nothing is left stopped", async () => {
   const { page, f, errors } = await open();
   await clickEl(page, f, ".sync .spinner");
-  await ui(f, '.m-kspan .m-key').first().click();
+  await ui(f, ".m-kspan .m-key").first().click();
   assert.equal(await f.evaluate(() => document.querySelector(".spinner").getAnimations()[0].playState), "paused");
   await page.keyboard.press("Escape");
   assert.equal(await inLayer(f, (r) => !!r.querySelector(".m-key.on")), false);
@@ -292,7 +344,10 @@ test("shared keyframes: Duplicate gives the element its own copy; the note says 
   assert.match(css, /@keyframes rise-2 \{[^]*?0% \{ opacity: 0\.3;/, css);
   assert.doesNotMatch(css, /@keyframes rise \{/); // the heading keeps the page's own
   assert.match(css, /animation: 700ms[^;]* rise-2;/);
-  assert.equal(await inLayer(f, (r) => r.querySelector(".m-shared").textContent.trim()), "Copy of rise, for this element only");
+  assert.equal(
+    await inLayer(f, (r) => r.querySelector(".m-shared").textContent.trim()),
+    "Copy of rise, for this element only",
+  );
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => window.__harness.notes.length === 1);
   const m = (await host(page)).notes[0].motion;
@@ -309,10 +364,14 @@ test("a new animation is named in its band; renamed in the CSS text, the list fo
   await clickEl(page, f, ".card h3");
   await ui(f, "[data-m=new]").click();
   // the name has the caret, and says it is new (not a copy of anything)
-  assert.equal(await inLayer(f, (r) => r.activeElement?.dataset.name !== undefined && r.activeElement.value), "new-animation");
+  assert.equal(
+    await inLayer(f, (r) => r.activeElement?.dataset.name !== undefined && r.activeElement.value),
+    "new-animation",
+  );
   await page.keyboard.type("slide-in");
   await page.keyboard.press("Enter");
-  const names = () => inLayer(f, (r) => [...r.querySelectorAll(".m-list .m-it:not(.sub) .m-nm")].map((e) => e.textContent));
+  const names = () =>
+    inLayer(f, (r) => [...r.querySelectorAll(".m-list .m-it:not(.sub) .m-nm")].map((e) => e.textContent));
   assert.ok((await names()).includes("slide-in"));
   // a name that is taken is refused, and the one it has comes back
   await ui(f, ".m-ghead [data-name]").fill("rise");
@@ -344,9 +403,16 @@ test("something that does not move can play keyframes the page has, timed as the
   const { page, f, errors } = await open();
   await clickEl(page, f, ".card h3");
   const chips = await inLayer(f, (r) => [...r.querySelectorAll(".m-empty [data-m=use]")].map((b) => b.dataset.v));
-  assert.ok(["rise", "spin", "wiggle"].every((n) => chips.includes(n)), chips.join(" "));
+  assert.ok(
+    ["rise", "spin", "wiggle"].every((n) => chips.includes(n)),
+    chips.join(" "),
+  );
   await ui(f, '.m-empty [data-m=use][data-v="spin"]').click();
-  const s = await inLayer(f, (r) => ({ band: r.querySelector(".m-ghead b")?.textContent, shared: r.querySelector(".m-shared")?.textContent.trim(), dur: r.querySelector("[data-t=duration]").value }));
+  const s = await inLayer(f, (r) => ({
+    band: r.querySelector(".m-ghead b")?.textContent,
+    shared: r.querySelector(".m-shared")?.textContent.trim(),
+    dur: r.querySelector("[data-t=duration]").value,
+  }));
   assert.deepEqual(s, { band: "spin", shared: "2 elements", dur: "900" });
   assert.deepEqual(errors, []);
   await page.close();
@@ -355,7 +421,10 @@ test("something that does not move can play keyframes the page has, timed as the
 test("the property and easing fields list their values in the dock's own list: ↑/↓ and Enter, or a click", async () => {
   const { page, f, errors } = await open();
   await clickEl(page, f, ".hero h2");
-  const list = () => inLayer(f, (r) => (r.querySelector(".m-sug").hidden ? null : [...r.querySelectorAll(".m-sug .m-sg")].map((e) => e.textContent)));
+  const list = () =>
+    inLayer(f, (r) =>
+      r.querySelector(".m-sug").hidden ? null : [...r.querySelectorAll(".m-sug .m-sg")].map((e) => e.textContent),
+    );
   await ui(f, "[data-addp]").click();
   const all = await list();
   assert.ok(all && all.includes("color") && !all.includes("opacity"), `the lanes it has are not offered: ${all}`);
@@ -364,12 +433,21 @@ test("the property and easing fields list their values in the dock's own list: �
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   await frames(f);
-  assert.deepEqual(await inLayer(f, (r) => [...r.querySelectorAll(".m-lane .m-lab span")].map((e) => e.textContent)), ["opacity", "transform", "box-shadow"]);
+  assert.deepEqual(await inLayer(f, (r) => [...r.querySelectorAll(".m-lane .m-lab span")].map((e) => e.textContent)), [
+    "opacity",
+    "transform",
+    "box-shadow",
+  ]);
   assert.equal(await list(), null);
   // the easing: the one it has is marked; a click picks another
   await ui(f, "[data-t=easing]").click();
-  assert.equal(await inLayer(f, (r) => r.querySelector(".m-sug .m-sg.on")?.textContent), "cubic-bezier(0.2, 0.8, 0.2, 1)");
-  const at = await inLayer(f, (r) => [...r.querySelectorAll(".m-sug .m-sg")].findIndex((e) => e.textContent === "ease-in"));
+  assert.equal(
+    await inLayer(f, (r) => r.querySelector(".m-sug .m-sg.on")?.textContent),
+    "cubic-bezier(0.2, 0.8, 0.2, 1)",
+  );
+  const at = await inLayer(f, (r) =>
+    [...r.querySelectorAll(".m-sug .m-sg")].findIndex((e) => e.textContent === "ease-in"),
+  );
   await ui(f, `.m-sug .m-sg[data-sg="${at}"]`).click();
   assert.equal(await ui(f, "[data-t=easing]").inputValue(), "ease-in");
   assert.match(await adopted(f), /ease-in /);
@@ -381,12 +459,21 @@ test("the property and easing fields list their values in the dock's own list: �
 test("the dock gives the page its room: what is fixed to the window's bottom goes up above it, what is fixed to the top stays", async () => {
   const { page, f, errors } = await open({ motion: false });
   await f.evaluate(() => {
-    const add = (id, css) => document.body.insertAdjacentHTML("beforeend", `<div id="${id}" style="position:fixed;${css}">${id}</div>`);
+    const add = (id, css) =>
+      document.body.insertAdjacentHTML("beforeend", `<div id="${id}" style="position:fixed;${css}">${id}</div>`);
     add("fx-bar", "left:0;right:0;bottom:0;height:40px");
     add("fx-chat", "right:16px;bottom:24px;width:40px;height:40px;transition:bottom 0.2s");
     add("fx-head", "left:0;right:0;top:0;height:30px");
   });
-  const where = () => f.evaluate(() => Object.fromEntries(["fx-bar", "fx-chat", "fx-head"].map((id) => [id, Math.round(innerHeight - document.getElementById(id).getBoundingClientRect().bottom)])));
+  const where = () =>
+    f.evaluate(() =>
+      Object.fromEntries(
+        ["fx-bar", "fx-chat", "fx-head"].map((id) => [
+          id,
+          Math.round(innerHeight - document.getElementById(id).getBoundingClientRect().bottom),
+        ]),
+      ),
+    );
   const pad = () => f.evaluate(() => getComputedStyle(document.documentElement).paddingBottom);
   const before = await where();
   const head = before["fx-head"]; // the window's height less the header's
@@ -397,7 +484,12 @@ test("the dock gives the page its room: what is fixed to the window's bottom goe
   assert.deepEqual(await where(), { "fx-bar": 360, "fx-chat": 384, "fx-head": head });
   assert.equal(await pad(), "360px");
   // a box that comes later is lifted too, and the lifted ones are not lifted twice
-  await f.evaluate(() => document.body.insertAdjacentHTML("beforeend", `<div id="fx-late" style="position:fixed;bottom:8px;left:0;height:10px">late</div>`));
+  await f.evaluate(() =>
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `<div id="fx-late" style="position:fixed;bottom:8px;left:0;height:10px">late</div>`,
+    ),
+  );
   await f.waitForFunction(() => getComputedStyle(document.getElementById("fx-late")).bottom === "368px");
   await frames(f, 3);
   assert.deepEqual(await where(), { "fx-bar": 360, "fx-chat": 384, "fx-head": head });

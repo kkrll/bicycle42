@@ -16,7 +16,18 @@ import { REVIEW_VERSION } from "./review"
 
 /** `pinned`: the conversations kept at the top of the site's list, by id. */
 /** `checkpoints`: the named points of its conversations, to go back to. */
-type Sites = Record<string, { directory: string; session?: string; bg?: string; url?: string; seen?: number; pinned?: string[]; checkpoints?: Checkpoint[] }>
+type Sites = Record<
+  string,
+  {
+    directory: string
+    session?: string
+    bg?: string
+    url?: string
+    seen?: number
+    pinned?: string[]
+    checkpoints?: Checkpoint[]
+  }
+>
 
 /** What belongs to one server: its repo, pages and conversations. Folders and conversations
  *  of one server mean nothing on another. `prefix` goes before a site's origin in the name of
@@ -28,7 +39,13 @@ export type Space = { folder?: string; lastUrl?: string; defaultModel?: ModelRef
  *  settings' own fields. */
 /** `projects`: the folders it last listed, so its projects can be offered while another server is in use.
  *  `computer`: what the machine calls itself, as it last said; the server goes by it until it is given a `name`. */
-export type SavedServer = ({ url: string; password: string } | { local: true }) & { id: string; name?: string; computer?: string; space?: Space; projects?: string[] }
+export type SavedServer = ({ url: string; password: string } | { local: true }) & {
+  id: string
+  name?: string
+  computer?: string
+  space?: Space
+  projects?: string[]
+}
 
 export type Settings = {
   version: 1
@@ -82,7 +99,8 @@ export function createStore(dir: string, opts: { debounceMs?: number; log?: Log 
   const log: Log = opts.log ?? (() => undefined)
   const settingsFile = path.join(dir, "settings.json")
   // An origin has ":" and "/" in it; percent-encoding keeps the name readable and one-to-one.
-  const reviewFile = (origin: string) => path.join(dir, "reviews", `${encodeURIComponent(origin).replace(/\*/g, "%2A")}.json`)
+  const reviewFile = (origin: string) =>
+    path.join(dir, "reviews", `${encodeURIComponent(origin).replace(/\*/g, "%2A")}.json`)
 
   /** Files a newer bicycle 42 wrote. Never written for the rest of the run. */
   const newer = new Set<string>()
@@ -98,7 +116,8 @@ export function createStore(dir: string, opts: { debounceMs?: number; log?: Log 
     } catch (err) {
       // Not there yet is the normal first run. Anything else (permissions, a directory in the
       // way) we can't fix here; say so, and leave the file alone.
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") log("error", "store: can't read file", { file, error: String(err) })
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT")
+        log("error", "store: can't read file", { file, error: String(err) })
       return
     }
     let reason: string
@@ -108,11 +127,15 @@ export function createStore(dir: string, opts: { debounceMs?: number; log?: Log 
       if (isObj(data) && typeof data.version === "number" && data.version > version) {
         // Downgrading must not cost the newer version its data: moving the file aside would.
         newer.add(file)
-        log("error", `store: ${path.basename(file)} was written by a newer bicycle 42 (version ${data.version}); this version won't change it`, {
-          file,
-          version: data.version,
-          understands: version,
-        })
+        log(
+          "error",
+          `store: ${path.basename(file)} was written by a newer bicycle 42 (version ${data.version}); this version won't change it`,
+          {
+            file,
+            version: data.version,
+            understands: version,
+          },
+        )
         return
       }
       reason = isObj(data) ? `version ${JSON.stringify(data.version)}, expected ${version}` : "not a JSON object"
@@ -124,7 +147,11 @@ export function createStore(dir: string, opts: { debounceMs?: number; log?: Log 
       fs.renameSync(file, aside)
       log("warn", "store: unreadable file moved aside, starting from defaults", { file, aside, reason })
     } catch (err) {
-      log("error", "store: unreadable file could not be moved aside; the next save will replace it", { file, reason, error: String(err) })
+      log("error", "store: unreadable file could not be moved aside; the next save will replace it", {
+        file,
+        reason,
+        error: String(err),
+      })
     }
     return
   }

@@ -81,4 +81,3 @@ function liveDrop() {
   const st = l.el.style;
   for (let i = st.length - 1; i >= 0; i--) if (st[i].startsWith(VAR)) st.removeProperty(st[i]);
 }
-

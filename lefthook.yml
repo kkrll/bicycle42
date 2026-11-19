@@ -1,0 +1,16 @@
+# Skip once with LEFTHOOK=0 git push. CI runs the same gates.
+pre-commit:
+  jobs:
+    - name: format
+      glob: "*.{js,mjs,cjs,ts,tsx,json}"
+      exclude: ["**/fixtures/**", "**/bun.lock", "overlay/overlay.js"]
+      run: node_modules/.bin/oxfmt --no-error-on-unmatched-pattern {staged_files}
+      stage_fixed: true
+    - name: lint
+      glob: "*.{js,mjs,cjs,ts,tsx}"
+      run: node scripts/ratchet.mjs oxlint
+
+pre-push:
+  jobs:
+    - name: check
+      run: node scripts/check.mjs --changed --full

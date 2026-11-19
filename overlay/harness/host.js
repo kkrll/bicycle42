@@ -24,7 +24,17 @@ window.__harness = H; // for tests
 const pins = () =>
   H.notes.map((n) => {
     const t = n.targets[0];
-    return { id: n.id, n: n.n, status: n.status, ...(n.lane === "bg" ? { lane: "bg" } : {}), selector: t?.selector, tag: t?.tag, text: t?.text, component: t?.component?.name, at: n.at };
+    return {
+      id: n.id,
+      n: n.n,
+      status: n.status,
+      ...(n.lane === "bg" ? { lane: "bg" } : {}),
+      selector: t?.selector,
+      tag: t?.tag,
+      text: t?.text,
+      component: t?.component?.name,
+      at: n.at,
+    };
   });
 
 function toPage(msg) {
@@ -54,7 +64,9 @@ function onMessage(msg) {
         break;
       }
       const n = H.notes.length + 1;
-      const at = note.bounds ? [note.bounds.x + note.viewport.scrollX, note.bounds.y + note.viewport.scrollY] : undefined;
+      const at = note.bounds
+        ? [note.bounds.x + note.viewport.scrollX, note.bounds.y + note.viewport.scrollY]
+        : undefined;
       H.notes.push({ ...note, n, at, status: "queued", prompt: notePrompt(note, n, { images: 2 }) });
       H.draft = null;
       // A real host takes the screenshot here, then confirms.
@@ -151,7 +163,11 @@ $("width").addEventListener("change", (e) => {
 window.addEventListener("keydown", (e) => {
   // mod+U, P, O, I and mod+shift+P while the harness itself has the keyboard; inside the page the overlay has them.
   if (!(isMac ? e.metaKey : e.ctrlKey) || e.altKey) return;
-  const want = e.shiftKey ? (e.code === "KeyP" ? "brush" : undefined) : { KeyU: "preview", KeyP: "notes", KeyO: "canvas", KeyI: "motion" }[e.code];
+  const want = e.shiftKey
+    ? e.code === "KeyP"
+      ? "brush"
+      : undefined
+    : { KeyU: "preview", KeyP: "notes", KeyO: "canvas", KeyI: "motion" }[e.code];
   if (!want) return;
   e.preventDefault();
   if (want === "preview") return setEnabled(!H.enabled);

@@ -209,7 +209,12 @@ export type NoteRow = {
 }
 
 /** A file the working tree has changed since the last commit. */
-export type RepoChange = { file: string; additions: number; deletions: number; status: "added" | "deleted" | "modified" }
+export type RepoChange = {
+  file: string
+  additions: number
+  deletions: number
+  status: "added" | "deleted" | "modified"
+}
 
 /** A named point in a conversation to go back to. */
 export type Checkpoint = { id: string; session: string; name: string; time: number }
@@ -536,7 +541,12 @@ export type Backend = {
   sessions(directory: string, archived?: boolean): Promise<SessionSummary[]>
   /** Resolves `null` when the session no longer exists. */
   session(id: string): Promise<SessionSummary | null>
-  createSession(input: { directory: string; model?: ModelRef; title?: string; parent?: string }): Promise<SessionSummary>
+  createSession(input: {
+    directory: string
+    model?: ModelRef
+    title?: string
+    parent?: string
+  }): Promise<SessionSummary>
   setModel(session: string, model: ModelRef): Promise<void>
   setAgent(session: string, agent: string): Promise<void>
 

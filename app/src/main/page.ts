@@ -15,7 +15,14 @@ import type { HostMessage, PageMessage } from "../../../overlay/protocol"
 import type { Rect } from "../shared/types"
 import type { Frame } from "./images"
 
-export type PageState = { url: string; loading: boolean; error?: string; canGoBack: boolean; canGoForward: boolean; hmr: boolean }
+export type PageState = {
+  url: string
+  loading: boolean
+  error?: string
+  canGoBack: boolean
+  canGoForward: boolean
+  hmr: boolean
+}
 
 /** overlay → host, as the overlay's protocol has it. What arrives is only known to have one of
  *  its types (PAGE_EVENTS below): its fields are the page's to fill, and are checked where used. */
@@ -67,7 +74,17 @@ type Options = {
   log(level: "info" | "warn" | "error", msg: string, data?: unknown): void
 }
 
-const PAGE_EVENTS = new Set(["ready", "toggle", "mode", "draft", "note", "pins-placement", "pin", "edits-shown", "frame-shown"])
+const PAGE_EVENTS = new Set([
+  "ready",
+  "toggle",
+  "mode",
+  "draft",
+  "note",
+  "pins-placement",
+  "pin",
+  "edits-shown",
+  "frame-shown",
+])
 /** After a note finishes, give the dev server a moment to write and rebuild before reloading. */
 const RELOAD_DELAY = 400
 const BUSY_RETRY = 700
@@ -179,7 +196,12 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       const real = since !== undefined && since <= ENTER_WINDOW
       enterAt = clickAt = 0
       if (!real) {
-        if (!forgeryLogged) log("warn", "page: dropped a note that no Enter key press or click came with (sent by the page's own script?)", { url, msSinceInput: since })
+        if (!forgeryLogged)
+          log(
+            "warn",
+            "page: dropped a note that no Enter key press or click came with (sent by the page's own script?)",
+            { url, msSinceInput: since },
+          )
         forgeryLogged = true // once per page load: a hostile page would call it in a loop
         // The reviewer's own note can be late too (a page that stalls for a second after Enter).
         // The overlay is told, so the note does not look sent; it ignores an id it is not
@@ -401,7 +423,12 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     forward: () => history.canGoForward() && navigate(() => history.goForward()),
     setBounds(b) {
       if (!b) return view.setVisible(false)
-      view.setBounds({ x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height) })
+      view.setBounds({
+        x: Math.round(b.x),
+        y: Math.round(b.y),
+        width: Math.round(b.width),
+        height: Math.round(b.height),
+      })
       view.setVisible(true)
     },
     send,

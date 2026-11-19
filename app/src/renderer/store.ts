@@ -229,11 +229,7 @@ export const [runningOpen, setRunningOpen] = createSignal(false)
 export type NoteShown = AppState["review"]["notes"][number]["status"] | "paused" | "stopped"
 /** "stopped": it ended because the reviewer stopped the agent or set it aside, not a failure. */
 export const noteShown = (note: AppState["review"]["notes"][number]): NoteShown =>
-  note.status === "failed" && note.stopped
-    ? "stopped"
-    : note.status === "working" && offline()
-      ? "paused"
-      : note.status
+  note.status === "failed" && note.stopped ? "stopped" : note.status === "working" && offline() ? "paused" : note.status
 
 /** The one count of the notes every place shows (top bar, list header): all from
  *  `state.review.notes`, so they cannot disagree. `left` is everything not finished, failed

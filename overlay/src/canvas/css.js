@@ -7,7 +7,10 @@ const DESCRIPTORS = /^@(font-face|property|counter-style|page|font-palette-value
 function scanCss(text) {
   const segs = [];
   const ctx = [];
-  let depth = 0, start = 0, paren = 0, ok = true;
+  let depth = 0,
+    start = 0,
+    paren = 0,
+    ok = true;
   for (let i = 0; i <= text.length; i++) {
     const ch = text[i];
     if (ch === "/" && text[i + 1] === "*") {
@@ -26,7 +29,14 @@ function scanCss(text) {
     const t = seg.replace(/\/\*[\s\S]*?(\*\/|$)/g, "").trim();
     if (t) {
       const s = start + seg.length - seg.trimStart().length;
-      segs.push({ s, e: start + seg.trimEnd().length, text: t, depth, head: ch === "{", raw: ctx.some((c) => DESCRIPTORS.test(c)) });
+      segs.push({
+        s,
+        e: start + seg.trimEnd().length,
+        text: t,
+        depth,
+        head: ch === "{",
+        raw: ctx.some((c) => DESCRIPTORS.test(c)),
+      });
     }
     start = i + 1;
     if (ch === "{") {
@@ -79,7 +89,12 @@ export function problems(text, sheet) {
     }
     if (why) out.push({ s: g.s, e: g.e, why });
   }
-  if (!balanced) out.push({ s: Math.max(0, text.length - 1), e: text.length, why: "unbalanced braces: the last complete version stays applied" });
+  if (!balanced)
+    out.push({
+      s: Math.max(0, text.length - 1),
+      e: text.length,
+      why: "unbalanced braces: the last complete version stays applied",
+    });
   return out;
 }
 
@@ -101,7 +116,14 @@ export function topProps(css) {
   for (const g of scanCss(css).segs) {
     if (g.depth || g.head) continue;
     const d = declOf(g.text);
-    if (d && d.value && d.prop.length <= 100 && (d.prop.startsWith("--") || supports(d.prop, d.value)) && !out.includes(d.prop)) out.push(d.prop);
+    if (
+      d &&
+      d.value &&
+      d.prop.length <= 100 &&
+      (d.prop.startsWith("--") || supports(d.prop, d.value)) &&
+      !out.includes(d.prop)
+    )
+      out.push(d.prop);
   }
   return out.slice(0, 40);
 }
@@ -115,7 +137,8 @@ export function varsIn(css, prop) {
     if (d && d.prop === prop) value = d.value;
   }
   const out = [];
-  for (const m of value.matchAll(/var\(\s*(--[a-zA-Z0-9_-]{1,60})\s*[,)]/g)) if (!out.includes(m[1]) && out.length < 4) out.push(m[1]);
+  for (const m of value.matchAll(/var\(\s*(--[a-zA-Z0-9_-]{1,60})\s*[,)]/g))
+    if (!out.includes(m[1]) && out.length < 4) out.push(m[1]);
   return out;
 }
 
@@ -127,4 +150,3 @@ export function setDecl(css, prop, value) {
   const t = css.replace(/\s+$/, "");
   return `${t ? `${/[;}]$/.test(t) ? t : `${t};`}\n` : ""}${prop}: ${value};`;
 }
-

@@ -7,7 +7,23 @@ import { hostFrame, showPin } from "./picture.js";
 import * as Canvas from "./canvas/api.js";
 import * as Motion from "./motion/api.js";
 import { hostMode, retellMode } from "./mode.js";
-import { blockIfActive, endPeek, isOurs, LEFT_FOR_US, leftForUs, onKeyDown, onKeyUp, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, OURS_ONLY, oursOnly, setEnabled, setPins } from "./input.js";
+import {
+  blockIfActive,
+  endPeek,
+  isOurs,
+  LEFT_FOR_US,
+  leftForUs,
+  onKeyDown,
+  onKeyUp,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+  OURS_ONLY,
+  oursOnly,
+  setEnabled,
+  setPins,
+} from "./input.js";
 import { active, kick, moved } from "./render.js";
 import STYLES from "./styles.css"; // its text: the build loads a stylesheet as a string
 
@@ -34,7 +50,8 @@ function seat() {
   } catch {
     // Not connected yet, or no popover support: it stays a fixed layer with the top z-index.
   }
-  if ((typing || (S.card && S.enabled)) && root.activeElement !== Notes.textarea) Notes.textarea.focus({ preventScroll: true });
+  if ((typing || (S.card && S.enabled)) && root.activeElement !== Notes.textarea)
+    Notes.textarea.focus({ preventScroll: true });
 }
 
 function raise() {
@@ -48,13 +65,17 @@ function raise() {
 }
 
 /** A mutation record that adds or removes an element (a text node coming or going is a text). */
-const addsOrRemoves = (r) => r.type === "childList" && [...r.addedNodes, ...r.removedNodes].some((n) => n.nodeType === 1);
+const addsOrRemoves = (r) =>
+  r.type === "childList" && [...r.addedNodes, ...r.removedNodes].some((n) => n.nodeType === 1);
 
 function mount() {
   if (hostEl && hostEl.isConnected) return;
   hostEl = document.createElement("b42-review");
   hostEl.setAttribute("popover", "manual");
-  hostEl.setAttribute("style", "all:initial;position:fixed;inset:0;z-index:2147483647;pointer-events:none;display:block");
+  hostEl.setAttribute(
+    "style",
+    "all:initial;position:fixed;inset:0;z-index:2147483647;pointer-events:none;display:block",
+  );
   root = hostEl.attachShadow({ mode: "open" });
   // The peek's end first, before any mode's listeners: edit mode stops every keyup of the page's
   // at the window (canvas/mount.js), and the peek must still hear its keys let go. Let go
@@ -90,7 +111,12 @@ function mount() {
   // document leaves the top layer) or opened or closed a modal dialog: seat it again then.
   // Any other change leaves it where it is, and the document is not searched for dialogs.
   new MutationObserver((records) => {
-    if (!hostEl.isConnected || (hostEl.showPopover && !hostEl.matches(":popover-open")) || records.some((r) => r.type === "attributes")) seat();
+    if (
+      !hostEl.isConnected ||
+      (hostEl.showPopover && !hostEl.matches(":popover-open")) ||
+      records.some((r) => r.type === "attributes")
+    )
+      seat();
     // (Before any batch is applied again: this observer was made first, so it is told first.)
     Canvas.treeChanged(records);
     domVersion++;
@@ -100,7 +126,12 @@ function mount() {
     // still needs its one frame, which hides all but the chosen option, review on or off.
     if (S.enabled || S.pins.length) moved();
     else if (tree) kick();
-  }).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributeFilter: ["open"] });
+  }).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributeFilter: ["open"],
+  });
   // Something of the page's entered the top layer after us: go back on top of it.
   window.addEventListener(
     "toggle",

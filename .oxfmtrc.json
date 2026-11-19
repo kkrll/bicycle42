@@ -1,0 +1,9 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 120,
+  "semi": false,
+  "embeddedLanguageFormatting": "off",
+  "sortPackageJson": false,
+  "ignorePatterns": ["**/*.md", "**/*.css", "**/*.html", "**/fixtures/**", "**/bun.lock", "overlay/overlay.js", "overlay/src/canvas/css-data.js"],
+  "overrides": [{ "files": ["overlay/**"], "options": { "semi": true } }]
+}

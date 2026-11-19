@@ -7,13 +7,36 @@ import { chatCue, cueFor, hear, type Heard } from "../src/renderer/cues"
 import type { AppState, ChatEvent, NoteRow, NoteStatus } from "../src/shared/types"
 
 const S = "ses_1"
-const note = (id: string, status: NoteStatus, more: Partial<NoteRow> = {}): NoteRow => ({ id, n: 1, text: "", status, lane: "main", ...more })
+const note = (id: string, status: NoteStatus, more: Partial<NoteRow> = {}): NoteRow => ({
+  id,
+  n: 1,
+  text: "",
+  status,
+  lane: "main",
+  ...more,
+})
 
-function state(over: { busy?: boolean; notes?: NoteRow[]; asks?: string[]; questions?: string[]; link?: AppState["connection"]["status"]; session?: string } = {}): AppState {
+function state(
+  over: {
+    busy?: boolean
+    notes?: NoteRow[]
+    asks?: string[]
+    questions?: string[]
+    link?: AppState["connection"]["status"]
+    session?: string
+  } = {},
+): AppState {
   const url = "http://127.0.0.1:4096"
   const link = over.link ?? "online"
   return {
-    connection: link === "online" ? { status: link, url, version: "2" } : link === "offline" ? { status: link, url, error: "gone" } : link === "connecting" ? { status: link, url } : { status: link },
+    connection:
+      link === "online"
+        ? { status: link, url, version: "2" }
+        : link === "offline"
+          ? { status: link, url, error: "gone" }
+          : link === "connecting"
+            ? { status: link, url }
+            : { status: link },
     page: { url: "http://localhost:3000/", loading: false, canGoBack: false, canGoForward: false, hmr: false },
     review: { enabled: true, mode: "notes", brush: false, autoReload: false, notes: over.notes ?? [], unplaced: 0 },
     site: { origin: "http://localhost:3000", directory: "/code" },
@@ -41,34 +64,48 @@ function cues(...states: AppState[]) {
 }
 
 test("question: a permission or a question that was not there; not the one still waiting, not one answered", () => {
-  assert.deepEqual(cues(state({ busy: true }), state({ busy: true, asks: ["a"] }), state({ busy: true, asks: ["a"] }), state({ busy: true, asks: ["a"], questions: ["a"] }), state({ busy: true, questions: ["a"] })), [
-    "question",
-    null,
-    "question",
-    null,
-  ])
+  assert.deepEqual(
+    cues(
+      state({ busy: true }),
+      state({ busy: true, asks: ["a"] }),
+      state({ busy: true, asks: ["a"] }),
+      state({ busy: true, asks: ["a"], questions: ["a"] }),
+      state({ busy: true, questions: ["a"] }),
+    ),
+    ["question", null, "question", null],
+  )
   // already waiting when the window opens: not announced
   assert.deepEqual(cues(state({ asks: ["a"] }), state({ asks: ["a"] })), [null])
 })
 
 test("negative: the server was online and is not; connecting between tries is not a second loss", () => {
-  assert.deepEqual(cues(state(), state({ link: "offline" }), state({ link: "connecting" }), state({ link: "offline" }), state(), state({ link: "connecting" }), state({ link: "offline" })), [
-    "negative",
-    null,
-    null,
-    null,
-    null,
-    "negative",
-  ])
+  assert.deepEqual(
+    cues(
+      state(),
+      state({ link: "offline" }),
+      state({ link: "connecting" }),
+      state({ link: "offline" }),
+      state(),
+      state({ link: "connecting" }),
+      state({ link: "offline" }),
+    ),
+    ["negative", null, null, null, null, "negative"],
+  )
   // a server that was never reached is not lost
-  assert.deepEqual(cues(state({ link: "unconfigured" }), state({ link: "connecting" }), state({ link: "offline" })), [null, null])
+  assert.deepEqual(cues(state({ link: "unconfigured" }), state({ link: "connecting" }), state({ link: "offline" })), [
+    null,
+    null,
+  ])
 })
 
 test("negative: a note fails; one the reviewer stopped is a hush, and neither is followed by routine", () => {
   const run = cues(
     state({ busy: true, notes: [note("1", "working"), note("2", "queued")] }),
     state({ busy: true, notes: [note("1", "failed", { error: "no credit" }), note("2", "working")] }),
-    state({ busy: false, notes: [note("1", "failed", { error: "no credit" }), note("2", "failed", { stopped: true })] }),
+    state({
+      busy: false,
+      notes: [note("1", "failed", { error: "no credit" }), note("2", "failed", { stopped: true })],
+    }),
   )
   assert.deepEqual(run, ["negative", "hush"])
 })
@@ -89,21 +126,48 @@ test("routine: the run ends, or the last note on its way is done; once, not per 
     [null, null, null, null, "routine"],
   )
   // a background note finishing while the open conversation was never busy
-  assert.deepEqual(cues(state({ notes: [note("1", "working", { lane: "bg" })] }), state({ notes: [note("1", "done", { lane: "bg" })] })), ["routine"])
+  assert.deepEqual(
+    cues(
+      state({ notes: [note("1", "working", { lane: "bg" })] }),
+      state({ notes: [note("1", "done", { lane: "bg" })] }),
+    ),
+    ["routine"],
+  )
 })
 
 test("no sound for what the reviewer did: a waiting note removed, the list cleared, another conversation", () => {
   assert.deepEqual(cues(state({ notes: [note("1", "queued")] }), state()), [null])
-  assert.deepEqual(cues(state({ busy: true, notes: [note("1", "working")] }), state({ busy: false, session: "ses_2" })), [null])
+  assert.deepEqual(
+    cues(state({ busy: true, notes: [note("1", "working")] }), state({ busy: false, session: "ses_2" })),
+    [null],
+  )
   // …and what waits in the conversation just opened is not news either
   assert.deepEqual(cues(state(), state({ session: "ses_2", asks: ["a"], notes: [note("9", "failed")] })), [null])
 })
 
 test("chat: a run's failure line is negative, a stop's is a hush, anything else nothing", () => {
-  const item = (more: object): ChatEvent => ({ type: "item", session: S, item: { kind: "marker", id: "m", time: 1, text: "", tone: "error", ...more } })
+  const item = (more: object): ChatEvent => ({
+    type: "item",
+    session: S,
+    item: { kind: "marker", id: "m", time: 1, text: "", tone: "error", ...more },
+  })
   assert.equal(chatCue(item({ text: "Failed: no credit", failed: true })), "negative")
   assert.equal(chatCue(item({ text: "Stopped" })), "hush")
   assert.equal(chatCue(item({ text: "Model changed to sonnet", tone: "info" })), null)
-  assert.equal(chatCue({ type: "reset", session: S, items: [{ kind: "marker", id: "m", time: 1, text: "Failed: old", tone: "error", failed: true }] }), null)
-  assert.equal(chatCue({ type: "item", session: S, item: { kind: "assistant", id: "a", time: 1, parts: [], done: true, error: "x" } }), null)
+  assert.equal(
+    chatCue({
+      type: "reset",
+      session: S,
+      items: [{ kind: "marker", id: "m", time: 1, text: "Failed: old", tone: "error", failed: true }],
+    }),
+    null,
+  )
+  assert.equal(
+    chatCue({
+      type: "item",
+      session: S,
+      item: { kind: "assistant", id: "a", time: 1, parts: [], done: true, error: "x" },
+    }),
+    null,
+  )
 })

@@ -1,7 +1,21 @@
 import { line } from "../page.js";
 import { C, clean, MAX_CSS } from "./state.js";
 import { CSS_PROPS } from "./css-data.js";
-import { caretContext, isNumber, matches, propNames, scaleOf, step, valueContext, valuesAt, valuesOf, varToken, wants, WIDE, withVars } from "./suggest-model.js";
+import {
+  caretContext,
+  isNumber,
+  matches,
+  propNames,
+  scaleOf,
+  step,
+  valueContext,
+  valuesAt,
+  valuesOf,
+  varToken,
+  wants,
+  WIDE,
+  withVars,
+} from "./suggest-model.js";
 import { sizeOf, tokensOf } from "./tokens.js";
 import { entry } from "./stamps.js";
 import { setDecl, supports } from "./css.js";
@@ -33,11 +47,13 @@ const L = {
   prop: "", // the property whose values these are
   items: [],
   on: 0, // the highlighted item
-  s: 0, e: 0, // the token in the field that an item replaces
+  s: 0,
+  e: 0, // the token in the field that an item replaces
   colon: false, // a name that already has its colon: only the name is replaced
   vars: new Map(), // var(--name) → its value, for the variables in the list
   live: false, // an item is being shown on the page in place of what was typed
-  typed: "", caret: 0, // what was typed there, and where the caret was: Escape puts them back
+  typed: "",
+  caret: 0, // what was typed there, and where the caret was: Escape puts them back
   css: "", // (a computed row) the element's styles before the first item was shown
   was: "", // (a computed row) the value the row had then
   raf: 0,
@@ -139,22 +155,24 @@ function show(f, asked) {
 
 function draw() {
   const colour = L.kind === "value";
-  listEl.replaceChildren(...L.items.map((it, i) => {
-    const row = document.createElement("div");
-    row.className = i === L.on ? "sg on" : "sg";
-    row.id = `b42-sg-${i}`;
-    row.setAttribute("role", "option");
-    row.setAttribute("aria-selected", String(i === L.on));
-    const v = colour ? L.vars.get(it) : undefined;
-    if (colour && isColour(v ?? it)) row.appendChild(document.createElement("i")).style.background = v ?? it;
-    row.append(it); // text, never markup
-    if (v !== undefined) {
-      const at = row.appendChild(document.createElement("span"));
-      at.className = "tv";
-      at.textContent = v.length > 40 ? `${v.slice(0, 39)}…` : v;
-    }
-    return row;
-  }));
+  listEl.replaceChildren(
+    ...L.items.map((it, i) => {
+      const row = document.createElement("div");
+      row.className = i === L.on ? "sg on" : "sg";
+      row.id = `b42-sg-${i}`;
+      row.setAttribute("role", "option");
+      row.setAttribute("aria-selected", String(i === L.on));
+      const v = colour ? L.vars.get(it) : undefined;
+      if (colour && isColour(v ?? it)) row.appendChild(document.createElement("i")).style.background = v ?? it;
+      row.append(it); // text, never markup
+      if (v !== undefined) {
+        const at = row.appendChild(document.createElement("span"));
+        at.className = "tv";
+        at.textContent = v.length > 40 ? `${v.slice(0, 39)}…` : v;
+      }
+      return row;
+    }),
+  );
   listEl.setAttribute("aria-label", L.kind === "name" ? "CSS properties" : `Values of ${L.prop}`);
   listEl.scrollTop = 0;
   if (listEl.hidden) {
@@ -176,7 +194,9 @@ function place() {
     const f = L.field;
     if (!f) return;
     const box = f.getBoundingClientRect();
-    let left = box.left, top = box.top, bottom = box.bottom;
+    let left = box.left,
+      top = box.top,
+      bottom = box.bottom;
     const at = isVal(f) ? null : caretRect(f, L.s);
     if (at) {
       left = at.left;
@@ -184,7 +204,10 @@ function place() {
       top = Math.min(Math.max(at.top, box.top), box.bottom);
       bottom = Math.min(Math.max(at.bottom, box.top), box.bottom);
     }
-    const w = listEl.offsetWidth, h = listEl.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
+    const w = listEl.offsetWidth,
+      h = listEl.offsetHeight,
+      vw = window.innerWidth,
+      vh = window.innerHeight;
     const y = bottom + 3 + h <= vh - 4 ? bottom + 3 : top - 3 - h >= 4 ? top - 3 - h : Math.max(4, vh - 4 - h);
     const x = Math.max(4, Math.min(left - (at ? 12 : 8), vw - 4 - w)); // (less the padding: the rows' text starts where the token does)
     listEl.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
@@ -198,7 +221,8 @@ function caretRect(area, offset) {
   const layer = area.previousElementSibling;
   if (!layer || layer.textContent !== `${area.value}\n`) return null;
   const walk = document.createTreeWalker(layer, NodeFilter.SHOW_TEXT);
-  let n, left = offset;
+  let n,
+    left = offset;
   while ((n = walk.nextNode())) {
     const len = n.nodeValue.length;
     if (left < len) {
@@ -216,7 +240,8 @@ function caretRect(area, offset) {
 function highlight(i) {
   const n = L.items.length;
   const to = ((i % n) + n) % n;
-  const was = listEl.children[L.on], row = listEl.children[to];
+  const was = listEl.children[L.on],
+    row = listEl.children[to];
   if (was) {
     was.classList.remove("on");
     was.setAttribute("aria-selected", "false");
@@ -226,7 +251,8 @@ function highlight(i) {
   row.setAttribute("aria-selected", "true");
   L.field.setAttribute("aria-activedescendant", row.id);
   // Into view, by the list's own scroll only (scrollIntoView may move the page under the layer).
-  const top = /** @type {HTMLElement} */ (row).offsetTop, h = /** @type {HTMLElement} */ (row).offsetHeight;
+  const top = /** @type {HTMLElement} */ (row).offsetTop,
+    h = /** @type {HTMLElement} */ (row).offsetHeight;
   if (top < listEl.scrollTop + 4) listEl.scrollTop = top - 4;
   else if (top + h > listEl.scrollTop + listEl.clientHeight - 4) listEl.scrollTop = top + h - listEl.clientHeight + 4;
   if (L.kind === "value") preview(L.items[to]);
@@ -249,7 +275,9 @@ function close() {
 /** A computed row's value on the page as it stands in the field, without closing an undo step
  *  (setValue does the same and closes one). What the browser does not take is not written. */
 function writeValue(f) {
-  const row = f.parentElement, p = row._p, v = line(clean(f.value));
+  const row = f.parentElement,
+    p = row._p,
+    v = line(clean(f.value));
   if (!C.sel || !p || !v || !supports(p, v)) return;
   const en = entry(C.sel);
   const css = setDecl(en.css, p, v);
@@ -309,7 +337,10 @@ function restore() {
 }
 
 function accept(i) {
-  const f = L.field, item = L.items[i], s = L.s, e = L.e;
+  const f = L.field,
+    item = L.items[i],
+    s = L.s,
+    e = L.e;
   if (!f || item === undefined) return;
   if (L.kind === "name") {
     const colon = L.colon;
@@ -368,10 +399,17 @@ function cycle(f, dir) {
  *  live, and at either end nothing. The key is taken either way: the digits of a name are no number. */
 function walk(f, v, dir, area) {
   const lead = isVal(f) ? `${f.parentElement._p}:` : "";
-  const ctx = isVal(f) ? caretContext(lead + f.value, lead.length + v.s, false) : caretContext(f.value, v.s, f === freeEl);
+  const ctx = isVal(f)
+    ? caretContext(lead + f.value, lead.length + v.s, false)
+    : caretContext(f.value, v.s, f === freeEl);
   if (ctx.kind !== "value") return true;
   const host = /** @type {ShadowRoot} */ (listEl.getRootNode());
-  const scale = scaleOf(tokensFor(f), v.name, (value) => fits(ctx.prop, value), (value) => sizeOf(value, host));
+  const scale = scaleOf(
+    tokensFor(f),
+    v.name,
+    (value) => fits(ctx.prop, value),
+    (value) => sizeOf(value, host),
+  );
   const next = scale[scale.indexOf(v.name) + dir];
   if (!next) return true;
   const text = `var(${next})`;
@@ -392,7 +430,8 @@ function walk(f, v, dir, area) {
  *  on a selected one). False for everything else, ↑/↓ on a number among it (keys.js steps those). */
 export function suggestKey(e, field) {
   if (!ours(field) || e.isComposing) return false;
-  const k = e.key, plain = !e.ctrlKey && !e.metaKey && !e.altKey;
+  const k = e.key,
+    plain = !e.ctrlKey && !e.metaKey && !e.altKey;
   const arrow = k === "ArrowDown" ? 1 : k === "ArrowUp" ? -1 : 0;
   if (L.field && L.field !== field) close();
   if (L.field) {
@@ -408,7 +447,14 @@ export function suggestKey(e, field) {
     if ((k === "Enter" || k === "Tab") && plain && !e.shiftKey) {
       // In a text box, Enter after a whole keyword that longer ones start with (`flex`, with
       // `inline-flex` under it) is the new line it is everywhere else: there is nothing to take.
-      if (k === "Enter" && !isVal(field) && L.kind === "value" && !L.live && L.on === 0 && field.value.slice(L.s, L.e).toLowerCase() === L.items[0]) {
+      if (
+        k === "Enter" &&
+        !isVal(field) &&
+        L.kind === "value" &&
+        !L.live &&
+        L.on === 0 &&
+        field.value.slice(L.s, L.e).toLowerCase() === L.items[0]
+      ) {
         close();
         return false;
       }
@@ -424,7 +470,11 @@ export function suggestKey(e, field) {
     // goes, what it showed stays.
     // (With mod: undo and the like change the text under the list. A modifier alone is no key yet.
     // ↑/↓ get here with shift, which selects: the highlight is moved by the plain ones only.)
-    if ((!plain && !/^(Control|Meta|Alt|Shift)$/.test(k)) || /^(Enter|Tab|Arrow(Left|Right|Up|Down)|Home|End|PageUp|PageDown)$/.test(k)) close();
+    if (
+      (!plain && !/^(Control|Meta|Alt|Shift)$/.test(k)) ||
+      /^(Enter|Tab|Arrow(Left|Right|Up|Down)|Home|End|PageUp|PageDown)$/.test(k)
+    )
+      close();
     return false;
   }
   if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && (e.code === "Space" || k === " ")) {
@@ -490,7 +540,8 @@ export function attachSuggest(els) {
   compEl.addEventListener("mousedown", (e) => isVal(e.target) && close());
   // The list is not in the inspector (which would cut it off), so it keeps its own events from
   // the page, as the inspector does. A press on an item takes it, and leaves the focus alone.
-  for (const t of ["click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup", "wheel"]) listEl.addEventListener(t, (e) => e.stopPropagation());
+  for (const t of ["click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup", "wheel"])
+    listEl.addEventListener(t, (e) => e.stopPropagation());
   listEl.addEventListener("mousedown", (/** @type {MouseEvent} */ e) => {
     e.preventDefault();
     const row = /** @type {Element} */ (e.target).closest(".sg");

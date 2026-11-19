@@ -47,10 +47,7 @@ export function drawBar() {
   const f = root.activeElement;
   const inField = f === clsEl || f === cssEl || f === freeEl;
   const busyNote = f === cnote || !!cnote.value; // words being typed are not covered by a status line
-  const msg = !C.on ? ""
-    : C.msg || (C.edit ? "Editing text"
-    : busyNote && n ? ""
-    : C.done || (n ? "" : sentStatus())); // state only: the bar carries no standing instructions (the "?" has the keys)
+  const msg = !C.on ? "" : C.msg || (C.edit ? "Editing text" : busyNote && n ? "" : C.done || (n ? "" : sentStatus())); // state only: the bar carries no standing instructions (the "?" has the keys)
   tellMode();
   const key = [C.on, n, msg, C.past.length, C.future.length, dock(), inField, C.pop].join("|");
   if (key === bar._key) return;
@@ -65,7 +62,11 @@ export function drawBar() {
   count.hidden = !C.on && !n;
   count.disabled = C.on && !n;
   count.firstChild.textContent = C.on ? (n ? `${n} edit${s}` : "No edits") : `${n} unsent edit${s}`;
-  count.title = C.on ? (n ? "Show what is in this batch" : "Nothing edited yet") : "Back to edit mode, where these edits can be sent";
+  count.title = C.on
+    ? n
+      ? "Show what is in this batch"
+      : "Nothing edited yet"
+    : "Back to edit mode, where these edits can be sent";
   count.classList.toggle("open", C.pop === "list");
   for (const b of [$(".undo"), $(".redo"), $(".reset"), $(".bsend")]) b.hidden = !C.on;
   corner.style.bottom = bar.style.bottom; // the "?" keeps to the bar's row, in the corner
@@ -80,14 +81,18 @@ export function drawBar() {
   m.title = msg;
   m.classList.toggle("warn", !!C.msg);
   // The button says which key does the same from where the keyboard is now.
-  $(".bsend").title = n ? `Send ${n === 1 ? "this edit" : `these ${n} edits`} as one note (${inField ? (isMac ? "⌘" : "ctrl+") : ""}↵)` : "Nothing to send yet";
+  $(".bsend").title = n
+    ? `Send ${n === 1 ? "this edit" : `these ${n} edits`} as one note (${inField ? (isMac ? "⌘" : "ctrl+") : ""}↵)`
+    : "Nothing to send yet";
   $(".bsend").disabled = !n;
 }
 
 // ── the bar's lists: what is in the batch, and the keys ─────────────────────────────────────
 const HELP = () => {
   // A Mac writes a chord without "+" (⌘⇧Z), everyone else with it (ctrl+shift+Z).
-  const m = isMac ? "⌘" : "ctrl+", sh = isMac ? "⇧" : "shift+", alt = isMac ? "⌥" : "alt+";
+  const m = isMac ? "⌘" : "ctrl+",
+    sh = isMac ? "⇧" : "shift+",
+    alt = isMac ? "⌥" : "alt+";
   if (!C.on)
     return [
       ["click", `select · ${isMac ? "⇧ click" : "shift+click"} adds`],
@@ -110,7 +115,10 @@ const HELP = () => {
     ["double-click text", "edit it · ↵ keep, esc revert"],
     ["Delete", "hide the selection · a copy: take it out"],
     [`${m}D`, "duplicate the selection: a copy right after it"],
-    ["↑ ↓ in a computed value", `step its number · ${sh.replace("+", "")} 10, ${alt.replace("+", "")} 0.1, ${m.replace("+", "")} 100 · a keyword: the one before, after`],
+    [
+      "↑ ↓ in a computed value",
+      `step its number · ${sh.replace("+", "")} 10, ${alt.replace("+", "")} 0.1, ${m.replace("+", "")} 100 · a keyword: the one before, after`,
+    ],
     ["double-click a number or keyword in the style boxes, then ↑ ↓", "the same there"],
     ["drag a computed value's name", "change its number"],
     ["typing CSS · ctrl Space", "suggestions · ↑ ↓ show on the page, ↵ take, esc put back"],
@@ -131,7 +139,10 @@ function changesFor(entries) {
     for (const [rs, list] of props) {
       const el = elOf(rs);
       const cs = el && getComputedStyle(el);
-      vals.set(rs, list.map((p) => (cs ? value(cs.getPropertyValue(p)) : "")));
+      vals.set(
+        rs,
+        list.map((p) => (cs ? value(cs.getPropertyValue(p)) : "")),
+      );
     }
     return vals;
   };
@@ -143,27 +154,50 @@ function changesFor(entries) {
   C.draft.id = "draft";
   applyAll();
   const after = read();
-  return new Map(entries.map((e) => [e.rs, props.get(e.rs).map((prop, i) => ({ prop, from: before.get(e.rs)[i], to: after.get(e.rs)[i] }))]));
+  return new Map(
+    entries.map((e) => [
+      e.rs,
+      props.get(e.rs).map((prop, i) => ({ prop, from: before.get(e.rs)[i], to: after.get(e.rs)[i] })),
+    ]),
+  );
 }
 
 /** The unsent batch in plain words, one row per edit. */
 function editRows() {
-  const B = C.draft.B, entries = Object.values(B.els), rows = [];
+  const B = C.draft.B,
+    entries = Object.values(B.els),
+    rows = [];
   const changes = changesFor(entries.filter((e) => e.css.trim()));
   const bare = (v) => v.replace(/(\d)px\b/g, "$1");
   for (const e of entries) {
     if (e.css.trim()) {
       const list = changes.get(e.rs) || [];
       const text = list.length
-        ? list.slice(0, 3).map((c) => `${c.prop} ${bare(c.from)} → ${bare(c.to)}`).join(", ") + (list.length > 3 ? `, and ${list.length - 3} more` : "")
+        ? list
+            .slice(0, 3)
+            .map((c) => `${c.prop} ${bare(c.from)} → ${bare(c.to)}`)
+            .join(", ") + (list.length > 3 ? `, and ${list.length - 3} more` : "")
         : line(e.css).slice(0, 60);
       rows.push({ kind: "style", rs: e.rs, label: e.label, text });
     }
-    if (e.cls) rows.push({ kind: "class", rs: e.rs, label: e.label, text: `class “${line(e.cls.from)}” → “${line(e.cls.to)}”` });
+    if (e.cls)
+      rows.push({ kind: "class", rs: e.rs, label: e.label, text: `class “${line(e.cls.from)}” → “${line(e.cls.to)}”` });
   }
   for (const op of B.ops)
-    rows.push({ kind: op.kind, rs: op.kind === "duplicate" ? op.copy : op.rs, label: op.label, op,
-      text: op.kind === "hide" ? "hidden" : op.kind === "duplicate" ? "duplicated" : op.kind === "move" ? `moved from place ${op.fromIndex + 1} to ${op.toIndex + 1}` : `text “${line(op.from)}” → “${line(op.to)}”` });
+    rows.push({
+      kind: op.kind,
+      rs: op.kind === "duplicate" ? op.copy : op.rs,
+      label: op.label,
+      op,
+      text:
+        op.kind === "hide"
+          ? "hidden"
+          : op.kind === "duplicate"
+            ? "duplicated"
+            : op.kind === "move"
+              ? `moved from place ${op.fromIndex + 1} to ${op.toIndex + 1}`
+              : `text “${line(op.from)}” → “${line(op.to)}”`,
+    });
   if (B.sheet.trim()) {
     const k = splitRules(B.sheet).length;
     rows.push({ kind: "sheet", label: "Stylesheet", text: `${k} rule${k === 1 ? "" : "s"}` });
@@ -199,7 +233,8 @@ export function drawPop() {
   // Two lists, one open at a time: the batch above the bar, the keys above the "?" in the corner.
   const rows = C.pop === "list" ? editRows() : [];
   if (C.pop === "list" && !rows.length) C.pop = "";
-  const list = bar.querySelector(".pop"), keys = corner.querySelector(".pop");
+  const list = bar.querySelector(".pop"),
+    keys = corner.querySelector(".pop");
   list.hidden = C.pop !== "list";
   keys.hidden = C.pop !== "help";
   if (!C.pop) return;
@@ -211,38 +246,42 @@ export function drawPop() {
     return x;
   };
   if (C.pop === "help")
-    pop.replaceChildren(...HELP().map(([k, v]) => {
-      const row = el("div", "hrow");
-      const hk = el("span", "hk"), hv = el("span", "hv");
-      hk.append(keyNodes(k));
-      hv.append(keyNodes(v));
-      row.append(hk, hv);
-      return row;
-    }));
+    pop.replaceChildren(
+      ...HELP().map(([k, v]) => {
+        const row = el("div", "hrow");
+        const hk = el("span", "hk"),
+          hv = el("span", "hv");
+        hk.append(keyNodes(k));
+        hv.append(keyNodes(v));
+        row.append(hk, hv);
+        return row;
+      }),
+    );
   else
-    pop.replaceChildren(...rows.map((r) => {
-      const row = el("div", "erow");
-      const x = el("button", "ex");
-      x.type = "button";
-      x.innerHTML = icon("x", 12);
-      x.title = "Remove this edit";
-      x.setAttribute("aria-label", "Remove this edit");
-      row.append(el("span", "el", r.label), el("span", "et", `— ${r.text}`), x);
-      row.title = `${r.label} — ${r.text}`;
-      row.addEventListener("click", (e) => {
-        if (x.contains(e.target)) return removeEdit(r);
-        if (r.kind === "sheet") {
-          // The stylesheet is the batch's, not an element's: it lives under "Global".
-          C.pin = true;
-          syncFields();
-          return freeEl.focus();
-        }
-        const target = elOf(r.rs);
-        if (!target) return;
-        select(target);
-        target.scrollIntoView({ block: "center", inline: "nearest" });
-      });
-      return row;
-    }));
+    pop.replaceChildren(
+      ...rows.map((r) => {
+        const row = el("div", "erow");
+        const x = el("button", "ex");
+        x.type = "button";
+        x.innerHTML = icon("x", 12);
+        x.title = "Remove this edit";
+        x.setAttribute("aria-label", "Remove this edit");
+        row.append(el("span", "el", r.label), el("span", "et", `— ${r.text}`), x);
+        row.title = `${r.label} — ${r.text}`;
+        row.addEventListener("click", (e) => {
+          if (x.contains(e.target)) return removeEdit(r);
+          if (r.kind === "sheet") {
+            // The stylesheet is the batch's, not an element's: it lives under "Global".
+            C.pin = true;
+            syncFields();
+            return freeEl.focus();
+          }
+          const target = elOf(r.rs);
+          if (!target) return;
+          select(target);
+          target.scrollIntoView({ block: "center", inline: "nearest" });
+        });
+        return row;
+      }),
+    );
 }
-

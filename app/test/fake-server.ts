@@ -73,17 +73,24 @@ export async function start(port = 0): Promise<FakeServer> {
 
     const answer = (reply: FakeReply) => {
       const body = reply.text ?? (reply.json === undefined ? "" : JSON.stringify(reply.json))
-      res.writeHead(reply.status ?? (body ? 200 : 204), { "content-type": reply.text === undefined ? "application/json" : "text/html" })
+      res.writeHead(reply.status ?? (body ? 200 : 204), {
+        "content-type": reply.text === undefined ? "application/json" : "text/html",
+      })
       res.end(body)
     }
 
     if (!request.authorized)
       return answer({ status: 401, json: { _tag: "UnauthorizedError", message: "Authentication required" } })
 
-    const route = routes.find((r) => r.method === request.method && (typeof r.path === "string" ? r.path === request.path : r.path.test(request.path)))
+    const route = routes.find(
+      (r) =>
+        r.method === request.method &&
+        (typeof r.path === "string" ? r.path === request.path : r.path.test(request.path)),
+    )
     if (route) return answer(typeof route.reply === "function" ? route.reply(request) : route.reply)
 
-    if (request.method === "GET" && request.path === "/api/info") return answer({ json: { version: VERSION, hostname: "fake-box.local" } })
+    if (request.method === "GET" && request.path === "/api/info")
+      return answer({ json: { version: VERSION, hostname: "fake-box.local" } })
     // The catalogs of a folder: empty unless a test scripts them.
     if (request.method === "GET" && ["/api/command", "/api/skill", "/api/fs/find"].includes(request.path))
       return answer({ json: { location: { directory: request.query.get("location[directory]") ?? "/" }, data: [] } })

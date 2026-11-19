@@ -109,7 +109,9 @@ async function main() {
 
   const siteServer = http.createServer((req, res) => {
     const name = new URL(req.url ?? "/", "http://x").pathname === "/style.css" ? "style.css" : "index.html"
-    res.writeHead(200, { "content-type": name.endsWith(".css") ? "text/css" : "text/html", "cache-control": "no-store" }).end(fs.readFileSync(path.join(repo, name)))
+    res
+      .writeHead(200, { "content-type": name.endsWith(".css") ? "text/css" : "text/html", "cache-control": "no-store" })
+      .end(fs.readFileSync(path.join(repo, name)))
   })
   await new Promise<void>((resolve) => siteServer.listen(0, "127.0.0.1", resolve))
   const origin = `http://127.0.0.1:${(siteServer.address() as { port: number }).port}`
@@ -123,32 +125,59 @@ async function main() {
     if (!res.ok) throw new Error(`${method} ${route}: ${res.status} ${body.slice(0, 200)}`)
     return body ? (JSON.parse(body) as { data?: unknown }) : {}
   }
-  const directoryOf = async (id: string) => ((await server("GET", `/api/session/${id}`)).data as { location?: { directory?: string } } | undefined)?.location?.directory
+  const directoryOf = async (id: string) =>
+    ((await server("GET", `/api/session/${id}`)).data as { location?: { directory?: string } } | undefined)?.location
+      ?.directory
   /** Every conversation this run made: the ones the app showed, and whatever else is in the folder. */
   const mine = new Set<string>()
   const cleanUp = async () => {
-    const listed = await server("GET", `/api/session?directory=${encodeURIComponent(repo)}`).then((r) => (r.data as { id: string }[]).map((x) => x.id), () => [] as string[])
+    const listed = await server("GET", `/api/session?directory=${encodeURIComponent(repo)}`).then(
+      (r) => (r.data as { id: string }[]).map((x) => x.id),
+      () => [] as string[],
+    )
     const deleted: string[] = []
     for (const id of new Set([...mine, ...listed])) {
       // Only a conversation in the throwaway folder is ever deleted.
       if ((await directoryOf(id).catch(() => undefined)) !== repo) continue
-      await server("DELETE", `/api/session/${id}`).then(() => deleted.push(id), (err) => console.log(`could not delete ${id}: ${err}`))
+      await server("DELETE", `/api/session/${id}`).then(
+        () => deleted.push(id),
+        (err) => console.log(`could not delete ${id}: ${err}`),
+      )
     }
-    const left = await server("GET", `/api/session?directory=${encodeURIComponent(repo)}`).then((r) => (r.data as unknown[]).length, () => -1)
+    const left = await server("GET", `/api/session?directory=${encodeURIComponent(repo)}`).then(
+      (r) => (r.data as unknown[]).length,
+      () => -1,
+    )
     console.log(`deleted conversations: ${deleted.join(", ") || "none"}; left in the folder: ${left}`)
     siteServer.close()
     fs.rmSync(root, { recursive: true, force: true })
     // Chromium writes its own state into the profile once more as it shuts down, after this
     // process can do anything about it: a shell waits for the process to be gone and removes
     // the folder again.
-    spawn("sh", ["-c", 'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; sleep 1; rm -rf -- "$2"', "sh", String(process.pid), root], { detached: true, stdio: "ignore" }).unref()
+    spawn(
+      "sh",
+      [
+        "-c",
+        'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; sleep 1; rm -rf -- "$2"',
+        "sh",
+        String(process.pid),
+        root,
+      ],
+      { detached: true, stdio: "ignore" },
+    ).unref()
   }
 
   let failed = 1
   try {
     fs.writeFileSync(
       path.join(profile, "settings.json"),
-      JSON.stringify({ version: 1, server: { url: local.url, password: `plain:${local.password}` }, lastUrl: pageUrl, defaultModel: model, sites: { [origin]: { directory: repo } } }),
+      JSON.stringify({
+        version: 1,
+        server: { url: local.url, password: `plain:${local.password}` },
+        lastUrl: pageUrl,
+        defaultModel: model,
+        sites: { [origin]: { directory: repo } },
+      }),
     )
     process.env.BICYCLE42_DATA = profile
     process.env.BICYCLE42_TEST = "1"
@@ -161,14 +190,27 @@ async function main() {
     const win = (await until(() => hook.window()))!
     const page = (await until(() => hook.page()))!
     const ui = (code: string) => win.webContents.executeJavaScript(code)
-    const invoke = <T>(name: string, ...args: unknown[]) => ui(`window.b42.invoke(${[name, ...args].map((a) => JSON.stringify(a)).join(", ")})`) as Promise<T>
-    const refused = (name: string, ...args: unknown[]) => invoke(name, ...args).then(() => "", (err: Error) => err.message)
+    const invoke = <T>(name: string, ...args: unknown[]) =>
+      ui(`window.b42.invoke(${[name, ...args].map((a) => JSON.stringify(a)).join(", ")})`) as Promise<T>
+    const refused = (name: string, ...args: unknown[]) =>
+      invoke(name, ...args).then(
+        () => "",
+        (err: Error) => err.message,
+      )
 
     await until(() => state().session, 20_000)
     const SES = state().session?.id ?? ""
     if (SES) mine.add(SES)
-    check("the app opens a conversation of its own in the throwaway repository", !!SES && state().site?.directory === repo && (await directoryOf(SES)) === repo, `${SES} in ${state().site?.directory}`)
-    check("…on the model asked for", state().session?.model?.providerID === model.providerID && state().session?.model?.id === model.id, JSON.stringify(state().session?.model))
+    check(
+      "the app opens a conversation of its own in the throwaway repository",
+      !!SES && state().site?.directory === repo && (await directoryOf(SES)) === repo,
+      `${SES} in ${state().site?.directory}`,
+    )
+    check(
+      "…on the model asked for",
+      state().session?.model?.providerID === model.providerID && state().session?.model?.id === model.id,
+      JSON.stringify(state().session?.model),
+    )
     if (!SES || state().site?.directory !== repo) throw new Error("Not in the throwaway repository: nothing is sent.")
 
     // Permission requests of this run's own conversations are approved, once each; nobody else's.
@@ -197,7 +239,11 @@ async function main() {
     dbg.attach("1.3") // the test's own, for input: the page has none
     const shadow = "document.querySelector('b42-review')?.shadowRoot"
     /** The layer is in the page, answering, and not hidden. */
-    const overlayOn = async () => (await wc.executeJavaScriptInIsolatedWorld(WORLD, [{ code: "!!window.__b42" }]).catch(() => false)) === true && (await js(`(() => { const el = document.querySelector("b42-review"); return !!el && getComputedStyle(el).visibility !== "hidden" })()`)) === true
+    const overlayOn = async () =>
+      (await wc.executeJavaScriptInIsolatedWorld(WORLD, [{ code: "!!window.__b42" }]).catch(() => false)) === true &&
+      (await js(
+        `(() => { const el = document.querySelector("b42-review"); return !!el && getComputedStyle(el).visibility !== "hidden" })()`,
+      )) === true
     await until(overlayOn, 15_000)
     await dbg.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true })
     const mouse = (type: string, x: number, y: number, extra = {}) =>
@@ -218,7 +264,9 @@ async function main() {
     /** Points at an element, types the note and presses Enter, like a reviewer. */
     const note = async (selector: string, words: string) => {
       await until(async () => !state().page.loading && (await overlayOn()), 15_000)
-      const at = (await js(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`)) as { x: number; y: number }
+      const at = (await js(
+        `(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`,
+      )) as { x: number; y: number }
       const open = () => js(`!!${shadow}?.querySelector('.card') && !${shadow}.querySelector('.card').hidden`)
       for (let i = 0; i < 5 && !(await open()); i++) {
         await mouse("mouseMoved", at.x, at.y, { button: "none" })
@@ -258,117 +306,300 @@ async function main() {
       return sum / (bitmap.length / 4)
     }
     /** What the page itself paints, as opposed to what the stylesheet on disk says. */
-    const painted = (selector: string, property: string) => js(`getComputedStyle(document.querySelector(${JSON.stringify(selector)}))[${JSON.stringify(property)}]`) as Promise<string>
-    const shows = (selector: string, property: string, value: string) => until(async () => (await painted(selector, property)) === value, 8000)
+    const painted = (selector: string, property: string) =>
+      js(
+        `getComputedStyle(document.querySelector(${JSON.stringify(selector)}))[${JSON.stringify(property)}]`,
+      ) as Promise<string>
+    const shows = (selector: string, property: string, value: string) =>
+      until(async () => (await painted(selector, property)) === value, 8000)
     const GREY = "rgb(119, 119, 119)"
     const DARK = "rgb(34, 34, 34)"
     const LEAD = "rgb(68, 68, 68)"
     /** The conversation as the window shows it: what the reviewer said, and the checkpoints, in order. */
-    const said = () => ui(`JSON.stringify([...document.querySelectorAll(".user .user-text, .marker.checkpoint .checkpoint-name")].map((el) => el.textContent.trim()))`).then((t) => JSON.parse(t as string) as string[])
-    const info = async () => (await server("GET", `/api/session/${SES}`)).data as { title?: string; revert?: { messageID?: string } }
+    const said = () =>
+      ui(
+        `JSON.stringify([...document.querySelectorAll(".user .user-text, .marker.checkpoint .checkpoint-name")].map((el) => el.textContent.trim()))`,
+      ).then((t) => JSON.parse(t as string) as string[])
+    const info = async () =>
+      (await server("GET", `/api/session/${SES}`)).data as { title?: string; revert?: { messageID?: string } }
 
     // ── 1. a note, and the picture of its area once the agent is done ────────────────────────
     const first = await note("#cta", "make the button green")
-    check("the note is taken, with the picture of its area as it was", !!first && (await until(() => row(first)?.pictures === "before")) === true, JSON.stringify(row(first)))
-    check("the agent finishes the first note", await finished(first), `${row(first)?.status} ${row(first)?.error ?? ""}`)
-    check("…and changed the button in the stylesheet", /background/.test(rule("#cta")) && !rule("#cta").includes("#777777"), rule("#cta").replace(/\s+/g, " "))
-    check("the area is pictured again once the agent is done", (await until(() => row(first)?.pictures === "both", 40_000)) === true, `pictures: ${row(first)?.pictures}`)
+    check(
+      "the note is taken, with the picture of its area as it was",
+      !!first && (await until(() => row(first)?.pictures === "before")) === true,
+      JSON.stringify(row(first)),
+    )
+    check(
+      "the agent finishes the first note",
+      await finished(first),
+      `${row(first)?.status} ${row(first)?.error ?? ""}`,
+    )
+    check(
+      "…and changed the button in the stylesheet",
+      /background/.test(rule("#cta")) && !rule("#cta").includes("#777777"),
+      rule("#cta").replace(/\s+/g, " "),
+    )
+    check(
+      "the area is pictured again once the agent is done",
+      (await until(() => row(first)?.pictures === "both", 40_000)) === true,
+      `pictures: ${row(first)?.pictures}`,
+    )
     const shots = await invoke<{ before?: string; after?: string }>("notePictures", first)
-    check("…and the second picture shows the change", green(shots.after) > green(shots.before) + 5, `green before ${green(shots.before).toFixed(1)}, after ${green(shots.after).toFixed(1)}`)
-    check("the page is back where the reviewer had it, with the layer showing", (await until(() => js(`!document.getElementById("b42-after") && scrollY === 0`))) === true && (await until(overlayOn)) === true, String(await js(`JSON.stringify([!!document.getElementById("b42-after"), scrollY, document.readyState, !!document.querySelector("b42-review")])`)))
-    check("the page shows the change", (await shows("#cta", "backgroundColor", GREY)) === false, await painted("#cta", "backgroundColor"))
+    check(
+      "…and the second picture shows the change",
+      green(shots.after) > green(shots.before) + 5,
+      `green before ${green(shots.before).toFixed(1)}, after ${green(shots.after).toFixed(1)}`,
+    )
+    check(
+      "the page is back where the reviewer had it, with the layer showing",
+      (await until(() => js(`!document.getElementById("b42-after") && scrollY === 0`))) === true &&
+        (await until(overlayOn)) === true,
+      String(
+        await js(
+          `JSON.stringify([!!document.getElementById("b42-after"), scrollY, document.readyState, !!document.querySelector("b42-review")])`,
+        ),
+      ),
+    )
+    check(
+      "the page shows the change",
+      (await shows("#cta", "backgroundColor", GREY)) === false,
+      await painted("#cta", "backgroundColor"),
+    )
 
     // ── 6. the conversation is named after its first note ────────────────────────────────────
-    check("the conversation is named after the first note, on the server too", (await until(async () => (await info()).title === "Make the button green", 10_000)) === true && state().session?.title === "Make the button green", `${(await info()).title} / ${state().session?.title}`)
+    check(
+      "the conversation is named after the first note, on the server too",
+      (await until(async () => (await info()).title === "Make the button green", 10_000)) === true &&
+        state().session?.title === "Make the button green",
+      `${(await info()).title} / ${state().session?.title}`,
+    )
 
     // ── 2. what the agent changed in the code for the note ───────────────────────────────────
     const diff = await invoke<FileChange[]>("noteDiff", first).catch((err: Error) => err.message)
     check(
       "the note's diff is the stylesheet's change",
-      Array.isArray(diff) && diff.length === 1 && diff[0]!.file === "style.css" && diff[0]!.additions > 0 && /^-\s*background: #777777;$/m.test(diff[0]!.patch),
-      typeof diff === "string" ? diff : JSON.stringify(diff.map((f) => [f.file, f.additions, f.deletions, f.patch.length])),
+      Array.isArray(diff) &&
+        diff.length === 1 &&
+        diff[0]!.file === "style.css" &&
+        diff[0]!.additions > 0 &&
+        /^-\s*background: #777777;$/m.test(diff[0]!.patch),
+      typeof diff === "string"
+        ? diff
+        : JSON.stringify(diff.map((f) => [f.file, f.additions, f.deletions, f.patch.length])),
     )
 
     // ── 5. the repo's state ──────────────────────────────────────────────────────────────────
     await invoke("refreshRepo")
     check(
       "the header's repo state: the branch, and the stylesheet changed and not committed",
-      state().repo?.branch === "main" && state().repo?.changes.length === 1 && state().repo?.changes[0]?.file === "style.css" && state().repo?.changes[0]?.status === "modified" && (state().repo?.changes[0]?.additions ?? 0) > 0,
+      state().repo?.branch === "main" &&
+        state().repo?.changes.length === 1 &&
+        state().repo?.changes[0]?.file === "style.css" &&
+        state().repo?.changes[0]?.status === "modified" &&
+        (state().repo?.changes[0]?.additions ?? 0) > 0,
       JSON.stringify(state().repo),
     )
 
     // ── 4. a checkpoint, and a second note after it ──────────────────────────────────────────
-    const settings = () => JSON.parse(fs.readFileSync(path.join(profile, "settings.json"), "utf8")) as { sites: Record<string, { checkpoints?: { id: string; name: string; session: string }[] }> }
+    const settings = () =>
+      JSON.parse(fs.readFileSync(path.join(profile, "settings.json"), "utf8")) as {
+        sites: Record<string, { checkpoints?: { id: string; name: string; session: string }[] }>
+      }
     await invoke("runCommand", "checkpoint", "green button")
     const cp = await until(() => settings().sites[origin]?.checkpoints?.[0])
     check("/checkpoint marks the point", cp?.name === "green button" && cp.session === SES, JSON.stringify(cp))
     const afterFirst = css()
-    check("its line is in the conversation, after the first note", (await until(async () => (await said()).join("|") === "make the button green|green button")) === true, JSON.stringify(await said()))
+    check(
+      "its line is in the conversation, after the first note",
+      (await until(async () => (await said()).join("|") === "make the button green|green button")) === true,
+      JSON.stringify(await said()),
+    )
     const second = await note("#title", "make the heading red")
-    check("the agent finishes the second note", await finished(second), `${row(second)?.status} ${row(second)?.error ?? ""}`)
+    check(
+      "the agent finishes the second note",
+      await finished(second),
+      `${row(second)?.status} ${row(second)?.error ?? ""}`,
+    )
     check("…and changed the heading", !rule("#title").includes("#222222"), rule("#title").replace(/\s+/g, " "))
-    check("the second note has its picture after too", (await until(() => row(second)?.pictures === "both", 40_000)) === true, `pictures: ${row(second)?.pictures}`)
+    check(
+      "the second note has its picture after too",
+      (await until(() => row(second)?.pictures === "both", 40_000)) === true,
+      `pictures: ${row(second)?.pictures}`,
+    )
     const diff2 = await invoke<FileChange[]>("noteDiff", second).catch((err: Error) => err.message)
-    check("the second note's diff is its own turn's, not the first's", Array.isArray(diff2) && diff2.length === 1 && /#222222/.test(diff2[0]!.patch) && !/#777777/.test(diff2[0]!.patch), typeof diff2 === "string" ? diff2 : diff2.map((f) => f.patch).join("\n"))
+    check(
+      "the second note's diff is its own turn's, not the first's",
+      Array.isArray(diff2) && diff2.length === 1 && /#222222/.test(diff2[0]!.patch) && !/#777777/.test(diff2[0]!.patch),
+      typeof diff2 === "string" ? diff2 : diff2.map((f) => f.patch).join("\n"),
+    )
 
     // ── 3a. taking back a note that is not the newest: the agent is asked ────────────────────
     const how = await invoke<string>("takeBackNote", first).catch((err: Error) => `refused: ${err.message}`)
     check("taking back the older note asks the agent", how === "asked" && row(first)?.takenBack === "asked", how)
     await turn()
-    check("…who puts the button back and leaves the heading", rule("#cta").includes("#777777") && !rule("#title").includes("#222222"), `${rule("#cta")} / ${rule("#title")}`.replace(/\s+/g, " "))
-    check("…and the page shows the button as it was", (await shows("#cta", "backgroundColor", GREY)) === true, await painted("#cta", "backgroundColor"))
+    check(
+      "…who puts the button back and leaves the heading",
+      rule("#cta").includes("#777777") && !rule("#title").includes("#222222"),
+      `${rule("#cta")} / ${rule("#title")}`.replace(/\s+/g, " "),
+    )
+    check(
+      "…and the page shows the button as it was",
+      (await shows("#cta", "backgroundColor", GREY)) === true,
+      await painted("#cta", "backgroundColor"),
+    )
     const afterTakeBack = css()
     const all = await said()
-    check("the checkpoint's line stays between the first note and the second", all.length === 4 && all.slice(0, 3).join("|") === "make the button green|green button|make the heading red", JSON.stringify(all.map((t) => t.slice(0, 40))))
+    check(
+      "the checkpoint's line stays between the first note and the second",
+      all.length === 4 && all.slice(0, 3).join("|") === "make the button green|green button|make the heading red",
+      JSON.stringify(all.map((t) => t.slice(0, 40))),
+    )
 
     // ── 4. back to the checkpoint, and forward again ─────────────────────────────────────────
     const went = await invoke<number>("returnToCheckpoint", cp?.id).catch((err: Error) => `refused: ${err.message}`)
     check("Return here takes back the two messages after the checkpoint", went === 2, String(went))
-    check("…and the files with them: the stylesheet is as it was at the checkpoint", (await until(() => css() === afterFirst, 5000)) === true, css() === afterTakeBack ? "unchanged" : "something else")
-    check("…and the page shows it: the button green again, the heading as it was", (await shows("#title", "color", DARK)) === true && (await painted("#cta", "backgroundColor")) !== GREY, `${await painted("#title", "color")} ${await painted("#cta", "backgroundColor")}`)
-    check("the conversation ends at the checkpoint", (await until(async () => (await said()).join("|") === "make the button green|green button")) === true, JSON.stringify(await said()))
-    check("…the note sent after it says it was undone, the one before it does not", row(second)?.takenBack === "undone" && row(first)?.takenBack === "asked", `${row(first)?.takenBack} ${row(second)?.takenBack}`)
+    check(
+      "…and the files with them: the stylesheet is as it was at the checkpoint",
+      (await until(() => css() === afterFirst, 5000)) === true,
+      css() === afterTakeBack ? "unchanged" : "something else",
+    )
+    check(
+      "…and the page shows it: the button green again, the heading as it was",
+      (await shows("#title", "color", DARK)) === true && (await painted("#cta", "backgroundColor")) !== GREY,
+      `${await painted("#title", "color")} ${await painted("#cta", "backgroundColor")}`,
+    )
+    check(
+      "the conversation ends at the checkpoint",
+      (await until(async () => (await said()).join("|") === "make the button green|green button")) === true,
+      JSON.stringify(await said()),
+    )
+    check(
+      "…the note sent after it says it was undone, the one before it does not",
+      row(second)?.takenBack === "undone" && row(first)?.takenBack === "asked",
+      `${row(first)?.takenBack} ${row(second)?.takenBack}`,
+    )
     check("the server holds the undo at the second note's message", !!(await info()).revert?.messageID)
-    const redo = await invoke<{ say?: string }>("runCommand", "redo", "").catch((err: Error) => ({ say: `refused: ${err.message}` }))
-    check("/redo brings it all back", redo?.say === "Brought back what was undone." && (await until(() => css() === afterTakeBack, 5000)) === true && !(await info()).revert, redo?.say)
-    check("…on the page too", (await shows("#cta", "backgroundColor", GREY)) === true && (await painted("#title", "color")) !== DARK, `${await painted("#cta", "backgroundColor")} ${await painted("#title", "color")}`)
-    check("…and in the conversation", (await until(async () => (await said()).length === 4)) === true, JSON.stringify((await said()).map((t) => t.slice(0, 40))))
+    const redo = await invoke<{ say?: string }>("runCommand", "redo", "").catch((err: Error) => ({
+      say: `refused: ${err.message}`,
+    }))
+    check(
+      "/redo brings it all back",
+      redo?.say === "Brought back what was undone." &&
+        (await until(() => css() === afterTakeBack, 5000)) === true &&
+        !(await info()).revert,
+      redo?.say,
+    )
+    check(
+      "…on the page too",
+      (await shows("#cta", "backgroundColor", GREY)) === true && (await painted("#title", "color")) !== DARK,
+      `${await painted("#cta", "backgroundColor")} ${await painted("#title", "color")}`,
+    )
+    check(
+      "…and in the conversation",
+      (await until(async () => (await said()).length === 4)) === true,
+      JSON.stringify((await said()).map((t) => t.slice(0, 40))),
+    )
     check("…and the note is no longer undone", row(second)?.takenBack === undefined, String(row(second)?.takenBack))
 
     // ── 3b. taking back the newest message: the server's own undo ────────────────────────────
     const third = await note("#lead", "make the paragraph text blue")
-    check("the agent finishes the third note", await finished(third), `${row(third)?.status} ${row(third)?.error ?? ""}`)
+    check(
+      "the agent finishes the third note",
+      await finished(third),
+      `${row(third)?.status} ${row(third)?.error ?? ""}`,
+    )
     check("…and changed the paragraph", !rule("#lead").includes("#444444"), rule("#lead").replace(/\s+/g, " "))
     const exact = await invoke<string>("takeBackNote", third).catch((err: Error) => `refused: ${err.message}`)
-    check("taking back the newest note undoes it exactly", exact === "undone" && row(third)?.takenBack === "undone", exact)
-    check("…files included", (await until(() => css() === afterTakeBack, 5000)) === true, rule("#lead").replace(/\s+/g, " "))
-    check("…and the page shows the paragraph as it was", (await shows("#lead", "color", LEAD)) === true, await painted("#lead", "color"))
+    check(
+      "taking back the newest note undoes it exactly",
+      exact === "undone" && row(third)?.takenBack === "undone",
+      exact,
+    )
+    check(
+      "…files included",
+      (await until(() => css() === afterTakeBack, 5000)) === true,
+      rule("#lead").replace(/\s+/g, " "),
+    )
+    check(
+      "…and the page shows the paragraph as it was",
+      (await shows("#lead", "color", LEAD)) === true,
+      await painted("#lead", "color"),
+    )
 
-    check("a note taken back at once gets no second picture of an area that is as it was", (await sleep(3000), row(third)?.pictures) === "before", `pictures: ${row(third)?.pictures}`)
+    check(
+      "a note taken back at once gets no second picture of an area that is as it was",
+      (await sleep(3000), row(third)?.pictures) === "before",
+      `pictures: ${row(third)?.pictures}`,
+    )
 
     // ── 5. the commit ────────────────────────────────────────────────────────────────────────
     await invoke("refreshRepo")
-    check("the repo state still shows the stylesheet as changed", state().repo?.changes.some((c) => c.file === "style.css") === true, JSON.stringify(state().repo))
+    check(
+      "the repo state still shows the stylesheet as changed",
+      state().repo?.changes.some((c) => c.file === "style.css") === true,
+      JSON.stringify(state().repo),
+    )
     const message = "Heading in red"
     const committing = await refused("commitChanges", message)
     await turn()
     const log = git("log", "--format=%s")
-    check("Commit has the agent commit everything with the message as written", committing === "" && log.split("\n")[0] === message && log.split("\n").length === 2 && git("status", "--porcelain") === "", `${committing} ${JSON.stringify(log)} ${git("status", "--porcelain")}`)
+    check(
+      "Commit has the agent commit everything with the message as written",
+      committing === "" &&
+        log.split("\n")[0] === message &&
+        log.split("\n").length === 2 &&
+        git("status", "--porcelain") === "",
+      `${committing} ${JSON.stringify(log)} ${git("status", "--porcelain")}`,
+    )
     check("…without pushing: the repository has no remote", git("remote") === "")
-    check("the repo state shows nothing left to commit", (await until(() => state().repo?.changes.length === 0, 10_000)) === true, JSON.stringify(state().repo))
-    check("the stylesheet committed is the one on screen", git("show", "HEAD:style.css") === afterTakeBack.trim() || git("show", "HEAD:style.css").trim() === afterTakeBack.trim())
+    check(
+      "the repo state shows nothing left to commit",
+      (await until(() => state().repo?.changes.length === 0, 10_000)) === true,
+      JSON.stringify(state().repo),
+    )
+    check(
+      "the stylesheet committed is the one on screen",
+      git("show", "HEAD:style.css") === afterTakeBack.trim() ||
+        git("show", "HEAD:style.css").trim() === afterTakeBack.trim(),
+    )
 
     // Two notes made one right after the other: the second waits in the app, so each is a
     // turn of its own on the server and has its own diff.
     const fourth = await note("#cta", "make the button orange")
     const fifth = await note("#title", "make the heading purple")
-    check("the second of two notes waits in the app while the first is with the agent", row(fifth)?.status === "queued" && !row(fifth)?.sent, JSON.stringify(row(fifth)))
-    check("the agent finishes both", (await finished(fourth)) && (await finished(fifth)), `${row(fourth)?.status} ${row(fifth)?.status}`)
-    const [d4, d5] = [await invoke<FileChange[]>("noteDiff", fourth).catch(() => []), await invoke<FileChange[]>("noteDiff", fifth).catch(() => [])]
-    const lines = (d: FileChange[]) => d.flatMap((f) => f.patch.split("\n").filter((l) => /^[+-](?![+-])/.test(l))).join("\n")
-    check("each has a diff of its own: the button's change is not in the heading's, nor the other way", d4.length === 1 && d5.length === 1 && lines(d4) !== lines(d5) && !lines(d5).split("\n").some((l) => lines(d4).includes(l)), `${lines(d4)} // ${lines(d5)}`)
+    check(
+      "the second of two notes waits in the app while the first is with the agent",
+      row(fifth)?.status === "queued" && !row(fifth)?.sent,
+      JSON.stringify(row(fifth)),
+    )
+    check(
+      "the agent finishes both",
+      (await finished(fourth)) && (await finished(fifth)),
+      `${row(fourth)?.status} ${row(fifth)?.status}`,
+    )
+    const [d4, d5] = [
+      await invoke<FileChange[]>("noteDiff", fourth).catch(() => []),
+      await invoke<FileChange[]>("noteDiff", fifth).catch(() => []),
+    ]
+    const lines = (d: FileChange[]) =>
+      d.flatMap((f) => f.patch.split("\n").filter((l) => /^[+-](?![+-])/.test(l))).join("\n")
+    check(
+      "each has a diff of its own: the button's change is not in the heading's, nor the other way",
+      d4.length === 1 &&
+        d5.length === 1 &&
+        lines(d4) !== lines(d5) &&
+        !lines(d5)
+          .split("\n")
+          .some((l) => lines(d4).includes(l)),
+      `${lines(d4)} // ${lines(d5)}`,
+    )
 
-    check("the conversation still has the name the first note gave it", (await info()).title === "Make the button green" && state().session?.title === "Make the button green", `${(await info()).title} / ${state().session?.title}`)
+    check(
+      "the conversation still has the name the first note gave it",
+      (await info()).title === "Make the button green" && state().session?.title === "Make the button green",
+      `${(await info()).title} / ${state().session?.title}`,
+    )
 
     clearInterval(approver)
     app.emit("before-quit")

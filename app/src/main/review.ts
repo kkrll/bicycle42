@@ -149,13 +149,29 @@ const MAX_CHANGES = 40
 /** A computed value: a font stack or a gradient is long. */
 const MAX_COMPUTED = 400
 const MAX_CLASSES = 1000
-const EDIT_KINDS: readonly Edit["kind"][] = ["move", "resize", "gap", "padding", "margin", "text", "hide", "style", "class", "duplicate"]
+const EDIT_KINDS: readonly Edit["kind"][] = [
+  "move",
+  "resize",
+  "gap",
+  "padding",
+  "margin",
+  "text",
+  "hide",
+  "style",
+  "class",
+  "duplicate",
+]
 /** A custom property (`--stripe-period`), as a style edit's changes may name. */
 const CUSTOM_PROP = /^--[a-zA-Z0-9_-]{1,60}$/
 /** CSS as typed: any text up to `max`, line breaks and all (the prompt fences it), but not blank
  *  and without the control characters no one types. */
 const typedCss = (x: unknown, max: number): string | undefined =>
-  typeof x === "string" && x.length <= max && x.trim() !== "" && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(x) ? x : undefined
+  typeof x === "string" &&
+  x.length <= max &&
+  x.trim() !== "" &&
+  !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(x)
+    ? x
+    : undefined
 
 /** The batch stylesheet of a canvas note, or undefined. Too long is refused, not cut: half a
  *  rule is worse than none. */
@@ -182,13 +198,15 @@ function edit(raw: unknown): Edit | undefined {
   if (!selector) return
   const text = kind === "text"
   // The texts of a text edit may have line breaks; a CSS value may not.
-  const value = (x: unknown) => (text ? (typeof x === "string" && x.length <= MAX_TEXT ? x : undefined) : line(x, MAX_VALUE))
+  const value = (x: unknown) =>
+    text ? (typeof x === "string" && x.length <= MAX_TEXT ? x : undefined) : line(x, MAX_VALUE)
   const from = value(raw.from)
   const to = value(raw.to)
   const prop = typeof raw.prop === "string" && CSS_PROP.test(raw.prop) ? raw.prop : undefined
   // What the edit is about has to be there: a new text, a property and its new value, somewhere to go.
   if (text && to === undefined) return
-  if ((kind === "resize" || kind === "gap" || kind === "padding" || kind === "margin") && (!prop || to === undefined)) return
+  if ((kind === "resize" || kind === "gap" || kind === "padding" || kind === "margin") && (!prop || to === undefined))
+    return
   const out: Edit = { kind, selector, tag: line(raw.tag, 40) ?? "", label: line(raw.label, MAX_NAME) ?? "" }
   const component = line(raw.component, 100)
   if (component) out.component = component
@@ -205,8 +223,11 @@ function edit(raw: unknown): Edit | undefined {
       if (!isObj(c) || typeof c.prop !== "string" || !(CSS_PROP.test(c.prop) || CUSTOM_PROP.test(c.prop))) continue
       const [was, now] = [line(c.from, MAX_COMPUTED), line(c.to, MAX_COMPUTED)]
       // The page's variables the value was set with: names only, four at most.
-      const tokens = Array.isArray(c.tokens) ? [...new Set(c.tokens.slice(0, 4).filter((t): t is string => typeof t === "string" && CUSTOM_PROP.test(t)))] : []
-      if (was !== undefined && now !== undefined) changes.push({ prop: c.prop, from: was, to: now, ...(tokens.length ? { tokens } : {}) })
+      const tokens = Array.isArray(c.tokens)
+        ? [...new Set(c.tokens.slice(0, 4).filter((t): t is string => typeof t === "string" && CUSTOM_PROP.test(t)))]
+        : []
+      if (was !== undefined && now !== undefined)
+        changes.push({ prop: c.prop, from: was, to: now, ...(tokens.length ? { tokens } : {}) })
     }
     if (css === undefined && !changes.length) return
     if (css !== undefined) out.css = css
@@ -226,7 +247,10 @@ function edit(raw: unknown): Edit | undefined {
   if (to !== undefined && !bare) out.to = to
   if (kind === "move") {
     const parent = isObj(raw.parent) ? named(raw.parent) : undefined
-    const layout = isObj(raw.parent) && LAYOUTS.includes(raw.parent.layout as (typeof LAYOUTS)[number]) ? (raw.parent.layout as (typeof LAYOUTS)[number]) : "block"
+    const layout =
+      isObj(raw.parent) && LAYOUTS.includes(raw.parent.layout as (typeof LAYOUTS)[number])
+        ? (raw.parent.layout as (typeof LAYOUTS)[number])
+        : "block"
     if (parent) out.parent = { ...parent, layout }
     if (index(raw.fromIndex)) out.fromIndex = raw.fromIndex
     if (index(raw.toIndex)) out.toIndex = raw.toIndex
@@ -260,7 +284,14 @@ export function pageEdits(raw: unknown): Edit[] {
 
 // Motion. Names are CSS identifiers; values are one line; keyframes are text the prompt fences.
 const MOTION_KINDS: readonly Motion["kind"][] = ["keyframes", "transition", "script"]
-const MOTION_PROPS: readonly NonNullable<Motion["changes"]>[number]["prop"][] = ["duration", "delay", "easing", "count", "direction", "fill"]
+const MOTION_PROPS: readonly NonNullable<Motion["changes"]>[number]["prop"][] = [
+  "duration",
+  "delay",
+  "easing",
+  "count",
+  "direction",
+  "fill",
+]
 const MOTION_STARTS: readonly NonNullable<Motion["starts"]>[] = ["load", "view", "hover", "click", "appear", "scroll"]
 const IDENT = /^-?[a-zA-Z_][a-zA-Z0-9_-]{0,63}$/
 const MAX_KEYFRAMES = 4000
@@ -270,7 +301,10 @@ const MAX_ANIMATION = 400
 export function pageMotion(raw: unknown): Motion | undefined {
   if (!isObj(raw) || !MOTION_KINDS.includes(raw.kind as Motion["kind"])) return
   const kind = raw.kind as Motion["kind"]
-  const name = typeof raw.name === "string" && (IDENT.test(raw.name) || (kind === "script" && line(raw.name, 64))) ? raw.name : undefined
+  const name =
+    typeof raw.name === "string" && (IDENT.test(raw.name) || (kind === "script" && line(raw.name, 64)))
+      ? raw.name
+      : undefined
   const selector = line(raw.selector, MAX_NAME)
   if (!name || !selector) return
   const out: Motion = { kind, name, selector, label: line(raw.label, MAX_NAME) ?? "" }
@@ -304,10 +338,12 @@ export function pageMotion(raw: unknown): Motion | undefined {
   for (const c of Array.isArray(raw.changes) ? raw.changes.slice(0, MOTION_PROPS.length) : []) {
     if (!isObj(c) || !MOTION_PROPS.includes(c.prop as (typeof MOTION_PROPS)[number])) continue
     const [was, now] = [line(c.from, MAX_VALUE * 2), line(c.to, MAX_VALUE * 2)]
-    if (was !== undefined && now !== undefined) changes.push({ prop: c.prop as (typeof MOTION_PROPS)[number], from: was, to: now })
+    if (was !== undefined && now !== undefined)
+      changes.push({ prop: c.prop as (typeof MOTION_PROPS)[number], from: was, to: now })
   }
   if (changes.length) out.changes = changes
-  if (MOTION_STARTS.includes(raw.starts as (typeof MOTION_STARTS)[number])) out.starts = raw.starts as (typeof MOTION_STARTS)[number]
+  if (MOTION_STARTS.includes(raw.starts as (typeof MOTION_STARTS)[number]))
+    out.starts = raw.starts as (typeof MOTION_STARTS)[number]
   return out
 }
 
@@ -354,7 +390,13 @@ export function pageNote(raw: unknown): PageNote | undefined {
     ...(motion ? { motion } : {}),
     ...(typeof raw.template === "string" && /^[a-z][a-z-]{0,23}$/.test(raw.template) ? { template: raw.template } : {}),
     url: str(raw.url) ?? "",
-    viewport: { w: v.w, h: v.h, dpr: num(v.dpr) ? v.dpr : 1, scrollX: num(v.scrollX) ? v.scrollX : 0, scrollY: num(v.scrollY) ? v.scrollY : 0 },
+    viewport: {
+      w: v.w,
+      h: v.h,
+      dpr: num(v.dpr) ? v.dpr : 1,
+      scrollX: num(v.scrollX) ? v.scrollX : 0,
+      scrollY: num(v.scrollY) ? v.scrollY : 0,
+    },
     targets,
     area: box(raw.area),
     strokes,
@@ -397,14 +439,26 @@ function savedNote(raw: unknown): Note | undefined {
   const shot = isObj(raw.shot) ? raw.shot : undefined
   const v = shot && isObj(shot.viewport) ? shot.viewport : undefined
   const b = shot && isObj(shot.bounds) ? shot.bounds : undefined
-  const nums = (o: Record<string, unknown>, keys: string[]) => keys.every((k) => typeof o[k] === "number" && Number.isFinite(o[k]))
-  if (shot && str(shot.url) && v && nums(v, ["w", "h", "dpr", "scrollX", "scrollY"]) && (!b || nums(b, ["x", "y", "w", "h"])))
-    note.shot = { url: shot.url as string, bounds: b ? (b as unknown as Box) : null, viewport: v as unknown as PageNote["viewport"] }
+  const nums = (o: Record<string, unknown>, keys: string[]) =>
+    keys.every((k) => typeof o[k] === "number" && Number.isFinite(o[k]))
+  if (
+    shot &&
+    str(shot.url) &&
+    v &&
+    nums(v, ["w", "h", "dpr", "scrollX", "scrollY"]) &&
+    (!b || nums(b, ["x", "y", "w", "h"]))
+  )
+    note.shot = {
+      url: shot.url as string,
+      bounds: b ? (b as unknown as Box) : null,
+      viewport: v as unknown as PageNote["viewport"],
+    }
   // The screenshot and prompt of a note still on its way out died with the app. So did our
   // knowledge of where a note went, if it was saved before notes recorded their session.
   const unsent = note.status === "capturing" || note.status === "sending"
   // (A held note has no conversation yet, and what it sends is on disk: it waits on.)
-  const untraceable = (note.status === "queued" || note.status === "working") && !(note.message && note.session) && !note.held
+  const untraceable =
+    (note.status === "queued" || note.status === "working") && !(note.message && note.session) && !note.held
   if (unsent || untraceable) {
     note.status = "failed"
     note.error = ERR.restarted
@@ -423,7 +477,8 @@ const ERR = {
   interrupted: "Stopped before it finished. Retry to send it again.",
   cancelled: "Cancelled.",
   gone: "The conversation was deleted. Retry to send it to the current one.",
-  agent: (error?: string) => `The agent hit an error${error ? `: ${error.replace(/[.\s]+$/, "")}` : ""}. Retry to send it again.`,
+  agent: (error?: string) =>
+    `The agent hit an error${error ? `: ${error.replace(/[.\s]+$/, "")}` : ""}. Retry to send it again.`,
 }
 
 /** What the rules move: a note, or a message id that no note owns yet (see `early` below). */
@@ -446,7 +501,13 @@ function move(t: Track, status: NoteStatus, error?: string): boolean {
   return true
 }
 
-function finishWorking(tracks: Track[], session: string, to: "done" | "failed", error?: string, except?: Track): boolean {
+function finishWorking(
+  tracks: Track[],
+  session: string,
+  to: "done" | "failed",
+  error?: string,
+  except?: Track,
+): boolean {
   let touched = false
   for (const t of tracks)
     if (t.session === session && t.status === "working" && t !== except) touched = move(t, to, error) || touched
@@ -640,7 +701,8 @@ export function createReview(saved?: unknown): Review {
 
     settled(session, waiting) {
       let touched = false
-      const settle = (t: Track) => t.session === session && open(t) && move(t, waiting.includes(t.message ?? "") ? "queued" : "done")
+      const settle = (t: Track) =>
+        t.session === session && open(t) && move(t, waiting.includes(t.message ?? "") ? "queued" : "done")
       for (const n of notes) touched = settle(n) || touched
       early.forEach(settle)
       return touched
@@ -687,13 +749,17 @@ export function createReview(saved?: unknown): Review {
         text: n.text,
         status: n.status,
         lane: n.lane,
-        ...(n.edits || n.css ? { edits: [...(n.edits ?? []).map((e) => editWords(e)), ...(n.css ? [`${capital(cssWords(n.css))}.`] : [])] } : {}),
+        ...(n.edits || n.css
+          ? { edits: [...(n.edits ?? []).map((e) => editWords(e)), ...(n.css ? [`${capital(cssWords(n.css))}.`] : [])] }
+          : {}),
         ...(n.motion ? { edits: motionLines(n.motion), motion: true as const } : {}),
         ...(n.error ? { error: n.error } : {}),
         ...(n.session && n.message ? { sent: true as const, session: n.session } : {}),
         ...(n.pictures ? { pictures: n.pictures } : {}),
         ...(n.takenBack ? { takenBack: n.takenBack } : {}),
-        ...(n.status === "failed" && (n.error === ERR.interrupted || n.error === ERR.cancelled) ? { stopped: true as const } : {}),
+        ...(n.status === "failed" && (n.error === ERR.interrupted || n.error === ERR.cancelled)
+          ? { stopped: true as const }
+          : {}),
         ...(unplaced.includes(n.id) ? { lost: true as const } : {}),
       })),
 
@@ -717,7 +783,13 @@ export function createReview(saved?: unknown): Review {
 
     // Through JSON, so what goes to disk is exactly what would come back: no undefined, no NaN.
     toJSON: () => JSON.parse(JSON.stringify(review.stored())),
-    stored: () => ({ version: REVIEW_VERSION, enabled: review.enabled, autoReload: review.autoReload, draft: review.draft ?? null, notes }),
+    stored: () => ({
+      version: REVIEW_VERSION,
+      enabled: review.enabled,
+      autoReload: review.autoReload,
+      draft: review.draft ?? null,
+      notes,
+    }),
   }
   return review
 }

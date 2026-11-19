@@ -27,7 +27,14 @@ import {
   expandNotes,
   setFocusedNote,
   setNotice,
-  state, pageCovered, message, switcherOpen, setSwitcherOpen, runningOpen, setRunningOpen } from "./store"
+  state,
+  pageCovered,
+  message,
+  switcherOpen,
+  setSwitcherOpen,
+  runningOpen,
+  setRunningOpen,
+} from "./store"
 
 const PANEL_MIN = 320
 const PANEL_DEFAULT = 400
@@ -154,12 +161,44 @@ function Hint() {
 /** Preview | Annotate | Edit | Motion: what a click on the page does (verbs, all of them;
  *  "annotate" is the mode that makes notes, and `notes` in the state). Each shows what it does
  *  and its key, if it has one, when the pointer rests on it. */
-const MODES: { mode: ReviewMode; label: string; icon: IconName; what: string; keys?: () => string; more?: () => string }[] = [
+const MODES: {
+  mode: ReviewMode
+  label: string
+  icon: IconName
+  what: string
+  keys?: () => string
+  more?: () => string
+}[] = [
   // Held, alt+A is Preview for as long as it is held: the layer out of sight, nothing switched.
-  { mode: "preview", label: "Preview", icon: "eye", what: "Use the page as it is", keys: () => keys("mod", "U"), more: () => `hold ${keys("alt", "A")}` },
-  { mode: "notes", label: "Annotate", icon: "note", what: "Point at something, say what to change", keys: () => keys("mod", "P") },
-  { mode: "edit", label: "Edit", icon: "frame", what: "Change the page itself, then send", keys: () => keys("mod", "O") },
-  { mode: "motion", label: "Motion", icon: "motion", what: "See what moves on the page, change an animation, then send", keys: () => keys("mod", "I") },
+  {
+    mode: "preview",
+    label: "Preview",
+    icon: "eye",
+    what: "Use the page as it is",
+    keys: () => keys("mod", "U"),
+    more: () => `hold ${keys("alt", "A")}`,
+  },
+  {
+    mode: "notes",
+    label: "Annotate",
+    icon: "note",
+    what: "Point at something, say what to change",
+    keys: () => keys("mod", "P"),
+  },
+  {
+    mode: "edit",
+    label: "Edit",
+    icon: "frame",
+    what: "Change the page itself, then send",
+    keys: () => keys("mod", "O"),
+  },
+  {
+    mode: "motion",
+    label: "Motion",
+    icon: "motion",
+    what: "See what moves on the page, change an animation, then send",
+    keys: () => keys("mod", "I"),
+  },
 ]
 /** mod+U, P, O, I (and mod+shift+P, the pencil), by the key's place: the same keys on any layout,
  *  a Cyrillic one included. */
@@ -204,7 +243,13 @@ function TopBar(props: {
     <header class="topbar" classList={{ mac: mac() }}>
       <Show when={!props.bare} fallback={<span class="wordmark">bicycle 42</span>}>
         <div class="nav">
-          <button class="icon-btn" aria-label="Back" title="Back" disabled={!state.page.canGoBack} onClick={() => act("back")}>
+          <button
+            class="icon-btn"
+            aria-label="Back"
+            title="Back"
+            disabled={!state.page.canGoBack}
+            onClick={() => act("back")}
+          >
             <Icon name="back" />
           </button>
           <button
@@ -238,7 +283,10 @@ function TopBar(props: {
             aria-description="A line selects what it crosses, a loop what it encloses"
             disabled={noOverlay()}
             onClick={() => act("toggleBrush")}
-            {...hinted(() => ({ text: "Draw: a line selects what it crosses", keys: [keys("mod", "shift", "P"), `${keys("alt")} drag`] }))}
+            {...hinted(() => ({
+              text: "Draw: a line selects what it crosses",
+              keys: [keys("mod", "shift", "P"), `${keys("alt")} drag`],
+            }))}
           >
             <Icon name="draw" size={20} />
           </button>
@@ -258,7 +306,10 @@ function TopBar(props: {
             aria-pressed={props.panelOpen}
             aria-keyshortcuts={keys("mod", "\\")}
             onClick={props.togglePanel}
-            {...hinted(() => ({ text: `${props.panelOpen ? "Hide" : "Show"} notes and conversation`, keys: [keys("mod", "\\")] }))}
+            {...hinted(() => ({
+              text: `${props.panelOpen ? "Hide" : "Show"} notes and conversation`,
+              keys: [keys("mod", "\\")],
+            }))}
           >
             <Icon name="panel" />
           </button>
@@ -297,7 +348,8 @@ function PageError() {
 function NotesStatus(props: { panelOpen: boolean; showNotes: () => void }) {
   const counts = createMemo(countNotes)
   const needsFolder = () => !!state.site && !state.site.directory && state.connection.status === "online"
-  const tone = () => (counts().failed ? "failed" : counts().working ? "working" : counts().paused ? "paused" : "waiting")
+  const tone = () =>
+    counts().failed ? "failed" : counts().working ? "working" : counts().paused ? "paused" : "waiting"
   const sentence = () => `${counts().total} notes: ${countWords(counts()).join(", ")}`
   return (
     <Switch>
@@ -314,7 +366,9 @@ function NotesStatus(props: { panelOpen: boolean; showNotes: () => void }) {
           onClick={props.showNotes}
         >
           <span class="counts-full">
-            <For each={(["failed", "working", "paused", "waiting", "stopped", "done"] as const).filter((k) => counts()[k])}>
+            <For
+              each={(["failed", "working", "paused", "waiting", "stopped", "done"] as const).filter((k) => counts()[k])}
+            >
               {(k) => (
                 <span class="count" data-status={k}>
                   <Show when={k !== "done" && k !== "stopped"}>
@@ -386,7 +440,8 @@ export function App() {
   // …or connected, and main asks which model conversations should start with.
   const modelStep = () => !connectStep() && !!state.modelChoice && state.connection.status === "online"
   // …or ready to work, and no repo is open: the folder comes before the site.
-  const repoStep = () => !connectStep() && !modelStep() && state.connection.status === "online" && !state.site?.directory
+  const repoStep = () =>
+    !connectStep() && !modelStep() && state.connection.status === "online" && !state.site?.directory
   const setup = () => connectStep() || modelStep() || repoStep()
   // The shortcut on the empty (or failed) page: the agent gets the site running and says where.
   const [startError, setStartError] = createSignal("")
@@ -397,7 +452,15 @@ export function App() {
   }
   const canStart = () => state.connection.status === "online" && !!state.session && !state.startingSite
   // A page that failed to load is replaced by a card saying so, in the same place.
-  const pageHidden = () => setup() || settings() || switcherOpen() || runningOpen() || resizing() || state.page.url === "" || loadFailed() || pageCovered()
+  const pageHidden = () =>
+    setup() ||
+    settings() ||
+    switcherOpen() ||
+    runningOpen() ||
+    resizing() ||
+    state.page.url === "" ||
+    loadFailed() ||
+    pageCovered()
 
   // ── page bounds: one call per frame at most, none when nothing moved ──
   let sent: Rect | null | undefined
@@ -410,7 +473,8 @@ export function App() {
       const r = pageEl.getBoundingClientRect()
       const x = Math.round(r.x + pageEl.clientLeft)
       const y = Math.round(r.y + pageEl.clientTop)
-      if (pageEl.clientWidth >= 1 && pageEl.clientHeight >= 1) next = { x, y, width: pageEl.clientWidth, height: pageEl.clientHeight }
+      if (pageEl.clientWidth >= 1 && pageEl.clientHeight >= 1)
+        next = { x, y, width: pageEl.clientWidth, height: pageEl.clientHeight }
     }
     if (sameRect(sent, next)) return
     sent = next
@@ -551,7 +615,11 @@ export function App() {
       <main class="work" inert={!ready() || setup()}>
         {/* While a dialog is open or the panel is resized the page view is away: a quiet surface
             stands in for it, so the window does not go black. */}
-        <div class="page" ref={pageEl} classList={{ veiled: settings() || switcherOpen() || runningOpen() || resizing() }}>
+        <div
+          class="page"
+          ref={pageEl}
+          classList={{ veiled: settings() || switcherOpen() || runningOpen() || resizing() }}
+        >
           <Show when={state.page.url !== "" && loadFailed()}>
             <div class="page-failed" role="alert">
               <Icon name="alert" size={20} />
@@ -584,8 +652,8 @@ export function App() {
               <SetupSteps at={3} />
               <p class="chat-empty-lead">Open your site.</p>
               <p>
-                If it is running, type its address above and press Enter. If it is not, the agent can start it from
-                the repo and open it here; it asks you when it needs something.
+                If it is running, type its address above and press Enter. If it is not, the agent can start it from the
+                repo and open it here; it asks you when it needs something.
               </p>
               <div class="page-actions">
                 <button class="btn primary" disabled={!canStart()} onClick={startSite}>

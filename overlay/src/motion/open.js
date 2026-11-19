@@ -2,7 +2,21 @@
 // object for it, played, paused and stopped at a frame.
 
 import { adopt, BOOST } from "../page.js";
-import { apply, clamp, DOCK_H, fromApi, M, mq, parseKf, pathOf, r1, readList, scan, serialize, splitTop } from "./model.js";
+import {
+  apply,
+  clamp,
+  DOCK_H,
+  fromApi,
+  M,
+  mq,
+  parseKf,
+  pathOf,
+  r1,
+  readList,
+  scan,
+  serialize,
+  splitTop,
+} from "./model.js";
 import { commit, nameProblem, snapshot } from "./edit.js";
 import { draw, flash, focusLater } from "./draw.js";
 import { kick } from "../render.js";
@@ -15,7 +29,11 @@ function baseFor(rs, el) {
 export function show(open) {
   // What was stopped at a frame to be looked at goes on from there: nothing stays frozen behind.
   const was = M.open && M.open.kind !== "transition" ? animOf() : null;
-  if (was && was.playState === "paused" && !(open && M.open.kind === open.kind && M.open.rs === open.rs && M.open.name === open.name)) {
+  if (
+    was &&
+    was.playState === "paused" &&
+    !(open && M.open.kind === open.kind && M.open.rs === open.rs && M.open.name === open.name)
+  ) {
     was.playbackRate = 1;
     was.play();
   }
@@ -51,18 +69,42 @@ export function openCss(el, nm) {
   }
   const k = `${rs}|${nm}`;
   if (!M.use.has(k)) {
-    const base = baseFor(rs, el), index = base.findIndex((e) => e.name === nm);
+    const base = baseFor(rs, el),
+      index = base.findIndex((e) => e.name === nm);
     if (index < 0) return attach(el, nm);
     const { name: _, ...timing } = base[index];
-    M.use.set(k, { rs, name: nm, timing, orig: { ...timing }, plays: { how: "asnow", words: "" }, base, index, isNew: false });
+    M.use.set(k, {
+      rs,
+      name: nm,
+      timing,
+      orig: { ...timing },
+      plays: { how: "asnow", words: "" },
+      base,
+      index,
+      isNew: false,
+    });
   }
   show({ kind: "css", rs, name: nm });
 }
 /** Keyframes the element does not play yet: a new animation, or ones the page declares and nothing plays. */
-function attach(el, nm, timing = { duration: 400, delay: 0, easing: "ease-out", count: "1", direction: "normal", fill: "both" }) {
-  const rs = pathOf(el), base = baseFor(rs, el);
+function attach(
+  el,
+  nm,
+  timing = { duration: 400, delay: 0, easing: "ease-out", count: "1", direction: "normal", fill: "both" },
+) {
+  const rs = pathOf(el),
+    base = baseFor(rs, el);
   const index = base.length + [...M.use.values()].filter((u) => u.rs === rs && u.isNew).length;
-  M.use.set(`${rs}|${nm}`, { rs, name: nm, timing, orig: null, plays: { how: "load", words: "" }, base, index, isNew: true });
+  M.use.set(`${rs}|${nm}`, {
+    rs,
+    name: nm,
+    timing,
+    orig: null,
+    plays: { how: "load", words: "" },
+    base,
+    index,
+    isNew: true,
+  });
   setSel(el);
   show({ kind: "css", rs, name: nm });
   commit();
@@ -75,13 +117,23 @@ export function newAnimation() {
   if (!M.sel) return;
   let nm = "new-animation";
   for (let i = 2; nameProblem(nm); i++) nm = `new-animation-${i}`;
-  M.kf.set(nm, { name: nm, isNew: true, orig: "", frames: [{ at: 0, ease: "", vals: { opacity: "0", translate: "0 12px" } }, { at: 100, ease: "", vals: { opacity: "1", translate: "0 0" } }] });
+  M.kf.set(nm, {
+    name: nm,
+    isNew: true,
+    orig: "",
+    frames: [
+      { at: 0, ease: "", vals: { opacity: "0", translate: "0 12px" } },
+      { at: 100, ease: "", vals: { opacity: "1", translate: "0 0" } },
+    ],
+  });
   attach(M.sel, nm);
   focusLater("[data-name]");
 }
 /** Every keyframes the selected element could play: the page's, and those made here. */
-export const knownNames = () => [...new Set([...M.scan.rules.keys(), ...M.scan.anims.map((a) => a.name), ...M.kf.keys()])]
-  .filter((n) => M.kf.has(n) || M.scan.rules.has(n)).sort();
+export const knownNames = () =>
+  [...new Set([...M.scan.rules.keys(), ...M.scan.anims.map((a) => a.name), ...M.kf.keys()])]
+    .filter((n) => M.kf.has(n) || M.scan.rules.has(n))
+    .sort();
 /** Keyframes the page has, played by the selected element too: timed as the first element that
  *  plays them times them, or, when nothing plays them, once over 600ms. */
 export function useKf(nm) {
@@ -92,24 +144,47 @@ export function useKf(nm) {
     const fr = parseKf(rule.cssText).frames || [];
     M.kf.set(nm, { name: nm, frames: fr, orig: serialize(nm, fr), isNew: false });
   }
-  const a = M.scan.anims.find((x) => x.name === nm), e = a && readList(a.els[0]).find((x) => x.name === nm);
-  const { name: _, ...timing } = e || { duration: 600, delay: 0, easing: "ease-in-out", count: "1", direction: "normal", fill: "none" };
+  const a = M.scan.anims.find((x) => x.name === nm),
+    e = a && readList(a.els[0]).find((x) => x.name === nm);
+  const { name: _, ...timing } = e || {
+    duration: 600,
+    delay: 0,
+    easing: "ease-in-out",
+    count: "1",
+    direction: "normal",
+    fill: "none",
+  };
   attach(M.sel, nm, timing);
 }
 export function openScript(a) {
-  const el = a.effect.target, t = a.effect.getTiming();
+  const el = a.effect.target,
+    t = a.effect.getTiming();
   setSel(el);
-  M.ro = { frames: fromApi(a.effect.getKeyframes()), timing: { duration: +t.duration || 0, delay: t.delay, easing: t.easing, count: t.iterations === Infinity ? "infinite" : String(t.iterations), direction: t.direction, fill: t.fill === "auto" ? "none" : t.fill } };
+  M.ro = {
+    frames: fromApi(a.effect.getKeyframes()),
+    timing: {
+      duration: +t.duration || 0,
+      delay: t.delay,
+      easing: t.easing,
+      count: t.iterations === Infinity ? "infinite" : String(t.iterations),
+      direction: t.direction,
+      fill: t.fill === "auto" ? "none" : t.fill,
+    },
+  };
   show({ kind: "script", rs: pathOf(el), name: a.id || "animate()" });
   M.held = a;
 }
 /** A transition has no keyframes: two values per property and the state that switches them,
  *  found in the page's own rules (`.primary:hover`). Playing it applies that rule. */
 export function openTransition(el) {
-  const rs = pathOf(el), cs = getComputedStyle(el);
+  const rs = pathOf(el),
+    cs = getComputedStyle(el);
   setSel(el);
   const col = (p) => splitTop(cs.getPropertyValue(p));
-  const props = col("transition-property"), dur = col("transition-duration"), del = col("transition-delay"), ease = col("transition-timing-function");
+  const props = col("transition-property"),
+    dur = col("transition-duration"),
+    del = col("transition-delay"),
+    ease = col("transition-timing-function");
   const at = (list, i) => list[i % list.length];
   let state = /** @type {any} */ (null);
   const walk = (list) => {
@@ -130,7 +205,14 @@ export function openTransition(el) {
       walk(s.cssRules);
     } catch {}
   }
-  let items = props.map((p, i) => ({ prop: p, duration: parseFloat(at(dur, i)) * 1000, delay: parseFloat(at(del, i)) * 1000, easing: at(ease, i) })).filter((x) => x.duration > 0);
+  let items = props
+    .map((p, i) => ({
+      prop: p,
+      duration: parseFloat(at(dur, i)) * 1000,
+      delay: parseFloat(at(del, i)) * 1000,
+      easing: at(ease, i),
+    }))
+    .filter((x) => x.duration > 0);
   if (state) items = items.flatMap((x) => (x.prop === "all" ? state.props.map((p) => ({ ...x, prop: p })) : [x]));
   const total = Math.max(1, ...items.map((x) => x.delay + x.duration));
   // Both ends of each property: read now, and with the state's declarations applied at once.
@@ -147,7 +229,8 @@ export function openTransition(el) {
     adopt(probe, false);
     getComputedStyle(el).opacity; // settled before the transition is allowed again
   }
-  const fr = new Map(), laneEase = {};
+  const fr = new Map(),
+    laneEase = {};
   const put = (o, p, v) => ((fr.get(o) || fr.set(o, { at: o, ease: "", vals: {} }).get(o)).vals[p] = v);
   for (const x of items) {
     put(r1((x.delay / total) * 100), x.prop, from[x.prop]);
@@ -182,7 +265,8 @@ export function selectEl(el) {
 export function reveal(el) {
   if (!el || !el.isConnected) return;
   const r = el.getBoundingClientRect();
-  if (r.bottom < 0 || r.top > window.innerHeight - DOCK_H || r.right < 0 || r.left > window.innerWidth) el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+  if (r.bottom < 0 || r.top > window.innerHeight - DOCK_H || r.right < 0 || r.left > window.innerWidth)
+    el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
   M.findUntil = performance.now() + 1400;
   kick();
 }
@@ -191,7 +275,8 @@ export function reveal(el) {
 /** The page's own Animation object for what is open. One that ended without holding its last
  *  frame is no longer listed by the element, but the object still plays: it is kept. */
 export function animOf() {
-  const o = M.open, el = o && mq(o.rs);
+  const o = M.open,
+    el = o && mq(o.rs);
   if (!el || o.kind === "transition") return null;
   if (o.kind === "script") return M.held;
   const a = el.getAnimations().find((x) => x.animationName === o.name);
@@ -201,7 +286,8 @@ export function animOf() {
 /** Nothing to hold on to (it ended before it was opened): its animations start again, by
  *  switching them off and on in one go. */
 function revive() {
-  const o = M.open, el = o && mq(o.rs);
+  const o = M.open,
+    el = o && mq(o.rs);
   if (!el || o.kind !== "css") return null;
   const off = new CSSStyleSheet();
   try {
@@ -238,7 +324,8 @@ export function seek(p) {
   const a = animOf() || revive();
   M.pos = p = clamp(p, 0, 1);
   if (!a) return;
-  const t = a.effect.getComputedTiming(), dur = +t.duration || 0;
+  const t = a.effect.getComputedTiming(),
+    dur = +t.duration || 0;
   a.pause();
   // Just short of the end: at the end itself an animation that does not hold its last frame shows nothing.
   a.currentTime = t.delay + Math.min(backward(t) ? 1 - p : p, 0.99999) * dur;
@@ -256,7 +343,8 @@ function flip() {
   kick();
 }
 export function position() {
-  const o = M.open, el = o && mq(o.rs);
+  const o = M.open,
+    el = o && mq(o.rs);
   if (!el) return null;
   if (o.kind === "transition") {
     const ts = el.getAnimations().filter((a) => a instanceof CSSTransition);

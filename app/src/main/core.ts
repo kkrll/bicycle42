@@ -88,7 +88,9 @@ export type Host = {
 /** What the shell has of the controller. */
 export type Core = {
   /** What the window may ask for (`Commands` in shared/types.ts). */
-  commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => ReturnType<Commands[K]> | Promise<ReturnType<Commands[K]>> }
+  commands: {
+    [K in CommandName]: (...args: Parameters<Commands[K]>) => ReturnType<Commands[K]> | Promise<ReturnType<Commands[K]>>
+  }
   /** One of them by name, as the window's bridge asks: a name that is not a command, or a
    *  command that fails, rejects with one sentence for the person at the screen. */
   invoke(name: string, args: unknown): Promise<unknown>
@@ -190,7 +192,9 @@ export function createCore(host: Host): Core {
   /** The conversation the window shows. While its transcript loads, live events wait in `held`;
    *  `again` asks for one more read after this one (something was missed meanwhile; `whole`: more
    *  than new messages), and `counted` is the context's count that arrived meanwhile. */
-  let chat: { session: string; held: ChatEvent[] | null; again: boolean; whole?: boolean; counted?: { context?: ContextUse } } | undefined
+  let chat:
+    | { session: string; held: ChatEvent[] | null; again: boolean; whole?: boolean; counted?: { context?: ContextUse } }
+    | undefined
 
   /** What the context of the conversation on screen held at the agent's last finished step.
    *  Undefined when nothing has measured it. */
@@ -260,7 +264,9 @@ export function createCore(host: Host): Core {
         notes: review?.rows() ?? [],
         unplaced: review?.unplaced ?? 0,
       },
-      site: site ? { origin: site.origin === HOME ? "" : site.origin, ...(saved ? { directory: saved.directory } : {}) } : null,
+      site: site
+        ? { origin: site.origin === HOME ? "" : site.origin, ...(saved ? { directory: saved.directory } : {}) }
+        : null,
       ...(starting && siteAsked === session?.id ? { startingSite: true as const } : {}),
       ...(missingFolder && !saved ? { missingFolder } : {}),
       running: runningShown(),
@@ -270,7 +276,9 @@ export function createCore(host: Host): Core {
       models,
       agents,
       ...(model ? { defaultModel: model } : {}),
-      ...(modelChoice && model ? { modelChoice: { suggested: model, ...(modelChoice.previous ? { previous: modelChoice.previous } : {}) } } : {}),
+      ...(modelChoice && model
+        ? { modelChoice: { suggested: model, ...(modelChoice.previous ? { previous: modelChoice.previous } : {}) } }
+        : {}),
       permissions: [...permissions.values()],
       questions: [...questions.values()],
       ...(contextShown() ? { context: contextShown() } : {}),
@@ -339,7 +347,8 @@ export function createCore(host: Host): Core {
 
   // ── models ──────────────────────────────────────────────────────────────────────────────────────
 
-  const sameModel = (a: ModelRef, b: { providerID: string; id: string }) => a.providerID === b.providerID && a.id === b.id
+  const sameModel = (a: ModelRef, b: { providerID: string; id: string }) =>
+    a.providerID === b.providerID && a.id === b.id
 
   /** The model new conversations start with: the last one picked, else the first that takes
    *  screenshots. The server's own default may be text-only, which would blind every note. */
@@ -382,7 +391,9 @@ export function createCore(host: Host): Core {
     try {
       return new URL(url).origin
     } catch {
-      throw new Error(`"${input}" is not a server address. It looks like https://name.example or http://127.0.0.1:49374.`)
+      throw new Error(
+        `"${input}" is not a server address. It looks like https://name.example or http://127.0.0.1:49374.`,
+      )
     }
   }
 
@@ -438,11 +449,18 @@ export function createCore(host: Host): Core {
     if (!s.current) return store.update((x) => void ((x.current = id), (x.prefix ??= "")))
     store.update((x) => {
       const out = x.servers?.find((v) => v.id === x.current)
-      if (out) out.space = { ...(x.folder ? { folder: x.folder } : {}), ...(x.lastUrl ? { lastUrl: x.lastUrl } : {}), ...(x.defaultModel ? { defaultModel: x.defaultModel } : {}), sites: x.sites, prefix: x.prefix ?? "" }
+      if (out)
+        out.space = {
+          ...(x.folder ? { folder: x.folder } : {}),
+          ...(x.lastUrl ? { lastUrl: x.lastUrl } : {}),
+          ...(x.defaultModel ? { defaultModel: x.defaultModel } : {}),
+          sites: x.sites,
+          prefix: x.prefix ?? "",
+        }
       const into = x.servers?.find((v) => v.id === id)
       const space = into?.space ?? { sites: {}, prefix: `${id}~` }
       delete into?.space
-      delete x.folder, delete x.lastUrl, delete x.defaultModel
+      ;(delete x.folder, delete x.lastUrl, delete x.defaultModel)
       if (space.folder) x.folder = space.folder
       if (space.lastUrl) x.lastUrl = space.lastUrl
       if (space.defaultModel) x.defaultModel = space.defaultModel
@@ -575,13 +593,14 @@ export function createCore(host: Host): Core {
     const folder = repoFolder()
     if (!folder) return
     // The place without a page is always the open repo's: after another repo was opened, it starts anew.
-    if (origin === HOME && siteSettings(HOME) && siteSettings(HOME)!.directory !== folder) store.update((x) => void (x.sites[HOME] = { directory: folder }))
+    if (origin === HOME && siteSettings(HOME) && siteSettings(HOME)!.directory !== folder)
+      store.update((x) => void (x.sites[HOME] = { directory: folder }))
     if (siteSettings(origin)) return
     const home = origin === HOME ? undefined : siteSettings(HOME)
     const moved = home?.session && home.directory === folder ? home.session : undefined
     store.update((x) => {
       x.sites[origin] = { directory: folder, ...(moved ? { session: moved } : {}) }
-      if (moved) delete x.sites[HOME]?.session, delete x.sites[HOME]?.bg
+      if (moved) (delete x.sites[HOME]?.session, delete x.sites[HOME]?.bg)
     })
   }
 
@@ -630,13 +649,16 @@ export function createCore(host: Host): Core {
         store.update((x) => {
           const entry = x.sites[s.origin]
           // A new conversation gets a new background one on demand; the old one belonged to the old.
-          if (entry) (entry.session = current!.id), delete entry.bg
+          if (entry) ((entry.session = current!.id), delete entry.bg)
         })
       }
       // The app has one mode, Build. A conversation left in another one (by an older version, or by
       // OpenCode itself) is put back, or notes would be planned and never made.
       if (current.agent && current.agent !== "build" && agents.some((x) => x.id === "build")) {
-        await b.setAgent(current.id, "build").then(() => void (current = { ...current!, agent: "build" }), (err) => log("warn", "can't switch to build", say(err)))
+        await b.setAgent(current.id, "build").then(
+          () => void (current = { ...current!, agent: "build" }),
+          (err) => log("warn", "can't switch to build", say(err)),
+        )
       }
       if (backend !== b || site !== s) return
       owners.set(current.id, s.origin)
@@ -653,7 +675,15 @@ export function createCore(host: Host): Core {
       toChat({
         type: "reset",
         session: "",
-        items: [{ kind: "marker", id: "open-error", time: Date.now(), tone: "error", text: `Can't open a conversation: ${say(err)}` }],
+        items: [
+          {
+            kind: "marker",
+            id: "open-error",
+            time: Date.now(),
+            tone: "error",
+            text: `Can't open a conversation: ${say(err)}`,
+          },
+        ],
       })
     }
   }
@@ -675,7 +705,8 @@ export function createCore(host: Host): Core {
   }
 
   /** What a saved server is called: the reviewer's name, its computer's own, or its address. */
-  const serverCalled = (x: SavedServer) => x.name ?? x.computer ?? ("url" in x ? x.url.replace(/^https?:\/\//, "") : "this computer")
+  const serverCalled = (x: SavedServer) =>
+    x.name ?? x.computer ?? ("url" in x ? x.url.replace(/^https?:\/\//, "") : "this computer")
 
   /** The site's conversations as the list shows them: the ones not put away, the pinned first,
    *  each with the count and the words of the notes it was sent (the background conversation's
@@ -761,7 +792,7 @@ export function createCore(host: Host): Core {
     if (!b || !s || !directory) return
     try {
       const list = await b.sessions(directory)
-      if (backend === b && site === s) (sessions = list), push()
+      if (backend === b && site === s) ((sessions = list), push())
     } catch (err) {
       log("warn", "can't list conversations", say(err))
     }
@@ -798,7 +829,15 @@ export function createCore(host: Host): Core {
       toChat({
         type: "reset",
         session: id,
-        items: [{ kind: "marker", id: "load-error", time: Date.now(), tone: "error", text: `Can't load the conversation: ${say(err)}` }],
+        items: [
+          {
+            kind: "marker",
+            id: "load-error",
+            time: Date.now(),
+            tone: "error",
+            text: `Can't load the conversation: ${say(err)}`,
+          },
+        ],
       })
     } finally {
       mine.held = null
@@ -840,7 +879,7 @@ export function createCore(host: Host): Core {
     if (saved?.session !== id) return
     store.update((x) => {
       const entry = x.sites[origin]
-      if (entry) delete entry.session, delete entry.bg
+      if (entry) (delete entry.session, delete entry.bg)
     })
     if (s !== site) return
     session = null
@@ -874,11 +913,12 @@ export function createCore(host: Host): Core {
       case "inbox":
       case "run": {
         if (e.type === "run") busy.set(e.session, e.status === "started")
-        if (e.type === "run" && session?.id === e.session) (session = { ...session, busy: e.status === "started" }), push()
+        if (e.type === "run" && session?.id === e.session)
+          ((session = { ...session, busy: e.status === "started" }), push())
         // A run that ends may have left something running, or stopped it.
         if (e.type === "run" && e.status !== "started") void refreshRunning()
         if (e.type === "run" && siteAsked === e.session) {
-          if (e.status === "started") (starting = true), push()
+          if (e.status === "started") ((starting = true), push())
           else void started(e.session, e.status === "succeeded")
         }
         const origin = owners.get(e.session)
@@ -893,7 +933,8 @@ export function createCore(host: Host): Core {
         // The conversation is free: the next waiting note goes. Not after an error, which leaves
         // the rest waiting until something is sent again, as the server's own queue does. (Stop
         // from the app takes the rest out of both queues first; see `commands.stop`.)
-        if ((e.type === "run" && e.status === "succeeded") || (e.type === "inbox" && e.status === "cancelled")) pumpSite(s)
+        if ((e.type === "run" && e.status === "succeeded") || (e.type === "inbox" && e.status === "cancelled"))
+          pumpSite(s)
         if (!touched) return
         changed(s)
         // Show the agent's change: a page without hot reload still has the old pixels.
@@ -963,7 +1004,12 @@ export function createCore(host: Host): Core {
     const now = Date.now()
     return running
       .filter((r) => now - r.started >= RUNNING_SETTLED_MS)
-      .sort((a, b) => Number(b.directory === here) - Number(a.directory === here) || a.directory.localeCompare(b.directory) || a.started - b.started)
+      .sort(
+        (a, b) =>
+          Number(b.directory === here) - Number(a.directory === here) ||
+          a.directory.localeCompare(b.directory) ||
+          a.started - b.started,
+      )
   }
 
   /** Reads what is running: in the open repo, or with `everywhere` in every project the server
@@ -974,7 +1020,16 @@ export function createCore(host: Host): Core {
     if (!b) return
     const here = site && siteSettings(site.origin)?.directory
     try {
-      const where = everywhere ? [...new Set([...(here ? [here] : []), ...(await Promise.resolve(commands.projects()).catch(() => [] as string[]))])] : here ? [here] : []
+      const where = everywhere
+        ? [
+            ...new Set([
+              ...(here ? [here] : []),
+              ...(await Promise.resolve(commands.projects()).catch(() => [] as string[])),
+            ]),
+          ]
+        : here
+          ? [here]
+          : []
       const found = await Promise.all(where.map((d) => b.running(d).catch(() => undefined)))
       if (backend !== b) return
       // A folder that could not be asked keeps what was known of it; one not asked this time too.
@@ -1031,7 +1086,9 @@ export function createCore(host: Host): Core {
     if (!ok || !b || siteAsked !== id) return
     try {
       const items = (await b.transcript(id)).items
-      const last = items.findLast((i) => i.kind === "assistant" && !i.summary && i.parts.some((p) => p.kind === "text" && p.text.trim()))
+      const last = items.findLast(
+        (i) => i.kind === "assistant" && !i.summary && i.parts.some((p) => p.kind === "text" && p.text.trim()),
+      )
       const said = last?.kind === "assistant" ? last.parts.map((p) => (p.kind === "text" ? p.text : "")).join("\n") : ""
       const url = [...said.matchAll(SITE_LINE)].pop()?.[1]
       if (!url || !originOf(url) || backend !== b || siteAsked !== id || works()) return
@@ -1085,7 +1142,12 @@ export function createCore(host: Host): Core {
     const shot = s.review.note(id)?.shot
     if (!p || !shot) return
     // A note taken back meanwhile has nothing to show: the area is as it was before it.
-    const here = () => page === p && site === s && s.review.note(id)?.status === "done" && !s.review.note(id)?.takenBack && samePage(p.state().url, shot.url)
+    const here = () =>
+      page === p &&
+      site === s &&
+      s.review.note(id)?.status === "done" &&
+      !s.review.note(id)?.takenBack &&
+      samePage(p.state().url, shot.url)
     // It waits on the page's frames (two, with the layer hidden), in a hidden window too.
     const frames = p.holdFrames()
     try {
@@ -1098,7 +1160,8 @@ export function createCore(host: Host): Core {
       let frame: Frame | undefined
       try {
         // Without an answer nothing says the layer is hidden and the page in place: no picture then.
-        if ((await pageFrame(p, { hold: true, scroll: [Number(v.scrollX), Number(v.scrollY)] })) !== undefined) frame = await p.capture()
+        if ((await pageFrame(p, { hold: true, scroll: [Number(v.scrollX), Number(v.scrollY)] })) !== undefined)
+          frame = await p.capture()
       } finally {
         // Given back in any case: the overlay may have done it and only its answer was lost.
         void pageFrame(p, { hold: false })
@@ -1184,7 +1247,14 @@ export function createCore(host: Host): Core {
     Object.values(store.settings().sites)
       .flatMap((entry) => entry.checkpoints ?? [])
       .filter((c) => c.session === id)
-  const checkpointMarker = (c: Checkpoint): ChatMarker => ({ kind: "marker", id: `checkpoint:${c.id}`, time: c.time, tone: "info", text: c.name, checkpoint: c.id })
+  const checkpointMarker = (c: Checkpoint): ChatMarker => ({
+    kind: "marker",
+    id: `checkpoint:${c.id}`,
+    time: c.time,
+    tone: "info",
+    text: c.name,
+    checkpoint: c.id,
+  })
 
   /** The transcript with the conversation's checkpoints in it, each before the first thing that
    *  happened after it. */
@@ -1203,7 +1273,9 @@ export function createCore(host: Host): Core {
    *  whatever the last word from it was: those pins show as paused, like their rows. */
   function pinsOf(review: Review) {
     const pins = review.pins()
-    return connection.status === "offline" ? pins.map((p) => (p.status === "working" ? { ...p, status: "paused" as const } : p)) : pins
+    return connection.status === "offline"
+      ? pins.map((p) => (p.status === "working" ? { ...p, status: "paused" as const } : p))
+      : pins
   }
 
   /** What the note card offers after "/": names and one-line hints. The prompts stay in main. */
@@ -1223,7 +1295,8 @@ export function createCore(host: Host): Core {
     switchSite(placeOf(url))
     // Where a project's site was last open, for coming back to it (openProject).
     const at = originOf(url)
-    if (at && siteSettings(at) && siteSettings(at)!.url !== url) store.update((s) => void (s.sites[at] && Object.assign(s.sites[at], { url, seen: Date.now() })))
+    if (at && siteSettings(at) && siteSettings(at)!.url !== url)
+      store.update((s) => void (s.sites[at] && Object.assign(s.sites[at], { url, seen: Date.now() })))
     push()
   }
 
@@ -1236,7 +1309,13 @@ export function createCore(host: Host): Core {
         // A new document starts in notes mode with the brush off; if it comes back in edit mode
         // (a reload while editing), the overlay says so right after this.
         pageMode = { canvas: false, motion: false, brush: false }
-        page?.send({ type: "state", enabled: review.enabled, draft: review.draft, pins: pinsOf(review), templates: NOTE_TEMPLATES })
+        page?.send({
+          type: "state",
+          enabled: review.enabled,
+          draft: review.draft,
+          pins: pinsOf(review),
+          templates: NOTE_TEMPLATES,
+        })
         return push()
       case "mode":
         // The overlay's own keys change it too (mod+U/P/O/I, Esc, a note sent): the top bar follows.
@@ -1314,14 +1393,15 @@ export function createCore(host: Host): Core {
       if (shot) files = await noteImages(shot, pn, note.n, before)
       // The first picture is the area as it is now (for a canvas note, as it was before the
       // reviewer's edits): what the agent's result will be looked at beside.
-      if (files[0] && (await noteShots.save(note.id, "before", files[0].uri))) s.review.mark(note.id, { pictures: "before" })
+      if (files[0] && (await noteShots.save(note.id, "before", files[0].uri)))
+        s.review.mark(note.id, { pictures: "before" })
     } catch (err) {
       before = undefined
       page?.send({ type: "captured", id: pn.id })
       log("warn", "screenshot failed; the note goes without one", say(err))
     }
     frames?.()
-    const shots =(before ? files.length - 1 : files.length) as 0 | 1 | 2
+    const shots = (before ? files.length - 1 : files.length) as 0 | 1 | 2
     const text = notePrompt(pn, note.n, { images: shots, references: pasted.length, before: !!before })
     const payload = { text, files: [...files, ...pasted] }
     outbox.set(note.id, payload)
@@ -1518,7 +1598,8 @@ export function createCore(host: Host): Core {
   /** The conversation a lane's notes go to. The background one is made on its first note: a child
    *  of the main one, on the same model and folder, so its queue runs beside the main queue. */
   async function laneSession(s: Site, lane: Lane): Promise<string> {
-    if (!backend) throw new Error(connection.status === "unconfigured" ? "Connect to a server first." : "The server is offline.")
+    if (!backend)
+      throw new Error(connection.status === "unconfigured" ? "Connect to a server first." : "The server is offline.")
     const saved = siteSettings(s.origin)
     if (!saved) throw new Error("Pick this site's folder first.")
     if (s === site && !session) await openSite()
@@ -1554,7 +1635,8 @@ export function createCore(host: Host): Core {
   async function takeBack(id: unknown) {
     const s = site
     const note = typeof id === "string" ? s?.review.note(id) : undefined
-    if (!s || !note?.session || !note.message || note.status !== "done") throw new Error("Only a finished note can be taken back.")
+    if (!s || !note?.session || !note.message || note.status !== "done")
+      throw new Error("Only a finished note can be taken back.")
     if (note.takenBack) throw new Error("This note was already taken back.")
     const b = need()
     const info = await b.session(note.session)
@@ -1590,13 +1672,18 @@ export function createCore(host: Host): Core {
     if (!s || !siteSettings(s.origin)) return
     store.update((x) => {
       const entry = x.sites[s.origin]
-      if (entry && entry.session !== id) (entry.session = id), delete entry.bg
+      if (entry && entry.session !== id) ((entry.session = id), delete entry.bg)
     })
     session = null
     await openSite()
   }
 
-  type Builtin = (b: Backend, current: SessionSummary, args: string, options?: SendOptions) => Promise<CommandResult | void>
+  type Builtin = (
+    b: Backend,
+    current: SessionSummary,
+    args: string,
+    options?: SendOptions,
+  ) => Promise<CommandResult | void>
 
   const builtins: Record<string, Builtin> = {
     // The summary arrives as chat events; so does "nothing to compact yet". Notes are not
@@ -1611,7 +1698,8 @@ export function createCore(host: Host): Core {
     // Two steps, because it cannot be done by halves: the server takes back everything from that
     // message on, the agent's file changes included. The first "/undo" only says what would go.
     async undo(b, current, args) {
-      if (session?.id === current.id && session.busy) throw new Error("The agent is working. Stop it first, then /undo.")
+      if (session?.id === current.id && session.busy)
+        throw new Error("The agent is working. Stop it first, then /undo.")
       const turn = await b.lastTurn(current.id)
       if (!turn) throw new Error("Nothing to undo.")
       const what = turn.note ? `note ${turn.note.n} (${quoted(turn.note.text)})` : `your message ${quoted(turn.text)}`
@@ -1624,11 +1712,21 @@ export function createCore(host: Host): Core {
       showFiles(site)
       // The note it was says so in the list, until /redo.
       for (const s of sites.values()) {
-        const row = s.review.rows().find((r) => s.review.note(r.id)?.message === turn.id && s.review.note(r.id)?.session === current.id && r.status === "done")
+        const row = s.review
+          .rows()
+          .find(
+            (r) =>
+              s.review.note(r.id)?.message === turn.id &&
+              s.review.note(r.id)?.session === current.id &&
+              r.status === "done",
+          )
         if (row && s.review.mark(row.id, { takenBack: "undone" })) changed(s)
       }
       // A note cannot be sent again from the message box; a typed message can, so it comes back.
-      return { say: `Took back ${what}. /redo brings it back; your next message makes it final.`, ...(turn.note ? {} : { draft: turn.text }) }
+      return {
+        say: `Took back ${what}. /redo brings it back; your next message makes it final.`,
+        ...(turn.note ? {} : { draft: turn.text }),
+      }
     },
     async redo(b, current) {
       const now = await b.session(current.id)
@@ -1637,7 +1735,9 @@ export function createCore(host: Host): Core {
       showFiles(site)
       for (const s of sites.values()) {
         let touched = false
-        for (const r of s.review.rows()) if (r.takenBack === "undone" && s.review.note(r.id)?.session === current.id) touched = s.review.mark(r.id, { takenBack: undefined }) || touched
+        for (const r of s.review.rows())
+          if (r.takenBack === "undone" && s.review.note(r.id)?.session === current.id)
+            touched = s.review.mark(r.id, { takenBack: undefined }) || touched
         if (touched) changed(s)
       }
       return { say: "Brought back what was undone." }
@@ -1645,7 +1745,7 @@ export function createCore(host: Host): Core {
     async rename(b, current, args) {
       if (!args) throw new Error("Type the new name after /rename.")
       await b.rename(current.id, args)
-      if (session?.id === current.id) (session = { ...session, title: args }), push()
+      if (session?.id === current.id) ((session = { ...session, title: args }), push())
       void refreshSessions()
       return { say: `Renamed to ${quoted(args)}.` }
     },
@@ -1691,12 +1791,22 @@ export function createCore(host: Host): Core {
   /** What a message sends besides its text: the delivery, and its mentions with each file or
    *  folder resolved against the conversation's folder (the window only knows relative paths).
    *  The window's input is checked here; a malformed mention is dropped, not sent. */
-  function sendOptions(options: SendOptions | undefined, directory: string): { mentions?: Mention[]; delivery?: SendOptions["delivery"] } {
+  function sendOptions(
+    options: SendOptions | undefined,
+    directory: string,
+  ): { mentions?: Mention[]; delivery?: SendOptions["delivery"] } {
     const o = (options ?? {}) as Record<string, unknown>
     const mentions: Mention[] = []
     for (const raw of Array.isArray(o.mentions) ? o.mentions : []) {
       const m = (raw ?? {}) as Record<string, unknown>
-      if (!MENTION_KINDS.has(m.kind) || typeof m.id !== "string" || !m.id || typeof m.start !== "number" || typeof m.end !== "number") continue
+      if (
+        !MENTION_KINDS.has(m.kind) ||
+        typeof m.id !== "string" ||
+        !m.id ||
+        typeof m.start !== "number" ||
+        typeof m.end !== "number"
+      )
+        continue
       const kind = m.kind as Mention["kind"]
       const id = kind === "file" || kind === "folder" ? path.posix.resolve(directory, m.id) : m.id
       mentions.push({ kind, id, start: m.start, end: m.end })
@@ -1746,7 +1856,8 @@ export function createCore(host: Host): Core {
       // Kept for the next start, when the page is laid out before the window can say where it is
       // (lastPageBounds). Hidden (null) is no place to come back to.
       const at = bounds && { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
-      if (at && JSON.stringify(at) !== JSON.stringify(store.settings().pageBounds)) store.update((s) => void (s.pageBounds = at))
+      if (at && JSON.stringify(at) !== JSON.stringify(store.settings().pageBounds))
+        store.update((s) => void (s.pageBounds = at))
     },
 
     toggleReview() {
@@ -1765,7 +1876,11 @@ export function createCore(host: Host): Core {
       }
       if (on) {
         // Shown at once; the overlay answers with the mode it is in, and that is what stays.
-        pageMode = { canvas: mode === "edit", motion: mode === "motion", brush: mode === "notes" ? pageMode.brush : false }
+        pageMode = {
+          canvas: mode === "edit",
+          motion: mode === "motion",
+          brush: mode === "notes" ? pageMode.brush : false,
+        }
         page?.send({ type: "mode", mode: pageMode.canvas ? "canvas" : pageMode.motion ? "motion" : "notes" })
         page?.focus()
       }
@@ -1832,7 +1947,8 @@ export function createCore(host: Host): Core {
     async takeBackNote(id, expect) {
       const { s, note, how } = await takeBack(id)
       // The question named one way; the conversation has moved since, and this is not that way.
-      if ((expect === "undone" || expect === "asked") && expect !== how) throw new Error("Its conversation changed meanwhile. Press Take back again to see what it would do now.")
+      if ((expect === "undone" || expect === "asked") && expect !== how)
+        throw new Error("Its conversation changed meanwhile. Press Take back again to see what it would do now.")
       const b = need()
       if (how === "undone") {
         await b.undo(note.session, note.message)
@@ -1851,8 +1967,18 @@ export function createCore(host: Host): Core {
       const current = needSession()
       if (!s || !siteSettings(s.origin)) return
       const clean = (typeof name === "string" ? name : "").replace(/\s+/g, " ").trim().slice(0, CHECKPOINT_NAME_MAX)
-      const made: Checkpoint = { id: `cp_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, session: current.id, name: clean || `Checkpoint ${checkpointsOf(current.id).length + 1}`, time: Date.now() }
-      store.update((x) => void (x.sites[s.origin] && (x.sites[s.origin]!.checkpoints = [...(x.sites[s.origin]!.checkpoints ?? []), made])))
+      const made: Checkpoint = {
+        id: `cp_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+        session: current.id,
+        name: clean || `Checkpoint ${checkpointsOf(current.id).length + 1}`,
+        time: Date.now(),
+      }
+      store.update(
+        (x) =>
+          void (
+            x.sites[s.origin] && (x.sites[s.origin]!.checkpoints = [...(x.sites[s.origin]!.checkpoints ?? []), made])
+          ),
+      )
       if (chat?.session === current.id) toChat({ type: "item", session: current.id, item: checkpointMarker(made) })
     },
     removeCheckpoint(id) {
@@ -1879,7 +2005,9 @@ export function createCore(host: Host): Core {
       if (!info) throw new Error("Its conversation no longer exists.")
       if (info.busy) throw new Error("The agent is working. Stop it first.")
       // Everything said after it goes: the first such message is where the server cuts.
-      const after = (await b.transcript(cp.session)).items.filter((i) => i.kind === "user" && !i.pending && i.time > cp.time)
+      const after = (await b.transcript(cp.session)).items.filter(
+        (i) => i.kind === "user" && !i.pending && i.time > cp.time,
+      )
       if (!after.length) throw new Error("Nothing has been said since this checkpoint.")
       await b.undo(cp.session, after[0]!.id)
       showFiles(site)
@@ -1888,7 +2016,8 @@ export function createCore(host: Host): Core {
         let touched = false
         for (const row of s.review.rows()) {
           const note = s.review.note(row.id)
-          if (note?.session === cp.session && note.message && gone.has(note.message) && note.status === "done") touched = s.review.mark(row.id, { takenBack: "undone" }) || touched
+          if (note?.session === cp.session && note.message && gone.has(note.message) && note.status === "done")
+            touched = s.review.mark(row.id, { takenBack: "undone" }) || touched
         }
         if (touched) changed(s)
       }
@@ -1925,7 +2054,13 @@ export function createCore(host: Host): Core {
       const s = store.settings()
       const here = readLocal()?.url ?? ""
       return (s.servers ?? [])
-        .map((x): ServerInfo => ({ id: x.id, ...((x.name ?? x.computer) ? { name: x.name ?? x.computer } : {}), url: "local" in x ? here : x.url, local: "local" in x, current: !!s.server && x.id === s.current }))
+        .map((x): ServerInfo => ({
+          id: x.id,
+          ...((x.name ?? x.computer) ? { name: x.name ?? x.computer } : {}),
+          url: "local" in x ? here : x.url,
+          local: "local" in x,
+          current: !!s.server && x.id === s.current,
+        }))
         .sort((a, b) => Number(b.current) - Number(a.current))
     },
     async useServer(id) {
@@ -1933,7 +2068,8 @@ export function createCore(host: Host): Core {
       if (!saved) throw new Error("That server is no longer saved.")
       if ("local" in saved) return void (await commands.connectLocal())
       const password = unseal(saved.password)
-      if (password === undefined) throw new Error("Its saved password can't be read. Enter the address and password again.")
+      if (password === undefined)
+        throw new Error("Its saved password can't be read. Enter the address and password again.")
       await connect(saved.url, password, { save: "remote" })
     },
     forgetServer(id) {
@@ -1942,7 +2078,8 @@ export function createCore(host: Host): Core {
       store.update((x) => {
         x.servers = (x.servers ?? []).filter((v) => v.id !== id)
         // Not connected, and it was the one last in use: what is here was its own.
-        if (x.current === id) delete x.current, delete x.folder, delete x.lastUrl, delete x.defaultModel, (x.sites = {})
+        if (x.current === id)
+          (delete x.current, delete x.folder, delete x.lastUrl, delete x.defaultModel, (x.sites = {}))
       })
       push()
     },
@@ -1976,11 +2113,21 @@ export function createCore(host: Host): Core {
       const here = site && siteSettings(site.origin)?.directory
       const live = backend ? await Promise.resolve(commands.projects()).catch(() => [] as string[]) : []
       const on = mine ? serverCalled(mine) : ""
-      const out: ProjectInfo[] = [...new Set([...(here ? [here] : []), ...live])].map((directory) => ({ directory, on, ...(directory === here ? { open: true as const } : {}) }))
+      const out: ProjectInfo[] = [...new Set([...(here ? [here] : []), ...live])].map((directory) => ({
+        directory,
+        on,
+        ...(directory === here ? { open: true as const } : {}),
+      }))
       for (const x of s.servers ?? []) {
         if (x.id === s.current && backend) continue
         const theirs = x.id === s.current ? { folder: s.folder, sites: s.sites } : x.space
-        const known = [...new Set([...(theirs?.folder ? [theirs.folder] : []), ...Object.values(theirs?.sites ?? {}).map((e) => e.directory), ...(x.projects ?? [])])]
+        const known = [
+          ...new Set([
+            ...(theirs?.folder ? [theirs.folder] : []),
+            ...Object.values(theirs?.sites ?? {}).map((e) => e.directory),
+            ...(x.projects ?? []),
+          ]),
+        ]
         for (const directory of known) out.push({ directory, server: x.id, on: serverCalled(x) })
       }
       return out
@@ -2004,7 +2151,8 @@ export function createCore(host: Host): Core {
       if (typeof directory !== "string" || !directory.startsWith("/")) throw new Error("Choose a folder.")
       // A project of another server: that server first. Its own repo and page come up with it,
       // and then this project is opened there.
-      if (typeof server === "string" && (server !== store.settings().current || !backend)) await commands.useServer(server)
+      if (typeof server === "string" && (server !== store.settings().current || !backend))
+        await commands.useServer(server)
       const b = need()
       if (!(await folderExists(b, directory))) throw new Error(`${directory} is not a folder on this server.`)
       missingFolder = undefined
@@ -2032,11 +2180,14 @@ export function createCore(host: Host): Core {
     },
     async stopRunning(directory, id) {
       const b = need()
-      const which = runningShown().filter((r) => (directory === undefined || r.directory === directory) && (id === undefined || r.id === id))
+      const which = runningShown().filter(
+        (r) => (directory === undefined || r.directory === directory) && (id === undefined || r.id === id),
+      )
       const failed: string[] = []
       await Promise.all(which.map((r) => b.kill(r.directory, r.id).catch((err) => void failed.push(say(err)))))
       await refreshRunning(true)
-      if (failed.length) throw new Error(`Could not stop ${failed.length === 1 ? "it" : `${failed.length} of them`}: ${failed[0]}`)
+      if (failed.length)
+        throw new Error(`Could not stop ${failed.length === 1 ? "it" : `${failed.length} of them`}: ${failed[0]}`)
     },
     async startSite() {
       const b = need()
@@ -2060,7 +2211,13 @@ export function createCore(host: Host): Core {
       const b = need()
       const current = needSession()
       const files = pictures(images)
-      await startsRun(current.id, () => b.prompt(current.id, { text, ...(files.length ? { files } : {}), ...sendOptions(options, chatDirectory(current)) }))
+      await startsRun(current.id, () =>
+        b.prompt(current.id, {
+          text,
+          ...(files.length ? { files } : {}),
+          ...sendOptions(options, chatDirectory(current)),
+        }),
+      )
       void autoName(current.id, text)
     },
     async commands() {
@@ -2101,9 +2258,14 @@ export function createCore(host: Host): Core {
       const typed = (typeof query === "string" ? query : "").trim()
       const q = typed.toLowerCase()
       if (!q) return [...skills, ...helpers].slice(0, MENTIONS_MAX)
-      const named = [...skills, ...helpers].filter((o) => o.label.toLowerCase().includes(q) || o.id.toLowerCase().includes(q))
+      const named = [...skills, ...helpers].filter(
+        (o) => o.label.toLowerCase().includes(q) || o.id.toLowerCase().includes(q),
+      )
       // Files first: they are what a message names most. Room is kept for a few named matches.
-      const files = (await b.findFiles(directory, typed)).slice(0, MENTIONS_MAX - Math.min(named.length, MENTIONS_MAX / 2))
+      const files = (await b.findFiles(directory, typed)).slice(
+        0,
+        MENTIONS_MAX - Math.min(named.length, MENTIONS_MAX / 2),
+      )
       return [...files, ...named].slice(0, MENTIONS_MAX)
     },
     async cancelQueued(item) {
@@ -2115,7 +2277,8 @@ export function createCore(host: Host): Core {
       const note = typeof id === "string" ? s?.review.note(id) : undefined
       // Still waiting in the app: no conversation has it, so there is nothing to tell the server.
       if (s && note && s.review.cancel(note.id)) return changed(s)
-      if (!note?.session || !note.message || note.status !== "queued") throw new Error("This note is no longer waiting.")
+      if (!note?.session || !note.message || note.status !== "queued")
+        throw new Error("This note is no longer waiting.")
       // The server's "cancelled" event is what moves the note; it arrives for any conversation.
       await need().cancelQueued(note.session, note.message)
     },
@@ -2141,7 +2304,7 @@ export function createCore(host: Host): Core {
       // Nothing was running: the busy shown was out of date. What the server says now is.
       forgetBusy(id)
       const now = await b.session(id)
-      if (now && session?.id === id) (session = { ...session, busy: now.busy }), push()
+      if (now && session?.id === id) ((session = { ...session, busy: now.busy }), push())
     },
     async newSession() {
       const s = site
@@ -2149,7 +2312,7 @@ export function createCore(host: Host): Core {
       need()
       store.update((x) => {
         const entry = x.sites[s.origin]
-        if (entry) delete entry.session, delete entry.bg
+        if (entry) (delete entry.session, delete entry.bg)
       })
       session = null
       await openSite()
@@ -2178,7 +2341,10 @@ export function createCore(host: Host): Core {
       const s = site
       if (typeof id !== "string" || !id || !s) return
       unpin(id)
-      if (pinned) store.update((x) => void (x.sites[s.origin] && (x.sites[s.origin]!.pinned = [...(x.sites[s.origin]!.pinned ?? []), id])))
+      if (pinned)
+        store.update(
+          (x) => void (x.sites[s.origin] && (x.sites[s.origin]!.pinned = [...(x.sites[s.origin]!.pinned ?? []), id])),
+        )
       push()
     },
     async archiveSession(id, archived) {
@@ -2207,7 +2373,14 @@ export function createCore(host: Host): Core {
     async setModel(model) {
       const current = needSession()
       await need().setModel(current.id, model)
-      store.update((s) => void (s.defaultModel = { providerID: model.providerID, id: model.id, ...(model.variant ? { variant: model.variant } : {}) }))
+      store.update(
+        (s) =>
+          void (s.defaultModel = {
+            providerID: model.providerID,
+            id: model.id,
+            ...(model.variant ? { variant: model.variant } : {}),
+          }),
+      )
       if (session?.id === current.id) session = { ...session, model }
       push()
     },
@@ -2225,10 +2398,15 @@ export function createCore(host: Host): Core {
       push()
     },
     async setDefaultModel(model) {
-      const known = models.find((m) => typeof model?.providerID === "string" && typeof model.id === "string" && sameModel(model, m))
+      const known = models.find(
+        (m) => typeof model?.providerID === "string" && typeof model.id === "string" && sameModel(model, m),
+      )
       if (!known) throw new Error("This server does not offer that model. Choose another one.")
-      const variant = typeof model.variant === "string" && known.variants.includes(model.variant) ? model.variant : undefined
-      store.update((s) => void (s.defaultModel = { providerID: known.providerID, id: known.id, ...(variant ? { variant } : {}) }))
+      const variant =
+        typeof model.variant === "string" && known.variants.includes(model.variant) ? model.variant : undefined
+      store.update(
+        (s) => void (s.defaultModel = { providerID: known.providerID, id: known.id, ...(variant ? { variant } : {}) }),
+      )
       modelChoice = undefined
       push()
       // The conversation that waited for this answer can be made now.
@@ -2285,7 +2463,12 @@ export function createCore(host: Host): Core {
     lastPageBounds() {
       // From disk: only a rectangle if it has the four numbers of one.
       const b = store.settings().pageBounds
-      const ok = !!b && typeof b === "object" && [b.x, b.y, b.width, b.height].every((n) => typeof n === "number" && Number.isFinite(n)) && b.width >= 1 && b.height >= 1
+      const ok =
+        !!b &&
+        typeof b === "object" &&
+        [b.x, b.y, b.width, b.height].every((n) => typeof n === "number" && Number.isFinite(n)) &&
+        b.width >= 1 &&
+        b.height >= 1
       return ok ? { x: b.x, y: b.y, width: b.width, height: b.height } : undefined
     },
     start() {
@@ -2294,7 +2477,8 @@ export function createCore(host: Host): Core {
         host.dialog({
           type: "warning",
           message: "Settings were written by a newer bicycle 42",
-          detail: "This version leaves them untouched, so nothing you change now will be remembered. Update bicycle 42 to keep your changes.",
+          detail:
+            "This version leaves them untouched, so nothing you change now will be remembered. Update bicycle 42 to keep your changes.",
         })
     },
     dispose() {

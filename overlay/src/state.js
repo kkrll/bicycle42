@@ -42,4 +42,3 @@ export const S = {
 };
 
 export const SVG = "http://www.w3.org/2000/svg"; // the namespace of the layer's own SVG elements
-

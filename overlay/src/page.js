@@ -104,7 +104,11 @@ export function editSel(el) {
   const base = selectorFor(el);
   if (/^[#[]/.test(base)) return base; // its own id or test id, or already anchored at an id
   const parts = [];
-  for (let cur = el, n = 0; cur && cur.nodeType === 1 && cur !== document.body && cur !== document.documentElement && n < 8; cur = cur.parentElement, n++) {
+  for (
+    let cur = el, n = 0;
+    cur && cur.nodeType === 1 && cur !== document.body && cur !== document.documentElement && n < 8;
+    cur = cur.parentElement, n++
+  ) {
     if (cur !== el && cur.id && unique(`#${CSS.escape(cur.id)}`)) {
       const sel = [`#${CSS.escape(cur.id)}`, ...parts].join(" > ");
       return sel.length <= 200 && unique(sel) ? sel : base;
@@ -179,8 +183,10 @@ function textOf(el) {
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
     let prev = /** @type {any} */ (null);
     for (let n = /** @type {any} */ (walker.nextNode()); n && text.length < 240; n = walker.nextNode()) {
-      const a = prev && prev.parentNode, b = n.parentNode;
-      if (prev && a !== b && !((a.contains(b) && INLINE.test(b.tagName)) || (b.contains(a) && INLINE.test(a.tagName)))) text += " ";
+      const a = prev && prev.parentNode,
+        b = n.parentNode;
+      if (prev && a !== b && !((a.contains(b) && INLINE.test(b.tagName)) || (b.contains(a) && INLINE.test(a.tagName))))
+        text += " ";
       text += n.data;
       prev = n;
     }
@@ -188,7 +194,10 @@ function textOf(el) {
   text = text.replace(/\s+/g, " ").trim();
   return text.length > 80 ? `${text.slice(0, 79)}…` : text;
 }
-export const line = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+export const line = (s) =>
+  String(s ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
 
 /** Re-find a pin's element after the page changed. The agent's own edit is what changes the
  *  element, so the selector often points at the wrong node (or none). Order: selector whose
@@ -220,14 +229,44 @@ export const label = (el) => {
 };
 
 /** What a designer would call it: "Button · Start free trial". The selector stays in the tooltip. */
-const KINDS = { a: "Link", button: "Button", img: "Image", svg: "Icon", input: "Field", textarea: "Field", select: "Menu", p: "Text",
-  span: "Text", label: "Label", ul: "List", ol: "List", li: "List item", nav: "Navigation", header: "Header", footer: "Footer",
-  section: "Section", article: "Card", form: "Form", table: "Table", video: "Video", h1: "Heading", h2: "Heading", h3: "Heading",
-  h4: "Heading", h5: "Heading", h6: "Heading" };
+const KINDS = {
+  a: "Link",
+  button: "Button",
+  img: "Image",
+  svg: "Icon",
+  input: "Field",
+  textarea: "Field",
+  select: "Menu",
+  p: "Text",
+  span: "Text",
+  label: "Label",
+  ul: "List",
+  ol: "List",
+  li: "List item",
+  nav: "Navigation",
+  header: "Header",
+  footer: "Footer",
+  section: "Section",
+  article: "Card",
+  form: "Form",
+  table: "Table",
+  video: "Video",
+  h1: "Heading",
+  h2: "Heading",
+  h3: "Heading",
+  h4: "Heading",
+  h5: "Heading",
+  h6: "Heading",
+};
 export const plainLabel = (el, max = 32) => {
   const tag = el.tagName.toLowerCase();
   const kind = component(el)?.name || KINDS[tag] || (el.getAttribute("role") ? el.getAttribute("role") : "Block");
-  const words = (el.getAttribute("aria-label") || el.getAttribute("alt") || el.getAttribute("placeholder") || textOf(el)).trim();
+  const words = (
+    el.getAttribute("aria-label") ||
+    el.getAttribute("alt") ||
+    el.getAttribute("placeholder") ||
+    textOf(el)
+  ).trim();
   return words ? `${kind} · ${words.length > max ? `${words.slice(0, max - 1)}…` : words}` : kind;
 };
 
@@ -235,7 +274,8 @@ export const plainLabel = (el, max = 32) => {
 export function pick(x, y) {
   let el = document.elementFromPoint(x, y);
   // (A band or handle of the canvas selection is the layer's, laid over the page: under it is the page.)
-  if (el === hostEl && /** @type {any} */ (root?.elementFromPoint(x, y))?._z) el = document.elementsFromPoint(x, y).find((n) => n !== hostEl) || null;
+  if (el === hostEl && /** @type {any} */ (root?.elementFromPoint(x, y))?._z)
+    el = document.elementsFromPoint(x, y).find((n) => n !== hostEl) || null;
   if (!el || el === hostEl || el === document.documentElement || el === document.body) return null;
   return el;
 }
@@ -250,7 +290,15 @@ export function elementsIn(r) {
     for (let k = el.firstElementChild; k && out.length < 20; k = k.nextElementSibling) {
       if (k === hostEl) continue;
       const b = k.getBoundingClientRect();
-      if (b.width >= 2 && b.height >= 2 && b.left >= r.x - 1 && b.top >= r.y - 1 && b.right <= r.x + r.w + 1 && b.bottom <= r.y + r.h + 1) out.push(k);
+      if (
+        b.width >= 2 &&
+        b.height >= 2 &&
+        b.left >= r.x - 1 &&
+        b.top >= r.y - 1 &&
+        b.right <= r.x + r.w + 1 &&
+        b.bottom <= r.y + r.h + 1
+      )
+        out.push(k);
       else visit(k);
     }
   };
@@ -291,4 +339,3 @@ export const adopt = (sheet, on) => {
   if (on && !has) document.adoptedStyleSheets = [...list, sheet];
   else if (!on && has) document.adoptedStyleSheets = list.filter((s) => s !== sheet);
 };
-

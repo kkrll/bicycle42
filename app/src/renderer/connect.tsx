@@ -158,7 +158,9 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
     b42
       .invoke("connectLocal")
       .then(() => gone || props.onDone?.())
-      .catch((err) => (gone ? setNotice(`Could not connect to this computer's server. ${message(err)}`) : setError(message(err))))
+      .catch((err) =>
+        gone ? setNotice(`Could not connect to this computer's server. ${message(err)}`) : setError(message(err)),
+      )
       .finally(() => setConnecting(false))
   }
 
@@ -170,7 +172,9 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
     b42
       .invoke("connect", { url: url().trim(), password: password() })
       .then(() => gone || props.onDone?.())
-      .catch((err) => (gone ? setNotice(`Could not connect to ${host(url().trim())}. ${message(err)}`) : setError(message(err))))
+      .catch((err) =>
+        gone ? setNotice(`Could not connect to ${host(url().trim())}. ${message(err)}`) : setError(message(err)),
+      )
       .finally(() => setConnecting(false))
   }
   return (
@@ -211,10 +215,22 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
                   <code>{host(s.url)}</code>
                 </p>
                 <span class="connect-saved-actions">
-                  <button class="text-btn" type="button" disabled={connecting()} title="Forgets this server and its password on this computer" onClick={() => forget(s.id)}>
+                  <button
+                    class="text-btn"
+                    type="button"
+                    disabled={connecting()}
+                    title="Forgets this server and its password on this computer"
+                    onClick={() => forget(s.id)}
+                  >
                     Forget
                   </button>
-                  <button class="btn primary" type="button" data-server={s.id} disabled={connecting()} onClick={() => useSaved(s.id, s.name ?? host(s.url))}>
+                  <button
+                    class="btn primary"
+                    type="button"
+                    data-server={s.id}
+                    disabled={connecting()}
+                    onClick={() => useSaved(s.id, s.name ?? host(s.url))}
+                  >
                     Connect
                   </button>
                 </span>
@@ -286,8 +302,8 @@ export function ConnectScreen() {
         <SetupSteps at={1} />
         <h1>Connect to OpenCode</h1>
         <p class="connect-lead">
-          Your notes go to an OpenCode server next to the site's code: on this computer, or on another one. It makes
-          the changes; you keep reviewing.
+          Your notes go to an OpenCode server next to the site's code: on this computer, or on another one. It makes the
+          changes; you keep reviewing.
         </p>
         <ConnectForm autofocus onBusy={setFirstRunConnecting} />
       </div>
@@ -307,7 +323,9 @@ const sameModel = (a: { providerID: string; id: string } | undefined, b: { provi
  *  The keyboard never has to leave the form: type to narrow, ↑/↓ to move, Enter to choose. */
 export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void; autofocus?: boolean }) {
   const [query, setQuery] = createSignal("")
-  const [picked, setPicked] = createSignal<ModelInfo | undefined>(state.models.find((m) => sameModel(props.suggested, m)) ?? state.models[0])
+  const [picked, setPicked] = createSignal<ModelInfo | undefined>(
+    state.models.find((m) => sameModel(props.suggested, m)) ?? state.models[0],
+  )
   const [variant, setVariant] = createSignal(props.suggested?.variant ?? "")
   const [saving, setSaving] = createSignal(false)
   const [error, setError] = createSignal("")
@@ -331,7 +349,10 @@ export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void;
   createEffect(on(picked, (m) => m?.variants.includes(variant()) || setVariant(""), { defer: true }))
   createEffect(() => {
     const m = picked()
-    if (m) list.querySelector<HTMLElement>(`[data-model="${CSS.escape(`${m.providerID}/${m.id}`)}"]`)?.scrollIntoView({ block: "nearest" })
+    if (m)
+      list
+        .querySelector<HTMLElement>(`[data-model="${CSS.escape(`${m.providerID}/${m.id}`)}"]`)
+        ?.scrollIntoView({ block: "nearest" })
   })
   onMount(() => props.autofocus && (form.querySelector<HTMLElement>("input[type=search]") ?? list).focus())
 
@@ -414,7 +435,12 @@ export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void;
       <Show when={picked()?.variants.length}>
         <label class="form-row">
           <span class="label">Effort (optional)</span>
-          <select class="input" aria-label="Effort" value={variant()} onChange={(e) => setVariant(e.currentTarget.value)}>
+          <select
+            class="input"
+            aria-label="Effort"
+            value={variant()}
+            onChange={(e) => setVariant(e.currentTarget.value)}
+          >
             <option value="">default</option>
             <For each={picked()!.variants}>{(v) => <option value={v}>{v}</option>}</For>
           </select>
@@ -460,7 +486,8 @@ export function ModelScreen() {
 /** The server, as an icon with its state as a dot; in a word when it is not simply connected.
  *  Opens the settings. In the panel's conversation row, or the top bar while that is not shown. */
 export function ServerButton(props: { onClick: () => void }) {
-  const word = () => (state.connection.status === "offline" ? "Offline" : state.connection.status === "connecting" ? "Connecting" : "")
+  const word = () =>
+    state.connection.status === "offline" ? "Offline" : state.connection.status === "connecting" ? "Connecting" : ""
   return (
     <button
       class="icon-btn"
@@ -481,7 +508,14 @@ export function ServerButton(props: { onClick: () => void }) {
 
 function Toggle(props: { on: boolean; label: string; title: string; disabled?: boolean; onClick: () => void }) {
   return (
-    <button class="toggle" role="switch" aria-checked={props.on} disabled={props.disabled} title={props.title} onClick={props.onClick}>
+    <button
+      class="toggle"
+      role="switch"
+      aria-checked={props.on}
+      disabled={props.disabled}
+      title={props.title}
+      onClick={props.onClick}
+    >
       <span class="toggle-track" />
       {props.label}
     </button>
@@ -506,7 +540,9 @@ function Preferences() {
       </div>
       <div class="dialog-pref">
         <Toggle on={soundOn()} label="Sounds" title="A question, a failure, finished" onClick={toggleSound} />
-        <span class="dialog-sub">When the agent asks something, when a note fails or the server is lost, and when it has finished.</span>
+        <span class="dialog-sub">
+          When the agent asks something, when a note fails or the server is lost, and when it has finished.
+        </span>
       </div>
     </div>
   )
@@ -553,7 +589,10 @@ export function SettingsDialog(props: { onClose: () => void }) {
         <div class="dialog-connected">
           <p class="dialog-status" data-status="online">
             <span class="dot" />
-            <ServerName url={"url" in c() ? (c() as { url: string }).url : ""} version={c().status === "online" ? (c() as { version: string }).version : ""} />
+            <ServerName
+              url={"url" in c() ? (c() as { url: string }).url : ""}
+              version={c().status === "online" ? (c() as { version: string }).version : ""}
+            />
           </p>
           <button
             class="btn"
@@ -574,7 +613,12 @@ export function SettingsDialog(props: { onClose: () => void }) {
                 <span class="dialog-sub">New conversations start with it</span>
               </span>
             </p>
-            <button class="btn" data-action="default-model" aria-expanded={choosing()} onClick={() => setChoosing(!choosing())}>
+            <button
+              class="btn"
+              data-action="default-model"
+              aria-expanded={choosing()}
+              onClick={() => setChoosing(!choosing())}
+            >
               {choosing() ? "Cancel" : "Change"}
             </button>
           </div>

@@ -105,7 +105,9 @@ test("the accent follows the page's theme when a class flips it, with no element
   assert.equal(await accent(), light, "no class yet: still the light page's accent");
   await f.evaluate(() => document.body.classList.add("b42-test-dark"));
   // On the slow tick, within a few frames at most.
-  await f.waitForFunction((was) => document.querySelector("b42-review").style.getPropertyValue("--pa") !== was, light, { timeout: 2000 });
+  await f.waitForFunction((was) => document.querySelector("b42-review").style.getPropertyValue("--pa") !== was, light, {
+    timeout: 2000,
+  });
   assert.equal(await accent(), "#fffaa0");
   await page.close();
 });
@@ -116,7 +118,9 @@ test("pin follows the queue to done", async () => {
   await page.keyboard.type("x");
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => window.__harness.notes[0]?.status === "done");
-  await f.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelector(".pin.done")?.textContent === "1");
+  await f.waitForFunction(
+    () => document.querySelector("b42-review").shadowRoot.querySelector(".pin.done")?.textContent === "1",
+  );
   await page.close();
 });
 
@@ -201,7 +205,8 @@ test("alt+drag line selects what it crosses; a closed loop selects what it enclo
   await page.keyboard.down("Alt");
   await page.mouse.move(cx + rx, cy);
   await page.mouse.down();
-  for (let a = 0; a <= Math.PI * 2 + 0.01; a += Math.PI / 16) await page.mouse.move(cx + rx * Math.cos(a), cy + ry * Math.sin(a));
+  for (let a = 0; a <= Math.PI * 2 + 0.01; a += Math.PI / 16)
+    await page.mouse.move(cx + rx * Math.cos(a), cy + ry * Math.sin(a));
   await page.mouse.up();
   await page.keyboard.up("Alt");
   await page.keyboard.type("hide this on mobile");
@@ -232,7 +237,22 @@ test("the page sees nothing of the layer's own UI: no press on the card, no focu
   await f.evaluate(() => {
     window.saw = [];
     const ours = (n) => n && n.nodeName === "B42-REVIEW";
-    for (const t of ["pointerdown", "mousedown", "pointerup", "mouseup", "click", "pointermove", "mouseover", "focusin", "focus", "focusout", "blur", "mouseout", "pointerout", "mouseleave"])
+    for (const t of [
+      "pointerdown",
+      "mousedown",
+      "pointerup",
+      "mouseup",
+      "click",
+      "pointermove",
+      "mouseover",
+      "focusin",
+      "focus",
+      "focusout",
+      "blur",
+      "mouseout",
+      "pointerout",
+      "mouseleave",
+    ])
       document.addEventListener(t, (e) => ours(e.target) && window.saw.push(t), true);
     // (Leaving for the layer only: the pointer or focus coming back from it is the page's to know.)
     for (const t of ["focusout", "blur", "mouseout", "pointerout", "mouseleave"])
@@ -368,7 +388,9 @@ test("a draft survives a page reload", async () => {
   await page.click("#reload");
   await page.waitForTimeout(100);
   const f2 = await pageFrame(page);
-  await f2.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelector("textarea").value === "draft text");
+  await f2.waitForFunction(
+    () => document.querySelector("b42-review").shadowRoot.querySelector("textarea").value === "draft text",
+  );
   assert.equal(await cardOpen(f2), true);
   await f2.locator("b42-review .card textarea").click();
   await page.keyboard.press("Enter");
@@ -385,7 +407,8 @@ test("pins re-attach after a re-render and after a reload", async () => {
   await page.keyboard.type("copy v1 -> copy v2");
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => window.__harness.notes[0]?.status === "done");
-  const pinCount = (fr) => fr.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelectorAll(".pin").length);
+  const pinCount = (fr) =>
+    fr.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelectorAll(".pin").length);
   await page.click("#rerender");
   await page.waitForTimeout(100);
   assert.equal(await pinCount(f), 1);
@@ -393,7 +416,9 @@ test("pins re-attach after a re-render and after a reload", async () => {
   await page.click("#reload");
   await page.waitForTimeout(100);
   const f2 = await pageFrame(page);
-  await f2.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelectorAll(".pin.done").length === 1);
+  await f2.waitForFunction(
+    () => document.querySelector("b42-review").shadowRoot.querySelectorAll(".pin.done").length === 1,
+  );
   await page.close();
 });
 
@@ -408,7 +433,11 @@ const holdCapture = (page) =>
 const capState = (f) =>
   f.evaluate(() => {
     const r = document.querySelector("b42-review").shadowRoot;
-    return { card: !r.querySelector(".card").hidden, sel: r.querySelectorAll(".box.sel").length, what: r.querySelector(".what").textContent };
+    return {
+      card: !r.querySelector(".card").hidden,
+      sel: r.querySelectorAll(".box.sel").length,
+      what: r.querySelector(".what").textContent,
+    };
   });
 
 test("a click during the capture is held until the screenshot is taken", async () => {
@@ -442,7 +471,9 @@ test("pins re-find their element by text when the selector now points elsewhere"
   await page.waitForTimeout(150);
   const pin = await f.evaluate(() => {
     const p = document.querySelector("b42-review").shadowRoot.querySelector(".pin").getBoundingClientRect();
-    const h = [...document.querySelectorAll("#cards h3")].find((x) => x.textContent === "Review").getBoundingClientRect();
+    const h = [...document.querySelectorAll("#cards h3")]
+      .find((x) => x.textContent === "Review")
+      .getBoundingClientRect();
     // The pin's centre sits just outside the heading's top-left corner (see pinPoint).
     return { dx: Math.abs(p.left + p.width / 2 - h.left), dy: Math.abs(p.top + p.height / 2 - h.top) };
   });
@@ -450,9 +481,17 @@ test("pins re-find their element by text when the selector now points elsewhere"
   // Remove that card entirely (selector and text both miss now): the pin stays at its old spot,
   // dimmed, and is reported unplaced. (If only the text changed, the selector still wins: that's
   // what a "copy v1 -> v2" note does to its own element.)
-  await f.evaluate(() => [...document.querySelectorAll("#cards h3")].find((x) => x.textContent === "Review").closest("article").remove());
+  await f.evaluate(() =>
+    [...document.querySelectorAll("#cards h3")]
+      .find((x) => x.textContent === "Review")
+      .closest("article")
+      .remove(),
+  );
   await page.waitForFunction(() => window.__harness.unplaced.length === 1);
-  assert.equal(await f.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelectorAll(".pin.approx").length), 1);
+  assert.equal(
+    await f.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelectorAll(".pin.approx").length),
+    1,
+  );
   await page.close();
 });
 
@@ -474,17 +513,27 @@ test("screenshot moment: card and pins hidden, outline kept", async () => {
   await waitNotes(page, 2);
   const state = await f.evaluate(() => {
     const r = document.querySelector("b42-review").shadowRoot;
-    return { card: !r.querySelector(".card").hidden, pins: r.querySelectorAll(".pin").length, sel: r.querySelectorAll(".box.sel").length };
+    return {
+      card: !r.querySelector(".card").hidden,
+      pins: r.querySelectorAll(".pin").length,
+      sel: r.querySelectorAll(".box.sel").length,
+    };
   });
   assert.deepEqual(state, { card: false, pins: 0, sel: 1 });
   await page.close();
 });
 
-const root = (f, fn, arg) => f.evaluate(`(${fn})(document.querySelector("b42-review").shadowRoot, ${JSON.stringify(arg ?? null)})`);
-const frames = (f, n = 2) => f.evaluate((k) => new Promise((done) => {
-  const step = () => (k-- > 0 ? requestAnimationFrame(step) : done());
-  step();
-}), n);
+const root = (f, fn, arg) =>
+  f.evaluate(`(${fn})(document.querySelector("b42-review").shadowRoot, ${JSON.stringify(arg ?? null)})`);
+const frames = (f, n = 2) =>
+  f.evaluate(
+    (k) =>
+      new Promise((done) => {
+        const step = () => (k-- > 0 ? requestAnimationFrame(step) : done());
+        step();
+      }),
+    n,
+  );
 const altDrag = async (page, x0, y0, x1, y1, steps = 30) => {
   await page.keyboard.down("Alt");
   await page.mouse.move(x0, y0);
@@ -502,15 +551,35 @@ test("a note the host refuses does not look sent: the card comes back with its w
   await page.keyboard.press("Enter");
   await f.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelector(".hint.warn"));
   const s = await root(f, (r) => ({
-    card: !r.querySelector(".card").hidden, text: r.querySelector("textarea").value, hint: r.querySelector(".hint").textContent,
-    sent: !r.querySelector(".sent").hidden, sel: r.querySelectorAll(".box.sel").length, busy: window.__b42.busy(), typing: r.activeElement === r.querySelector("textarea"),
+    card: !r.querySelector(".card").hidden,
+    text: r.querySelector("textarea").value,
+    hint: r.querySelector(".hint").textContent,
+    sent: !r.querySelector(".sent").hidden,
+    sel: r.querySelectorAll(".box.sel").length,
+    busy: window.__b42.busy(),
+    typing: r.activeElement === r.querySelector("textarea"),
   }));
-  assert.deepEqual(s, { card: true, text: "make it bigger", hint: "Not sent: there is nothing in it the app can send", sent: false, sel: 1, busy: true, typing: true });
+  assert.deepEqual(s, {
+    card: true,
+    text: "make it bigger",
+    hint: "Not sent: there is nothing in it the app can send",
+    sent: false,
+    sel: 1,
+    busy: true,
+    typing: true,
+  });
   assert.equal(await page.evaluate(() => window.__harness.notes.length), 0);
   await page.waitForFunction(() => window.__harness.draft?.text === "make it bigger");
   // The old two-second timer must not call it sent after all.
   await page.waitForTimeout(2200);
-  assert.deepEqual(await root(f, (r) => [!r.querySelector(".card").hidden, r.querySelector("textarea").value, r.querySelector(".sent").hidden]), [true, "make it bigger", true]);
+  assert.deepEqual(
+    await root(f, (r) => [
+      !r.querySelector(".card").hidden,
+      r.querySelector("textarea").value,
+      r.querySelector(".sent").hidden,
+    ]),
+    [true, "make it bigger", true],
+  );
   // Typing takes the reason away; the same note goes once the host takes it.
   await page.evaluate(() => (window.__harness.refuse = ""));
   await page.keyboard.type("!");
@@ -533,7 +602,12 @@ test("a note being made costs nothing while nothing moves: no stroke is written 
         return real.call(this, k, v);
       };
       w.obs = new MutationObserver((list) => (w.records += list.length));
-      w.obs.observe(document.querySelector("b42-review").shadowRoot, { subtree: true, childList: true, attributes: true, characterData: true });
+      w.obs.observe(document.querySelector("b42-review").shadowRoot, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        characterData: true,
+      });
     });
     await frames(f, n);
     return f.evaluate(() => {
@@ -545,7 +619,8 @@ test("a note being made costs nothing while nothing moves: no stroke is written 
     });
   };
   // (the drawn strokes, then the one being drawn)
-  const ds = () => root(f, (r) => [...r.querySelectorAll(".strokes path, .live path")].map((p) => p.getAttribute("d").length));
+  const ds = () =>
+    root(f, (r) => [...r.querySelectorAll(".strokes path, .live path")].map((p) => p.getAttribute("d").length));
   // A selection with its card open, and no pins.
   await clickAt(page, f, "#cta");
   await frames(f, 40); // past the half second in which the pointer still counts as moving
@@ -581,7 +656,10 @@ test("a note being made costs nothing while nothing moves: no stroke is written 
   assert.ok(four[3] > 0 && four[3] < long, "the redrawn fourth stroke is the short new one, not the undone one");
   // The card still sits under the strokes after a scroll (their boxes are kept in page coordinates).
   const before = await root(f, (r) => r.querySelector(".card").getBoundingClientRect().top);
-  await f.evaluate(() => { document.body.style.minHeight = "3000px"; window.scrollTo(0, 120); });
+  await f.evaluate(() => {
+    document.body.style.minHeight = "3000px";
+    window.scrollTo(0, 120);
+  });
   await frames(f, 3);
   assert.equal(Math.round(before - (await root(f, (r) => r.querySelector(".card").getBoundingClientRect().top))), 120);
   // Scrolling moves the ink as one layer: nothing inside it is written, and it stays on the page.
@@ -624,12 +702,28 @@ test("a pin whose element is gone is looked for less and less often on a page th
       t.data = `Acme helps small teams review UI changes before they land. ${++i}`;
       requestAnimationFrame(tick);
     })();
-    window.__b42.receive({ type: "pins", pins: [{ id: "gone", n: 1, status: "queued", selector: "#no-such-element", tag: "p", text: "No such words anywhere", at: [100, 100] }] });
+    window.__b42.receive({
+      type: "pins",
+      pins: [
+        {
+          id: "gone",
+          n: 1,
+          status: "queued",
+          selector: "#no-such-element",
+          tag: "p",
+          text: "No such words anywhere",
+          at: [100, 100],
+        },
+      ],
+    });
   });
   await page.waitForFunction(() => window.__harness.unplaced.length === 1);
   await page.waitForTimeout(1000);
   const first = await f.evaluate(() => window.__searches);
-  assert.ok(first >= 2 && first <= 12, `${first} searches in the first second (without the back-off: one per redraw, about 30)`);
+  assert.ok(
+    first >= 2 && first <= 12,
+    `${first} searches in the first second (without the back-off: one per redraw, about 30)`,
+  );
   await page.waitForTimeout(2000);
   const later = (await f.evaluate(() => window.__searches)) - first;
   assert.ok(later >= 1 && later <= 4, `${later} searches in the next two seconds`);
@@ -643,7 +737,7 @@ test("a pin whose element is gone is looked for less and less often on a page th
   await page.close();
 });
 
-test("the host's own picture: \"frame\" takes the layer out and scrolls the page, gives both back, and always answers; \"show\" brings a pin into view", async () => {
+test('the host\'s own picture: "frame" takes the layer out and scrolls the page, gives both back, and always answers; "show" brings a pin into view', async () => {
   const { page, f } = await open();
   await f.evaluate(() => {
     // A page long enough to scroll, with something far down it.
@@ -662,7 +756,11 @@ test("the host's own picture: \"frame\" takes the layer out and scrolls the page
     };
     window.scrollTo(0, 40);
   });
-  const state = () => f.evaluate(() => ({ y: Math.round(window.scrollY), layer: getComputedStyle(document.querySelector("b42-review")).visibility }));
+  const state = () =>
+    f.evaluate(() => ({
+      y: Math.round(window.scrollY),
+      layer: getComputedStyle(document.querySelector("b42-review")).visibility,
+    }));
   const ask = async (msg) => {
     const n = await f.evaluate((m) => (window.__b42.receive(m), window.__framed.length), msg);
     await f.waitForFunction((k) => window.__framed.length > k, n);
@@ -683,16 +781,32 @@ test("the host's own picture: \"frame\" takes the layer out and scrolls the page
   // A host that never gives it back: the layer does by itself.
   await ask({ type: "frame", id: "f4", hold: true, scroll: [0, 300] });
   assert.deepEqual(await state(), { y: 300, layer: "hidden" });
-  await f.waitForFunction(() => getComputedStyle(document.querySelector("b42-review")).visibility === "visible" && Math.round(window.scrollY) === 40, null, { timeout: 7000 });
+  await f.waitForFunction(
+    () =>
+      getComputedStyle(document.querySelector("b42-review")).visibility === "visible" &&
+      Math.round(window.scrollY) === 40,
+    null,
+    { timeout: 7000 },
+  );
 
   // A pin's element is where "show" goes, a third of the window down; a pin with no place moves nothing.
-  await f.evaluate(() => window.__b42.receive({ type: "pins", pins: [{ id: "p-far", n: 1, status: "done", selector: "#far", at: [0, 100] }, { id: "p-none", n: 2, status: "done" }] }));
+  await f.evaluate(() =>
+    window.__b42.receive({
+      type: "pins",
+      pins: [
+        { id: "p-far", n: 1, status: "done", selector: "#far", at: [0, 100] },
+        { id: "p-none", n: 2, status: "done" },
+      ],
+    }),
+  );
   await f.evaluate(() => window.__b42.receive({ type: "show", id: "p-none" }));
   await f.evaluate(() => window.__b42.receive({ type: "show", id: "p-unknown" }));
   await frames(f, 4);
   assert.equal((await state()).y, 40);
   await f.evaluate(() => window.__b42.receive({ type: "show", id: "p-far" }));
-  const want = await f.evaluate(() => Math.round(document.querySelector("#far").getBoundingClientRect().top + window.scrollY - window.innerHeight / 3));
+  const want = await f.evaluate(() =>
+    Math.round(document.querySelector("#far").getBoundingClientRect().top + window.scrollY - window.innerHeight / 3),
+  );
   await f.waitForFunction((y) => Math.abs(window.scrollY - y) <= 1, want, { timeout: 5000 });
   await page.close();
 });
@@ -706,8 +820,10 @@ test("an area selects what is inside it on a page of more than 10,000 elements",
     document.body.prepend(d);
   });
   const bs = await Promise.all([1, 2, 3, 4, 5].map((i) => box(f, `.toolbar button:nth-child(${i})`)));
-  const x0 = Math.min(...bs.map((b) => b.x)) - 4, y0 = Math.min(...bs.map((b) => b.y)) - 4;
-  const x1 = Math.max(...bs.map((b) => b.x + b.width)) + 4, y1 = Math.max(...bs.map((b) => b.y + b.height)) + 4;
+  const x0 = Math.min(...bs.map((b) => b.x)) - 4,
+    y0 = Math.min(...bs.map((b) => b.y)) - 4;
+  const x1 = Math.max(...bs.map((b) => b.x + b.width)) + 4,
+    y1 = Math.max(...bs.map((b) => b.y + b.height)) + 4;
   await page.mouse.move(x0, y0);
   await page.mouse.down();
   await page.mouse.move(x1, y1, { steps: 6 });

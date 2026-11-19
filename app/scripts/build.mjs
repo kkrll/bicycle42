@@ -53,7 +53,13 @@ const entries = [
   { entryPoints: ["src/preload.ts"], outfile: "dist/preload.cjs" },
   // Runs in the page's renderer, which is Chromium, not Node. Main reads it again for every
   // document the page loads, so it goes without the inline source map.
-  { entryPoints: ["src/page-preload.ts"], outfile: "dist/page-preload.cjs", plugins: [pageOverlay], target: "chrome140", sourcemap: false },
+  {
+    entryPoints: ["src/page-preload.ts"],
+    outfile: "dist/page-preload.cjs",
+    plugins: [pageOverlay],
+    target: "chrome140",
+    sourcemap: false,
+  },
 ]
 if (flags.has("--tests")) {
   const tests = fs.readdirSync(path.join(root, "test")).filter((f) => f.endsWith(".ts"))
@@ -71,7 +77,12 @@ const renderer = {
   base: "./",
   plugins: [solid()],
   logLevel: "warn",
-  build: { outDir: path.join(dist, "renderer"), emptyOutDir: true, target: "chrome140", ...(watch ? { watch: {} } : {}) },
+  build: {
+    outDir: path.join(dist, "renderer"),
+    emptyOutDir: true,
+    target: "chrome140",
+    ...(watch ? { watch: {} } : {}),
+  },
 }
 
 if (watch) {

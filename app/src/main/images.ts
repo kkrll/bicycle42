@@ -104,7 +104,12 @@ async function cut(frame: Frame, area: Rect | undefined, thumb: boolean): Promis
   const s = scaled.getSize()
   const x = Math.max(0, Math.min(Math.round(area.x * k), s.width - cropSize.width))
   const y = Math.max(0, Math.min(Math.round(area.y * k), s.height - cropSize.height))
-  const main = scaled.crop({ x, y, width: Math.min(cropSize.width, s.width), height: Math.min(cropSize.height, s.height) })
+  const main = scaled.crop({
+    x,
+    y,
+    width: Math.min(cropSize.width, s.width),
+    height: Math.min(cropSize.height, s.height),
+  })
   return thumb ? { main, thumb: await scale(scaled, thumbSize) } : { main }
 }
 

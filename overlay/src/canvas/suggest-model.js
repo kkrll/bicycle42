@@ -27,7 +27,9 @@ export const COLOURS = `
   powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen
   seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal
   thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen
-  transparent`.trim().split(/\s+/);
+  transparent`
+  .trim()
+  .split(/\s+/);
 
 /** @type {ReturnType<typeof caretContext>} */
 const NONE = Object.freeze({ kind: "none" });
@@ -55,7 +57,9 @@ const keywordish = (t) => /^-?[a-z_]?[\w-]*$/i.test(t) && !isNumber(t);
  */
 export function caretContext(text, caret, sheet) {
   const stack = [sheet ? "rules" : "decls"];
-  let start = 0, paren = 0, colon = -1;
+  let start = 0,
+    paren = 0,
+    colon = -1;
   for (let i = 0; i < caret; i++) {
     const ch = text[i];
     if (ch === "/" && text[i + 1] === "*") {
@@ -75,7 +79,8 @@ export function caretContext(text, caret, sheet) {
       start = i + 1;
       colon = -1;
     } else if (ch === "{") {
-      const head = text.slice(start, i).trim(), top = stack[stack.length - 1];
+      const head = text.slice(start, i).trim(),
+        top = stack[stack.length - 1];
       stack.push(opens(head, top));
       start = i + 1;
       colon = -1;
@@ -93,9 +98,10 @@ export function caretContext(text, caret, sheet) {
   // The declaration starts on the last line that begins with `name:`, as number.js has it: a
   // line without one goes on with the value above only after a comma, the colon or a bracket;
   // otherwise it is a new declaration, also when the one above has no `;` yet (`color: red⏎al`).
-  for (let s = Math.max(start, text.lastIndexOf("\n", caret - 1) + 1), e = caret; s > start; ) {
+  for (let s = Math.max(start, text.lastIndexOf("\n", caret - 1) + 1), e = caret; s > start;) {
     const own = NAME.exec(text.slice(s, e));
-    const pe = s - 1, ps = Math.max(start, text.lastIndexOf("\n", pe - 1) + 1);
+    const pe = s - 1,
+      ps = Math.max(start, text.lastIndexOf("\n", pe - 1) + 1);
     if (own || !continues(text.slice(ps, pe))) {
       start = s;
       colon = own ? s + own[0].length - 1 : -1;
@@ -143,11 +149,19 @@ export function caretContext(text, caret, sheet) {
     if (close) e += close[0].length;
     return { kind: "value", prop, word: inVar[1] || "", s, e, first: !text.slice(colon + 1, s).trim(), inVar: true };
   }
-  let s = caret, e = caret;
+  let s = caret,
+    e = caret;
   while (s > colon + 1 && WORD.test(text[s - 1])) s--;
   while (e < text.length && WORD.test(text[e])) e++;
   if (text[s - 1] === "!") return NONE; // !important
-  return { kind: "value", prop, word: text.slice(s, caret).toLowerCase(), s, e, first: !text.slice(colon + 1, s).trim() };
+  return {
+    kind: "value",
+    prop,
+    word: text.slice(s, caret).toLowerCase(),
+    s,
+    e,
+    first: !text.slice(colon + 1, s).trim(),
+  };
 }
 
 /** The same for a field that holds one property's value and nothing else (a computed row).
@@ -155,7 +169,9 @@ export function caretContext(text, caret, sheet) {
 export function valueContext(prop, text, caret) {
   const lead = `${prop}:`;
   const c = caretContext(lead + text, caret + lead.length, false);
-  return c.kind === "value" && c.prop === prop && c.s >= lead.length ? { ...c, s: c.s - lead.length, e: c.e - lead.length } : NONE;
+  return c.kind === "value" && c.prop === prop && c.s >= lead.length
+    ? { ...c, s: c.s - lead.length, e: c.e - lead.length }
+    : NONE;
 }
 
 /** Whether a list opens for this context: `asked` is ctrl+space, which opens it on nothing typed. */
@@ -171,7 +187,8 @@ export function wants(ctx, asked) {
 export function matches(items, word) {
   const w = word.toLowerCase();
   if (!w) return items.slice();
-  const starts = [], has = [];
+  const starts = [],
+    has = [];
   for (const it of items) {
     const i = it.toLowerCase().indexOf(w); // (a variable's name may have capitals)
     if (i === 0) starts.push(it);
