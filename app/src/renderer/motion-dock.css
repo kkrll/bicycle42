@@ -980,7 +980,35 @@
   .mdock-timing {
     order: 1;
     flex: 1 0 calc(100% - 68px);
-    gap: 10px;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+
+  /* An easing is long (a cubic-bezier with its four numbers): where it does not fit whole beside
+     the other fields it takes a row of its own, at the row's width, and is never cut mid-value.
+     The same in the keyframe's own row at the bottom. */
+  .mdock-timing .mdock-tf:last-child {
+    flex: 1 0 220px;
+  }
+
+  /* (All of a row but the room for its curve and the bin, which stay beside it.) */
+  .mdock-kb .mdock-fld.ease {
+    flex: 1 0 calc(100% - 80px);
+  }
+
+  .mdock-timing .mdock-fld.ease {
+    flex: 1;
+  }
+
+  .mdock .mdock-fld.ease {
+    max-width: none;
+  }
+
+  .mdock-kb {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding-top: 10px;
+    padding-bottom: 10px;
   }
 
   .mdock-hd > .mdock-tools:last-child {
@@ -1011,13 +1039,42 @@
     display: flex;
   }
 
+  /* While there is more of the list under its cut, its last rows fade out: what is cut is seen
+     going on, and a section's name left at the cut does not look like the name of what is under
+     the list. (By how far the list is scrolled: none of it at its end, and none in a list that
+     fits, whose scroll has no timeline to run this.) */
   .mdock-list {
     max-height: 34cqh;
     border-bottom: 1px solid var(--rule);
+    mask-image: linear-gradient(to bottom, black calc(100% - var(--mdock-fade)), transparent);
+    animation: mdock-more linear both;
+    animation-timeline: scroll(self);
   }
 
   .mdock .mdock-back,
   .mdock .mdock-hd.bare {
     display: none;
+  }
+}
+
+/* How much of a cut list's end fades: all of it while there is a whole list under the cut, none
+   at the end. */
+@property --mdock-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes mdock-more {
+  from {
+    --mdock-fade: 44px;
+  }
+
+  90% {
+    --mdock-fade: 44px;
+  }
+
+  to {
+    --mdock-fade: 0px;
   }
 }
