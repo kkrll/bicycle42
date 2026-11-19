@@ -1,0 +1,1023 @@
+/*
+ * Motion mode's dock, drawn by the window (motion-dock.tsx). The same dock the overlay draws at
+ * the bottom of the page, in the window's own paper, hairlines and accent. Its box is the
+ * window's (.dock in styles.css): under the page, wide and short; or beside a phone's page, a
+ * column that is tall and anywhere from about 300 to 900 wide. So its layout asks its own box,
+ * never the window: container queries on .mdock.
+ */
+
+.mdock {
+  --lab: 156px;
+  --pad: 16px;
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  outline: none;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  container: mdock / size;
+}
+
+.mdock-grid {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.mdock .mono,
+.mdock-nm,
+.mdock-du,
+.mdock-fld,
+.mdock-unit,
+.mdock-p,
+.mdock-time,
+.mdock-chip.mono,
+.mdock-gname {
+  font-family: var(--font-mono);
+}
+
+.mdock-sp {
+  flex: 1;
+}
+
+.mdock-unit {
+  margin-left: -4px;
+  color: var(--muted);
+}
+
+/* A drawn easing: a curve in a small square. */
+.mdock-cv {
+  flex: none;
+  display: block;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.mdock-cv polyline {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 5;
+  stroke-linejoin: round;
+}
+
+.mdock-kind {
+  flex: none;
+  display: block;
+  color: var(--muted);
+}
+
+.mdock-kind .solid {
+  fill: currentColor;
+}
+
+.mdock-kind .hollow {
+  fill: var(--background);
+}
+
+/* ── fields ─────────────────────────────────────────────────────────────────────────────────── */
+
+.mdock-fld {
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: var(--text-control);
+  user-select: text;
+  outline: none;
+  transition: background var(--duration-micro) var(--ease-micro);
+}
+
+.mdock-fld:not(:disabled):hover {
+  background: var(--surface-strong);
+}
+
+.mdock-fld:focus {
+  border-color: var(--accent);
+}
+
+.mdock-fld.bad {
+  border-color: var(--status-failed);
+}
+
+.mdock-fld:disabled {
+  background: transparent;
+  color: var(--muted);
+}
+
+.mdock-fld.num {
+  width: 64px;
+  text-align: right;
+}
+
+.mdock-fld.ease {
+  field-sizing: content;
+  min-width: 96px;
+  max-width: 280px;
+}
+
+/* ── the list ───────────────────────────────────────────────────────────────────────────────── */
+
+.mdock-list {
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 0 16px;
+  border-right: 1px solid var(--rule);
+}
+
+.mdock-grp {
+  margin: 20px 16px 6px;
+  color: var(--muted);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.mdock-grp:first-child {
+  margin-top: 8px;
+}
+
+.mdock-none {
+  margin: 16px;
+  color: var(--muted);
+}
+
+.mdock-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 16px);
+  height: 32px;
+  margin: 0 8px;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  text-align: left;
+  white-space: nowrap;
+  transition: background var(--duration-micro) var(--ease-micro);
+}
+
+.mdock-row:not(.off):hover {
+  background: var(--surface);
+}
+
+.mdock-row:not(.off):hover .mdock-kind,
+.mdock-row.run .mdock-kind {
+  color: var(--foreground);
+}
+
+.mdock-row.on {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.mdock-row.on .mdock-nm,
+.mdock-row.on .mdock-kind {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.mdock-row.off {
+  opacity: 0.55;
+}
+
+/* an element of an animation: under it, with a line back to its icon */
+.mdock-row.sub {
+  padding-left: 34px;
+}
+
+.mdock-row.sub::before,
+.mdock-row.sub::after {
+  content: "";
+  position: absolute;
+  left: 15.5px;
+  background: var(--rule);
+}
+
+.mdock-row.sub::before {
+  top: 0;
+  bottom: 0;
+  width: 1px;
+}
+
+.mdock-row:not(.sub) + .mdock-row.sub::before {
+  top: -8px;
+}
+
+.mdock-row.sub.last::before {
+  bottom: 50%;
+}
+
+.mdock-row.sub::after {
+  top: 50%;
+  width: 8px;
+  height: 1px;
+}
+
+.mdock-nm {
+  flex: none;
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mdock-row:is(.sub, [data-kind="transition"], [data-kind="frames"]) .mdock-nm {
+  font-family: var(--font-sans);
+}
+
+.mdock-ex {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+
+.mdock-du {
+  flex: none;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mdock-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ── the open animation ─────────────────────────────────────────────────────────────────────── */
+
+.mdock-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  container: mdock-main / inline-size;
+}
+
+.mdock-hd {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 52px;
+  padding: 8px 12px 8px 16px;
+}
+
+/* (Prefixed with .mdock where the window's own classes are changed: this sheet may come first.) */
+.mdock .mdock-back,
+.mdock .mdock-hd.bare {
+  display: none;
+}
+
+.mdock .mdock-seg {
+  margin: 0;
+}
+
+.mdock-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.mdock-hd > .mdock-tools + .mdock-tools {
+  margin-left: -8px;
+}
+
+.mdock .mdock-rate {
+  min-width: 32px;
+  height: 28px;
+  font-family: var(--font-mono);
+  text-decoration: none;
+}
+
+.mdock .icon-btn[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.mdock-timing {
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mdock-tf {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* Not much room: the fields keep their values and lose their names. */
+@container mdock-main (max-width: 900px) {
+  .mdock-tf > span:first-child,
+  .mdock-timing .mdock-cv {
+    display: none;
+  }
+
+  .mdock-hd {
+    gap: 10px;
+  }
+}
+
+/* ── the timeline: rows of a label and a track ──────────────────────────────────────────────── */
+
+.mdock-tl {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+}
+
+.mdock-lrow {
+  display: flex;
+  height: 32px;
+}
+
+.mdock-lab {
+  flex: 0 0 var(--lab);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 6px 0 16px;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.mdock-lab > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+
+.mdock-lab .mdock-x {
+  visibility: hidden;
+}
+
+.mdock-lrow:hover .mdock-x,
+.mdock-x:focus-visible {
+  visibility: visible;
+}
+
+.mdock-trk {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.mdock-empty {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  height: 100%;
+  min-height: 120px;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.mdock-empty p {
+  margin: 0;
+}
+
+.mdock-empty .mdock-or {
+  margin-top: 8px;
+}
+
+.mdock-empty .mdock-chips {
+  justify-content: center;
+  max-width: 560px;
+}
+
+.mdock-addp {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px 16px;
+}
+
+.mdock-addf {
+  width: 160px;
+}
+
+/* the ruler: seconds on top, ticks, the whole keyframes along the bottom */
+.mdock-ruler {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: 56px;
+  background: var(--background);
+}
+
+.mdock-ruler .mdock-lab {
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 6px 0 8px;
+}
+
+.mdock-ruler .mdock-trk {
+  cursor: ew-resize;
+}
+
+.mdock .mdock-play {
+  color: var(--foreground);
+}
+
+.mdock-time {
+  min-width: 40px;
+  line-height: 28px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mdock-tick {
+  position: absolute;
+  top: 22px;
+  left: calc(var(--pad) + (100% - 2 * var(--pad)) * var(--at));
+  width: 1px;
+  height: 4px;
+  background: var(--background-05);
+}
+
+.mdock-tick.big {
+  top: 18px;
+  height: 8px;
+  background: var(--background-03);
+}
+
+.mdock-tick b {
+  position: absolute;
+  top: -15px;
+  left: 0;
+  translate: -50% 0;
+  color: var(--muted);
+  font: 400 var(--text-micro) / 12px var(--font-mono);
+  white-space: nowrap;
+}
+
+.mdock-tick:first-child b {
+  translate: -2px 0;
+}
+
+.mdock-tick:last-of-type b {
+  translate: calc(2px - 100%) 0;
+}
+
+.mdock-key {
+  position: absolute;
+  left: calc(var(--pad) + (100% - 2 * var(--pad)) * var(--at));
+  z-index: 2;
+  cursor: grab;
+}
+
+.mdock-tl.ro .mdock-key {
+  cursor: pointer;
+}
+
+.mdock-key::after {
+  content: "";
+  position: absolute;
+}
+
+.mdock-key.wk {
+  top: 44px;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+}
+
+.mdock-key.wk::after {
+  left: 4.5px;
+  top: 4.5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  rotate: 45deg;
+  background: var(--background-03);
+}
+
+.mdock-key.wk:hover::after {
+  background: var(--foreground);
+}
+
+.mdock-key.wk.on::after {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* the band: the keyframes, behind their lanes, headed by their name and who else plays them */
+.mdock-lanes {
+  position: relative;
+  padding-bottom: 4px;
+}
+
+.mdock-band {
+  position: absolute;
+  inset: 0 0 0 var(--lab);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  box-shadow: inset 0 0 0 1px var(--rule);
+  pointer-events: none;
+}
+
+.mdock-ghead {
+  height: 36px;
+}
+
+.mdock-ghead .mdock-lab {
+  gap: 8px;
+}
+
+.mdock-gname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.mdock-name {
+  flex: 1;
+  height: 24px;
+  margin-left: -6px;
+  padding: 0 6px;
+  background: transparent;
+  font-weight: 500;
+}
+
+.mdock-gnote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  overflow: hidden;
+  cursor: default;
+}
+
+.mdock-shared {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: help;
+}
+
+.mdock-shared b {
+  color: var(--foreground);
+  font: 500 var(--text-control) var(--font-mono);
+}
+
+.mdock-lane {
+  height: 40px;
+}
+
+.mdock-lane .mdock-lab {
+  padding-left: 40px;
+}
+
+.mdock-lane.kon .mdock-lab {
+  color: var(--foreground);
+}
+
+/* the keyframes' span, 0…100% of the lane (the ruler's inset is outside it) */
+.mdock-kspan {
+  --pad: 0px;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 16px;
+  right: 16px;
+}
+
+/* a bar: one stretch between two keyframes. Its outer ends reach past the lane's first and
+   last keyframes, so those grips sit inside it; where two meet, a gap holds the shared grip. */
+.mdock-sb {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: calc(100% * var(--fa) + var(--l));
+  width: calc(100% * (var(--fb) - var(--fa)) - var(--l) + var(--r));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--foreground) 9%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 7%, transparent);
+}
+
+.mdock-sb:hover {
+  background: color-mix(in srgb, var(--foreground) 14%, transparent);
+}
+
+.mdock-sb.flat {
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+.mdock-sb.on {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.mdock-key.gr {
+  top: 50%;
+  width: 14px;
+  height: 24px;
+  margin: -12px 0 0 -7px;
+}
+
+.mdock-key.gr::after {
+  left: 6px;
+  top: 6px;
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--background-03);
+}
+
+.mdock-key.gr:hover::after {
+  background: var(--foreground);
+}
+
+.mdock-key.gr.on::after {
+  background: var(--accent);
+}
+
+/* the playhead: a flag on the ruler, the time above it, a line down the lanes */
+.mdock-phl {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--lab);
+  right: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.mdock-flag {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--pad) + (100% - 2 * var(--pad)) * var(--x, 0));
+  width: 1px;
+}
+
+.mdock-flag::after {
+  content: "";
+  position: absolute;
+  top: 30px;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  background: var(--accent);
+}
+
+.mdock-flag::before {
+  content: "";
+  position: absolute;
+  top: 18px;
+  left: -5.5px;
+  width: 12px;
+  height: 13px;
+  border-radius: 2px;
+  background: var(--accent);
+  clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%);
+}
+
+.mdock-flag b {
+  position: absolute;
+  top: 1px;
+  left: 0;
+  translate: -50% 0;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--background);
+  font: 600 var(--text-micro) / 15px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── the keyframes as text ──────────────────────────────────────────────────────────────────── */
+
+.mdock-css {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 16px 12px;
+}
+
+.mdock-css textarea {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: var(--text-control);
+  line-height: 20px;
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+  resize: none;
+  outline: none;
+  user-select: text;
+}
+
+.mdock-css textarea:focus {
+  border-color: var(--accent);
+}
+
+.mdock-err {
+  margin: 8px 0 0;
+  color: var(--ink-bad);
+}
+
+/* ── the selected keyframe, and the note ────────────────────────────────────────────────────── */
+
+.mdock-kb,
+.mdock-ft {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 0 12px 0 16px;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.mdock-p {
+  color: var(--foreground);
+}
+
+.mdock-kb .mdock-fld.val {
+  flex: 1;
+  min-width: 80px;
+}
+
+.mdock-cvb {
+  width: 28px;
+  height: 28px;
+}
+
+.mdock-cvb .mdock-cv {
+  background: none;
+}
+
+.mdock-note {
+  flex: 1;
+  min-width: 0;
+}
+
+.mdock-msg {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mdock-msg.warn {
+  color: var(--ink-warn);
+}
+
+.mdock .mdock-go {
+  flex: none;
+  height: 32px;
+  padding: 0 18px;
+}
+
+/* ── popovers, inside the dock's box ────────────────────────────────────────────────────────── */
+
+.mdock-pop {
+  position: absolute;
+  z-index: 10;
+  min-width: 220px;
+  max-width: calc(100% - 16px);
+  padding: 14px 16px 16px;
+  overflow: auto;
+  border: 1px solid var(--background-05);
+  border-radius: 10px;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.mdock-pop.list {
+  min-width: 180px;
+  padding: 4px;
+}
+
+.mdock-pop.list.wide {
+  min-width: 240px;
+}
+
+.mdock-tchips {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mdock-tchips + .mdock-tchips {
+  margin-top: 14px;
+}
+
+.mdock-tchips > span {
+  color: var(--muted);
+}
+
+.mdock-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 320px;
+}
+
+.mdock-chip {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--foreground);
+  white-space: nowrap;
+  transition: background var(--duration-micro) var(--ease-micro);
+}
+
+.mdock-chip:not(:disabled):hover {
+  background: var(--surface-strong);
+}
+
+.mdock-chip[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--background);
+  font-weight: 600;
+}
+
+.mdock-chip:disabled {
+  opacity: 0.55;
+}
+
+.mdock-sg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mdock-sg span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mdock-sg:hover,
+.mdock-sg.on {
+  background: var(--surface-strong);
+}
+
+.mdock-sg .mdock-cv {
+  width: 20px;
+  height: 20px;
+  margin-left: -4px;
+  background: none;
+}
+
+.mdock-ez {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: -8px;
+}
+
+.mdock-ez button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.mdock-ez button:hover,
+.mdock-ez button.on {
+  background: var(--surface-strong);
+}
+
+.mdock-ez .mdock-cv {
+  width: 22px;
+  height: 22px;
+  background: none;
+}
+
+/* ── a narrow dock ──────────────────────────────────────────────────────────────────────────── */
+/* Narrower than the list and a timeline side by side: one or the other. The list until something
+   is selected or open, then that, with a button back in its header; the timing fields on a row
+   of their own, the lanes' names narrower. (As the overlay's own dock does on a phone-width page.) */
+@container mdock (max-width: 719px) {
+  .mdock {
+    --lab: 104px;
+  }
+
+  .mdock-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mdock-grid.detail .mdock-list,
+  .mdock-grid:not(.detail) .mdock-main {
+    display: none;
+  }
+
+  .mdock-list {
+    border-right: 0;
+  }
+
+  .mdock .mdock-back {
+    display: inline-grid;
+    margin-left: -8px;
+  }
+
+  .mdock .mdock-hd.bare {
+    display: flex;
+    min-height: 44px;
+  }
+
+  .mdock-hd {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    padding: 8px 8px 8px 12px;
+  }
+
+  .mdock-hd > .mdock-tools + .mdock-tools {
+    margin-left: 0;
+  }
+
+  /* the second row: the timing fields, then undo and put back */
+  .mdock-timing {
+    order: 1;
+    flex: 1 0 calc(100% - 68px);
+    gap: 10px;
+  }
+
+  .mdock-hd > .mdock-tools:last-child {
+    order: 2;
+  }
+
+  .mdock-lab {
+    padding-left: 12px;
+  }
+
+  .mdock-lane .mdock-lab {
+    padding-left: 24px;
+  }
+}
+
+/* Narrow and tall (the column beside a phone's page): there is height for both, so the list sits
+   above what is open and nothing needs a way back. */
+@container mdock (max-width: 719px) and (min-height: 600px) {
+  .mdock-grid {
+    grid-template-rows: minmax(120px, auto) minmax(0, 1fr);
+  }
+
+  .mdock-grid.detail .mdock-list {
+    display: block;
+  }
+
+  .mdock-grid:not(.detail) .mdock-main {
+    display: flex;
+  }
+
+  .mdock-list {
+    max-height: 34cqh;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .mdock .mdock-back,
+  .mdock .mdock-hd.bare {
+    display: none;
+  }
+}

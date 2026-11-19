@@ -473,6 +473,73 @@ async function main() {
   await until(() => page.view.getBounds().width === wide.width)
   check("the desktop switch gives its pane back", page.view.getBounds().width === wide.width && page.view.getBounds().x === wide.x && state().page.device === "desktop", `${JSON.stringify(page.view.getBounds())}, was ${JSON.stringify(wide)}`)
 
+  // ── motion mode's dock, drawn by the window: it drives the real page ───────────────────────
+  const motionUrl = `${origin}/harness/motion-page.html`
+  await ui(`window.b42.invoke("navigate", ${JSON.stringify(motionUrl)})`)
+  await until(async () => state().page.url === motionUrl && !state().page.loading && (await js(`${shadow}?.querySelector('.pins')?.classList.contains('live') ?? false`)))
+  await ui(`document.querySelector('.mode[data-mode="motion"]').click()`)
+  const mrows = () => ui(`[...document.querySelectorAll(".mdock-row")].map((r) => r.querySelector(".mdock-nm").textContent).join("|")`) as Promise<string>
+  check(
+    "Motion opens the window's dock, listing what moves on the page, and the page draws no dock of its own",
+    (await until(async () => /rise/.test(await mrows()))) === true && state().review.mode === "motion" && (await js(`${shadow}.querySelector(".m-dock").hidden`)) === true,
+    await mrows(),
+  )
+  // The paragraph's rise: the second element under it.
+  await ui(`(() => { const rows = [...document.querySelectorAll(".mdock-row")]; const i = rows.findIndex((r) => r.querySelector(".mdock-nm").textContent === "rise"); rows[i + 2].click() })()`)
+  const duration = () => ui(`document.querySelector("[data-tduration]")?.value ?? ""`) as Promise<string>
+  check("a row of the window's dock opens that animation on the page", (await until(async () => (await duration()) === "700")) === true, await duration())
+  const playsFor = () => js(`getComputedStyle(document.querySelector(".hero p")).animationDuration`) as Promise<string>
+  // A duration typed in the window's field: the page plays it.
+  await ui(`(() => { const f = document.querySelector("[data-tduration]"); f.dispatchEvent(new FocusEvent("focus")); f.value = "900"; f.dispatchEvent(new Event("input", { bubbles: true })); f.dispatchEvent(new FocusEvent("blur")) })()`)
+  check("a duration typed in the window's dock changes the page's animation", (await until(async () => (await playsFor()) === "0.9s")) === true && (await until(async () => (await duration()) === "900")) === true, await playsFor())
+  // A keyframe dragged in the window: the page's keyframes follow.
+  const grip = (await ui(`(() => { const r = document.querySelector('.mdock-kspan[data-lane="opacity"] .mdock-key[data-at="100"]').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } })()`)) as { x: number; y: number }
+  const wmouse = (type: "mouseDown" | "mouseMove" | "mouseUp", x: number) => win.webContents.sendInputEvent({ type, x, y: grip.y, button: "left", clickCount: 1 })
+  wmouse("mouseMove", grip.x)
+  wmouse("mouseDown", grip.x)
+  for (let i = 1; i <= 6; i++) {
+    wmouse("mouseMove", grip.x - i * 20)
+    await sleep(16)
+  }
+  wmouse("mouseUp", grip.x - 120)
+  const sheets = () => js(`document.adoptedStyleSheets.map((s) => [...s.cssRules].map((r) => r.cssText).join("\\n")).join("\\n")`) as Promise<string>
+  const movedTo = () => ui(`document.querySelector('.mdock-kspan[data-lane="opacity"] .mdock-key.on')?.dataset.at ?? ""`) as Promise<string>
+  check(
+    "a keyframe dragged in the window's dock moves on the page, and the dock shows it where it was let go",
+    (await until(async () => /@keyframes rise[^]*?\d+% \{ opacity: 1; \}/.test(await sheets()))) === true && Number(await until(movedTo)) < 100,
+    `${await movedTo()} / ${(await sheets()).slice(0, 200)}`,
+  )
+  // Undo, from the dock's own button: the page's keyframes again.
+  await ui(`document.querySelector('.mdock-hd [aria-label="Undo"]').click()`)
+  check("undo in the window's dock takes the drag back on the page", (await until(async () => !/@keyframes rise/.test(await sheets()))) === true)
+  const rtt = (await ui(`document.querySelector(".mdock")?.dataset.rtt ?? ""`)) as string
+  // And an act to the view it brings back: the ping's way, and the overlay's next frame.
+  const trips = (await ui(`(async () => {
+    const out = []
+    for (let i = 1; i <= 5; i++) {
+      const t0 = performance.now()
+      await new Promise((done) => {
+        const off = window.b42.onPanel((m) => m.view && (off(), done()))
+        window.b42.invoke("panel", { panel: "motion", act: { type: "seek", p: i / 10 } })
+      })
+      out.push(Math.round((performance.now() - t0) * 10) / 10)
+    }
+    return out.join(",")
+  })()`)) as string
+  check("the way from the window's dock to the overlay and back is measured", rtt.split(",").filter(Boolean).length === 5, `ping, ms: ${rtt}; act to view, ms: ${trips}`)
+  // Keys while the dock has the keyboard: → steps the page's animation, space plays it.
+  const at = () => ui(`document.querySelector(".mdock-time")?.textContent ?? ""`) as Promise<string>
+  await until(async () => (await at()) === "450")
+  await ui(`document.querySelector(".mdock-tl").focus()`)
+  win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Right" })
+  const stepped = await until(async () => (await at()) === "459")
+  win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Space" })
+  win.webContents.sendInputEvent({ type: "char", keyCode: " " })
+  const plays = await until(() => js(`document.querySelector(".hero p").getAnimations().some((a) => a.playState === "running" || a.playState === "finished")`), 3000)
+  check("→ in the window's dock steps the page's animation, and space plays it", stepped === true && plays === true, `${await at()}`)
+  await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
+  await until(async () => state().review.mode === "notes")
+
   // ── what is on disk ────────────────────────────────────────────────────────────────────────
   app.emit("before-quit")
   check("the conversation is remembered for the site", saved().sites[origin]?.session === SES, JSON.stringify(saved().sites))

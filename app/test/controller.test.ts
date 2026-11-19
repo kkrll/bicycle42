@@ -11,7 +11,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { test } from "node:test"
-import type { ChatEvent } from "../src/shared/types"
+import { HOSTED_DOCKS, type ChatEvent } from "../src/shared/types"
 import { start, until, type FakeReply, type FakeServer } from "./fake-server"
 import { testShell } from "./stubs/host"
 
@@ -2161,14 +2161,23 @@ test("a dock the window draws: the overlay is told after every state, its views 
   }
 })
 
-test("no dock is the window's unless the shell says so: the overlay is told nothing and draws its own", async () => {
+test("the window draws the docks in HOSTED_DOCKS unless the shell says otherwise; with none, the overlay is told nothing and draws its own", async () => {
   const h = await boot()
   try {
     await h.ready()
     h.page.message({ type: "ready", url: `${SITE}/`, viewport: { w: 800, h: 600, dpr: 1, scrollX: 0, scrollY: 0 } })
-    assert.deepEqual(h.snap().review.docks, [])
-    assert.equal(h.page.sent.some((m) => m.type === "docks"), false)
+    assert.deepEqual(h.snap().review.docks, [...HOSTED_DOCKS])
+    assert.deepEqual(h.page.sent.filter((m) => m.type === "docks"), HOSTED_DOCKS.length ? [{ type: "docks", hosted: [...HOSTED_DOCKS] }] : [])
   } finally {
     await h.close()
+  }
+  const none = await boot({ docks: [] })
+  try {
+    await none.ready()
+    none.page.message({ type: "ready", url: `${SITE}/`, viewport: { w: 800, h: 600, dpr: 1, scrollX: 0, scrollY: 0 } })
+    assert.deepEqual(none.snap().review.docks, [])
+    assert.equal(none.page.sent.some((m) => m.type === "docks"), false)
+  } finally {
+    await none.close()
   }
 })
