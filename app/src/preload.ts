@@ -1,7 +1,7 @@
 // The only door between the app window and main. The window gets `window.b42` (see Bridge in
 // shared/types.ts) and nothing else: no Node, no ipcRenderer, no server password.
 import { contextBridge, ipcRenderer } from "electron"
-import type { AppState, Bridge, ChatEvent, NoteFocus, Shortcut } from "./shared/types"
+import type { AppState, Bridge, ChatEvent, NoteFocus, PanelMessage, Shortcut } from "./shared/types"
 
 function subscribe<T>(channel: string, fn: (value: T) => void) {
   const handler = (_event: unknown, value: T) => fn(value)
@@ -30,6 +30,7 @@ const bridge: Bridge = {
   },
   onShortcut: (fn) => subscribe<Shortcut>("b42:shortcut", fn),
   onNoteFocus: (fn) => subscribe<NoteFocus>("b42:note", fn),
+  onPanel: (fn) => subscribe<PanelMessage>("b42:panel", fn),
   platform: process.platform as Bridge["platform"],
 }
 

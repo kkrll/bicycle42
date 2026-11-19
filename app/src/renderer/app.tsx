@@ -8,7 +8,8 @@
 //   · the settings dialog is open
 //   · the panel is being resized (the native view would swallow the drag)
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
-import type { Rect, ReviewMode, Shortcut } from "../shared/types"
+import type { Device, Rect, ReviewMode, Shortcut } from "../shared/types"
+import { DockRegion, dockShown } from "./dock"
 import { ConnectScreen, ModelScreen, ServerButton, SettingsDialog, SetupSteps, firstRunConnecting } from "./connect"
 import { Icon, Kbd, type IconName } from "./icons"
 import { Switcher } from "./switcher"
@@ -31,6 +32,11 @@ import {
 
 const PANEL_MIN = 320
 const PANEL_DEFAULT = 400
+/** A dock under the page: its height, between these. (Beside a phone's page it takes the width left.) */
+const DOCK_MIN = 160
+const DOCK_DEFAULT = 360
+/** What stays of the page above a dock, whatever the dock is dragged to. */
+const PAGE_MIN = 120
 
 // ── top bar ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -190,6 +196,36 @@ function ModeSwitch(props: { disabled: boolean }) {
   )
 }
 
+/** Desktop | Phone, beside the address: how the page is shown (Device in shared/types.ts). */
+const DEVICES: { device: Device; label: string; icon: IconName; what: string }[] = [
+  { device: "desktop", label: "Desktop", icon: "desktop", what: "The page as on a desktop: as wide as its pane" },
+  { device: "phone", label: "Phone", icon: "phone", what: "The page as on a phone: 390 px wide" },
+]
+
+function DeviceSwitch(props: { disabled: boolean }) {
+  return (
+    <div class="devices" role="radiogroup" aria-label="Show the page as">
+      <For each={DEVICES}>
+        {(d) => (
+          <button
+            class="device"
+            role="radio"
+            data-device={d.device}
+            aria-label={d.label}
+            aria-checked={state.page.device === d.device}
+            aria-description={d.what}
+            disabled={props.disabled}
+            onClick={() => act("setDevice", d.device)}
+            {...hinted(() => ({ text: d.what, keys: [] }))}
+          >
+            <Icon name={d.icon} />
+          </button>
+        )}
+      </For>
+    </div>
+  )
+}
+
 function TopBar(props: {
   bare: boolean
   urlRef: (el: HTMLInputElement) => void
@@ -227,6 +263,7 @@ function TopBar(props: {
           </button>
         </div>
         <UrlField ref={props.urlRef} />
+        <DeviceSwitch disabled={!state.page.url} />
         <PageError />
         <div class="tools">
           <Hint />
@@ -364,6 +401,8 @@ export function App() {
   const [panelWidth, setPanelWidth] = createSignal(Math.max(PANEL_MIN, Number(recall("panel.width")) || PANEL_DEFAULT))
   const [settings, setSettings] = createSignal(false)
   const [resizing, setResizing] = createSignal(false)
+  /** Which edge the resize is of: the dock's top (true), else the panel's side. */
+  const [dockDragging, setDockDragging] = createSignal(false)
   // The panel's size, for the panel to decide whether its notes list fits.
   const [panelSize, setPanelSize] = createSignal({ width: 0, height: 0 })
   let panelEl!: HTMLElement
@@ -378,6 +417,11 @@ export function App() {
     onCleanup(() => observer.disconnect())
   })
   let pageEl!: HTMLDivElement
+  let stageEl!: HTMLDivElement
+  // A dock the window draws: under the page at this height, or beside a phone's page.
+  const [dockHeight, setDockHeight] = createSignal(Math.max(DOCK_MIN, Number(recall("dock.height")) || DOCK_DEFAULT))
+  // (With no page open the box holds the window's own words, at its whole width.)
+  const phone = () => state.page.device === "phone" && state.page.url !== ""
   let urlEl: HTMLInputElement | undefined
   let composerEl: HTMLTextAreaElement | undefined
 
@@ -420,10 +464,12 @@ export function App() {
     if (!frame) frame = requestAnimationFrame(report)
   }
   onMount(() => {
-    // The box only moves when it also changes size (a strip appears, the panel resizes, the
-    // window resizes), so observing its size covers its position too.
+    // As a desktop's the box only moves when it also changes size (a strip appears, the panel
+    // resizes, the window resizes). As a phone's it keeps its size and moves with the room it is
+    // centred in: that room is observed too.
     const observer = new ResizeObserver(schedule)
     observer.observe(pageEl)
+    observer.observe(stageEl)
     window.addEventListener("resize", schedule)
     onCleanup(() => {
       observer.disconnect()
@@ -435,6 +481,12 @@ export function App() {
     // Hiding must not wait a frame: whatever needs the space is already on screen.
     if (pageHidden()) report()
     else schedule()
+  })
+  createEffect(() => {
+    // A dock that comes or goes beside a phone's page moves the page and resizes nothing.
+    dockShown()
+    phone()
+    schedule()
   })
 
   // ── panel ──
@@ -480,6 +532,32 @@ export function App() {
   const nudge = (by: number) => {
     setPanelWidth(clampWidth(clampWidth(panelWidth()) + by))
     remember("panel.width", String(panelWidth()))
+  }
+
+  // ── the dock under the page: its height, dragged by its top edge as the panel is by its side ──
+  const clampDock = (h: number) => Math.min(Math.max(DOCK_MIN, stageEl.clientHeight - PAGE_MIN), Math.max(DOCK_MIN, Math.round(h)))
+  let dockFrom: { y: number; height: number } | undefined
+  const dockDragStart = (e: PointerEvent) => {
+    if (e.button !== 0) return
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    dockFrom = { y: e.clientY, height: clampDock(dockHeight()) }
+  }
+  const dockDragMove = (e: PointerEvent) => {
+    if (!dockFrom) return
+    setResizing(true)
+    setDockDragging(true)
+    setDockHeight(clampDock(dockFrom.height + dockFrom.y - e.clientY))
+  }
+  const dockDragEnd = () => {
+    if (!dockFrom) return
+    dockFrom = undefined
+    setResizing(false)
+    setDockDragging(false)
+    remember("dock.height", String(dockHeight()))
+  }
+  const dockNudge = (by: number) => {
+    setDockHeight(clampDock(clampDock(dockHeight()) + by))
+    remember("dock.height", String(dockHeight()))
   }
 
   // ── focus and shortcuts ──
@@ -536,7 +614,7 @@ export function App() {
   })
 
   return (
-    <div class="app" style={{ "--panel-width": `${panelWidth()}px` }}>
+    <div class="app" style={{ "--panel-width": `${panelWidth()}px`, "--dock-height": `${dockHeight()}px` }}>
       <TopBar
         bare={!ready() || setup()}
         urlRef={(el) => (urlEl = el)}
@@ -549,6 +627,9 @@ export function App() {
         <Strips />
       </Show>
       <main class="work" inert={!ready() || setup()}>
+        {/* The page and, when the window draws the dock of the mode that is on, that dock: under
+            the page, or beside it when the page is shown as a phone's. */}
+        <div class="stage" ref={stageEl} classList={{ phone: phone(), docked: !!dockShown() }}>
         {/* While a dialog is open or the panel is resized the page view is away: a quiet surface
             stands in for it, so the window does not go black. */}
         <div class="page" ref={pageEl} classList={{ veiled: settings() || switcherOpen() || runningOpen() || resizing() }}>
@@ -601,10 +682,39 @@ export function App() {
             </div>
           </Show>
         </div>
+        <Show when={dockShown()}>
+          {(dock) => (
+            <>
+              <Show when={!phone()}>
+                <div
+                  class="divider dock-divider"
+                  classList={{ active: dockDragging() }}
+                  role="separator"
+                  aria-orientation="horizontal"
+                  aria-label="Resize the dock"
+                  aria-valuemin={DOCK_MIN}
+                  aria-valuenow={dockHeight()}
+                  tabindex="0"
+                  onPointerDown={dockDragStart}
+                  onPointerMove={dockDragMove}
+                  onPointerUp={dockDragEnd}
+                  onPointerCancel={dockDragEnd}
+                  onLostPointerCapture={dockDragEnd}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowUp") dockNudge(16)
+                    else if (e.key === "ArrowDown") dockNudge(-16)
+                  }}
+                />
+              </Show>
+              <DockRegion dock={dock()} />
+            </>
+          )}
+        </Show>
+        </div>
         <Show when={panelOpen()}>
           <div
             class="resizer"
-            classList={{ active: resizing() }}
+            classList={{ active: resizing() && !dockDragging() }}
             role="separator"
             aria-orientation="vertical"
             aria-label="Resize the panel"

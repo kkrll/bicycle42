@@ -5,6 +5,25 @@
 //
 // The UI speaks of sites, notes and changes. Backend words (session, inbox, provider) stop at
 // main: the renderer never sees a raw server payload.
+import type { Dock, PanelAct, PanelView } from "../../../overlay/protocol"
+
+// ── the page's docks, drawn by the window ───────────────────────────────────────────────────────
+// Edit mode's inspector and motion mode's dock belong to the overlay, which draws them at the
+// bottom of the page; a dock the window draws itself is "hosted" (Dock in overlay/protocol.ts).
+// The overlay then says what the dock shows (PanelMessage, on the "panel" stream) and does what
+// the window's dock asks (the `panel` command). Main only carries both: it reads neither.
+export type { Dock, PanelAct }
+/** overlay → window: a hosted dock's view, or the answer to its "ping". */
+export type PanelMessage = PanelView | { panel: Dock; pong: number }
+
+/** The docks the window draws. One the overlay still draws itself is not in the list. */
+export const HOSTED_DOCKS: readonly Dock[] = []
+
+/** What the page is shown as. "phone": 390 CSS px wide and at most 844 tall, laid out as a
+ *  phone's browser lays it out (the page's viewport tag counts, scrollbars take no room); the
+ *  pointer is still a mouse, so every mode works as on a desktop page. */
+export type Device = "desktop" | "phone"
+export const PHONE = { width: 390, height: 844 } as const
 
 // ── models ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -279,6 +298,8 @@ export type AppState = {
     canGoForward: boolean
     /** The page hot-reloads by itself, so the app leaves reloading to it. */
     hmr: boolean
+    /** Kept between starts; the window sizes the page's box by it. */
+    device: Device
   }
   review: {
     /** Notes, edit or motion mode is on. Off is "preview". */
@@ -290,6 +311,8 @@ export type AppState = {
     notes: NoteRow[]
     /** Pins whose element can no longer be found on the page. */
     unplaced: number
+    /** The docks the overlay was told the window draws (HOSTED_DOCKS, unless the shell says otherwise). */
+    docks: Dock[]
   }
   /** The site under review and the server folder (the repo) that holds its code. `null` until
    *  there is a repo or a page. The repo comes first: with one open and no page yet, `origin` is
@@ -343,6 +366,8 @@ export type Commands = {
   forward(): void
   /** Where the page sits inside the window, in CSS pixels. `null` hides it (a dialog is open). */
   setPageBounds(bounds: Rect | null): void
+  /** The page as a desktop's or as a phone's: how it is laid out, and how wide its box is. */
+  setDevice(device: Device): void
   // review
   toggleReview(): void
   /** The top bar's switch. Notes and edit turn review on; the page takes the keyboard. */
@@ -350,6 +375,9 @@ export type Commands = {
   /** The brush on or off. On, it turns review on and goes to notes mode. */
   toggleBrush(): void
   toggleAutoReload(): void
+  /** From a hosted dock, to the overlay: what the reviewer did there. Nothing is answered here;
+   *  what changed comes back as the dock's next view. */
+  panel(act: PanelAct): void
   /** Takes the notes that are done off the list. A failed or stopped one stays, with its Retry. */
   clearNotes(): void
   retryNote(id: string): void
@@ -482,6 +510,8 @@ export type Bridge = {
   onChat(fn: (event: ChatEvent) => void): () => void
   onShortcut(fn: (shortcut: Shortcut) => void): () => void
   onNoteFocus(fn: (focus: NoteFocus) => void): () => void
+  /** What the overlay says of a hosted dock: its view whenever that changes, a ping's answer. */
+  onPanel(fn: (msg: PanelMessage) => void): () => void
   platform: "darwin" | "linux" | "win32"
 }
 

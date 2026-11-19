@@ -598,8 +598,10 @@ details[open] > summary > .caret {
   color: var(--background);
 }
 
-/* Preview | Notes | Edit. The one in use is the accent: it says what a click on the page does. */
-.modes {
+/* Preview | Notes | Edit. The one in use is the accent: it says what a click on the page does.
+   Desktop | Phone, beside the address, has the same look with icons only: how the page is shown. */
+.modes,
+.devices {
   flex: none;
   display: flex;
   align-items: center;
@@ -611,7 +613,8 @@ details[open] > summary > .caret {
   background: var(--surface);
 }
 
-.mode {
+.mode,
+.device {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -626,22 +629,26 @@ details[open] > summary > .caret {
 }
 
 /* Hover belongs to the ones not chosen: on the chosen one, the accent stays as it is. */
-.mode:not(:disabled):not([aria-checked="true"]):hover {
+.mode:not(:disabled):not([aria-checked="true"]):hover,
+.device:not(:disabled):not([aria-checked="true"]):hover {
   background: var(--surface-strong);
   color: var(--foreground);
 }
 
-.mode[aria-checked="true"] {
+.mode[aria-checked="true"],
+.device[aria-checked="true"] {
   background: var(--accent);
   color: var(--background);
   font-weight: 600;
 }
 
-.mode[aria-checked="true"] {
+.mode[aria-checked="true"],
+.device[aria-checked="true"] {
   cursor: default;
 }
 
-.mode:disabled {
+.mode:disabled,
+.device:disabled {
   opacity: 0.55;
 }
 
@@ -855,12 +862,22 @@ details[open] > summary > .caret {
   display: none;
 }
 
+/* The page and, when the window draws the dock of the mode that is on (dock.tsx), that dock
+   under it. */
+.stage {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 /* The page sits in the window as a pane of its own: a little air around it, a hairline and
    rounded corners. The native page view fills the inside of the border (main rounds its corners
    to match, see PAGE_RADIUS in main/page.ts). */
 .page {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: grid;
   place-items: center;
   /* Flush under the top bar: the pane's own top edge is the line between them. */
@@ -868,6 +885,65 @@ details[open] > summary > .caret {
   border: 1px solid var(--background-05);
   border-radius: 10px;
   overflow: hidden;
+}
+
+/* The page as a phone's (PHONE in shared/types.ts: 390 by 844, and the pane's hairline around
+   it): in the middle of its room, as tall as a phone or as the window allows. With a dock, the
+   page keeps to the left and the dock takes the width that is left, the window's whole height. */
+.stage.phone {
+  flex-direction: row;
+  justify-content: center;
+}
+
+.stage.phone > .page {
+  flex: none;
+  width: 392px;
+  height: min(846px, calc(100% - 8px));
+}
+
+.stage.phone.docked {
+  justify-content: flex-start;
+}
+
+/* A dock the window draws: a pane like the page's, under it at the height its top edge was
+   dragged to. What is in it is the dock's own (dock.tsx). */
+.dock {
+  flex: none;
+  height: var(--dock-height);
+  max-height: calc(100% - 128px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0 8px 8px;
+  border: 1px solid var(--background-05);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.stage.phone > .dock {
+  flex: 1;
+  height: auto;
+  max-height: none;
+  margin-left: 0;
+}
+
+/* In the 8px between the page and the dock, taking no room of its own. */
+.dock-divider {
+  margin: -8px 8px 1px;
+}
+
+.dock-empty {
+  margin: auto;
+  color: var(--muted);
+  font-size: var(--text-control);
+}
+
+.devices {
+  margin: 0;
+}
+
+.device {
+  padding: 0 7px;
 }
 
 /* The page view is away for a moment (a dialog, a resize): a quiet surface holds its place. */

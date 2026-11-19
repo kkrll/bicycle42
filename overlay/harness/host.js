@@ -18,6 +18,10 @@ const H = {
   refuse: "", // set by a test: the next notes are refused with this reason
   selected: null,
   log: [],
+  // The docks this host says it draws itself (none: the overlay draws its own), set by a test
+  // with hostDocks(); and what the overlay then sent for them: views and pongs, in order.
+  docks: [],
+  panel: [],
 };
 window.__harness = H; // for tests
 
@@ -30,12 +34,20 @@ const pins = () =>
 function toPage(msg) {
   frame.contentWindow?.__b42?.receive(msg);
 }
+/** As a host that draws these docks itself does: now, and after every "state". */
+H.hostDocks = (list) => {
+  H.docks = list;
+  toPage({ type: "docks", hosted: list });
+};
+/** What a hosted dock asks of the overlay. */
+H.act = (panel, act) => toPage({ type: "panel", panel, act });
 
 function onMessage(msg) {
   H.log.push(msg.type);
   switch (msg.type) {
     case "ready":
       toPage({ type: "state", enabled: H.enabled, draft: H.draft, pins: pins() });
+      if (H.docks.length) toPage({ type: "docks", hosted: H.docks });
       break;
     case "toggle":
       setEnabled(msg.enabled ?? !H.enabled);
@@ -66,6 +78,9 @@ function onMessage(msg) {
     }
     case "pins-placement":
       H.unplaced = msg.unplaced;
+      break;
+    case "panel":
+      H.panel.push(msg);
       break;
   }
   render();

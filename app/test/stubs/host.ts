@@ -19,7 +19,7 @@ export type TestShell = {
     sent: { type: string; [k: string]: unknown }[]
     /** Set by a test that wants screenshots: returns the next picture. */
     capture?: () => Frame
-    /** [what, value] for each call the controller or the shell made on the page: "bounds" and "load". */
+    /** [what, value] for each call the controller or the shell made on the page: "bounds", "load" and "device". */
     calls: [string, unknown][]
     /** Set by a test whose page has an overlay that answers "frame": the window it says it has. */
     viewport?: { w: number; h: number; dpr: number; scrollX: number; scrollY: number }
@@ -28,7 +28,7 @@ export type TestShell = {
 
 /** Starts a controller on `dataDir` the way the shell does: the page made, laid out where it was
  *  last and hidden, loaded at the address it was last at, then `start`. */
-export function testShell(dataDir: string): TestShell {
+export function testShell(dataDir: string, opts: { docks?: ("canvas" | "motion")[] } = {}): TestShell {
   const sent: TestShell["sent"] = []
   const dialogs: unknown[] = []
   const core = createCore({
@@ -36,6 +36,7 @@ export function testShell(dataDir: string): TestShell {
     secrets: { available: () => false, encrypt: (secret) => Buffer.from(secret), decrypt: String },
     emit: (stream, value) => void sent.push([stream, value]),
     dialog: (box) => void dialogs.push(box),
+    ...(opts.docks ? { docks: opts.docks } : {}),
     log: (level, msg, data) => console[level === "info" ? "log" : level](`[bicycle42] ${msg}`, data === undefined ? "" : data),
   })
 
@@ -58,6 +59,7 @@ export function testShell(dataDir: string): TestShell {
     back() {},
     forward() {},
     setBounds: (bounds) => void stub.calls.push(["bounds", bounds]),
+    setDevice: (device) => void stub.calls.push(["device", device]),
     send(msg) {
       stub.sent.push(msg)
       // The overlay answers a "frame" a moment later, as it does two frames on.

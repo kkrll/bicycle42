@@ -93,6 +93,10 @@ const SHOTS = [
   { name: "review-menu", mock: "review", run: [click(".convo-current")] },
   { name: "review-open", mock: "review", run: [`document.querySelectorAll(".transcript details").forEach((d) => (d.open = true))`] },
   { name: "review-narrow", mock: "review", size: [760, 560] },
+  // The page as a phone's; and a dock the window draws (none is, yet: its box with its name), under the page and beside a phone's.
+  { name: "phone", mock: "review", query: "&device=phone" },
+  { name: "dock", mock: "review", query: "&docks=motion&mode=motion" },
+  { name: "phone-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit" },
   { name: "collapsed", mock: "review", run: [click("[data-action=panel]")] },
   { name: "busy", mock: "busy", wait: 1500 },
   { name: "permission", mock: "permission" },

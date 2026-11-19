@@ -3,13 +3,15 @@ import { adopt, BOOST } from "../page.js";
 import { C } from "./state.js";
 import { shieldEl } from "./mount.js";
 import { setRoom } from "../room.js";
+import { hosted } from "../panel.js";
 
 // ── the page's cursor, and a drag's live rule ───────────────────────────────────────────────
 // In canvas mode the page's cursor is the plain arrow, by one rule that never changes (changing a
 // rule that matches every element restyles the whole document). The arrows over a handle or a
 // gap come from the layer's own elements; during a drag a shield over the viewport carries the
-// cursor. The page is laid out as if the window ended where the dock begins (room.js).
-export const dock = () => (C.collapsed ? 30 : C.ph);
+// cursor. The page is laid out as if the window ended where the dock begins (room.js): no dock
+// here, and no room for one, when the host draws the inspector (panel.js).
+export const dock = () => (hosted("canvas") ? 0 : C.collapsed ? 30 : C.ph);
 export function syncUi() {
   const on = C.on && S.enabled;
   setRoom("canvas", on ? dock() : 0);

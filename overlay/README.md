@@ -16,6 +16,8 @@ request, the app's build and the benchmark build it themselves; it is not commit
 
 ```
 protocol.ts         the messages between the overlay and its host, and a note's shape: types only, shared with the app
+protocol-motion.ts  motion's dock when the host draws it: what it shows, what is done in it (types only)
+protocol-canvas.ts  the same for canvas's inspector
 src/protocol.js     what the overlay is, its keys and its gestures (a comment: the built script starts with it)
 src/state.js        the host bridge, the transient state
 src/ui.js           the layer's icons, and words with key symbols drawn in them
@@ -29,6 +31,7 @@ src/input.js        the page's pointer and keys: what every mode shares, then th
 src/render.js       one frame at a time: each mode's part, the outlines, the pins
 src/picture.js      for the host's own picture: the layer out of it and the page scrolled, then back; a pin brought into view
 src/room.js         the room under a dock: the page laid out as if the window ended where the dock begins
+src/panel.js        the docks the host draws itself: which they are, their views out, their acts in
 src/mount.js        the layer's elements and its shadow root, the host's API (window.__b42); the build starts here
 src/styles.css      the layer's styles, imported as text
 src/notes/          notes mode: a note about the page, its outlines, area and strokes, on a card
@@ -50,6 +53,15 @@ src/globals.d.ts    what the type check cannot read from the .js files
 - **`src/canvas/css-data.js` is generated** by `scripts/css-data.mjs` (Chrome's CSS properties, their
   keyword values and popularity, from Blink and DevTools; licences in `css-data.NOTICE`). Re-run it
   after an Electron upgrade, with the Chromium tag and DevTools branch at the top of the script updated.
+
+- **A dock can be the host's.** Canvas's inspector and motion's dock are drawn here, at the bottom
+  of the page, unless the host says it draws one itself (`{ type: "docks", hosted }`, `Dock` in
+  `protocol.ts`). For such a dock a mode asks `hosted(name)` (`src/panel.js`) wherever it would
+  show its dock or measure it, sends the whole of what the dock shows with `sendView` (once a
+  frame at most) and takes what the host's dock asks with `onAct`. Everything that is the page's
+  stays here: the selection, the edits and their undo, playing, sending. In the harness,
+  `__harness.hostDocks(["motion"])` plays such a host, `__harness.act(panel, act)` its dock, and
+  `__harness.panel` holds what the overlay sent.
 
 ![harness](docs/harness.png)
 

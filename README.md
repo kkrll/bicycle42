@@ -108,7 +108,8 @@ panel's conversation row), where reloading the page after a note is switched too
 The top bar has the mode: **Preview** (the page as it is), **Annotate** (point at something
 and say what to change), **Edit** (change the page itself, then press Send) and **Motion** (see
 what moves on the page, change one animation, then send it), with the pencil for drawing beside
-them.
+them. Beside the address, **Desktop | Phone** shows the page as wide as its pane or as a phone
+has it, 390 px wide.
 
 ## Keys
 

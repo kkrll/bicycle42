@@ -7,6 +7,7 @@ import { hostFrame, showPin } from "./picture.js";
 import * as Canvas from "./canvas/api.js";
 import * as Motion from "./motion/api.js";
 import { hostMode, retellMode } from "./mode.js";
+import { hostAct, setHosted } from "./panel.js";
 import { blockIfActive, endPeek, isOurs, LEFT_FOR_US, leftForUs, onKeyDown, onKeyUp, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, OURS_ONLY, oursOnly, setEnabled, setPins } from "./input.js";
 import { active, kick, moved } from "./render.js";
 import STYLES from "./styles.css"; // its text: the build loads a stylesheet as a string
@@ -175,6 +176,17 @@ window.__b42 = {
         break;
       case "show":
         showPin(msg.id);
+        break;
+      case "docks":
+        // A dock the host draws from now on, or gives back: the layer's own goes or comes, with its room.
+        if (!setHosted(msg.hosted)) break;
+        Canvas.syncUi();
+        Motion.syncUi();
+        Canvas.drawBar(); // it sits above the inspector, or at the bottom when there is none
+        kick();
+        break;
+      case "panel":
+        hostAct(msg);
         break;
     }
   },
