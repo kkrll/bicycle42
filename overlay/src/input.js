@@ -54,6 +54,7 @@ export function leftForUs(e) {
 
 export function onPointerDown(e) {
   if (!S.enabled) return;
+  if (S.peek) return block(e);
   const mode = /** @type {any} */ (current()); // (only canvas mode has a zoneOf)
   const zone = mode.zoneOf ? mode.zoneOf(e) : null; // a handle, an edge or a gap of the canvas selection: ours, but a page gesture
   if (isOurs(e) && !zone) return;
@@ -80,12 +81,13 @@ export function pagePress(e) {
 }
 
 export function onPointerMove(e) {
-  if (!S.enabled) return;
+  if (!S.enabled || S.peek) return; // the page's own hover, while the layer is out of sight
   current().pointerMove(e);
 }
 
 export function onPointerUp(e) {
   if (!S.enabled) return;
+  if (S.peek) return block(e);
   current().pointerUp(e);
 }
 
@@ -118,7 +120,46 @@ function brushKey() {
   setBrush(true);
 }
 
+// ── the peek: alt+W held ────────────────────────────────────────────────────────────────────
+// While alt+W is held the layer is out of sight and the page is shown as it is now, unsent edits
+// included. Nothing else changes: not the mode, not the selection or the note, not the focus
+// (the layer is made transparent, not hidden, so a focused field keeps its caret), and the host
+// is not told. The pointer's hover reaches the page; a press does not, since it would be an
+// alt+click there. By the key's place (KeyW), like the mode keys. Letting go of either key ends
+// it, and so does the window losing focus, since then no keyup comes.
+const isPeekKey = (e) => e.code === "KeyW" && e.altKey && !mod(e) && !e.shiftKey;
+
+function startPeek() {
+  // Not in the middle of a drag: what the drag draws would go on out of sight.
+  if (S.peek || S.drag || Canvas.dragging() || Motion.busy()) return;
+  S.peek = true;
+  S.hover = null;
+  hostEl.toggleAttribute("data-peek", true); // the layer's own elements let the pointer through (styles.css)
+  hostEl.style.setProperty("opacity", "0", "important"); // (inline, over the element's all:initial)
+  hideTip();
+}
+
+export function endPeek() {
+  if (!S.peek) return;
+  S.peek = false;
+  hostEl.toggleAttribute("data-peek", false);
+  hostEl.style.removeProperty("opacity");
+  kick();
+}
+
+export function onKeyUp(e) {
+  if (!S.peek || (e.code !== "KeyW" && e.key !== "Alt")) return;
+  block(e); // (an alt let go alone would otherwise show the window's menu bar on Linux and Windows)
+  endPeek();
+}
+
 export function onKeyDown(e) {
+  if (S.peek) return block(e); // nothing is typed or switched out of sight
+  if (S.enabled && isPeekKey(e)) {
+    block(e);
+    if (!e.repeat) startPeek();
+    return;
+  }
   const want = !mod(e) || e.altKey ? undefined : e.shiftKey ? (e.code === "KeyP" ? "brush" : undefined) : MODE_KEYS[e.code];
   if (want) {
     block(e);
@@ -133,6 +174,7 @@ export function onKeyDown(e) {
 }
 
 export function setEnabled(on) {
+  if (!on) endPeek();
   S.enabled = on;
   if (on && S.modeAfter) S.modeAfter === "brush" ? brushKey() : setMode(S.modeAfter);
   S.modeAfter = null;

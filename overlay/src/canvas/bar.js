@@ -98,6 +98,7 @@ const HELP = () => {
       ["/", "templates"],
       [`${m}Z`, "undo a stroke, or bring back a dropped note"],
       ["esc", "cancel the note, then leave review mode"],
+      [`hold ${alt}W`, "peek: the page without the layer"],
       [`${m}E`, "annotate ⇄ edit"],
     ];
   return [
@@ -117,6 +118,7 @@ const HELP = () => {
     [`${m}Z · ${m}${sh}Z`, "undo · redo"],
     ["↵", `send · ${m}↵ from the inspector's fields`],
     ["esc", "leave the field, deselect, back to annotate"],
+    [`hold ${alt}W`, "peek: the page without the layer, edits on"],
     [`${m}E`, "annotate ⇄ edit"],
   ];
 };

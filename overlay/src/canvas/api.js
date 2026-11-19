@@ -84,6 +84,7 @@ export const pointerDown = (e, z) => pagePress(e) && cvDown(e, z); // after what
 export const inEdit = (e) => !!C.edit && inEditedText(e);
 export const hasEdits = () => C.snap !== EMPTY;
 export const hasSent = () => C.sent.length > 0;
+export const dragging = () => !!C.drag;
 /** Frames every display frame: a drag, text being edited in place, or a selection that is being
  *  animated. One that only sits there is drawn on the slow tick, and when something moves. */
 export const busyFrames = () => C.on && S.enabled && !!(C.drag || C.edit || (C.sel && animating([C.sel])));

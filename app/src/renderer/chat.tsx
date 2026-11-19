@@ -592,6 +592,10 @@ function Empty() {
         </dt>
         <dd>Preview the page, or back to reviewing</dd>
         <dt>
+          <Kbd keys={keys("alt", "W")} />
+        </dt>
+        <dd>Hold to see the page without the layer</dd>
+        <dt>
           <Kbd keys={keys("mod", "K")} />
         </dt>
         <dd>Write to the agent here</dd>
