@@ -16,7 +16,7 @@ export type FactItem = {
   id: number
   /** A short name: the element's own words when they are few, else `tag.class`. */
   label: string
-  /** The number that matters: "32 x 28", "+130 px", "14px". */
+  /** The number that matters, units after a space: "32 × 28", "+130 px", "14 px". */
   detail: string
 }
 
@@ -34,6 +34,8 @@ export type FactsView = {
   meta: boolean
   /** The scan stopped before the end of a very large page: the lists are of what it saw. */
   partial: boolean
+  /** Every listed element is marked on the page, in its kind's tone ("marks"). */
+  marks: boolean
   /** Elements that stick out past the viewport's right edge where they leave their container
    *  (not every box that holds one), up to 8. Detail: "+130 px". */
   wide: FactList
@@ -41,16 +43,20 @@ export type FactsView = {
    *  sentence excepted, up to 12. Detail: "32 x 28". */
   taps: FactList
   /** Text fields and selects whose text is under 16 px (iOS zooms the page to one that takes
-   *  focus), up to 8. Detail: "14px". */
+   *  focus), up to 8. Detail: "14 px". */
   small: FactList
 }
 
 /** What the host's pane asks. "view": it is shown, work the facts out and keep them up to date
- *  until "stop"; "refresh": again now. "hover": outline that element on the page (null: none);
+ *  until "stop" (with `marks`, as "marks" says); "refresh": again now. "marks": while the facts
+ *  are worked out, draw a quiet outline on every listed element, in its kind's tone, or not (off
+ *  until asked; the outlines follow scroll and layout, take no pointer, are in no screenshot and
+ *  go with "stop"). "hover": outline that element on the page, strongly (null: none);
  *  "show": scroll it into view and flash its outline; "note": in notes mode, make it the note's
  *  selection, as a click on it would. */
 export type FactsAct =
-  | { type: "view" }
+  | { type: "view"; marks?: boolean }
+  | { type: "marks"; on: boolean }
   | { type: "stop" }
   | { type: "refresh" }
   | { type: "hover"; id: number | null }

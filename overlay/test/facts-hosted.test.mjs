@@ -56,10 +56,11 @@ const view = (page) => page.evaluate(() => window.__harness.view("facts"));
 const until = (page, fn) => page.waitForFunction(`(() => { const v = window.__harness.view("facts"); return !!v && (${fn})(v); })()`);
 const views = (page) => page.evaluate(() => window.__harness.panel.filter((m) => m.panel === "facts" && "view" in m).length);
 /** The pane's outlines on the page: where each is and what it is. */
-const outlines = (f) => f.evaluate(() => [...document.querySelector("b42-review").shadowRoot.querySelectorAll(".box.fx")].map((b) => {
+const outlines = (f, sel = ".box.fx:not(.mk)") => f.evaluate((s) => [...document.querySelector("b42-review").shadowRoot.querySelectorAll(s)].map((b) => {
   const r = b.getBoundingClientRect();
   return { cls: b.className, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
-}));
+}), sel);
+const marks = (f) => outlines(f, ".box.fx.mk");
 const rect = (f, sel) => f.evaluate((s) => {
   const r = document.querySelector(s).getBoundingClientRect();
   return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
@@ -92,7 +93,8 @@ test("nothing is worked out before the pane asks; the view says what sticks out,
   // A link in a sentence, a 160 x 48 button and buttons that are not shown are not listed.
   for (const no of ["terms of service", "Sign up", "Hidden away", "Invisible"]) assert.ok(!taps.includes(no), `${no} in ${taps.join(", ")}`);
   assert.equal(v.taps.total, v.taps.items.length);
-  assert.deepEqual(v.small.items.map((i) => [i.label, i.detail]), [["Email", "14px"]]);
+  assert.deepEqual(v.small.items.map((i) => [i.label, i.detail]), [["Email", "14 px"]]);
+  assert.equal(v.marks, false); // (off until the host asks)
   assert.equal(v.small.total, 1);
   assert.deepEqual(errors, []);
   await page.close();
@@ -137,7 +139,7 @@ test("hover outlines a row's element and takes it away, review off too; show bri
   await act(page, { type: "hover", id: idOf(v, "Close") });
   await frames(f);
   const tiny = await rect(f, "#tiny");
-  assert.deepEqual(await outlines(f), [{ cls: "box fx", ...tiny }]);
+  assert.deepEqual(await outlines(f), [{ cls: "box fx k-taps", ...tiny }]);
   await act(page, { type: "hover", id: null });
   await frames(f);
   assert.deepEqual(await outlines(f), []);
@@ -147,7 +149,7 @@ test("hover outlines a row's element and takes it away, review off too; show bri
   await page.waitForFunction(() => !window.__harness.enabled);
   await act(page, { type: "hover", id: idOf(v, "Email") });
   await frames(f);
-  assert.deepEqual((await outlines(f)).map((o) => o.cls), ["box fx"]);
+  assert.deepEqual((await outlines(f)).map((o) => o.cls), ["box fx k-small"]);
   await act(page, { type: "hover", id: null });
 
   // Show: scrolled into view, flashed, then drawn no more.
@@ -158,7 +160,7 @@ test("hover outlines a row's element and takes it away, review off too; show bri
     const r = document.getElementById("small").getBoundingClientRect();
     return r.top >= 0 && r.bottom <= innerHeight;
   });
-  assert.deepEqual((await outlines(f)).map((o) => o.cls), ["box fx flash"]);
+  assert.deepEqual((await outlines(f)).map((o) => o.cls), ["box fx flash k-small"]);
   await f.waitForFunction(() => !document.querySelector("b42-review").shadowRoot.querySelector(".box.fx"), null, { timeout: 3000 });
   assert.deepEqual(errors, []);
   await page.close();
@@ -189,4 +191,102 @@ test("note makes a row's element the note's selection in notes mode, and does no
   await two.page.waitForTimeout(400);
   assert.equal(await two.page.evaluate(() => window.__harness.draft?.targets?.length ?? 0), 0);
   await two.page.close();
+});
+
+test("marks: on, every listed element has a quiet outline in its kind's tone; the hovered row's is the strong one; off and stop take them away", async () => {
+  const { page, f, errors } = await open();
+  await act(page, { type: "view", marks: true });
+  await until(page, "(v) => v.small.total > 0 && v.marks");
+  const v = await view(page);
+  const kinds = [...v.wide.items.map(() => "k-wide"), ...v.taps.items.map(() => "k-taps"), ...v.small.items.map(() => "k-small")].sort();
+  await frames(f);
+  let m = await marks(f);
+  assert.deepEqual(m.map((o) => o.cls.split(" ").at(-1)).sort(), kinds);
+  assert.ok(m.every((o) => /^box fx mk k-/.test(o.cls)), JSON.stringify(m));
+  assert.ok(m.some((o) => o.cls.endsWith("k-wide")) && m.some((o) => o.cls.endsWith("k-taps")) && m.some((o) => o.cls.endsWith("k-small")));
+  // The banner's mark is where the banner is, and follows a scroll.
+  const banner = await rect(f, "#wide");
+  assert.ok(m.some((o) => o.cls.endsWith("k-wide") && o.x === banner.x && o.y === banner.y && o.w === banner.w), JSON.stringify(m));
+  const marksDom = () => f.evaluate(() => getComputedStyle(document.querySelector("b42-review").shadowRoot.querySelector(".box.fx.mk")).pointerEvents);
+  assert.equal(await marksDom(), "none");
+  await f.evaluate(() => (document.getElementById("more").style.height = "2000px"));
+  await f.evaluate(() => window.scrollTo(0, 50));
+  await frames(f, 3);
+  const scrolled = (await marks(f)).find((o) => o.cls.endsWith("k-wide"));
+  assert.equal(scrolled.y, (await rect(f, "#wide")).y);
+  await f.evaluate(() => window.scrollTo(0, 0));
+
+  // The row under the pointer: its element strong, not marked twice.
+  await act(page, { type: "hover", id: idOf(v, "Close") });
+  await frames(f);
+  assert.deepEqual(await outlines(f), [{ cls: "box fx k-taps", ...(await rect(f, "#tiny")) }]);
+  assert.equal((await marks(f)).length, kinds.length - 1);
+  await act(page, { type: "hover", id: null });
+  await frames(f);
+  assert.equal((await marks(f)).length, kinds.length);
+
+  // Off: none; the view says so.
+  await act(page, { type: "marks", on: false });
+  await until(page, "(v) => v.marks === false");
+  await frames(f);
+  assert.deepEqual(await marks(f), []);
+  await act(page, { type: "marks", on: true });
+  await until(page, "(v) => v.marks === true");
+  await frames(f);
+  assert.equal((await marks(f)).length, kinds.length);
+
+  // Stop: none, and none again until the next view.
+  await act(page, { type: "stop" });
+  await page.waitForFunction(() => window.__harness.view("facts") === null);
+  await frames(f);
+  assert.deepEqual(await marks(f), []);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("marks are not in a note's screenshot", async () => {
+  const { page, f, errors } = await open();
+  await act(page, { type: "view", marks: true });
+  await until(page, "(v) => v.small.total > 0");
+  await frames(f);
+  const n = (await marks(f)).length;
+  assert.ok(n > 0);
+  // Hold the host's "captured" so the capture moment can be looked at.
+  await page.evaluate(() => {
+    const fw = document.getElementById("page").contentWindow;
+    const real = fw.__b42.receive;
+    window.__release = () => real(window.__held);
+    fw.__b42.receive = (m) => (m.type === "captured" ? (window.__held = m) : real(m));
+  });
+  const b = await f.locator("#big").boundingBox();
+  await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2); // (a frame's box is the page's)
+  await page.keyboard.type("bigger");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.__harness.notes.length === 1);
+  await frames(f);
+  assert.deepEqual(await marks(f), []);
+  await page.evaluate(() => window.__release());
+  await f.waitForFunction((k) => document.querySelector("b42-review").shadowRoot.querySelectorAll(".box.fx.mk").length === k, n);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("an edit made in canvas mode's inspector to a page element counts: the tap target it fixes leaves the list", async () => {
+  const { page, f, errors } = await open();
+  await page.evaluate(() => window.__harness.hostDocks(["facts", "canvas"]));
+  await act(page, { type: "view" });
+  await until(page, "(v) => v.taps.items.some((i) => i.label === 'Close')");
+  const before = (await view(page)).taps.total;
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
+  await page.waitForFunction(() => window.__harness.panel.some((m) => m.panel === "canvas" && m.view));
+  // Select the close button, as a click on it does, then type its new size into the inspector.
+  const b = await f.locator("#tiny").boundingBox();
+  await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2); // (a frame's box is the page's)
+  const id = await (await page.waitForFunction(() => window.__harness.panel.filter((m) => m.panel === "canvas" && m.view).at(-1)?.view?.sel?.id)).jsonValue();
+  await page.evaluate((x) => window.__harness.act("canvas", { type: "text", field: "css", id: x, text: "width: 48px;\nheight: 48px;" }), id);
+  await f.waitForFunction(() => document.getElementById("tiny").getBoundingClientRect().width === 48);
+  // (No DOM change of the page's: the edit is an adopted rule.)
+  await until(page, `(v) => v.taps.total === ${before - 1} && !v.taps.items.some((i) => i.label === 'Close')`);
+  assert.deepEqual(errors, []);
+  await page.close();
 });

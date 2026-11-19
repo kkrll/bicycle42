@@ -73,8 +73,14 @@ src/globals.d.ts    what the type check cannot read from the .js files
   select for a note ("note"). Nothing is worked out until the host's pane says "view", and
   nothing after "stop": in between, after load, on resize and after the page changed (400 ms
   apart at least, in idle time, 4000 elements at most), with review on or off. Scrolling only
-  sends the new `scrollY`. A new document sends the view null, so a host whose pane is up asks
-  again. `?page=facts` is its harness page (`test/facts-hosted.test.mjs`).
+  sends the new `scrollY`. A change canvas mode makes to the page's elements counts too: its
+  edits are adopted rules no observer sees, so `applyAll` says so (`restyled`/`onRestyle` in
+  `src/page.js`). "marks" (or `marks` with "view"; off until asked, and the view says which):
+  a quiet 1.5 px outline on every listed element, in its kind's tone (`.box.fx.mk.k-wide`,
+  `k-taps`, `k-small`: red, orange, blue), following scroll and layout; the hovered or shown
+  one is drawn strong in its tone instead. Like the hover outline they take no pointer, are in
+  no note's screenshot and go with "stop". A new document sends the view null, so a host whose
+  pane is up asks again. `?page=facts` is its harness page (`test/facts-hosted.test.mjs`).
 
 ![harness](docs/harness.png)
 

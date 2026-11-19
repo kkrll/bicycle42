@@ -2,17 +2,19 @@
 // A pane of the host's beside a phone's page, in a mode with no dock (Preview, Annotate): what the
 // page is at the size it is shown at, each fact tied to its element (FactsView in
 // ../../protocol-facts.ts). The layer draws no pane of its own for it; it works the facts out and
-// does what the host's pane asks (FactsAct): outline an element, bring it into view, make it a
-// note's selection.
+// does what the host's pane asks (FactsAct): mark every listed element on the page, outline one
+// more strongly, bring it into view, make it a note's selection.
 //
 // Nothing is worked out unless the pane asks: between its "view" and its "stop" (or the pane no
 // longer hosted, or a new document) the page is looked at after it loads, when the window
 // resizes, and after it changed, at least SPACING ms apart and in idle time, MAX_ELS elements at
 // most. Scrolling only sends the new `scrollY`, at most once a frame (sendView). Review on or
-// off: the outline is the layer's (render.js asks `boxes`), the rest is reading the page.
+// off: the outlines are the layer's (render.js asks `boxes`), the rest is reading the page.
+// A change the layer makes itself counts too when it is to the page's elements (canvas mode's
+// edits: adopted rules no observer sees, so they say so, onRestyle).
 
 import { S } from "../state.js";
-import { line } from "../page.js";
+import { line, onRestyle } from "../page.js";
 import { hosted, onAct, onHosted, sendView } from "../panel.js";
 import { kick } from "../render.js";
 import { hostEl } from "../mount.js";
@@ -40,8 +42,10 @@ const F = {
   view: null, // the last view made
   timer: 0, idle: 0, last: -Infinity, // the next look, and when the last one was
   obs: null, // the MutationObserver while wanted
-  hover: null, // the element outlined for the pane's row under the pointer
-  flash: null, flashUntil: 0, flashTimer: 0, // the element shown ("show"), and until when
+  marks: false, // every listed element is marked on the page (the host's pane asks: "marks")
+  kinds: new Map(), // the id of each listed element → its kind ("wide" | "taps" | "small")
+  hover: null, hoverKind: "", // the element outlined for the pane's row under the pointer
+  flash: null, flashKind: "", flashUntil: 0, flashTimer: 0, // the element shown ("show"), and until when
   ids: new WeakMap(), els: new Map(), n: 0, // element ↔ the number the host names it by
 };
 
@@ -127,7 +131,7 @@ function scan() {
         taps.push(item(el, `${Math.round(r.width)} × ${Math.round(r.height)}`));
       const tag = el.tagName;
       if ((tag === "TEXTAREA" || tag === "SELECT" || (tag === "INPUT" && TEXT_TYPES.has((el.getAttribute("type") || "").toLowerCase()))) && parseFloat(cs.fontSize) < ZOOM_PX - 0.01)
-        small.push(item(el, `${Math.round(parseFloat(cs.fontSize) * 10) / 10}px`));
+        small.push(item(el, `${Math.round(parseFloat(cs.fontSize) * 10) / 10} px`));
     }
     // An element that stops what is inside it from widening the page.
     const clips = clipped || fixed || (cs.overflowX !== "visible" && !out);
@@ -136,17 +140,24 @@ function scan() {
     for (let i = kids.length - 1; i >= 0; i--) stack.push([kids[i], clips, out]);
   }
   wide.sort((a, b) => b[1] - a[1]);
+  const lists = {
+    wide: list(wide.map(([el, px]) => item(el, `+${px} px`)), MAX.wide),
+    taps: list(taps, MAX.taps),
+    small: list(small, MAX.small),
+  };
+  F.kinds = new Map();
+  for (const k of /** @type {const} */ (["wide", "taps", "small"])) for (const it of lists[k].items) if (!F.kinds.has(it.id)) F.kinds.set(it.id, k);
   F.view = {
     viewport: { w: vw, h: window.innerHeight },
     doc: { w: Math.max(de.scrollWidth, document.body.scrollWidth), h: Math.max(de.scrollHeight, document.body.scrollHeight) },
     scrollY: Math.round(window.scrollY),
     meta: !!document.querySelector('meta[name="viewport" i]'),
     partial,
-    wide: list(wide.map(([el, px]) => item(el, `+${px} px`)), MAX.wide),
-    taps: list(taps, MAX.taps),
-    small: list(small, MAX.small),
+    marks: F.marks,
+    ...lists,
   };
   sendView("facts", F.view);
+  if (F.marks) kick(); // (the marks are where the elements are now)
 }
 
 /** Look again soon: SPACING after the last look at the earliest, when the page is idle. */
@@ -168,8 +179,9 @@ function stopLooking() {
 // change of the page's.
 const ours = (r) => r.target === hostEl || (r.type === "attributes" && /^data-b42/.test(r.attributeName || ""));
 const onMutations = (records) => records.some((r) => !ours(r)) && later();
+const onRestyled = () => F.want && later();
 const onScroll = () => {
-  if (F.hover || F.flash) kick(); // the outline follows
+  if (F.hover || F.flash || F.marks) kick(); // the outlines follow
   if (!F.view) return;
   const y = Math.round(window.scrollY);
   if (y === F.view.scrollY) return;
@@ -201,34 +213,51 @@ function stop() {
   window.removeEventListener("resize", later);
   window.removeEventListener("scroll", onScroll);
   window.removeEventListener("load", later);
+  F.kinds = new Map();
   outline(null);
   if (was) sendView("facts", null);
 }
 
 // ── the outline ────────────────────────────────────────────────────────────────────────────
-function outline(el) {
+function outline(el, kind = "") {
   if (el === F.hover) return;
   F.hover = el;
+  F.hoverKind = kind;
   kick();
 }
 
-/** The layer's outlines for the pane (render.js): the row under the pointer, the one just shown. */
+/** The layer's outlines for the pane (render.js): with marks on, a quiet one on each listed
+ *  element in its kind's tone (`fx mk k-taps`); the row under the pointer and the one just shown,
+ *  strong (`fx k-taps`, `fx flash k-taps`). None in a note's screenshot. */
 export function boxes(capturing) {
-  if (capturing || (!F.hover && !F.flash)) return null;
+  const marking = F.marks && F.want && F.view;
+  if (capturing || (!F.hover && !F.flash && !marking)) return null;
   const out = [];
   const flashing = F.flash && F.flash.isConnected && performance.now() < F.flashUntil ? F.flash : null;
   if (!flashing) F.flash = null;
-  for (const [el, cls] of [[flashing, "fx flash"], [F.hover !== flashing ? F.hover : null, "fx"]]) {
-    if (!el || !el.isConnected) continue;
+  const put = (el, cls) => {
+    if (!el || !el.isConnected) return;
     const r = el.getBoundingClientRect();
     if (r.width || r.height) out.push([{ x: r.left, y: r.top, w: r.width, h: r.height }, cls]);
-  }
+  };
+  if (marking)
+    for (const [id, k] of F.kinds) {
+      const el = elOfId(id);
+      if (el && el !== F.hover && el !== flashing) put(el, `fx mk k-${k}`);
+    }
+  const kindOf = (el) => {
+    const k = el === F.hover ? F.hoverKind : F.flashKind;
+    return k ? ` k-${k}` : "";
+  };
+  if (flashing) put(flashing, `fx flash${kindOf(flashing)}`);
+  if (F.hover && F.hover !== flashing) put(F.hover, `fx${kindOf(F.hover)}`);
   return out;
 }
 
-function show(el) {
+function show(el, kind = "") {
   el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
   F.flash = el;
+  F.flashKind = kind;
   F.flashUntil = performance.now() + FLASH_MS;
   clearTimeout(F.flashTimer);
   F.flashTimer = setTimeout(kick, FLASH_MS + 20); // the flash's end: drawn without it
@@ -245,12 +274,23 @@ function note(el) {
   openCard();
 }
 
+/** Marks on or off: drawn (or taken away) at once, and the view says which. */
+function setMarks(on) {
+  if (on === F.marks) return;
+  F.marks = on;
+  kick();
+  if (F.want && F.view) sendView("facts", (F.view = { ...F.view, marks: on }));
+}
+
 // ── what the host's pane asks ───────────────────────────────────────────────────────────────
 function act(a) {
   if (!a || typeof a !== "object") return;
   switch (a.type) {
     case "view":
+      if (typeof a.marks === "boolean") setMarks(a.marks);
       return start();
+    case "marks":
+      return setMarks(!!a.on);
     case "stop":
       return stop();
     case "refresh":
@@ -258,10 +298,10 @@ function act(a) {
       stopLooking();
       return scan();
     case "hover":
-      return outline(a.id === null || a.id === undefined ? null : elOfId(a.id));
+      return a.id === null || a.id === undefined ? outline(null) : outline(elOfId(a.id), F.kinds.get(Number(a.id)) || "");
     case "show": {
       const el = elOfId(a.id);
-      return el && show(el);
+      return el && show(el, F.kinds.get(Number(a.id)) || "");
     }
     case "note": {
       const el = elOfId(a.id);
@@ -270,6 +310,7 @@ function act(a) {
   }
 }
 onAct("facts", act);
+onRestyle(onRestyled);
 
 // A document starts with its pane not hosted; once it is, the host is told nothing is being
 // worked out (a view of null), and a host whose pane is up asks again ("view"). Given back, the
