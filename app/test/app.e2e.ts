@@ -537,6 +537,12 @@ async function main() {
   win.webContents.sendInputEvent({ type: "char", keyCode: " " })
   const plays = await until(() => js(`document.querySelector(".hero p").getAnimations().some((a) => a.playState === "running" || a.playState === "finished")`), 3000)
   check("→ in the window's dock steps the page's animation, and space plays it", stepped === true && plays === true, `${await at()}`)
+  // Send, in the window: the note is the reviewer's though no key or click of theirs was in the
+  // page (main lets a note through only when one was, or when the window's own dock sent it).
+  const before = state().review.notes.length
+  await ui(`document.querySelector(".mdock-go").click()`)
+  const sentIt = await until(() => state().review.notes.length === before + 1, 3000)
+  check("Send in the window's dock makes the note", sentIt === true && /rise/.test(state().review.notes.at(-1)?.text ?? ""), `${state().review.notes.length - before} new: ${state().review.notes.at(-1)?.text}`)
   await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
   await until(async () => state().review.mode === "notes")
 
@@ -545,7 +551,7 @@ async function main() {
   check("the conversation is remembered for the site", saved().sites[origin]?.session === SES, JSON.stringify(saved().sites))
   const reviews = fs.readdirSync(path.join(profile, "reviews"))
   const review = reviews[0] ? JSON.parse(fs.readFileSync(path.join(profile, "reviews", reviews[0]), "utf8")) : undefined
-  check("the notes are saved, versioned", reviews.length === 1 && review?.version === 1 && review.notes?.length === 4 && review.notes[3].edits?.[0]?.kind === "style", reviews.join())
+  check("the notes are saved, versioned", reviews.length === 1 && review?.version === 1 && review.notes?.length === 5 && review.notes[3].edits?.[0]?.kind === "style" && review.notes[4].motion?.name === "rise", `${reviews.join()}: ${review?.notes?.length} notes`)
   check("the chosen model is saved for the next launch", saved().defaultModel?.providerID === "anthropic" && saved().defaultModel?.id === "sonnet", JSON.stringify(saved().defaultModel))
   check("the password is not in the window's state", !JSON.stringify(state()).includes(server.password))
 

@@ -2156,6 +2156,13 @@ test("a dock the window draws: the overlay is told after every state, its views 
     await h.cmd("panel", { panel: "motion" })
     await h.cmd("panel", null)
     assert.deepEqual(toOverlay("panel"), [{ type: "panel", panel: "motion", act: { type: "ping", id: 1 } }])
+    // Send in the window's dock: the page view is told to let the note it brings through, once
+    // for each Send, and for nothing else the dock does or a dock that is not the window's.
+    const admits = () => h.page.calls.filter((c) => c[0] === "admit").length
+    assert.equal(admits(), 0)
+    await h.cmd("panel", { panel: "motion", act: { type: "send", background: false } })
+    await h.cmd("panel", { panel: "canvas", act: { type: "send" } })
+    assert.equal(admits(), 1)
   } finally {
     await h.close()
   }
