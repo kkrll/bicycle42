@@ -561,7 +561,7 @@ async function main() {
   await until(() => state().review.mode === "notes")
   const aside = (await until(() => ui(`(() => { const r = document.querySelector('.dock.fp')?.getBoundingClientRect(); return r ? { x: r.x, text: document.querySelector('.fp-title').textContent } : null })()`))) as { x: number; text: string } | undefined
   await sleep(200) // (a frame or two: where the page is goes to main once a frame)
-  check("in Annotate the phone's page stays where it was, with this page on this phone beside it", !!aside && page.view.getBounds().x === narrow.x && page.view.getBounds().width === narrow.width && aside.x >= narrow.x + narrow.width && aside.text === "Annotate", `${JSON.stringify(page.view.getBounds())} ${JSON.stringify(aside)}`)
+  check("in Annotate the phone's page stays where it was, with this page on this phone beside it", !!aside && page.view.getBounds().x === narrow.x && page.view.getBounds().width === narrow.width && aside.x >= narrow.x + narrow.width && aside.text === "This page on this phone", `${JSON.stringify(page.view.getBounds())} ${JSON.stringify(aside)}`)
   // Preview: the facts are the real page's, worked out by its overlay with review off; the
   // pointer on a row outlines its element on the page, the size the row says.
   await ui(`document.querySelector('.mode[data-mode="preview"]').click()`)
@@ -569,9 +569,22 @@ async function main() {
   const tapRows = () => ui(`[...document.querySelectorAll('.fp-sec[aria-label="Tap targets under 44 px"] .fp-fact')].map((r) => r.querySelector('.fp-label').textContent + "|" + r.querySelector('.fp-detail').textContent)`) as Promise<string[]>
   const taps = (await until(async () => ((await tapRows()).some((r) => r.startsWith("Start free trial|")) ? tapRows() : null))) ?? (await tapRows())
   const cta = taps.find((r) => r.startsWith("Start free trial|")) ?? ""
-  check("in Preview the pane lists the page's own small tap targets", !!cta && (await ui(`document.querySelector('.fp-title').textContent`)) === "Preview", taps.join(", "))
+  check("in Preview the pane lists the page's own small tap targets", !!cta && /^\d+ × \d+$/.test(cta.split("|")[1] ?? ""), taps.join(", "))
   const hoverRow = (on: boolean) => ui(`(() => { const r = [...document.querySelectorAll('.fp-fact')].find((r) => r.querySelector('.fp-label').textContent === "Start free trial"); r.dispatchEvent(new PointerEvent(${JSON.stringify(on ? "pointerenter" : "pointerleave")})) })()`)
-  const outlined = () => js(`[...(${shadow}?.querySelectorAll('.box.fx') ?? [])].map((b) => { const r = b.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] })`) as Promise<number[][]>
+  const outlined = () => js(`[...(${shadow}?.querySelectorAll('.box.fx:not(.mk)') ?? [])].map((b) => { const r = b.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] })`) as Promise<number[][]>
+  // Marks on (the default): every listed element is marked on the page, as many as the pane has
+  // rows; the toggle in its header takes them away.
+  const marked = () => js(`${shadow}?.querySelectorAll('.box.fx.mk').length ?? 0`) as Promise<number>
+  const rowCount = () => ui(`document.querySelectorAll('.fp-fact').length`) as Promise<number>
+  const markedAll = await until(async () => {
+    const [m, r] = [await marked(), await rowCount()]
+    return m > 0 && m === r ? m : null
+  }, 3000)
+  check("with marks on, the page has a mark for each of the pane's rows", !!markedAll && (await ui(`document.querySelector('.fp-marks').getAttribute('aria-pressed')`)) === "true", `${await marked()} marks, ${await rowCount()} rows`)
+  await ui(`document.querySelector('.fp-marks').click()`)
+  check("…and the toggle takes them off the page", (await until(async () => (await marked()) === 0, 3000)) === true && (await ui(`document.querySelector('.fp-marks').getAttribute('aria-pressed')`)) === "false", String(await marked()))
+  await ui(`document.querySelector('.fp-marks').click()`)
+  await until(async () => (await marked()) === (await rowCount()), 3000)
   await hoverRow(true)
   const boxes = (await until(async () => ((await outlined()).length ? outlined() : null), 3000)) ?? []
   const target = (await js(`(() => { const r = document.getElementById("cta").getBoundingClientRect(); return [r.x, r.y, r.width, r.height] })()`)) as number[]
@@ -598,8 +611,16 @@ async function main() {
   check("…and its name beside the switch", (await ui(`document.querySelector('.phone-pick .pick-long').textContent`)) === "iPhone SE")
   await ui(`(() => { const s = document.querySelector('.phone-pick select'); s.value = "iphone-14"; s.dispatchEvent(new Event("change", { bubbles: true })) })()`)
   await until(() => shaped(page.view.getBounds(), 390, 844) && page.view.getBounds().width === narrow.width)
+  // Edit, beside a phone's page: one line of the facts above the inspector, the real page's
+  // counts (the same the pane's headings say), and no marks on the page.
+  const paneCounts = () => ui(`[...document.querySelectorAll('.fp-sec[aria-label] .fp-count')].map((c) => c.textContent).join(",")`) as Promise<string>
+  await until(async () => (await paneCounts()) !== "", 3000)
+  const counts = await paneCounts()
   await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
   await until(() => state().review.mode === "edit")
+  const strip = () => ui(`(() => { const s = document.querySelector('.dock[data-dock="canvas"] > .fs'); return s ? { text: s.textContent, counts: [...s.querySelectorAll('.fs-count')].map((c) => c.textContent.match(/\\d+/)[0]).join(",") } : null })()`) as Promise<{ text: string; counts: string } | null>
+  const stripped = await until(async () => ((await strip())?.counts ? strip() : null), 3000)
+  check("in Edit beside a phone's page, a line above the inspector counts the page's facts", !!stripped && stripped.counts === counts && stripped.text.startsWith("On this phone:") && (await marked()) === 0, `${JSON.stringify(stripped)} / pane ${counts} / ${await marked()} marks`)
   await ui(`document.querySelector('[data-device="desktop"]').click()`)
   await until(() => page.view.getBounds().width === wide.width)
   check("the desktop switch gives its pane back", page.view.getBounds().width === wide.width && page.view.getBounds().x === wide.x && state().page.device === "desktop", `${JSON.stringify(page.view.getBounds())}, was ${JSON.stringify(wide)}`)
