@@ -1,6 +1,6 @@
 /* "This page on this phone" (facts-pane.tsx): the column beside a phone's page in Preview and
-   Annotate, and its one line above the dock in Edit and Motion. A pane like a dock's (.dock in
-   styles.css): a header, a body that scrolls inside itself, a footer. Text sits 12px in from the
+   Annotate, and its top line above the dock in Edit and Motion. A pane like a dock's (.dock in
+   styles.css): the phone line on top, a body that scrolls inside itself, a footer. Text sits 12px in from the
    pane's edge. In a pane 620px or wider the facts and the changed files are two columns, so a
    row never runs much past 480px: its number stays near its words. */
 
@@ -18,34 +18,174 @@
   container: fp / inline-size;
 }
 
-/* ── the header: what this pane is, and the marks on the page ──────────────────────────────────── */
+/* ── the phone line: the column's top in every mode ───────────────────────────────────────────── */
 
-/* As the inspector's (.cd-head in canvas-dock.css): 36px, the words 12px in. */
-.fp-head {
+/* As tall as the inspector's header (.cd-head in canvas-dock.css): 36px, the words 12px in, and
+   the same in all four modes (the pane's top in Preview and Annotate, the dock's in Edit and
+   Motion), so a mode change moves nothing in it. Each part is a box with 6px inside it, pulled
+   6px out, so its words start on the 12px line the text under it starts on. */
+.pl {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   height: 36px;
-  padding: 0 6px 0 12px;
+  padding: 0 4px 0 12px;
   border-bottom: 1px solid var(--rule);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  container: pl / inline-size;
 }
 
-.fp-title {
+.pl-facts {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: -6px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--text-control);
-  font-weight: 600;
 }
 
-.fp-marks {
+.pl-facts > * {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: var(--radius);
+}
+
+.pl-quiet {
   color: var(--muted);
 }
 
-.fp-marks[aria-pressed="true"] {
+.pl-ok .icon {
+  color: var(--ink-good);
+}
+
+.pl-warn {
+  color: var(--ink-warn);
+}
+
+/* (The parts that may be cut, at their end: never the counts.) */
+.pl-facts > .pl-warn,
+.pl-facts > .pl-own {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.pl-cut {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A count: a quiet button. The pointer on it (or the focus) marks its kind on the page. */
+.pl-count {
+  color: var(--muted);
+  transition: background var(--duration-micro) var(--ease-micro);
+}
+
+.pl-count:hover,
+.pl-count:focus-visible {
+  background: var(--surface-strong);
+  color: var(--foreground);
+}
+
+/* In Edit: the inspector's selection is one of the facts. On a wash of its kind's tone; the words
+   stay the foreground's (the tones are not text colours). */
+.pl-own {
+  margin-right: 4px;
+  background: color-mix(in srgb, var(--fact-taps) 16%, transparent);
+}
+
+.pl-own[data-kind="wide"] {
+  background: color-mix(in srgb, var(--fact-wide) 16%, transparent);
+}
+
+.pl-own[data-kind="small"] {
+  background: color-mix(in srgb, var(--fact-small) 16%, transparent);
+}
+
+/* A count's long words, its short ones ("5 taps") or its number alone: the longest that fits,
+   the counts shortened before the selection's fact (which says more), and that before anything
+   is cut. Widths of the line, the toggle's included. */
+.pl-short,
+.pl-num {
+  display: none;
+}
+
+@container pl (max-width: 400px) {
+  .pl-count .pl-long {
+    display: none;
+  }
+
+  .pl-count .pl-short {
+    display: inline;
+  }
+}
+
+@container pl (max-width: 270px) {
+  .pl-count .pl-short {
+    display: none;
+  }
+
+  .pl-count .pl-num {
+    display: inline;
+  }
+}
+
+/* With the selection's fact before them. */
+@container pl (max-width: 600px) {
+  .pl-facts:has(.pl-own) .pl-count .pl-long {
+    display: none;
+  }
+
+  .pl-facts:has(.pl-own) .pl-count .pl-short {
+    display: inline;
+  }
+}
+
+@container pl (max-width: 480px) {
+  .pl-own .pl-long {
+    display: none;
+  }
+}
+
+@container pl (max-width: 410px) {
+  .pl-facts:has(.pl-own) .pl-count .pl-short {
+    display: none;
+  }
+
+  .pl-facts:has(.pl-own) .pl-count .pl-num {
+    display: inline;
+  }
+}
+
+/* Marks on | off: two states in words. Its words end 12px in from the right edge. */
+.pl-marks {
+  flex: none;
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-weight: 500;
+  transition: background var(--duration-micro) var(--ease-micro);
+}
+
+.pl-marks:hover {
+  background: var(--surface);
+  color: var(--foreground);
+}
+
+.pl-marks[aria-pressed="true"] {
+  border-color: var(--background-05);
+  background: var(--surface-strong);
   color: var(--foreground);
 }
 
@@ -157,6 +297,15 @@
   background: var(--surface);
 }
 
+/* The row a count's click in the line above went to, a moment. */
+.fp-fact.fp-lit {
+  background: var(--surface-strong);
+}
+
+.fp-fact {
+  transition: background var(--duration-slow) var(--ease-exit);
+}
+
 .fp-cells {
   min-width: 0;
   display: grid;
@@ -191,16 +340,20 @@
   padding-right: 4px;
 }
 
-/* Note, in Annotate: a small bordered button, quiet until pointed at. */
+/* Note, in Annotate: words only at rest, so a list of them does not outweigh the facts; a button's
+   border and the foreground on its row's hover, or with the focus. */
 .btn.fp-note {
   width: 100%;
   height: 22px;
   padding: 0;
-  border-color: var(--rule);
+  border-color: transparent;
+  color: var(--muted);
 }
 
-.fp-fact:hover .btn.fp-note {
+.fp-fact:hover .btn.fp-note,
+.btn.fp-note:focus-visible {
   border-color: var(--background-05);
+  color: var(--foreground);
 }
 
 /* The files the agent changed: words, not controls. */
@@ -232,46 +385,4 @@
   padding: 6px 12px;
   border-top: 1px solid var(--rule);
   color: var(--muted);
-}
-
-/* ── the strip above Edit's and Motion's dock beside a phone's page ───────────────────────────── */
-
-.fs {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 12px;
-  overflow: hidden;
-  border-bottom: 1px solid var(--rule);
-  font-size: var(--text-control);
-  line-height: var(--text-control--line-height);
-  color: var(--muted);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-.fs > *,
-.fs-count {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.fs-warn {
-  flex: 0 1 auto;
-  min-width: 0;
-  color: var(--ink-warn);
-}
-
-.fs-warn > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.fs-ok .icon {
-  color: var(--ink-good);
 }

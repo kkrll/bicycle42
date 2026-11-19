@@ -247,6 +247,14 @@ export function setFactsMarks(on: boolean): void {
   remember("facts.marks", on ? "1" : "0")
 }
 
+/** The same in Edit and Motion, where the marks are fainter: a choice of its own, off unless the
+ *  reviewer turned it on (`facts.marks.edit`). */
+export const [factsMarksEdit, setFactsMarksEditSignal] = createSignal(recall("facts.marks.edit") === "1")
+export function setFactsMarksEdit(on: boolean): void {
+  setFactsMarksEditSignal(on)
+  remember("facts.marks.edit", on ? "1" : "0")
+}
+
 /** The server is unreachable: nothing moves until it is back. */
 export const offline = () => state.connection.status === "offline"
 
