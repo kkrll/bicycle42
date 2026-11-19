@@ -914,6 +914,23 @@ async function main() {
   page.setDevice("desktop", PHONE)
   check("as a desktop's again, the scrollbar is back", (await until(async () => (await laidOut()) < 390, 2000)) === true, String(await laidOut()))
 
+  // A start with the page left as a phone's: main says so before the view has loaded anything.
+  // (Chromium crashed on that, the whole app with it: this very process, were it asked then.)
+  const early = await createPage(win, {
+    preload: path.join(__dirname, "../page-preload.cjs"),
+    partition: "page-e2e-early",
+    onMessage: () => {},
+    onChange: () => {},
+    onShortcut: () => {},
+    log: () => {},
+  })
+  early.setDevice("phone", PHONE)
+  early.setBounds({ x: 0, y: 0, width: 390, height: 700 })
+  early.load(moved)
+  const earlyWidth = () => early.view.webContents.executeJavaScript("document.body && (document.body.style.minHeight = '3000px'); document.documentElement.clientWidth") as Promise<number>
+  check("a page told it is a phone's before its first load is one once it has loaded", (await until(async () => !early.state().loading && (await earlyWidth()) === 390, 5000)) === true, String(await earlyWidth().catch(String)))
+  early.dispose()
+
   // ── hide, dispose ──────────────────────────────────────────────────────────────────────────
   page.setBounds(null)
   check("setBounds(null) hides the view", page.view.getVisible() === false)

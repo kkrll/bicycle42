@@ -167,15 +167,24 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   // pointer stays a mouse: the overlay's gestures are a mouse's. It belongs to the renderer, and
   // a navigation to another site starts a new one: asked for again once each navigation commits,
   // which is before the new document's first script runs.
+  //
+  // Not before the first document, though: a view that has loaded nothing has no widget to
+  // emulate, and Chromium does not refuse the call, it crashes on it (SIGSEGV, the whole app:
+  // a start with the page left as a phone's did). Until a navigation has committed, and while
+  // the renderer is gone, what was asked for is only kept: the next commit applies it.
   let device: Device = "desktop"
   let phone: Phone = PHONE
+  let committed = false
   const emulate = () => {
-    if (gone()) return
+    if (gone() || !committed || wc.isCrashed()) return
     if (device === "phone")
       wc.enableDeviceEmulation({ screenPosition: "mobile", screenSize: { width: phone.width, height: phone.height }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: { width: 0, height: 0 }, scale: 1 })
     else wc.disableDeviceEmulation()
   }
-  wc.on("did-navigate", () => void (device === "phone" && emulate()))
+  wc.on("did-navigate", () => {
+    committed = true
+    if (device === "phone") emulate()
+  })
 
   // ── overlay → main: window.__review in the preload's world, over IPC ─────────────────────────
   // The preload runs in the top frame only, and the placeholder gets no overlay (page-preload.ts).
