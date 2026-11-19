@@ -1,3 +1,6 @@
+import type { MotionAct, MotionView } from "./protocol-motion"
+import type { CanvasAct, CanvasView } from "./protocol-canvas"
+
 // The protocol between the overlay and its host: every message either side sends, and what a
 // note carries. Types only, nothing runs: the overlay's files name them in JSDoc (its `send`, its
 // `receive`), the app imports them (app/src/main/page.ts, review.ts). The keys and the gestures
@@ -13,6 +16,25 @@ export type Box = { x: number; y: number; w: number; h: number }
 export type Viewport = { w: number; h: number; dpr: number; scrollX: number; scrollY: number }
 
 export type Mode = "notes" | "canvas" | "motion"
+
+/** A mode with a dock: canvas mode's inspector, motion mode's dock. The overlay draws each at the
+ *  bottom of the page, unless the host says it draws that one itself ("docks"): then the overlay
+ *  shows no dock and makes no room for one, tells the host what the dock would show ("panel",
+ *  a view), and does what the host's dock asks of it ("panel", an act). What a view and an act
+ *  carry is each dock's own: protocol-motion.ts, protocol-canvas.ts. */
+export type Dock = Exclude<Mode, "notes">
+
+/** What a hosted dock shows, as the overlay last knew it: the whole of it each time, never a
+ *  change to the one before, so a host that missed one is right again with the next. Its strings
+ *  are the page's (a class, a text, a keyframe's name): a host draws them as text, never as markup. */
+export type PanelView = { panel: "motion"; view: MotionView } | { panel: "canvas"; view: CanvasView }
+
+/** What the reviewer did in a hosted dock. "ping" is every dock's: the overlay answers it at once
+ *  with a "panel" message carrying `pong: id` and no view (how long the way there and back takes). */
+export type PanelAct =
+  | { panel: Dock; act: { type: "ping"; id: number } }
+  | { panel: "motion"; act: MotionAct }
+  | { panel: "canvas"; act: CanvasAct }
 
 /** What the page's framework calls an element (React, Vue), with its dev source when present. */
 export type Component = { /** "react" or "vue". */ framework?: string; name: string; stack: string[]; source?: string }
@@ -195,6 +217,10 @@ export type PageMessage =
   | { type: "edits-shown"; id: string; show: boolean }
   /** Reply to "frame", two frames after it was done: the window as it is then; id as received. */
   | { type: "frame-shown"; id: string; viewport: Viewport }
+  /** A hosted dock's view (see Dock), whenever what it shows changed, at most once a frame. */
+  | ({ type: "panel" } & PanelView)
+  /** The answer to a hosted dock's "ping". */
+  | { type: "panel"; panel: Dock; pong: number }
 
 /** host → page: window.__b42.receive(msg), the message or its JSON. */
 export type HostMessage =
@@ -222,6 +248,11 @@ export type HostMessage =
   /** Bring the pin `id` into view: where its element is now (else where the note was made), a
    *  third of the window down, scrolled smoothly. Nothing happens for a pin with no place. */
   | { type: "show"; id: string }
+  /** The docks the host draws itself (see Dock), all of them each time; none until it says so.
+   *  Sent after "state", and again whenever the list changes. */
+  | { type: "docks"; hosted: Dock[] }
+  /** From a hosted dock: something the reviewer did there. Ignored for a dock that is not hosted. */
+  | ({ type: "panel" } & PanelAct)
 
 /** What the overlay puts on the page's window (in its own script world, when the host gives it one). */
 export type OverlayApi = {

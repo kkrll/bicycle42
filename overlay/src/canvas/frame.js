@@ -10,6 +10,7 @@ import { drawTree, reveal, T } from "./tree.js";
 import { drawComputed, syncFields } from "./inspector.js";
 import { bandEl, bar, corner, cv, dimEl, ghostEl, hitEl, insEl, insp, labEl } from "./mount.js";
 import { modeOn } from "../mode.js";
+import { hosted } from "../panel.js";
 import { domVersion } from "../mount.js";
 
 // ── canvas: one frame ───────────────────────────────────────────────────────────────────────
@@ -41,8 +42,8 @@ export function cvFrame(capturing) {
   if (!bar) return null;
   const show = S.enabled && !capturing && modeOn() !== "motion"; // motion mode has its own dock
   if (bar._shown !== show) bar.hidden = corner.hidden = !(bar._shown = show);
-  const on = C.on && show;
-  if (insp._shown !== on) insp.hidden = !(insp._shown = on);
+  const on = C.on && show, own = on && !hosted("canvas"); // (the host's own inspector: none here)
+  if (insp._shown !== own) insp.hidden = !(insp._shown = own);
   if (!on) {
     if (C.drawn) {
       cv.hidden = true;

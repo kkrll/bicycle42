@@ -878,6 +878,35 @@ async function main() {
   check("with devtools open the overlay comes with the next load", (await readyAgain(() => page.reload())) && page.state().error === undefined && (await inOverlay("!!window.__b42")) === true)
   wc.closeDevTools()
 
+  // ── a dock the host draws itself: the overlay is told, and answers its ping ─────────────────
+  page.send({ type: "docks", hosted: ["motion"] })
+  page.send({ type: "panel", panel: "motion", act: { type: "ping", id: 3 } })
+  page.send({ type: "panel", panel: "canvas", act: { type: "ping", id: 4 } }) // not hosted: no answer
+  const pongs = () => messages.filter((m) => m.type === "panel" && "pong" in m).map((m) => (m as { pong: number }).pong)
+  await until(() => pongs().length > 0, 2000)
+  await sleep(100)
+  check("a hosted dock's ping comes back from the overlay, and only a hosted dock's", JSON.stringify(pongs()) === "[3]", JSON.stringify(pongs()))
+  page.send({ type: "docks", hosted: [] })
+
+  // ── the page as a phone's ──────────────────────────────────────────────────────────────────
+  // A tall page in a view 390 wide: as a desktop's, the scrollbar takes its part of the width.
+  // (The width the page is laid out at, not innerWidth: a phone's browser shows a page with
+  // something wider than its window zoomed out to fit, and innerWidth is then that wider width.)
+  const laidOut = () => js("document.body.style.minHeight = '3000px'; document.documentElement.clientWidth") as Promise<number>
+  place({ x: 0, y: 0, width: 390, height: 700 })
+  await until(async () => (await laidOut()) < 390, 2000)
+  const plain = await laidOut()
+  page.setDevice("phone")
+  check("as a phone's the page is laid out at the view's whole width", plain < 390 && (await until(async () => (await laidOut()) === 390, 2000)) === true, `desktop ${plain}, phone ${await laidOut()}`)
+  check("the overlay is still there, and review still on", (await inOverlay("!!window.__b42")) === true && (await js("document.documentElement.hasAttribute('data-b42-review')")) === true)
+  // Another site is another renderer: it is a phone's page from its first script on.
+  const readies = count("ready")
+  page.load(moved.replace("127.0.0.1", "localhost"))
+  await until(() => count("ready") > readies && !page.state().loading)
+  check("and stays one on another site", (await until(async () => (await laidOut()) === 390, 2000)) === true && (await js("innerWidth")) === 390, String(await laidOut()))
+  page.setDevice("desktop")
+  check("as a desktop's again, the scrollbar is back", (await until(async () => (await laidOut()) < 390, 2000)) === true, String(await laidOut()))
+
   // ── hide, dispose ──────────────────────────────────────────────────────────────────────────
   page.setBounds(null)
   check("setBounds(null) hides the view", page.view.getVisible() === false)

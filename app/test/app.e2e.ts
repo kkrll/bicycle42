@@ -459,6 +459,20 @@ async function main() {
   const refused = (await ui(`window.b42.invoke("connect", { url: "", password: "x" }).then(() => "", (e) => e.message)`)) as string
   check("a bad command rejects with a sentence, not a stack", refused === "Enter the server address.", refused)
 
+  // ── the page as a phone's: the switch beside the address ───────────────────────────────────
+  const wide = page.view.getBounds()
+  await ui(`document.querySelector('[data-device="phone"]').click()`)
+  await until(() => page.view.getBounds().width === 390)
+  const narrow = page.view.getBounds()
+  check("the phone switch gives the page a phone's box, in the middle of its room", narrow.width === 390 && narrow.height <= 844 && narrow.x > wide.x && state().page.device === "phone", JSON.stringify(narrow))
+  win.setSize(1440, 900) // (headless: the view's renderer hears of its size with the window's)
+  await sleep(200)
+  win.setSize(1441, 900)
+  check("and the page is laid out as a phone's", (await until(() => js("document.documentElement.clientWidth === 390"), 3000)) === true, String(await js("document.documentElement.clientWidth")))
+  await ui(`document.querySelector('[data-device="desktop"]').click()`)
+  await until(() => page.view.getBounds().width === wide.width)
+  check("the desktop switch gives its pane back", page.view.getBounds().width === wide.width && page.view.getBounds().x === wide.x && state().page.device === "desktop", `${JSON.stringify(page.view.getBounds())}, was ${JSON.stringify(wide)}`)
+
   // ── what is on disk ────────────────────────────────────────────────────────────────────────
   app.emit("before-quit")
   check("the conversation is remembered for the site", saved().sites[origin]?.session === SES, JSON.stringify(saved().sites))

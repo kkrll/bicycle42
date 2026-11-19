@@ -36,6 +36,8 @@ import type {
   CommandName,
   ConnectionState,
   ContextUse,
+  Device,
+  Dock,
   FileChange,
   Lane,
   Mention,
@@ -43,6 +45,7 @@ import type {
   ModelInfo,
   ModelRef,
   NoteFocus,
+  PanelMessage,
   PermissionAsk,
   PromptFile,
   Question,
@@ -55,6 +58,7 @@ import type {
   SessionSummary,
   SlashCommand,
 } from "../shared/types"
+import { HOSTED_DOCKS } from "../shared/types"
 import { noteImages, notePicture, type Frame } from "./images"
 import { readLocal } from "./local"
 import { isPlaceholder, placeholderTitle, titleFrom } from "./naming"
@@ -69,7 +73,7 @@ import { createStore, type SavedServer } from "./store"
 type Level = "info" | "warn" | "error"
 
 /** What goes to the window by itself, by stream: `Bridge`'s onState, onChat and onNoteFocus. */
-export type Emitted = { state: AppState; chat: ChatEvent; note: NoteFocus }
+export type Emitted = { state: AppState; chat: ChatEvent; note: NoteFocus; panel: PanelMessage }
 
 /** What the controller needs of the shell it runs in. */
 export type Host = {
@@ -82,6 +86,8 @@ export type Host = {
   emit<K extends keyof Emitted>(stream: K, value: Emitted[K]): void
   /** Something the person has to be told before they go on, in a dialog of its own. */
   dialog(box: { type: "warning"; message: string; detail: string }): void
+  /** The docks this shell's window draws itself. Without it, HOSTED_DOCKS (shared/types.ts). */
+  docks?: readonly Dock[]
   log(level: Level, msg: string, data?: unknown): void
 }
 
@@ -243,6 +249,11 @@ export function createCore(host: Host): Core {
     return s.server.name ?? s.servers?.find((x) => x.id === s.current)?.computer
   }
 
+  /** The docks the window draws: what the overlay is told after every "state" (onPage). */
+  const docks = host.docks ?? HOSTED_DOCKS
+  const isDock = (name: unknown): name is Dock => docks.includes(name as Dock)
+  const device = (): Device => (store.settings().device === "phone" ? "phone" : "desktop")
+
   function snapshot(): AppState {
     const p = page?.state()
     const review = site?.review
@@ -251,7 +262,7 @@ export function createCore(host: Host): Core {
     return {
       connection,
       ...(serverName() ? { serverName: serverName() } : {}),
-      page: p ?? { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false },
+      page: { ...(p ?? { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }), device: device() },
       review: {
         enabled: review?.enabled ?? true,
         mode: !(review?.enabled ?? true) ? "preview" : pageMode.canvas ? "edit" : pageMode.motion ? "motion" : "notes",
@@ -259,6 +270,7 @@ export function createCore(host: Host): Core {
         autoReload: review?.autoReload ?? true,
         notes: review?.rows() ?? [],
         unplaced: review?.unplaced ?? 0,
+        docks: [...docks],
       },
       site: site ? { origin: site.origin === HOME ? "" : site.origin, ...(saved ? { directory: saved.directory } : {}) } : null,
       ...(starting && siteAsked === session?.id ? { startingSite: true as const } : {}),
@@ -1237,6 +1249,8 @@ export function createCore(host: Host): Core {
         // (a reload while editing), the overlay says so right after this.
         pageMode = { canvas: false, motion: false, brush: false }
         page?.send({ type: "state", enabled: review.enabled, draft: review.draft, pins: pinsOf(review), templates: NOTE_TEMPLATES })
+        // The docks the window draws: none of the overlay's own for those, from the first frame.
+        if (docks.length) page?.send({ type: "docks", hosted: [...docks] })
         return push()
       case "mode":
         // The overlay's own keys change it too (mod+U/P/O/I, Esc, a note sent): the top bar follows.
@@ -1253,6 +1267,11 @@ export function createCore(host: Host): Core {
       case "pin":
         // A pin was clicked on the page: the window shows that note. Only an id we know goes on.
         if (typeof msg.id === "string" && review.note(msg.id)) host.emit("note", { id: msg.id })
+        return
+      case "panel":
+        // A hosted dock's view, or a ping's answer: the window's to read, carried as it came.
+        // (What is in it is the page's: the window draws it as text.)
+        if (isDock(msg.panel)) host.emit("panel", msg as PanelMessage)
         return
       case "pins-placement":
         review.setUnplaced(Array.isArray(msg.unplaced) ? (msg.unplaced as string[]) : [])
@@ -1749,6 +1768,14 @@ export function createCore(host: Host): Core {
       if (at && JSON.stringify(at) !== JSON.stringify(store.settings().pageBounds)) store.update((s) => void (s.pageBounds = at))
     },
 
+    setDevice(d) {
+      const to: Device = d === "phone" ? "phone" : "desktop"
+      if (to === device()) return
+      store.update((s) => void (to === "phone" ? (s.device = to) : delete s.device))
+      page?.setDevice(to)
+      push()
+    },
+
     toggleReview() {
       if (!site) return
       site.review.enabled = !site.review.enabled
@@ -1787,6 +1814,13 @@ export function createCore(host: Host): Core {
       if (!site) return
       site.review.autoReload = !site.review.autoReload
       changed(site)
+    },
+    panel(act) {
+      // From a dock the window draws, to the overlay that does it. Only for such a dock, and
+      // only something with an act in it: the overlay reads the rest.
+      const a = act as { panel?: unknown; act?: unknown } | null
+      if (!a || !isDock(a.panel) || typeof a.act !== "object" || a.act === null) return
+      page?.send({ type: "panel", panel: a.panel, act: a.act } as Parameters<Page["send"]>[0])
     },
     clearNotes() {
       if (!site) return
@@ -2279,7 +2313,11 @@ export function createCore(host: Host): Core {
     },
     picture: (url) => chatPictures.serve(url),
     pageEvents: { onMessage: onPage, onChange: onPageChange },
-    attach: (p) => void (page = p),
+    attach(p) {
+      page = p
+      // A page is a desktop's until told otherwise: only a phone's is said.
+      if (device() === "phone") p.setDevice("phone")
+    },
     detach: () => void (page = undefined),
     lastUrl: () => store.settings().lastUrl ?? "",
     lastPageBounds() {

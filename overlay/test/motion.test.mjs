@@ -430,3 +430,34 @@ test("a phone-width dock shows the list or what is open, with a way back to the 
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("a dock the host draws itself: the layer shows none and makes no room; a ping is answered; given back, the dock returns", async () => {
+  const { page, f, errors } = await open();
+  const dock = () => f.evaluate(() => ({
+    shown: !document.querySelector("b42-review").shadowRoot.querySelector(".m-dock").hidden,
+    room: getComputedStyle(document.documentElement).paddingBottom,
+  }));
+  assert.deepEqual(await dock(), { shown: true, room: "360px" });
+  await page.evaluate(() => window.__harness.hostDocks(["motion"]));
+  await frames(f, 3);
+  assert.deepEqual(await dock(), { shown: false, room: "0px" });
+  // Motion mode itself is still on: only its dock is the host's.
+  assert.equal(await page.evaluate(() => window.__harness.mode), "motion");
+  await page.evaluate(() => window.__harness.act("motion", { type: "ping", id: 7 }));
+  await page.waitForFunction(() => window.__harness.panel.some((m) => m.panel === "motion" && m.pong === 7));
+  // A dock that is not hosted is not answered: its acts are not for the layer's own dock.
+  await page.evaluate(() => window.__harness.act("canvas", { type: "ping", id: 8 }));
+  await frames(f, 3);
+  assert.equal(await page.evaluate(() => window.__harness.panel.some((m) => m.pong === 8)), false);
+  // A reload: the host says it again after "state", and the new document has no dock either.
+  await page.evaluate(() => document.getElementById("page").contentWindow.location.reload());
+  const f2 = await pageFrame(page);
+  await f2.evaluate(() => window.__b42.receive({ type: "mode", mode: "motion" }));
+  await frames(f2, 3);
+  assert.equal(await f2.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelector(".m-dock").hidden), true);
+  await page.evaluate(() => window.__harness.hostDocks([]));
+  await frames(f2, 3);
+  assert.equal(await f2.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelector(".m-dock").hidden), false);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

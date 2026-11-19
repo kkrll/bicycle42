@@ -12,7 +12,7 @@
 // which the shell that makes the page keeps; every script run in the page is in this file.
 import { WebContentsView, type BrowserWindow, type IpcMainEvent, type NativeImage } from "electron"
 import type { HostMessage, PageMessage } from "../../../overlay/protocol"
-import type { Rect } from "../shared/types"
+import { PHONE, type Device, type Rect } from "../shared/types"
 import type { Frame } from "./images"
 
 export type PageState = { url: string; loading: boolean; error?: string; canGoBack: boolean; canGoForward: boolean; hmr: boolean }
@@ -30,6 +30,9 @@ export type Page = {
   forward(): void
   /** Where the view sits in the window (CSS px); null hides it. */
   setBounds(bounds: Rect | null): void
+  /** The page laid out as a phone's browser lays it out, or as it is (Device in shared/types.ts).
+   *  How wide the view is stays the window's to say (setBounds). */
+  setDevice(device: Device): void
   /** host → overlay (window.__b42.receive). */
   send(msg: HostMessage): void
   /** A picture of the page as it is drawn now, in device pixels. */
@@ -67,7 +70,7 @@ type Options = {
   log(level: "info" | "warn" | "error", msg: string, data?: unknown): void
 }
 
-const PAGE_EVENTS = new Set(["ready", "toggle", "mode", "draft", "note", "pins-placement", "pin", "edits-shown", "frame-shown"])
+const PAGE_EVENTS = new Set(["ready", "toggle", "mode", "draft", "note", "pins-placement", "pin", "edits-shown", "frame-shown", "panel"])
 /** After a note finishes, give the dev server a moment to write and rebuild before reloading. */
 const RELOAD_DELAY = 400
 const BUSY_RETRY = 700
@@ -152,6 +155,22 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   let inputHold: { release(): void; timer: ReturnType<typeof setTimeout> } | undefined
 
   const gone = () => disposed || wc.isDestroyed()
+
+  // ── the page as a phone's ────────────────────────────────────────────────────────────────────
+  // Chromium's own emulation, the kind its developer tools use: the viewport tag counts and
+  // scrollbars lie over the page, so a view 390 px wide is a layout 390 px wide (a desktop's
+  // scrollbar would leave it 375). The view's own size stays the size (no override), and the
+  // pointer stays a mouse: the overlay's gestures are a mouse's. It belongs to the renderer, and
+  // a navigation to another site starts a new one: asked for again once each navigation commits,
+  // which is before the new document's first script runs.
+  let device: Device = "desktop"
+  const emulate = () => {
+    if (gone()) return
+    if (device === "phone")
+      wc.enableDeviceEmulation({ screenPosition: "mobile", screenSize: { ...PHONE }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: { width: 0, height: 0 }, scale: 1 })
+    else wc.disableDeviceEmulation()
+  }
+  wc.on("did-navigate", () => void (device === "phone" && emulate()))
 
   // ── overlay → main: window.__review in the preload's world, over IPC ─────────────────────────
   // The preload runs in the top frame only, and the placeholder gets no overlay (page-preload.ts).
@@ -403,6 +422,11 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       if (!b) return view.setVisible(false)
       view.setBounds({ x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height) })
       view.setVisible(true)
+    },
+    setDevice(d) {
+      if (d === device) return
+      device = d
+      emulate()
     },
     send,
     capture: async () => frameOf(await wc.capturePage()),

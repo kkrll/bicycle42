@@ -246,6 +246,31 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   connection, and reads the conversation back after `/compact`, `/undo` and `/redo` instead:
   the summary appears when it is written, without the streaming.
 
+## The page as a phone's, and docks the window draws
+
+- **Desktop | Phone, beside the address** (`setDevice`, `page.device`; kept in settings). As a
+  phone's, the window gives the page a box 390 by 844 at most (`PHONE` in `shared/types.ts`, the
+  `.stage.phone` rules) and main asks Chromium for its own phone emulation (`setDevice` in
+  `main/page.ts`): the viewport tag counts and scrollbars lie over the page, so the page is laid
+  out 390 wide, not 375. The pointer stays a mouse: every mode works as on a desktop page. A page
+  with something wider than the window is shown zoomed out to fit, as a phone shows it.
+- **A dock the window draws.** Edit mode's inspector and motion mode's dock are the overlay's,
+  drawn at the bottom of the page. A dock named in `HOSTED_DOCKS` (`shared/types.ts`) is drawn by
+  the window instead: the overlay is told after every "state" ("docks"), shows no dock of its own
+  and makes no room for one, sends what the dock shows (`PanelMessage`, the "panel" stream, kept
+  in `dockViews` in `renderer/store.ts`) and does what the window's dock asks (the `panel`
+  command, `dockAct`). Main carries both and reads neither. The dock's component goes into
+  `DOCKS` in `renderer/dock.tsx`; the window puts it under the page (its top edge drags, as the
+  panel's side does) or, beside a phone's page, in the column between the page and the panel.
+  What a view and an act carry is each dock's own file: `overlay/protocol-motion.ts`,
+  `overlay/protocol-canvas.ts`. No dock is hosted yet.
+- **A view is the page's text.** A class, a keyframe's name, an element's words: the window draws
+  them as text and never as markup, and keeps nothing of the page's that the overlay does not
+  also have (a reload of either side loses nothing). `dockPing` measures the way to the overlay
+  and back.
+- Shots: `phone`, `dock`, `phone-dock` (the mock takes `&device=phone`, `&docks=motion,canvas`,
+  `&mode=edit|motion`).
+
 ## What a canvas note sends
 
 What the agent gets: the edits as a numbered list with each element's selector and the window

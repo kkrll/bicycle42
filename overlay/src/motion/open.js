@@ -3,6 +3,7 @@
 
 import { adopt, BOOST } from "../page.js";
 import { apply, clamp, DOCK_H, fromApi, M, mq, parseKf, pathOf, r1, readList, scan, serialize, splitTop } from "./model.js";
+import { hosted } from "../panel.js";
 import { commit, nameProblem, snapshot } from "./edit.js";
 import { draw, flash, focusLater } from "./draw.js";
 import { kick } from "../render.js";
@@ -182,7 +183,7 @@ export function selectEl(el) {
 export function reveal(el) {
   if (!el || !el.isConnected) return;
   const r = el.getBoundingClientRect();
-  if (r.bottom < 0 || r.top > window.innerHeight - DOCK_H || r.right < 0 || r.left > window.innerWidth) el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+  if (r.bottom < 0 || r.top > window.innerHeight - (hosted("motion") ? 0 : DOCK_H) || r.right < 0 || r.left > window.innerWidth) el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
   M.findUntil = performance.now() + 1400;
   kick();
 }

@@ -47,6 +47,8 @@ export type Settings = {
   /** Where the window last had the page (CSS px): what the page is laid out to at the next
    *  start, while the window is still loading and can't say. The window's, whatever the server. */
   pageBounds?: Rect
+  /** The page shown as a phone's (Device in shared/types.ts). Absent: as a desktop's. */
+  device?: "phone"
   /** Key: the site's origin. */
   /** `url` and `seen`: the page last open on the site and when, to come back to with its project. */
   sites: Sites

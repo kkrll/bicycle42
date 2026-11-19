@@ -102,7 +102,7 @@ function turn(h: { w: World; agent: { starts(s: string): void; picksUp(s: string
   h.agent.finishes(s)
 }
 
-async function boot(opts: { settings?: unknown; reviews?: Record<string, unknown>; outbox?: Record<string, unknown>; server?: { server: FakeServer; w: World } } = {}) {
+async function boot(opts: { settings?: unknown; reviews?: Record<string, unknown>; outbox?: Record<string, unknown>; server?: { server: FakeServer; w: World }; docks?: ("canvas" | "motion")[] } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bicycle42-ctl-"))
   // What a note sends, as the app left it on disk (src/main/outbox.ts), by the note's id.
   for (const [id, payload] of Object.entries(opts.outbox ?? {})) {
@@ -117,7 +117,7 @@ async function boot(opts: { settings?: unknown; reviews?: Record<string, unknown
   const { server, w } = opts.server ?? (await fakeOpenCode())
   const quiet = { log: console.log, warn: console.warn, error: console.error }
   if (!process.env.V) console.log = console.warn = console.error = () => {}
-  const shell = testShell(dir)
+  const shell = testShell(dir, { docks: opts.docks })
   const { core, page } = shell
 
   const cmd = (name: string, ...args: unknown[]) => core.invoke(name, args)
@@ -2104,6 +2104,70 @@ test("the conversation's pictures reach the window as b42-img addresses, served 
     assert.equal(Buffer.from(await (await serve(images[2]!.src)).arrayBuffer()).toString(), "pasted")
     assert.equal((await serve(`b42-img://pic/${s}/msg_unknown/0`)).status, 404)
     assert.equal((await serve(`b42-img://pic/${s}/msg_typed/1`)).status, 404)
+  } finally {
+    await h.close()
+  }
+})
+
+test("the page as a phone's: the page is told, the window is told, and the next start remembers", async () => {
+  const h = await boot()
+  const devices = (shell: typeof h.shell) => shell.page.calls.filter((c) => c[0] === "device").map((c) => c[1])
+  try {
+    assert.equal(h.snap().page.device, "desktop")
+    assert.deepEqual(devices(h.shell), []) // a page is a desktop's until told otherwise
+    await h.cmd("setDevice", "phone")
+    assert.equal(h.snap().page.device, "phone")
+    assert.deepEqual(devices(h.shell), ["phone"])
+    await h.cmd("setDevice", "phone") // already so: the page is not asked again
+    await h.cmd("setDevice", "tablet") // not a device: a desktop's
+    assert.deepEqual(devices(h.shell), ["phone", "desktop"])
+    await h.cmd("setDevice", "phone")
+    // A second start on the same profile, as after a relaunch (once the setting is on disk).
+    await until(() => fs.existsSync(path.join(h.dir, "settings.json")) && /"device":\s*"phone"/.test(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")))
+    const again = testShell(h.dir)
+    assert.equal(again.core.snapshot().page.device, "phone")
+    assert.deepEqual(devices(again), ["phone"])
+    await again.core.dispose()
+  } finally {
+    await h.close()
+  }
+})
+
+test("a dock the window draws: the overlay is told after every state, its views reach the window, and the window's acts reach it; nothing for a dock that is not hosted", async () => {
+  const h = await boot({ docks: ["motion"] })
+  const toOverlay = (type: string) => h.page.sent.filter((m) => m.type === type)
+  const toWindow = () => h.shell.sent.filter((x) => x[0] === "panel").map((x) => x[1])
+  try {
+    await h.ready()
+    assert.deepEqual(h.snap().review.docks, ["motion"])
+    h.page.message({ type: "ready", url: `${SITE}/`, viewport: { w: 800, h: 600, dpr: 1, scrollX: 0, scrollY: 0 } })
+    const order = h.page.sent.map((m) => m.type)
+    assert.deepEqual(order.slice(order.lastIndexOf("state")), ["state", "docks"])
+    assert.deepEqual(toOverlay("docks").at(-1), { type: "docks", hosted: ["motion"] })
+    // overlay → window: as it came, and only for the hosted dock.
+    h.page.message({ type: "panel", panel: "motion", view: { open: "spin" } })
+    h.page.message({ type: "panel", panel: "motion", pong: 5 })
+    h.page.message({ type: "panel", panel: "canvas", view: { tree: [] } })
+    h.page.message({ type: "panel", panel: "nope", view: {} })
+    assert.deepEqual(toWindow(), [{ type: "panel", panel: "motion", view: { open: "spin" } }, { type: "panel", panel: "motion", pong: 5 }])
+    // window → overlay: the same.
+    await h.cmd("panel", { panel: "motion", act: { type: "ping", id: 1 } })
+    await h.cmd("panel", { panel: "canvas", act: { type: "ping", id: 2 } })
+    await h.cmd("panel", { panel: "motion" })
+    await h.cmd("panel", null)
+    assert.deepEqual(toOverlay("panel"), [{ type: "panel", panel: "motion", act: { type: "ping", id: 1 } }])
+  } finally {
+    await h.close()
+  }
+})
+
+test("no dock is the window's unless the shell says so: the overlay is told nothing and draws its own", async () => {
+  const h = await boot()
+  try {
+    await h.ready()
+    h.page.message({ type: "ready", url: `${SITE}/`, viewport: { w: 800, h: 600, dpr: 1, scrollX: 0, scrollY: 0 } })
+    assert.deepEqual(h.snap().review.docks, [])
+    assert.equal(h.page.sent.some((m) => m.type === "docks"), false)
   } finally {
     await h.close()
   }

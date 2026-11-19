@@ -5,6 +5,7 @@ import { isMac, S } from "../state.js";
 import { icon } from "../ui.js";
 import { rectOf } from "../page.js";
 import { setRoom } from "../room.js";
+import { hosted } from "../panel.js";
 import * as Notes from "../notes/api.js";
 import * as Canvas from "../canvas/api.js";
 import { apply, curve, DOCK_H, esc, frames, KIND_TITLE, kindIcon, M, MAJOR, mi, mq, name, openDirty, openKf, openUse, r1, RATE_TEXT, readOnly, scan, secs } from "./model.js";
@@ -62,7 +63,7 @@ export function resume() {
 }
 /** Room for the dock: the page is laid out as if the window ended where the dock begins (room.js). */
 export function syncUi() {
-  setRoom("motion", M.on && S.enabled ? DOCK_H : 0);
+  setRoom("motion", M.on && S.enabled && !hosted("motion") ? DOCK_H : 0); // (the host's own dock: no room for one here)
 }
 /** What no stylesheet and no animation object accounts for: an inline style rewritten many
  *  times a second. It cannot be edited here, but the list can say it is there. */
@@ -258,10 +259,10 @@ export function flash(text) {
 /** Every frame: the playhead, the time, the play button, the outlines on the page. */
 export function frame(capturing) {
   if (!dock) return null;
-  const on = M.on && S.enabled && !capturing;
-  if (dock._shown !== on) {
-    dock.hidden = !(dock._shown = on);
-    if (!on) {
+  const on = M.on && S.enabled && !capturing, own = on && !hosted("motion");
+  if (dock._shown !== own) {
+    dock.hidden = !(dock._shown = own);
+    if (!own) {
       closePop();
       sugHide();
     }

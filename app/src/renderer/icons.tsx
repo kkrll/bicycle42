@@ -8,6 +8,9 @@ const PATHS = {
   reload: "M20 12a8 8 0 1 1-2.6-5.9M20 4v5h-5",
   spinner: "M12 3a9 9 0 1 0 9 9",
   panel: "M4 5h16v14H4zM14.5 5v14",
+  // The page as a desktop's, and as a phone's: a screen on its stand, a handset with its home line.
+  desktop: "M3 5h18v11H3zM8.5 20h7M12 16v4",
+  phone: "M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM10.5 18h3",
   server: "M4 5h16v6H4zM4 13h16v6H4zM8 8h.01M8 16h.01",
   down: "M6 9l6 6 6-6",
   right: "M9 6l6 6-6 6",
