@@ -55,6 +55,8 @@ const PATHS = {
   motion: "M16.5 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10zM3 9.5h6.5M1.5 12h7M3 14.5h6.5",
   sound: "M4 9.5h3.5L12 6v12l-4.5-3.5H4zM15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10",
   muted: "M4 9.5h3.5L12 6v12l-4.5-3.5H4zM16 9.5l5 5M21 9.5l-5 5",
+  // The facts pane's marks on the page: a viewfinder's corners around what is marked.
+  marks: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5M10 10h4v4h-4z",
 } as const
 
 export type IconName = keyof typeof PATHS

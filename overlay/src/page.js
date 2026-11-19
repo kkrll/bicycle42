@@ -285,6 +285,13 @@ export function strokeTargets(pts) {
 // Typed declarations must win over the site's rules the way an inline style would, without
 // "!important" in what the agent reads: three ids' worth of specificity that matches anything.
 export const BOOST = ":not(#b42-x#b42-x#b42-x)";
+/** Rules the layer itself changed on the page's elements (canvas mode's edits, which are adopted
+ *  stylesheets: no mutation any observer sees). What reads the page's layout listens. */
+const restyleFns = new Set();
+export const onRestyle = (fn) => void restyleFns.add(fn);
+export const restyled = () => {
+  for (const fn of restyleFns) fn();
+};
 export const adopt = (sheet, on) => {
   const list = document.adoptedStyleSheets;
   const has = list.includes(sheet);

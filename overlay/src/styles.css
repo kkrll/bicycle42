@@ -25,9 +25,17 @@
 .box > .er { right: 0; border-right-width: var(--bw); }
 .box:is(.hover, .sel, .csel, .mrow, .mcorn) > i:not(.fill), .box:is(.hover, .sel, .mrow) > .fill { display: block; }
 .box.hover { --bw: 1.5px; --bs: dashed; --bc: #3b82f6; --bg: rgba(59, 130, 246, 0.06); }
-/* The host's facts pane: the element of the row under the pointer, and the one just brought into view. */
+/* The host's facts pane: the element of the row under the pointer, and the one just brought into
+   view, strong; with marks on, every listed element, quiet: a thin line in its kind's tone and no
+   fill (k-wide sticks out, k-taps too small to tap, k-small a field that zooms). Each tone reads
+   on a white page and on a dark one; the window's pane uses the same three for its dots. */
 .box.fx > i { display: block; }
 .box.fx { --bw: 2px; --bc: #f97316; --bg: rgba(249, 115, 22, 0.08); }
+.box.fx.k-wide { --bc: #dc2626; --bg: rgba(220, 38, 38, 0.08); }
+.box.fx.k-taps { --bc: #f97316; --bg: rgba(249, 115, 22, 0.08); }
+.box.fx.k-small { --bc: #3b82f6; --bg: rgba(59, 130, 246, 0.08); }
+.box.fx.mk { --bw: 1.5px; }
+.box.fx.mk > .fill { display: none; }
 .box.fx.flash { animation: fxflash 700ms ease-out 2; }
 @keyframes fxflash { 0% { opacity: 1; } 50% { opacity: 0.25; } 100% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .box.fx.flash { animation: none; } }

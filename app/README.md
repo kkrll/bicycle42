@@ -280,10 +280,25 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   tag; one line when all is well. The pointer on a row outlines its element on the page, a click
   brings it into view, and in Annotate "Note" makes it the note's selection (main puts the keys
   on the page then). Under them the files the agent changed, and the two keys worth knowing here.
-  The overlay works the facts out (`overlay/src/facts/host.js`), only while the pane is up: it
-  says "view" when it appears and "stop" when it goes. It is a pane of the window's that is no
-  mode's dock (`Pane` in `overlay/protocol.ts`, "facts" in `HOSTED_PANES`) and rides as a dock
-  does. A desktop's page has no column, and nothing is worked out for it.
+  The header names the subject, with the marks toggle at its right: while it is on (the
+  default; `facts.marks`, remembered) every listed element has a thin outline on the page in its
+  kind's tone, and each section's heading has a dot of that tone, so the list is the legend; the
+  row under the pointer is the strong one. Every row is the same grid (words, number, a slot as
+  wide as Note, empty where there is none), so every number ends at one x; 620 px wide or more,
+  the facts and the changed files are two columns. Units are written with a space ("+134 px").
+  The changed files are words, not controls: the path's last two segments, the full one in the
+  title.
+- **In Edit and Motion beside a phone's page, one line of it above the dock** (`FactsStrip` in
+  `facts-pane.tsx`, mounted by `DockRegion`): "On this phone: 2 stick out · 5 small taps · 2 fields
+  zoom", each with its dot; "Fits this phone" when all are none; the missing viewport tag instead
+  when there is none. Live: an edit in the inspector that fixes a tap target changes the count.
+  No marks on the page there (the inspector draws its own outlines).
+  The overlay works the facts out (`overlay/src/facts/host.js`), only while the pane or the strip
+  is up: each says it wants them (`wantFacts`), and the window sends "view" (with whether to
+  mark) when the first appears, "marks" when that changes and "stop" when the last goes, once a
+  mode change's unmount and mount have settled. It is a pane of the window's that is no mode's
+  dock (`Pane` in `overlay/protocol.ts`, "facts" in `HOSTED_PANES`) and rides as a dock does. A
+  desktop's page has no column and no strip, and nothing is worked out for it.
 - **The bar's hints wait two seconds** (`HINT_DELAY`), and one that is up stays a moment after
   the pointer leaves its control (`HINT_LINGER`): on the way to the next control the same
   element gets new words, and is not taken down and put up again.
