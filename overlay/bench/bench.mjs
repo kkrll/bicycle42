@@ -39,7 +39,8 @@ async function runCell(rig, file, cell) {
     if (cell.ready && !(await inShadow(t.page, cell.ready))) throw new Error(`the set-up did not take: ${cell.ready}`);
     const runs = [];
     for (let rep = 0; rep < REPS; rep++) runs.push(await measure(t, () => (cell.run ? cell.run(t) : sleep(WINDOW_MS))));
-    if (cell.after && !(await inShadow(t.page, cell.after))) throw new Error(`nothing happened in the windows: ${cell.after}`);
+    if (cell.after && !(await inShadow(t.page, cell.after)))
+      throw new Error(`nothing happened in the windows: ${cell.after}`);
     if (t.errors.length) throw new Error(`the page threw: ${t.errors[0]}`);
     return { ...Object.fromEntries(METRICS.map(([k]) => [k, median(runs.map((m) => m[k]))])), runs };
   } catch (err) {
@@ -79,18 +80,28 @@ const own = (i, cell) => {
   const base = cell.overlay === false ? null : results[i][baseOf(cell)];
   return base ? fmt("busyMs", results[i][cell.id].busyMs - base.busyMs) : "";
 };
-const rows = [["cell", ...(compare ? [""] : []), METRICS[0][1], "own ms", ...METRICS.slice(1).map(([, heading]) => heading)]];
+const rows = [
+  ["cell", ...(compare ? [""] : []), METRICS[0][1], "own ms", ...METRICS.slice(1).map(([, heading]) => heading)],
+];
 for (const cell of cells)
   for (const [i, tag] of tags.entries()) {
     const m = METRICS.map(([k]) => fmt(k, results[i][cell.id][k]));
     rows.push([i ? "" : cell.id, ...(compare ? [tag] : []), m[0], own(i, cell), ...m.slice(1)]);
   }
 const widths = rows[0].map((_, c) => Math.max(...rows.map((r) => r[c].length)));
-const line = (r) => r.map((s, c) => (c === 0 ? s.padEnd(widths[c]) : s.padStart(widths[c]))).join("  ").trimEnd();
+const line = (r) =>
+  r
+    .map((s, c) => (c === 0 ? s.padEnd(widths[c]) : s.padStart(widths[c])))
+    .join("  ")
+    .trimEnd();
 
-console.log(`chromium ${rig.browser.version()} · the display shows ${fps.toFixed(1)} frames/s · ${((Date.now() - started) / 1000).toFixed(0)} s`);
+console.log(
+  `chromium ${rig.browser.version()} · the display shows ${fps.toFixed(1)} frames/s · ${((Date.now() - started) / 1000).toFixed(0)} s`,
+);
 for (const [i, file] of files.entries()) console.log(`${tags[i] ? `${tags[i]}: ` : ""}${file}`);
-console.log(`\nper second, the median of ${REPS} windows of ${WINDOW_MS / 1000} s; own ms is busy ms less that of the same page and gesture with no overlay (the none cells);`);
+console.log(
+  `\nper second, the median of ${REPS} windows of ${WINDOW_MS / 1000} s; own ms is busy ms less that of the same page and gesture with no overlay (the none cells);`,
+);
 console.log(`frames, timers, writes (of a stroke's path) and searches (of the document) are the overlay's\n`);
 console.log(rows.map(line).join("\n"));
 
@@ -105,8 +116,15 @@ const checks = files.map((_, i) =>
 );
 for (const [i, list] of checks.entries()) {
   console.log(`\ninvariants${tags[i] ? ` of ${tags[i]}` : ""}`);
-  for (const c of list) console.log(`  ${c.pass ? "pass" : "FAIL"}  ${c.cell}: ${fmt(c.metric, c.got)} ${c.metric}/s${c.over ? ` more than ${c.over}` : ""} (at most ${fmt(c.metric, c.most)})`);
+  for (const c of list)
+    console.log(
+      `  ${c.pass ? "pass" : "FAIL"}  ${c.cell}: ${fmt(c.metric, c.got)} ${c.metric}/s${c.over ? ` more than ${c.over}` : ""} (at most ${fmt(c.metric, c.most)})`,
+    );
 }
-if (jsonFile) writeFileSync(jsonFile, `${JSON.stringify({ chromium: rig.browser.version(), displayFps: fps, files: files.map((file, i) => ({ file, cells: results[i], invariants: checks[i] })) }, null, 2)}\n`);
+if (jsonFile)
+  writeFileSync(
+    jsonFile,
+    `${JSON.stringify({ chromium: rig.browser.version(), displayFps: fps, files: files.map((file, i) => ({ file, cells: results[i], invariants: checks[i] })) }, null, 2)}\n`,
+  );
 // With --compare the second file is what the first is judged against: only the first can fail the run.
 process.exitCode = checks[0].every((c) => c.pass) ? 0 : 1;

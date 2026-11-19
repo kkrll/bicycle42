@@ -5,7 +5,8 @@ import { numberAt, numbers, step, stepSize } from "../src/canvas/number.js";
 
 /** `text` with one `|` for the caret (or two, for a selection): the token there, as its text. */
 const at = (marked, opts = {}) => {
-  const a = marked.indexOf("|"), b = marked.indexOf("|", a + 1);
+  const a = marked.indexOf("|"),
+    b = marked.indexOf("|", a + 1);
   const text = marked.replaceAll("|", "");
   const t = numberAt(text, a, { ...opts, ...(b > 0 ? { to: b - 1 } : {}) });
   return t ? text.slice(t.start, t.end) : null;
@@ -65,7 +66,10 @@ test("a number with an exponent is not stepped", () => {
   assert.equal(at("1.5e2p|x"), null);
   assert.equal(at("2E-3|s"), null);
   assert.equal(at("width: 1e|3px;", { context: "css" }), null);
-  assert.deepEqual(numbers("1e3 4px 1.5e2px 2e+1 1em 3ex").map((t) => `${t.value}${t.unit}`), ["4px", "1em", "3ex"]);
+  assert.deepEqual(
+    numbers("1e3 4px 1.5e2px 2e+1 1em 3ex").map((t) => `${t.value}${t.unit}`),
+    ["4px", "1em", "3ex"],
+  );
 });
 
 test("the caret: inside the token or touching either edge, not a space away", () => {
@@ -116,7 +120,10 @@ test("not a number: colours, names, strings, urls, comments", () => {
   assert.equal(at('"Inter 1|8", serif'), null);
   assert.equal(at("url(img-2|.png)"), null);
   assert.equal(at("/* 1|2px */ 4px"), null);
-  assert.deepEqual(numbers("1px /* 2px */ 3px 'x 4' #555 rgb(6,7,8) 9%").map((t) => t.value), [1, 3, 9]);
+  assert.deepEqual(
+    numbers("1px /* 2px */ 3px 'x 4' #555 rgb(6,7,8) 9%").map((t) => t.value),
+    [1, 3, 9],
+  );
 });
 
 test("element styles: only in a declaration's value", () => {
@@ -176,7 +183,11 @@ test("the stylesheet: in a rule's declarations, never in a selector or outside a
   assert.equal(at("@keyframes spin { 5|0% { width: 12px } }", sheet), null);
   assert.equal(at("@keyframes spin { 50% { width: 1|2px } }", sheet), "12px");
   assert.equal(at("@page { margin: 1|cm }", sheet), "1cm", "descriptors have numbers too");
-  assert.equal(at("@media (min-width: 600px) { width: 1|2px; }", { context: "css" }), "12px", "in Element styles a conditional rule holds declarations");
+  assert.equal(
+    at("@media (min-width: 600px) { width: 1|2px; }", { context: "css" }),
+    "12px",
+    "in Element styles a conditional rule holds declarations",
+  );
   assert.equal(at("/* .a { width: 1|2px } */", sheet), null);
   assert.equal(at(".a { color: #12|3 }", sheet), null);
 });

@@ -14,9 +14,17 @@ export const inEdit = (e) => e.composedPath().includes(C.edit.el);
 
 export function startEdit(el) {
   if (![...el.childNodes].every((n) => n.nodeType === 3) || !el.textContent.trim())
-    return flash(el.childElementCount ? "Double-click the words themselves: this has elements inside" : "No text here to edit");
+    return flash(
+      el.childElementCount ? "Double-click the words themselves: this has elements inside" : "No text here to edit",
+    );
   if (C.typeTimer) commit();
-  const ed = { el, from: el.textContent, had: el.getAttribute("contenteditable"), meta: meta(el), onBlur: () => endEdit(true) };
+  const ed = {
+    el,
+    from: el.textContent,
+    had: el.getAttribute("contenteditable"),
+    meta: meta(el),
+    onBlur: () => endEdit(true),
+  };
   C.edit = ed;
   el.setAttribute("contenteditable", "plaintext-only");
   el.focus({ preventScroll: true });
@@ -60,4 +68,3 @@ export function endEdit(keep) {
   commit();
   drawBar();
 }
-

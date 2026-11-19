@@ -25,14 +25,16 @@ export function syncFields(force) {
   const put = (field, v) => {
     if ((force || f !== field) && field.value !== v) field.value = v;
   };
-  put(clsEl, el ? el.getAttribute("class") ?? "" : "");
+  put(clsEl, el ? (el.getAttribute("class") ?? "") : "");
   put(cssEl, e ? e.css : "");
   put(freeEl, C.draft.B.sheet);
   clsEl.disabled = cssEl.disabled = !el;
   const hint = el ? "No classes · type to add" : "Select an element to edit its classes";
   if (clsEl.placeholder !== hint) clsEl.placeholder = hint;
   // The header has the room: the words are cut where it ends, not at a note's length.
-  const name = el ? `${line(plainLabel(el, 80))}${C.marks.get(el)?.includes("hid") ? " · hidden" : ""}` : "Nothing selected";
+  const name = el
+    ? `${line(plainLabel(el, 80))}${C.marks.get(el)?.includes("hid") ? " · hidden" : ""}`
+    : "Nothing selected";
   if (ipath.textContent !== name) ipath.textContent = name;
   if (force) for (const row of compEl.children) unmarkValue(row);
   drawTabs();
@@ -78,8 +80,15 @@ function mark(area, sheet) {
   nodes.push(`${text.slice(at)}\n`);
   area.previousElementSibling.replaceChildren(...nodes);
   const err = area.parentElement.nextElementSibling;
-  const msg = text.length > max ? `Too long: ${text.length} / ${max} characters. Not applied; shorten it before sending`
-    : bad.length ? `Not applied: ${bad.slice(0, 3).map((b) => b.why).join(" · ")}${bad.length > 3 ? ` · and ${bad.length - 3} more` : ""}` : "";
+  const msg =
+    text.length > max
+      ? `Too long: ${text.length} / ${max} characters. Not applied; shorten it before sending`
+      : bad.length
+        ? `Not applied: ${bad
+            .slice(0, 3)
+            .map((b) => b.why)
+            .join(" · ")}${bad.length > 3 ? ` · and ${bad.length - 3} more` : ""}`
+        : "";
   if (err.textContent !== msg) err.textContent = msg;
   err.hidden = !msg;
 }
@@ -96,8 +105,7 @@ export function typed(field) {
   if (field === freeEl) {
     B.sheet = v;
     drawTabs();
-  }
-  else if (!C.sel) return;
+  } else if (!C.sel) return;
   else if (field === cssEl) entry(C.sel).css = v;
   else {
     const e = entry(C.sel);
@@ -135,8 +143,18 @@ function applyTimed() {
 
 /** Computed values as a designer reads them: colours as hex, lengths to a tenth of a pixel. */
 const pretty = (v) =>
-  v.replace(/rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?\)/g, (_, r, g, b, a) =>
-    `#${[r, g, b].map((x) => Number(x).toString(16).padStart(2, "0")).join("")}${a === undefined ? "" : Math.round(Number(a) * 255).toString(16).padStart(2, "0")}`)
+  v
+    .replace(
+      /rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?\)/g,
+      (_, r, g, b, a) =>
+        `#${[r, g, b].map((x) => Number(x).toString(16).padStart(2, "0")).join("")}${
+          a === undefined
+            ? ""
+            : Math.round(Number(a) * 255)
+                .toString(16)
+                .padStart(2, "0")
+        }`,
+    )
     .replace(/(-?\d+\.\d\d+)px/g, (_, x) => `${Math.round(Number(x) * 10) / 10}px`);
 
 export function drawComputed() {
@@ -165,9 +183,18 @@ export function drawComputed() {
     }
   }
   const cs = live ? getComputedStyle(el) : null;
-  const flex = live && cs.display.includes("flex"), grid = live && cs.display.includes("grid");
+  const flex = live && cs.display.includes("flex"),
+    grid = live && cs.display.includes("grid");
   // Only what can apply: the flex and grid properties show when the element is one.
-  const list = !live ? [] : COMPUTED.filter((p) => (p === "flex-direction" ? flex : p === "align-items" || p === "justify-content" || p === "gap" ? flex || grid : true));
+  const list = !live
+    ? []
+    : COMPUTED.filter((p) =>
+        p === "flex-direction"
+          ? flex
+          : p === "align-items" || p === "justify-content" || p === "gap"
+            ? flex || grid
+            : true,
+      );
   const e = live && C.draft.B.els[C.selRs];
   const mine = e ? topProps(e.css) : [];
   const rows = pool(compEl, list.length, () => {
@@ -176,15 +203,19 @@ export function drawComputed() {
     // The name copies the line into Element styles; the value is a field that writes it there.
     // (Tab goes from value to value: the names are out of the tab order.)
     // After the value, the page's variable it equals, when there is one (a click writes it).
-    row.innerHTML = '<button type="button" class="cp" tabindex="-1" title="Click to copy into Element styles · drag to change the number"></button><input class="cval" type="text" spellcheck="false" autocomplete="off"><button type="button" class="ctok" tabindex="-1" hidden></button>';
+    row.innerHTML =
+      '<button type="button" class="cp" tabindex="-1" title="Click to copy into Element styles · drag to change the number"></button><input class="cval" type="text" spellcheck="false" autocomplete="off"><button type="button" class="ctok" tabindex="-1" hidden></button>';
     scrubbable(row.firstChild);
     return row;
   });
   const focused = root.activeElement;
-  const toks = live ? tokensOf(el) : [], host = compEl.getRootNode();
+  const toks = live ? tokensOf(el) : [],
+    host = compEl.getRootNode();
   list.forEach((p, i) => {
-    const row = rows[i], field = row.children[1];
-    const raw = cs.getPropertyValue(p), v = pretty(raw);
+    const row = rows[i],
+      field = row.children[1];
+    const raw = cs.getPropertyValue(p),
+      v = pretty(raw);
     const t = tokenMatch(p, raw, toks, host);
     const hint = t ? t.names.join(" ") : "";
     if (row._hint !== hint) {
@@ -192,7 +223,9 @@ export function drawComputed() {
       row._hint = tok.textContent = hint;
       row._tok = t ? t.names : null;
       tok.hidden = !hint;
-      tok.title = hint ? `The page's variable${t.names.length > 1 ? "s" : ""} with this value${t.others.length ? ` (so ${t.others.length > 1 ? "are" : "is"} ${t.others.join(", ")})` : ""} · click to write ${p}: ${t.names.map((n) => `var(${n})`).join(" ")}` : "";
+      tok.title = hint
+        ? `The page's variable${t.names.length > 1 ? "s" : ""} with this value${t.others.length ? ` (so ${t.others.length > 1 ? "are" : "is"} ${t.others.join(", ")})` : ""} · click to write ${p}: ${t.names.map((n) => `var(${n})`).join(" ")}`
+        : "";
     }
     // In the accent colour: what this batch has changed on this element.
     const changed = mine.some((m) => m === p || m.startsWith(`${p}-`) || p.startsWith(`${m}-`));
@@ -235,7 +268,9 @@ export function freshValue(field) {
 /** A computed value was edited: write `prop: value;` into Element styles (the way a drag does),
  *  unless the browser would not take it; then it is marked, like rejected CSS, and not written. */
 export function setValue(field) {
-  const row = field.parentElement, p = row._p, v = line(clean(field.value));
+  const row = field.parentElement,
+    p = row._p,
+    v = line(clean(field.value));
   if (!C.sel || !p) return;
   if (!v || v === row._v) {
     field.value = row._v;
@@ -252,7 +287,8 @@ const FULL = "This element's styles are full: shorten them first";
 /** `prop: value;` into the selection's styles. False, and the field marked, when the browser
  *  would not take the value; "full" when there is no room left for it. */
 function writeValue(row, v) {
-  const field = row.children[1], p = row._p;
+  const field = row.children[1],
+    p = row._p;
   if (!supports(p, v)) {
     row._bad = true;
     field.classList.add("bad");
@@ -270,7 +306,8 @@ function writeValue(row, v) {
 /** A computed value changed by a key or a drag: written as setValue writes it, but live, the way
  *  typing is: the page follows within a frame and the presses of a burst are one undo step. */
 export function liveValue(field, value, held) {
-  const row = field.parentElement, v = line(clean(value));
+  const row = field.parentElement,
+    v = line(clean(value));
   field.value = v;
   if (!C.sel || !row._p || !v) return;
   const wrote = writeValue(row, v);
@@ -287,7 +324,8 @@ export function liveValue(field, value, held) {
  *  after a word with it on some systems): [start, end], the same twice when nothing is. */
 export function picked(area) {
   const text = area.value;
-  let a = area.selectionStart, b = area.selectionEnd;
+  let a = area.selectionStart,
+    b = area.selectionEnd;
   while (a < b && /\s/.test(text[a])) a++;
   while (b > a && /\s/.test(text[b - 1])) b--;
   return [a, b];
@@ -322,7 +360,8 @@ export function stepNumber(field, delta) {
 export function drawTabs() {
   const el = C.sel && C.sel.isConnected ? C.sel : null;
   const global = !el || C.pin;
-  const tEl = insp.querySelector(".t-el"), tGl = insp.querySelector(".t-gl");
+  const tEl = insp.querySelector(".t-el"),
+    tGl = insp.querySelector(".t-gl");
   const key = `${!!el}|${global}|${!!C.draft.B.sheet.trim()}`;
   if (key === tEl._key) return;
   tEl._key = key;
@@ -364,4 +403,3 @@ export function setPanel(h, collapsed, settled = true) {
   drawBar();
   kick();
 }
-

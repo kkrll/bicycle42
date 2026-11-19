@@ -43,7 +43,8 @@ type Options = {
 
 const IMAGE_MIME = /^image\/(png|jpeg|webp|gif)$/
 
-const keyOf = (src: PictureSource) => `${encodeURIComponent(src.session)}/${encodeURIComponent(src.message)}/${src.file}`
+const keyOf = (src: PictureSource) =>
+  `${encodeURIComponent(src.session)}/${encodeURIComponent(src.message)}/${src.file}`
 
 export function createPictures(opts: Options): Pictures {
   const maxBytes = opts.maxBytes ?? 64 * 1024 * 1024
@@ -59,7 +60,7 @@ export function createPictures(opts: Options): Pictures {
   const size = (v: string | Buffer) => v.length
   function keep(key: string, value: string | Buffer) {
     const old = cache.get(key)
-    if (old !== undefined) (bytes -= size(old)), cache.delete(key)
+    if (old !== undefined) ((bytes -= size(old)), cache.delete(key))
     if (size(value) > maxBytes) return
     cache.set(key, value)
     bytes += size(value)
@@ -91,7 +92,7 @@ export function createPictures(opts: Options): Pictures {
         if (known.size <= maxKnown) break
         known.delete(k)
         const kept = cache.get(k)
-        if (kept !== undefined) (bytes -= size(kept)), cache.delete(k)
+        if (kept !== undefined) ((bytes -= size(kept)), cache.delete(k))
       }
       if (data !== undefined && !cache.has(key)) keep(key, data)
       return `${SCHEME}://${HOST}/${key}`

@@ -11,7 +11,11 @@ import type { ProjectInfo } from "../shared/types"
 /** "acme/storefront" from "/home/dev/code/acme/storefront": the part a person recognises. */
 const tail = (path: string) => path.replace(/\/+$/, "").split("/").slice(-2).join("/") || "/"
 
-type Row = { kind: "new" } | { kind: "project"; project: ProjectInfo; n?: number } | { kind: "path"; directory: string } | { kind: "browse" }
+type Row =
+  | { kind: "new" }
+  | { kind: "project"; project: ProjectInfo; n?: number }
+  | { kind: "path"; directory: string }
+  | { kind: "browse" }
 
 export function Switcher(props: { onClose: () => void }) {
   const [projects] = createResource(() => b42.invoke("allProjects"))
@@ -33,12 +37,16 @@ export function Switcher(props: { onClose: () => void }) {
     // then those of the servers connected to before. A server's name narrows the list too.
     const known = projects.error ? [] : (projects() ?? [])
     const found = known.filter((p) => !q || p.directory.toLowerCase().includes(q) || p.on.toLowerCase().includes(q))
-    const typed = query().trim().replace(/(.)\/+$/, "$1")
+    const typed = query()
+      .trim()
+      .replace(/(.)\/+$/, "$1")
     return [
       ...(state.session && (!q || "new conversation".includes(q)) ? [{ kind: "new" as const }] : []),
       ...found.map((project, i) => ({ kind: "project" as const, project, ...(i < 9 ? { n: i + 1 } : {}) })),
       // A folder the server has not worked in yet can be opened by its path.
-      ...(typed.startsWith("/") && typed.length > 1 && !known.some((p) => !p.server && p.directory === typed) ? [{ kind: "path" as const, directory: typed }] : []),
+      ...(typed.startsWith("/") && typed.length > 1 && !known.some((p) => !p.server && p.directory === typed)
+        ? [{ kind: "path" as const, directory: typed }]
+        : []),
       ...(!q || "browse folders".includes(q) ? [{ kind: "browse" as const }] : []),
     ]
   })
@@ -48,7 +56,12 @@ export function Switcher(props: { onClose: () => void }) {
     if (row.kind === "browse") return void setBrowsing(true)
     setBusy(true)
     setError("")
-    ;(row.kind === "new" ? b42.invoke("newSession") : row.kind === "project" ? b42.invoke("openProject", row.project.directory, row.project.server) : open(row.directory))
+    ;(row.kind === "new"
+      ? b42.invoke("newSession")
+      : row.kind === "project"
+        ? b42.invoke("openProject", row.project.directory, row.project.server)
+        : open(row.directory)
+    )
       .then(() => dialog.close())
       .catch((err) => {
         setError(message(err))
@@ -67,13 +80,21 @@ export function Switcher(props: { onClose: () => void }) {
     if (e.key === "ArrowDown") move(1)
     else if (e.key === "ArrowUp") move(-1)
     else if (e.key === "Enter") choose(rows()[at()])
-    else if ((mac() ? e.metaKey : e.ctrlKey) && /^[1-9]$/.test(e.key)) choose(rows().find((r) => r.kind === "project" && r.n === Number(e.key)))
+    else if ((mac() ? e.metaKey : e.ctrlKey) && /^[1-9]$/.test(e.key))
+      choose(rows().find((r) => r.kind === "project" && r.n === Number(e.key)))
     else return
     e.preventDefault()
   }
 
   return (
-    <dialog class="dialog switcher" ref={dialog} aria-label="New conversation, or another project" onClose={props.onClose} onClick={(e) => e.target === dialog && dialog.close()} onKeyDown={onKey}>
+    <dialog
+      class="dialog switcher"
+      ref={dialog}
+      aria-label="New conversation, or another project"
+      onClose={props.onClose}
+      onClick={(e) => e.target === dialog && dialog.close()}
+      onKeyDown={onKey}
+    >
       <Show
         when={!browsing()}
         fallback={<FolderPicker browse open={open} onCancel={() => setBrowsing(false)} onDone={() => dialog.close()} />}
@@ -115,7 +136,14 @@ export function Switcher(props: { onClose: () => void }) {
               <For each={rows()}>
                 {(row, i) => (
                   <li role="option" aria-selected={i() === at()}>
-                    <button class="row" classList={{ on: i() === at() }} tabindex="-1" disabled={busy()} onPointerMove={() => setAt(i())} onClick={() => choose(row)}>
+                    <button
+                      class="row"
+                      classList={{ on: i() === at() }}
+                      tabindex="-1"
+                      disabled={busy()}
+                      onPointerMove={() => setAt(i())}
+                      onClick={() => choose(row)}
+                    >
                       <Switch>
                         <Match when={row.kind === "new"}>
                           <Icon name="plus" />

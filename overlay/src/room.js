@@ -24,7 +24,10 @@ const R = {
   lifted: 0, // the height the lift sheet adds now
   sels: "", // the lift sheet's selectors, as one list
   text: "",
-  tree: -1, w: 0, vh: 0, at: 0,
+  tree: -1,
+  w: 0,
+  vh: 0,
+  at: 0,
 };
 /** A fixed box's selector, kept while it still finds that box (paths are slow to make). */
 const selOf = new WeakMap();

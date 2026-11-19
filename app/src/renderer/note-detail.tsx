@@ -30,7 +30,11 @@ export function NoteView(props: { note: NoteRow }) {
   const onEsc = (e: KeyboardEvent) => {
     if (e.key !== "Escape" || e.defaultPrevented) return
     const target = e.target instanceof Element ? e.target : null
-    if (target?.closest(".asks") || document.querySelector("dialog[open], .repo-pop, .meter-pop, .convo > .menu, .suggest")) return
+    if (
+      target?.closest(".asks") ||
+      document.querySelector("dialog[open], .repo-pop, .meter-pop, .convo > .menu, .suggest")
+    )
+      return
     e.preventDefault()
     const keep = view.querySelector<HTMLButtonElement>("[data-keep]")
     if (keep) keep.click()
@@ -45,14 +49,25 @@ export function NoteView(props: { note: NoteRow }) {
   return (
     <div class="note-view" ref={view}>
       <header class="note-view-head">
-        <button class="note-back" ref={back} title="Back to the notes and the conversation (Esc)" onClick={() => setOpenedNote("")}>
+        <button
+          class="note-back"
+          ref={back}
+          title="Back to the notes and the conversation (Esc)"
+          onClick={() => setOpenedNote("")}
+        >
           <Icon name="back" />
           Notes
         </button>
         <span class="note-at">
           {at() + 1} of {state.review.notes.length}
         </span>
-        <button class="icon-btn small" title="The note before" aria-label="The note before" disabled={at() <= 0} onClick={() => go(-1)}>
+        <button
+          class="icon-btn small"
+          title="The note before"
+          aria-label="The note before"
+          disabled={at() <= 0}
+          onClick={() => go(-1)}
+        >
           <Icon name="up" />
         </button>
         <button
@@ -118,7 +133,11 @@ function NoteDetail(props: { note: NoteRow }) {
       { defer: true },
     ),
   )
-  const totals = () => (diff() ?? []).reduce((t, f) => ({ additions: t.additions + f.additions, deletions: t.deletions + f.deletions }), { additions: 0, deletions: 0 })
+  const totals = () =>
+    (diff() ?? []).reduce((t, f) => ({ additions: t.additions + f.additions, deletions: t.deletions + f.deletions }), {
+      additions: 0,
+      deletions: 0,
+    })
   const askTakeBack = () => {
     setBusy(true)
     setError("")
@@ -173,7 +192,14 @@ function NoteDetail(props: { note: NoteRow }) {
             {noteWord(n())}
           </span>
           <Show when={where()}>
-            <span class="note-where" title={n().lane === "bg" ? `${where()}: Take back acts there; Follow up is said in the open conversation.` : `${where()}: Follow up and Take back act there.`}>
+            <span
+              class="note-where"
+              title={
+                n().lane === "bg"
+                  ? `${where()}: Take back acts there; Follow up is said in the open conversation.`
+                  : `${where()}: Follow up and Take back act there.`
+              }
+            >
               {where()}
             </span>
           </Show>
@@ -202,7 +228,11 @@ function NoteDetail(props: { note: NoteRow }) {
           <div class="note-shots">
             <For each={pictures()}>
               {(picture, i) => (
-                <button class="note-shot" title={`${picture.name}. Click to enlarge; the arrow keys go between the two.`} onClick={() => openLightbox(pictures(), i())}>
+                <button
+                  class="note-shot"
+                  title={`${picture.name}. Click to enlarge; the arrow keys go between the two.`}
+                  onClick={() => openLightbox(pictures(), i())}
+                >
                   <img src={picture.src} alt={picture.name} loading="lazy" decoding="async" />
                   <span>{i() === 0 ? "Before" : "After"}</span>
                 </button>
@@ -210,7 +240,9 @@ function NoteDetail(props: { note: NoteRow }) {
             </For>
           </div>
           <Show when={n().status === "done" && pictures().length === 1}>
-            <p class="note-aside">No picture after: the page was elsewhere, or at another width, when the agent finished.</p>
+            <p class="note-aside">
+              No picture after: the page was elsewhere, or at another width, when the agent finished.
+            </p>
           </Show>
         </Show>
         <Show when={n().sent && (n().status === "done" || n().status === "working")}>
@@ -221,7 +253,11 @@ function NoteDetail(props: { note: NoteRow }) {
             <Show when={diff()} fallback="What changed in the code">
               {(files) => (
                 <>
-                  {files().length === 0 ? "No file changed" : files().length === 1 ? "1 file changed" : `${files().length} files changed`}
+                  {files().length === 0
+                    ? "No file changed"
+                    : files().length === 1
+                      ? "1 file changed"
+                      : `${files().length} files changed`}
                   <Show when={files().length}>
                     <Counts additions={totals().additions} deletions={totals().deletions} />
                   </Show>
@@ -291,14 +327,23 @@ function NoteDetail(props: { note: NoteRow }) {
             >
               <button
                 class="btn"
-                title={elsewhereToOpen() ? "Opens its conversation and starts a message about it there" : "Say more about it in the conversation"}
+                title={
+                  elsewhereToOpen()
+                    ? "Opens its conversation and starts a message about it there"
+                    : "Say more about it in the conversation"
+                }
                 disabled={busy()}
                 onClick={follow}
               >
                 Follow up
               </button>
               <Show when={!n().takenBack}>
-                <button class="btn note-undo" title="Undo what the agent did for this note: says how before it does" disabled={busy()} onClick={askTakeBack}>
+                <button
+                  class="btn note-undo"
+                  title="Undo what the agent did for this note: says how before it does"
+                  disabled={busy()}
+                  onClick={askTakeBack}
+                >
                   Take back
                 </button>
               </Show>

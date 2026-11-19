@@ -14,15 +14,36 @@ const CANDIDATES = [
 // Without these a headless page that looks hidden to Chromium gets its timers and frames slowed.
 // BENCH_GPU=1 draws with the graphics card, as the app does (headless Chromium draws in software
 // otherwise). The counts are the same either way; paint and raster milliseconds are not.
-const GPU = process.env.BENCH_GPU ? ["--enable-gpu", "--ignore-gpu-blocklist", "--enable-gpu-rasterization", "--use-angle=gl-egl", "--ozone-platform=headless"] : [];
-const FLAGS = ["--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows", ...GPU];
+const GPU = process.env.BENCH_GPU
+  ? [
+      "--enable-gpu",
+      "--ignore-gpu-blocklist",
+      "--enable-gpu-rasterization",
+      "--use-angle=gl-egl",
+      "--ozone-platform=headless",
+    ]
+  : [];
+const FLAGS = [
+  "--disable-renderer-backgrounding",
+  "--disable-background-timer-throttling",
+  "--disable-backgrounding-occluded-windows",
+  ...GPU,
+];
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ── pages ───────────────────────────────────────────────────────────────────────────────────────
-const WORDS = "calm review ship note pin draw queue agent design code page element margin colour layout frame render quiet fast slow".split(" ");
+const WORDS =
+  "calm review ship note pin draw queue agent design code page element margin colour layout frame render quiet fast slow".split(
+    " ",
+  );
 const words = (i, n) => Array.from({ length: n }, (_, k) => WORDS[(i * 7 + k * 3) % WORDS.length]).join(" ");
-const cards = (n) => Array.from({ length: n }, (_, i) => `<article id="c${i}"><h3>${words(i, 2)} ${i}</h3><p>${words(i + 1, 8)}</p><span>${words(i + 2, 1)} ${i}</span><a href="#${i}">${words(i + 3, 2)}</a></article>`).join("");
+const cards = (n) =>
+  Array.from(
+    { length: n },
+    (_, i) =>
+      `<article id="c${i}"><h3>${words(i, 2)} ${i}</h3><p>${words(i + 1, 8)}</p><span>${words(i + 2, 1)} ${i}</span><a href="#${i}">${words(i + 3, 2)}</a></article>`,
+  ).join("");
 const html = (body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>bench</title><style>
   body { margin: 0; font: 14px/1.45 system-ui, sans-serif; background: #fafafa; }
   main { display: flex; flex-wrap: wrap; gap: 12px; padding: 16px 24px; }
@@ -93,16 +114,20 @@ export async function start() {
 export async function displayRate(rig) {
   const page = await rig.browser.newPage({ viewport: { width: 1400, height: 900 } });
   await page.goto(`${rig.base}/blank`);
-  const rate = await page.evaluate(() => new Promise((done) => {
-    let n = 0, t0 = 0;
-    const step = (ts) => {
-      t0 ||= ts;
-      if (ts - t0 >= 1000) return done((n * 1000) / (ts - t0));
-      n++;
-      requestAnimationFrame(step);
-    };
-    requestAnimationFrame(step);
-  }));
+  const rate = await page.evaluate(
+    () =>
+      new Promise((done) => {
+        let n = 0,
+          t0 = 0;
+        const step = (ts) => {
+          t0 ||= ts;
+          if (ts - t0 >= 1000) return done((n * 1000) / (ts - t0));
+          n++;
+          requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      }),
+  );
   await page.close();
   return rate;
 }
@@ -117,23 +142,32 @@ export async function open(rig, overlay, { page: name, enabled = false, pins = [
   await page.addInitScript(SHIM, { enabled, pins });
   if (overlay) await page.addInitScript({ path: overlay });
   await page.goto(`${rig.base}/${name}`);
-  if (overlay) await page.waitForFunction((on) => document.querySelector("b42-review") && document.documentElement.hasAttribute("data-b42-review") === on, enabled);
+  if (overlay)
+    await page.waitForFunction(
+      (on) => document.querySelector("b42-review") && document.documentElement.hasAttribute("data-b42-review") === on,
+      enabled,
+    );
   const cdp = await page.context().newCDPSession(page);
   // timeTicks: the clock trace events use, so Paint events can be cut to the measured window.
   await cdp.send("Performance.enable", { timeDomain: "timeTicks" });
   return { page, cdp, errors };
 }
 
-const metrics = async (cdp) => Object.fromEntries((await cdp.send("Performance.getMetrics")).metrics.map((m) => [m.name, m.value]));
+const metrics = async (cdp) =>
+  Object.fromEntries((await cdp.send("Performance.getMetrics")).metrics.map((m) => [m.name, m.value]));
 const counters = (page) => page.evaluate(() => ({ ...window.__n }));
 
 /** Everything in METRICS (cells.mjs), per second, over the time `run` takes. */
 export async function measure({ page, cdp }, run) {
   const events = [];
-  const collect = (e) => events.push(...e.value.filter((ev) => ev.name === "Paint" || ev.name === "RasterTask" || ev.name === "GPUTask"));
+  const collect = (e) =>
+    events.push(...e.value.filter((ev) => ev.name === "Paint" || ev.name === "RasterTask" || ev.name === "GPUTask"));
   cdp.on("Tracing.dataCollected", collect);
   // (Raster tasks, the drawing of what was painted into tiles, are in the "cc" category.)
-  await cdp.send("Tracing.start", { transferMode: "ReportEvents", traceConfig: { includedCategories: ["devtools.timeline", "cc", "gpu", "disabled-by-default-devtools.timeline"] } });
+  await cdp.send("Tracing.start", {
+    transferMode: "ReportEvents",
+    traceConfig: { includedCategories: ["devtools.timeline", "cc", "gpu", "disabled-by-default-devtools.timeline"] },
+  });
   const n0 = await counters(page);
   const m0 = await metrics(cdp);
   await run();
@@ -144,7 +178,10 @@ export async function measure({ page, cdp }, run) {
   await done;
   cdp.off("Tracing.dataCollected", collect);
   const secs = m1.Timestamp - m0.Timestamp;
-  const inWindow = (name) => events.filter((ev) => ev.name === name && ev.ph === "X" && ev.ts >= m0.Timestamp * 1e6 && ev.ts <= m1.Timestamp * 1e6);
+  const inWindow = (name) =>
+    events.filter(
+      (ev) => ev.name === name && ev.ph === "X" && ev.ts >= m0.Timestamp * 1e6 && ev.ts <= m1.Timestamp * 1e6,
+    );
   const paints = inWindow("Paint");
   const total = (list) => list.reduce((sum, ev) => sum + (ev.dur || 0), 0) / 1000 / secs;
   const ms = (k) => ((m1[k] - m0[k]) * 1000) / secs;

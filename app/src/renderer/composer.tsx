@@ -55,7 +55,11 @@ function Pickers() {
     if (!m) return
     // Keep the effort level when the new model has the same one.
     const variant = current()?.variant
-    const model = { providerID: m.providerID, id: m.id, ...(variant && m.variants.includes(variant) ? { variant } : {}) }
+    const model = {
+      providerID: m.providerID,
+      id: m.id,
+      ...(variant && m.variants.includes(variant) ? { variant } : {}),
+    }
     void request(el, modelValue, b42.invoke("setModel", model))
   }
   const variant = () => current()?.variant ?? ""
@@ -67,7 +71,12 @@ function Pickers() {
           value={info()?.name ?? "Model"}
           help={`Model: ${info()?.name ?? "none chosen"}. The AI that does the work. Models marked "no screenshots" only read the notes' words.`}
         >
-          <select class="pick-native" aria-label="Model" disabled={!state.session} onChange={(e) => choose(e.currentTarget)}>
+          <select
+            class="pick-native"
+            aria-label="Model"
+            disabled={!state.session}
+            onChange={(e) => choose(e.currentTarget)}
+          >
             <Show when={!info()}>
               <option selected disabled>
                 Model
@@ -112,7 +121,13 @@ function Pickers() {
             <option value="" selected={!variant()}>
               default
             </option>
-            <For each={info()!.variants}>{(v) => <option value={v} selected={v === variant()}>{v}</option>}</For>
+            <For each={info()!.variants}>
+              {(v) => (
+                <option value={v} selected={v === variant()}>
+                  {v}
+                </option>
+              )}
+            </For>
           </select>
         </Pick>
       </Show>
@@ -128,9 +143,20 @@ const short = (word: string) => {
 
 /** A native <select>, invisible, over a label that reads in plain words: "Effort medium", or
  *  "Med" when the box is narrow. The select still takes the clicks and the keys. */
-function Pick(props: { class: string; prefix?: string; value: string; short?: string; help: string; children: JSX.Element }) {
+function Pick(props: {
+  class: string
+  prefix?: string
+  value: string
+  short?: string
+  help: string
+  children: JSX.Element
+}) {
   return (
-    <label class={`pick ${props.class}`} classList={{ off: !state.session }} title={state.session ? props.help : "Open a conversation first"}>
+    <label
+      class={`pick ${props.class}`}
+      classList={{ off: !state.session }}
+      title={state.session ? props.help : "Open a conversation first"}
+    >
       <span class="pick-text">
         <Show when={props.prefix}>
           <span class="pick-prefix">{props.prefix}</span>
@@ -201,7 +227,9 @@ function follow(before: string, after: string, list: Tracked[]): Tracked[] {
   const editEnd = before.length - s
   const delta = after.length - before.length
   return list
-    .flatMap((m) => (m.end <= p ? [m] : m.start >= editEnd ? [{ ...m, start: m.start + delta, end: m.end + delta }] : []))
+    .flatMap((m) =>
+      m.end <= p ? [m] : m.start >= editEnd ? [{ ...m, start: m.start + delta, end: m.end + delta }] : [],
+    )
     .filter((m) => after.slice(m.start, m.end) === `@${m.label}` && !WORDISH.test(after[m.end] ?? ""))
 }
 
@@ -265,7 +293,11 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
 
   // ── the server's commands, once per conversation ──
   // A note's "Follow up": its words start the message, and the box takes the keyboard.
-  createEffect(on(followUp, (f) => f && draft(text().trim() ? `${text().trimEnd()}\n${f.text}` : f.text, undefined, true), { defer: true }))
+  createEffect(
+    on(followUp, (f) => f && draft(text().trim() ? `${text().trimEnd()}\n${f.text}` : f.text, undefined, true), {
+      defer: true,
+    }),
+  )
 
   createEffect(
     on(
@@ -329,7 +361,12 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
       return [...starts, ...rest]
         .map((c, i) => ({ c, i }))
         .sort((a, b) => own(a.c) - own(b.c) || a.i - b.i)
-        .map(({ c }) => ({ key: c.name, label: `/${c.name}`, detail: c.description, group: c.builtin ? "Built in" : "From this project" }))
+        .map(({ c }) => ({
+          key: c.name,
+          label: `/${c.name}`,
+          detail: c.description,
+          group: c.builtin ? "Built in" : "From this project",
+        }))
     }
     return options()
       .map((o, i) => ({ o, i }))
@@ -357,9 +394,22 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
     return t
   })
   // A new list starts at its first row.
-  createEffect(on(() => items().map((i) => i.key).join("\n"), () => setActive(0)))
+  createEffect(
+    on(
+      () =>
+        items()
+          .map((i) => i.key)
+          .join("\n"),
+      () => setActive(0),
+    ),
+  )
   // Esc closes a menu until the reviewer starts another one somewhere else.
-  createEffect(on(() => (trigger() ? `${trigger()!.kind}:${trigger()!.start}` : ""), (key) => key !== dismissed() && setDismissed("")))
+  createEffect(
+    on(
+      () => (trigger() ? `${trigger()!.kind}:${trigger()!.start}` : ""),
+      (key) => key !== dismissed() && setDismissed(""),
+    ),
+  )
 
   const pick = (index: number) => {
     const t = menu()
@@ -378,7 +428,12 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
     const spaced = /^\s/.test(after) ? after : ` ${after}`
     const token = `@${option.label}`
     draft(t0.slice(0, t.start) + token + spaced, t.start + token.length + 1)
-    setMentions([...mentions(), { kind: option.kind, id: option.id, start: t.start, end: t.start + token.length, label: option.label }].sort((a, b) => a.start - b.start))
+    setMentions(
+      [
+        ...mentions(),
+        { kind: option.kind, id: option.id, start: t.start, end: t.start + token.length, label: option.label },
+      ].sort((a, b) => a.start - b.start),
+    )
   }
 
   // ── the tint under each mention ──
@@ -403,7 +458,13 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
     const body = raw.trim()
     if (!body || blocked()) return
     const lead = raw.length - raw.trimStart().length
-    const marks = mentions().map((m) => ({ kind: m.kind, id: m.id, start: m.start - lead, end: m.end - lead, label: m.label }))
+    const marks = mentions().map((m) => ({
+      kind: m.kind,
+      id: m.id,
+      start: m.start - lead,
+      end: m.end - lead,
+      label: m.label,
+    }))
     const pictures = images()
     const command = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(body)
     const known = command ? commands().find((c) => c.name === command[1]) : undefined
@@ -522,7 +583,11 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
       if (!(t === "" && browsing < 0 && e.key === "ArrowUp") && !recalled) return
       // Inside a recalled message of several lines the arrows move the caret first.
       const up = e.key === "ArrowUp"
-      if (recalled && (up ? t.slice(0, field.selectionStart).includes("\n") : t.slice(field.selectionEnd).includes("\n"))) return
+      if (
+        recalled &&
+        (up ? t.slice(0, field.selectionStart).includes("\n") : t.slice(field.selectionEnd).includes("\n"))
+      )
+        return
       const next = browsing + (up ? 1 : -1)
       if (next >= list.length) return
       e.preventDefault()
@@ -570,7 +635,13 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
               label={m().kind === "slash" ? "Commands" : "Files, skills and agents"}
               items={items()}
               active={active()}
-              empty={m().kind === "slash" ? "No command by that name." : answered() === m().query ? "Nothing by that name." : "Looking…"}
+              empty={
+                m().kind === "slash"
+                  ? "No command by that name."
+                  : answered() === m().query
+                    ? "Nothing by that name."
+                    : "Looking…"
+              }
               onActive={setActive}
               onPick={(i) => {
                 pick(i)
@@ -668,18 +739,22 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
               </button>
             }
           >
-          <button
-            class="icon-btn send"
-            title={busy() ? `Send when it's free (${keys("enter")}) · ${keys("mod", "enter")} interrupts now` : `Send (${keys("enter")})`}
-            aria-label="Send"
-            disabled={!text().trim() || !!blocked()}
-            onClick={() => {
-              send(false)
-              field.focus()
-            }}
-          >
-            <Icon name="send" />
-          </button>
+            <button
+              class="icon-btn send"
+              title={
+                busy()
+                  ? `Send when it's free (${keys("enter")}) · ${keys("mod", "enter")} interrupts now`
+                  : `Send (${keys("enter")})`
+              }
+              aria-label="Send"
+              disabled={!text().trim() || !!blocked()}
+              onClick={() => {
+                send(false)
+                field.focus()
+              }}
+            >
+              <Icon name="send" />
+            </button>
           </Show>
         </div>
         <Show when={dropping()}>

@@ -20,7 +20,8 @@ const PATHS = {
   terminal: "M4 5h16v14H4zM8 10l3 2.5L8 15M13 15h3",
   file: "M7 3h7l4 4v14H7zM14 3v4h4",
   search: "M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14zM16 16l4.5 4.5",
-  globe: "M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18zM3 12h18M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3z",
+  globe:
+    "M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18zM3 12h18M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3z",
   tool: "M14.5 6.5a4 4 0 0 0 5 5L11 20a2.1 2.1 0 0 1-3-3l8.5-8.5a4 4 0 0 0-2-2z",
   list: "M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01",
   check: "M5 12.5l4.5 4.5L19 7.5",
@@ -47,7 +48,8 @@ const PATHS = {
   // Drawing on the page: a pencil at the end of the line it drew (the plain pencil above is the
   // agent's file edit). Edit mode: a frame with its handles, and the code it turns into.
   draw: "M13 7C11 3.5 5 3.5 4.5 6.5 4 9.5 10.5 9 10.5 12 10.5 14.5 6 13.5 5 16M9 21l1-3.5 8-8a1.77 1.77 0 0 1 2.5 2.5l-8 8zM16.5 11l2.5 2.5",
-  frame: "M3.5 3.5h3v3h-3zM15.5 3.5h3v3h-3zM3.5 15.5h3v3h-3zM6.5 5h9M5 6.5v9M17 6.5v4M6.5 17h2M14.5 13.5L11 17l3.5 3.5M17.5 13.5L21 17l-3.5 3.5",
+  frame:
+    "M3.5 3.5h3v3h-3zM15.5 3.5h3v3h-3zM3.5 15.5h3v3h-3zM6.5 5h9M5 6.5v9M17 6.5v4M6.5 17h2M14.5 13.5L11 17l3.5 3.5M17.5 13.5L21 17l-3.5 3.5",
   // Motion mode, and a motion note: a ball, and the lines it leaves behind.
   motion: "M16.5 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10zM3 9.5h6.5M1.5 12h7M3 14.5h6.5",
   sound: "M4 9.5h3.5L12 6v12l-4.5-3.5H4zM15.5 9.5a3.5 3.5 0 0 1 0 5M18 7a7 7 0 0 1 0 10",

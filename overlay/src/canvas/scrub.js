@@ -40,7 +40,11 @@ export function scrubbable(btn) {
     }
     d.acc += (e.clientX - d.last) * (e.shiftKey ? 10 : e.altKey ? 0.1 : 1);
     d.last = e.clientX;
-    liveValue(d.row.children[1], d.text.slice(0, d.token.start) + step(d.token, d.acc) + d.text.slice(d.token.end), true);
+    liveValue(
+      d.row.children[1],
+      d.text.slice(0, d.token.start) + step(d.token, d.acc) + d.text.slice(d.token.end),
+      true,
+    );
   });
   const up = () => {
     const d = D;

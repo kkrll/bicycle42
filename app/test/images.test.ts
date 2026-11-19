@@ -41,10 +41,16 @@ class Fake {
 
 const frame = (width: number, height: number, log: string[], name = "shot") =>
   new Fake(width, height, { x: 0, y: 0, w: width, h: height }, log, name) as Frame
-const shown = (uri: string): Shown => JSON.parse(Buffer.from(uri.slice("data:image/jpeg;base64,".length), "base64").toString())
+const shown = (uri: string): Shown =>
+  JSON.parse(Buffer.from(uri.slice("data:image/jpeg;base64,".length), "base64").toString())
 
 /** The pictures as the app made them before: every one cropped, then scaled, from the frame. */
-function reference(size: { width: number; height: number }, note: Where, n: number, before: boolean): Array<{ name: string } & Shown> {
+function reference(
+  size: { width: number; height: number },
+  note: Where,
+  n: number,
+  before: boolean,
+): Array<{ name: string } & Shown> {
   const fit = (w: number, h: number, max: number) => {
     const k = Math.min(1, max / Math.max(w, h))
     return k < 1 ? { width: Math.round(w * k), height: Math.round(h * k) } : { width: w, height: h }
@@ -65,35 +71,72 @@ function reference(size: { width: number; height: number }, note: Where, n: numb
           { name: `note-${n}-after.jpg`, ...whole },
         ]
       : [{ name: `note-${n}.jpg`, ...whole }]
-  const area = { x: Math.round(x0 * s), y: Math.round(y0 * s), w: Math.min(size.width, Math.round((x1 - x0) * s)), h: Math.min(size.height, Math.round((y1 - y0) * s)) }
+  const area = {
+    x: Math.round(x0 * s),
+    y: Math.round(y0 * s),
+    w: Math.min(size.width, Math.round((x1 - x0) * s)),
+    h: Math.min(size.height, Math.round((y1 - y0) * s)),
+  }
   const crop = { ...fit(area.w, area.h, 1200), region: area }
   return [
     ...(before ? [{ name: `note-${n}-before-area.jpg`, ...crop }] : []),
     { name: before ? `note-${n}-after-area.jpg` : `note-${n}-area.jpg`, ...crop },
-    { name: `note-${n}-viewport.jpg`, ...fit(size.width, size.height, 600), region: { x: 0, y: 0, w: size.width, h: size.height } },
+    {
+      name: `note-${n}-viewport.jpg`,
+      ...fit(size.width, size.height, 600),
+      region: { x: 0, y: 0, w: size.width, h: size.height },
+    },
   ]
 }
 
 const viewport = { w: 1440, h: 900, dpr: 2, scrollX: 0, scrollY: 0 }
 const CASES: Array<[string, { width: number; height: number }, Where]> = [
-  ["a small area on a retina frame", { width: 2880, height: 1800 }, { viewport, bounds: { x: 300, y: 200, w: 400, h: 220 } }],
-  ["a wide area that has to be scaled down", { width: 2880, height: 1800 }, { viewport, bounds: { x: 100, y: 100, w: 900, h: 400 } }],
+  [
+    "a small area on a retina frame",
+    { width: 2880, height: 1800 },
+    { viewport, bounds: { x: 300, y: 200, w: 400, h: 220 } },
+  ],
+  [
+    "a wide area that has to be scaled down",
+    { width: 2880, height: 1800 },
+    { viewport, bounds: { x: 100, y: 100, w: 900, h: 400 } },
+  ],
   ["a tall narrow area", { width: 2880, height: 1800 }, { viewport, bounds: { x: 600, y: 0, w: 100, h: 800 } }],
-  ["an area at the frame's far corner", { width: 2880, height: 1800 }, { viewport, bounds: { x: 700, y: 400, w: 740, h: 500 } }],
+  [
+    "an area at the frame's far corner",
+    { width: 2880, height: 1800 },
+    { viewport, bounds: { x: 700, y: 400, w: 740, h: 500 } },
+  ],
   ["an odd scale", { width: 2160, height: 1350 }, { viewport, bounds: { x: 333, y: 111, w: 777, h: 345 } }],
   ["a small area at 1x", { width: 1440, height: 900 }, { viewport, bounds: { x: 300, y: 200, w: 400, h: 220 } }],
   ["no selection", { width: 2880, height: 1800 }, { viewport, bounds: null }],
-  ["an area covering most of the viewport", { width: 2880, height: 1800 }, { viewport, bounds: { x: 0, y: 0, w: 1400, h: 880 } }],
-  ["a frame smaller than the picture", { width: 1000, height: 625 }, { viewport: { ...viewport, w: 1000, h: 625 }, bounds: null }],
+  [
+    "an area covering most of the viewport",
+    { width: 2880, height: 1800 },
+    { viewport, bounds: { x: 0, y: 0, w: 1400, h: 880 } },
+  ],
+  [
+    "a frame smaller than the picture",
+    { width: 1000, height: 625 },
+    { viewport: { ...viewport, w: 1000, h: 625 }, bounds: null },
+  ],
 ]
 
 for (const [name, size, note] of CASES)
   for (const before of [false, true])
     test(`note pictures, ${name}${before ? ", with a before picture" : ""}: the same names, sizes and crops as cropping and scaling each from the frame`, async () => {
       const log: string[] = []
-      const got = await noteImages(frame(size.width, size.height, log), note, 7, before ? frame(size.width, size.height, log, "before") : undefined)
+      const got = await noteImages(
+        frame(size.width, size.height, log),
+        note,
+        7,
+        before ? frame(size.width, size.height, log, "before") : undefined,
+      )
       const want = reference(size, note, 7, before)
-      assert.deepEqual(got.map((f) => f.name), want.map((f) => f.name))
+      assert.deepEqual(
+        got.map((f) => f.name),
+        want.map((f) => f.name),
+      )
       got.forEach((f, i) => {
         const g = shown(f.uri)
         const w = want[i]!
@@ -101,7 +144,10 @@ for (const [name, size, note] of CASES)
         // Cut from a scaled frame, an edge may move by one scaled pixel.
         const slack = Math.max(size.width / g.width, size.height / g.height) + 0.5
         for (const k of ["x", "y", "w", "h"] as const)
-          assert.ok(Math.abs(g.region[k] - w.region[k]) <= slack, `${f.name}: ${k} ${g.region[k]} vs ${w.region[k]} (±${slack.toFixed(2)})`)
+          assert.ok(
+            Math.abs(g.region[k] - w.region[k]) <= slack,
+            `${f.name}: ${k} ${g.region[k]} vs ${w.region[k]} (±${slack.toFixed(2)})`,
+          )
       })
       // Each frame is scaled at full size once at most, and never encoded at full size unless
       // that is the picture's own size.
@@ -110,7 +156,10 @@ for (const [name, size, note] of CASES)
         assert.ok(full <= 1, `${which} scaled at full size ${full} times: ${log.join(", ")}`)
       }
       const encoded = log.filter((l) => l.includes(" jpeg ")).map((l) => l.split(" jpeg ")[1])
-      assert.deepEqual(encoded, got.map((f) => `${shown(f.uri).width}x${shown(f.uri).height}`))
+      assert.deepEqual(
+        encoded,
+        got.map((f) => `${shown(f.uri).width}x${shown(f.uri).height}`),
+      )
     })
 
 test("the picture after the agent is done is the first picture alone: no thumbnail is made for it", async () => {

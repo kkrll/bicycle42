@@ -22,7 +22,8 @@ function buildRows() {
   const walk = (el, depth) => {
     if (rows.length >= 20000) return;
     rows.push({ el, depth });
-    if (T.open.has(el)) for (let c = el.firstElementChild; c; c = c.nextElementSibling) if (!SKIP.test(c.tagName)) walk(c, depth + 1);
+    if (T.open.has(el))
+      for (let c = el.firstElementChild; c; c = c.nextElementSibling) if (!SKIP.test(c.tagName)) walk(c, depth + 1);
   };
   if (document.body) {
     if (!T.init) T.open.add((T.init = document.body));
@@ -42,7 +43,8 @@ export function reveal(el) {
   // Where to scroll is only noted here. drawTree scrolls, after it has made the pane tall enough
   // for the rows just opened: scrolling first is cut short at the old height by the browser, and
   // the rows were then drawn for a place the pane never reached (a blank pane until touched).
-  if (i >= 0 && (i * ROW < T.scroll || (i + 1) * ROW > T.scroll + h)) T.want = Math.max(0, i * ROW - Math.floor(h / 2 / ROW) * ROW);
+  if (i >= 0 && (i * ROW < T.scroll || (i + 1) * ROW > T.scroll + h))
+    T.want = Math.max(0, i * ROW - Math.floor(h / 2 / ROW) * ROW);
   T.need = true;
 }
 const treeHeight = () => Math.max(ROW, C.ph - 31);
@@ -94,7 +96,8 @@ export function drawTree() {
     const names = (el.getAttribute("class") || "").trim();
     // A short preview of the element's own words (not its children's).
     let words = "";
-    for (let c = el.firstChild, k = 0; c && k < 12 && words.length < 40; c = c.nextSibling, k++) if (c.nodeType === 3) words += c.data;
+    for (let c = el.firstChild, k = 0; c && k < 12 && words.length < 40; c = c.nextSibling, k++)
+      if (c.nodeType === 3) words += c.data;
     words = line(words);
     const parts = [
       hasKids(el) ? (T.open.has(el) ? "open" : "shut") : "none",
@@ -123,4 +126,3 @@ export function treeKey(key) {
     else if (el !== document.body && el.parentElement) select(el.parentElement);
   }
 }
-

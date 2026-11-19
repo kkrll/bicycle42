@@ -31,8 +31,10 @@ function placeBox(div, r, cls, dpr) {
   if (div._cls !== cls) div.className = `box ${(div._cls = cls)}`;
   // Its edges on whole device pixels: a strip that starts part of a pixel in is drawn blurred
   // over two (one bordered box was snapped as a whole).
-  const x = Math.round(r.x * dpr) / dpr, y = Math.round(r.y * dpr) / dpr;
-  const w = Math.round((r.x + r.w) * dpr) / dpr - x, h = Math.round((r.y + r.h) * dpr) / dpr - y;
+  const x = Math.round(r.x * dpr) / dpr,
+    y = Math.round(r.y * dpr) / dpr;
+  const w = Math.round((r.x + r.w) * dpr) / dpr - x,
+    h = Math.round((r.y + r.h) * dpr) / dpr - y;
   div.style.transform = `translate(${x}px, ${y}px)`;
   div.style.width = `${w}px`;
   div.style.height = `${h}px`;
@@ -79,7 +81,8 @@ const onScroll = (/** @type {Event} */ e) => {
  *  any that el is in is one of them (the style of every ancestor of 200 pins is too much to read
  *  four times a second). */
 function inFixed(el) {
-  for (let n = el; n; n = "offsetParent" in n ? n.offsetParent : n.parentElement) { // (an svg element has none)
+  for (let n = el; n; n = "offsetParent" in n ? n.offsetParent : n.parentElement) {
+    // (an svg element has none)
     const pos = getComputedStyle(n).position;
     if (pos === "fixed" || pos === "sticky") return true;
   }
@@ -96,8 +99,17 @@ function pinAt(p, now) {
     // class that makes a box sticky is not a DOM change); not with every measure.
     const check = changed || !m.at || now - m.ft >= FIXED_CHECK_MS;
     const fixed = !!at && (check ? inFixed(p.el) : m.fixed);
-    m = p.measured = { el: p.el, at: at && !fixed ? [at[0] + VP.sx, at[1] + VP.sy] : at, fixed, ft: check ? now : m.ft,
-      dom: domVersion, scrolls: innerScrolls, w: VP.w, h: VP.h, t: now };
+    m = p.measured = {
+      el: p.el,
+      at: at && !fixed ? [at[0] + VP.sx, at[1] + VP.sy] : at,
+      fixed,
+      ft: check ? now : m.ft,
+      dom: domVersion,
+      scrolls: innerScrolls,
+      w: VP.w,
+      h: VP.h,
+      t: now,
+    };
   }
   return m.at && (m.fixed ? m.at : [m.at[0] - VP.sx, m.at[1] - VP.sy]);
 }
@@ -225,7 +237,14 @@ function frame() {
   render();
   // Through kick(): something in render() may have asked for the next frame already, and a
   // second request here would start a second chain (two renders a frame until the selection goes).
-  if (S.drag || S.pending || Canvas.busyFrames() || Motion.busyFrames() || performance.now() - lastInput < ACTIVE_MS || (S.enabled && animating(S.sel)))
+  if (
+    S.drag ||
+    S.pending ||
+    Canvas.busyFrames() ||
+    Motion.busyFrames() ||
+    performance.now() - lastInput < ACTIVE_MS ||
+    (S.enabled && animating(S.sel))
+  )
     kick();
   else if ((S.enabled || S.pins.length) && !idleTimer)
     idleTimer = setTimeout(() => {
@@ -237,4 +256,3 @@ function frame() {
 export function kick() {
   if (!raf && root) raf = requestAnimationFrame(frame);
 }
-

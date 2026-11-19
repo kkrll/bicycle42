@@ -22,7 +22,11 @@ try {
 // a dark olive on a light page, pale yellow on a dark one. The card and its chips are always dark.
 function pageAccent() {
   for (const el of [document.body, document.documentElement]) {
-    const m = el && /** @type {any} */ (/rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/.exec(getComputedStyle(el).backgroundColor));
+    const m =
+      el &&
+      /** @type {any} */ (
+        /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/.exec(getComputedStyle(el).backgroundColor)
+      );
     if (m && (m[4] === undefined || Number(m[4]) > 0.5))
       return 0.2126 * m[1] + 0.7152 * m[2] + 0.0722 * m[3] < 110 ? "#fffaa0" : "#3b4d22";
   }
@@ -50,13 +54,16 @@ function scanVariants() {
   }
   if (V.version === treeVersion) return; // only when elements came or went: a text that changes is no new group
   V.version = treeVersion;
-  V.groups = [...document.querySelectorAll("[data-b42-variants]")].slice(0, 12).map((el) => {
-    const id = el.getAttribute("data-b42-variants") || "";
-    const options = [...el.children]
-      .filter((c) => c.hasAttribute("data-b42-variant"))
-      .map((c) => ({ k: c.getAttribute("data-b42-variant"), label: c.getAttribute("data-b42-label") || "", el: c }));
-    return { id, el, options };
-  }).filter((g) => g.id && g.options.length > 1);
+  V.groups = [...document.querySelectorAll("[data-b42-variants]")]
+    .slice(0, 12)
+    .map((el) => {
+      const id = el.getAttribute("data-b42-variants") || "";
+      const options = [...el.children]
+        .filter((c) => c.hasAttribute("data-b42-variant"))
+        .map((c) => ({ k: c.getAttribute("data-b42-variant"), label: c.getAttribute("data-b42-label") || "", el: c }));
+      return { id, el, options };
+    })
+    .filter((g) => g.id && g.options.length > 1);
   let css = "";
   for (const g of V.groups) {
     if (!g.options.some((o) => o.k === V.choice[g.id])) V.choice[g.id] = g.options[0].k;
@@ -108,7 +115,12 @@ function makeVariantBar() {
   const keep = button("Keep", "Keep this variant and delete the others", keepVariant);
   keep.className = "vkeep";
   // Both arrows lead, so they stay put while the label's width changes from variant to variant.
-  bar.append(button("chevron-left", "Previous variant", (g) => chooseVariant(g, -1)), button("chevron-right", "Next variant", (g) => chooseVariant(g, 1)), name, keep);
+  bar.append(
+    button("chevron-left", "Previous variant", (g) => chooseVariant(g, -1)),
+    button("chevron-right", "Next variant", (g) => chooseVariant(g, 1)),
+    name,
+    keep,
+  );
   return bar;
 }
 
@@ -131,4 +143,3 @@ export function drawVariants(capturing) {
     bar.style.transform = `translate(${x}px, ${y}px)`;
   });
 }
-

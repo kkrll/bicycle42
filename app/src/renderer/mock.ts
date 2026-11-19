@@ -114,9 +114,11 @@ After that, the cards' own spacing is next in line.`
 const STEERED = `Switching to that now. I've left the card order as it was and moved on to the green: the primary buttons use \`brand-600\`, the same token as the logo.`
 
 const COMMAND_REPLY: Record<string, string> = {
-  review: "I looked over the **3 files** changed since the last commit:\n\n- `Hero.tsx`: the padding change is consistent with the navigation.\n- `PrimaryNavigation.tsx`: hidden below `md`, as asked.\n- `Footer.tsx`: one unused variable, `year`. Worth removing.",
+  review:
+    "I looked over the **3 files** changed since the last commit:\n\n- `Hero.tsx`: the padding change is consistent with the navigation.\n- `PrimaryNavigation.tsx`: hidden below `md`, as asked.\n- `Footer.tsx`: one unused variable, `year`. Worth removing.",
   test: "Ran `npm test`: **42 passed**, none failed. Nothing to fix.",
-  explain: "The pricing page is `src/pages/pricing.tsx`. It renders three `PricingCard`s from `src/data/plans.ts`; the highlighted card is the one with `featured: true`.",
+  explain:
+    "The pricing page is `src/pages/pricing.tsx`. It renders three `PricingCard`s from `src/data/plans.ts`; the highlighted card is the one with `featured: true`.",
   undo: "Put back `src/components/Hero.tsx` as it was before my last edit.",
   compact: "Summarised the conversation so far. Earlier messages are folded into that summary.",
   init: "Wrote `AGENTS.md` with the build and test commands, the folder layout and the styling conventions (Tailwind, no CSS modules).",
@@ -192,7 +194,9 @@ function notes(): NoteRow[] {
     status,
     lane: "main",
     // A conversation has taken every note that waits, is worked on or is done.
-    ...(status === "queued" || status === "working" || status === "done" ? { sent: true as const, session: extra.lane === "bg" ? "s-bg" : SESSION } : {}),
+    ...(status === "queued" || status === "working" || status === "done"
+      ? { sent: true as const, session: extra.lane === "bg" ? "s-bg" : SESSION }
+      : {}),
     ...extra,
   })
   return [
@@ -264,7 +268,14 @@ function transcript(): ChatItem[] {
           key: "r1",
           text: "The note points at the hero section. It currently has pl-4; the reviewer wants pl-8.\nThe lead paragraph also overflows at this width, worth capping while I am here.",
         },
-        { kind: "tool", key: "t1", name: "read", status: "done", title: "read src/components/Hero.tsx", detail: "42 lines" },
+        {
+          kind: "tool",
+          key: "t1",
+          name: "read",
+          status: "done",
+          title: "read src/components/Hero.tsx",
+          detail: "42 lines",
+        },
         {
           kind: "tool",
           key: "t2",
@@ -273,7 +284,11 @@ function transcript(): ChatItem[] {
           title: "edit src/components/Hero.tsx",
           changes: [change("src/components/Hero.tsx", PATCH_HERO)],
         },
-        { kind: "text", key: "x1", text: "The hero now uses `pl-8`, and its lead paragraph is capped at a readable width." },
+        {
+          kind: "text",
+          key: "x1",
+          text: "The hero now uses `pl-8`, and its lead paragraph is capped at a readable width.",
+        },
       ],
     },
     user("u2", 2, "hide on mobile"),
@@ -297,7 +312,8 @@ function transcript(): ChatItem[] {
           name: "bash",
           status: "error",
           title: "run npm run lint",
-          detail: "> acme-store@0.4.0 lint\n> eslint src\n\nsrc/components/Footer.tsx\n  18:7  error  'year' is assigned a value but never used  no-unused-vars\n\n1 problem (1 error, 0 warnings)",
+          detail:
+            "> acme-store@0.4.0 lint\n> eslint src\n\nsrc/components/Footer.tsx\n  18:7  error  'year' is assigned a value but never used  no-unused-vars\n\n1 problem (1 error, 0 warnings)",
           error: "Exit code 1",
         },
         {
@@ -314,7 +330,13 @@ function transcript(): ChatItem[] {
       id: "a3",
       time: t,
       done: true,
-      parts: [{ kind: "text", key: "x1", text: "They do. The footer links share the navigation's grid, so the hero change moved them too." }],
+      parts: [
+        {
+          kind: "text",
+          key: "x1",
+          text: "They do. The footer links share the navigation's grid, so the hero change moved them too.",
+        },
+      ],
     },
     user("u-n3", 3, "make this the primary button style"),
     {
@@ -335,7 +357,14 @@ function transcript(): ChatItem[] {
       time: t,
       done: false,
       parts: [
-        { kind: "tool", key: "t1", name: "read", status: "done", title: "read src/components/Hero.tsx", detail: "42 lines" },
+        {
+          kind: "tool",
+          key: "t1",
+          name: "read",
+          status: "done",
+          title: "read src/components/Hero.tsx",
+          detail: "42 lines",
+        },
         { kind: "tool", key: "t2", name: "grep", status: "running", title: "search gap- in src/components" },
       ],
     },
@@ -370,17 +399,63 @@ function base(): AppState {
         { file: "src/components/pricing/Faq.tsx", additions: 18, deletions: 0, status: "added" },
       ],
     },
-    session: { id: SESSION, title: "Pricing page review", updated: now, busy: false, agent: "build", directory: DIRECTORY },
+    session: {
+      id: SESSION,
+      title: "Pricing page review",
+      updated: now,
+      busy: false,
+      agent: "build",
+      directory: DIRECTORY,
+    },
     sessions: [
-      { id: "s-3", title: "Homepage spacing", updated: now - 26 * HOUR, busy: false, directory: DIRECTORY, pinned: true, notes: 4, said: "more air under the hero\nthe logos row is too tight" },
-      { id: SESSION, title: "Pricing page review", updated: now, busy: false, directory: DIRECTORY, notes: 7, said: "make this button bigger\nalign the plan cards" },
-      { id: "s-2", title: "Checkout: mobile pass with a deliberately long title that has to be cut", updated: now - 2 * HOUR, busy: true, directory: DIRECTORY, notes: 1, said: "the pay button is under the keyboard" },
+      {
+        id: "s-3",
+        title: "Homepage spacing",
+        updated: now - 26 * HOUR,
+        busy: false,
+        directory: DIRECTORY,
+        pinned: true,
+        notes: 4,
+        said: "more air under the hero\nthe logos row is too tight",
+      },
+      {
+        id: SESSION,
+        title: "Pricing page review",
+        updated: now,
+        busy: false,
+        directory: DIRECTORY,
+        notes: 7,
+        said: "make this button bigger\nalign the plan cards",
+      },
+      {
+        id: "s-2",
+        title: "Checkout: mobile pass with a deliberately long title that has to be cut",
+        updated: now - 2 * HOUR,
+        busy: true,
+        directory: DIRECTORY,
+        notes: 1,
+        said: "the pay button is under the keyboard",
+      },
       { id: "s-4", title: "Dark mode contrast", updated: now - 12 * 24 * HOUR, busy: false, directory: DIRECTORY },
     ],
     models: [
-      { providerID: "anthropic", id: "sonnet-4-5", name: "Sonnet 4.5", images: true, variants: ["low", "medium", "high"], context: 200_000 },
+      {
+        providerID: "anthropic",
+        id: "sonnet-4-5",
+        name: "Sonnet 4.5",
+        images: true,
+        variants: ["low", "medium", "high"],
+        context: 200_000,
+      },
       { providerID: "anthropic", id: "haiku-4-5", name: "Haiku 4.5", images: true, variants: [], context: 200_000 },
-      { providerID: "openai", id: "gpt-5", name: "GPT-5", images: true, variants: ["minimal", "high"], context: 400_000 },
+      {
+        providerID: "openai",
+        id: "gpt-5",
+        name: "GPT-5",
+        images: true,
+        variants: ["minimal", "high"],
+        context: 400_000,
+      },
       { providerID: "local", id: "qwen-coder", name: "Qwen Coder 32B", images: false, variants: [] },
     ],
     agents: [
@@ -392,7 +467,12 @@ function base(): AppState {
     questions: [],
     running: [
       { id: "sh_1", directory: DIRECTORY, command: "npm run dev -- --port 3000", started: now - 42 * 60_000 },
-      { id: "sh_2", directory: "/home/dev/code/blog", command: "pnpm astro dev --host 0.0.0.0 --port 4321", started: now - 26 * 3_600_000 },
+      {
+        id: "sh_2",
+        directory: "/home/dev/code/blog",
+        command: "pnpm astro dev --host 0.0.0.0 --port 4321",
+        started: now - 26 * 3_600_000,
+      },
     ],
   }
 }
@@ -445,12 +525,27 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   const sid = () => state.session?.id ?? ""
   let serial = 0
   /** The conversations put away. */
-  let put: SessionSummary[] = [{ id: "s-9", title: "Footer links", updated: Date.now() - 40 * 24 * HOUR, busy: false, directory: DIRECTORY, archived: true }]
+  let put: SessionSummary[] = [
+    {
+      id: "s-9",
+      title: "Footer links",
+      updated: Date.now() - 40 * 24 * HOUR,
+      busy: false,
+      directory: DIRECTORY,
+      archived: true,
+    },
+  ]
 
   /** Streams `text` into a new assistant item the way the server does: small deltas over time. */
   function stream(text: string, done: () => void = () => {}, pace = 16) {
     const id = `a-${++serial}`
-    const item: ChatAssistant = { kind: "assistant", id, time: Date.now(), done: false, parts: [{ kind: "text", key: "x", text: "" }] }
+    const item: ChatAssistant = {
+      kind: "assistant",
+      id,
+      time: Date.now(),
+      done: false,
+      parts: [{ kind: "text", key: "x", text: "" }],
+    }
     emit({ type: "item", session: sid(), item })
     state.session && (state.session.busy = true)
     push()
@@ -472,8 +567,16 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     stop = (why = "Stopped", proceed = true) => {
       stop = () => {}
       clearInterval(timer)
-      emit({ type: "item", session: sid(), item: { ...item, done: true, parts: [{ kind: "text", key: "x", text: text.slice(0, at) }] } })
-      emit({ type: "item", session: sid(), item: { kind: "marker", id: `m-${++serial}`, time: Date.now(), text: why, tone: "info" } })
+      emit({
+        type: "item",
+        session: sid(),
+        item: { ...item, done: true, parts: [{ kind: "text", key: "x", text: text.slice(0, at) }] },
+      })
+      emit({
+        type: "item",
+        session: sid(),
+        item: { kind: "marker", id: `m-${++serial}`, time: Date.now(), text: why, tone: "info" },
+      })
       settle(why === "Redirected" ? "Set aside for your newer message." : "Stopped before it finished.")
       if (proceed) next()
       else push()
@@ -499,7 +602,10 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   function takeBackWay(id: string): "undone" | "asked" {
     const note = state.review.notes.find((n) => n.id === id)
     const newest = state.review.notes.filter((n) => n.session === note?.session && n.status === "done").at(-1)
-    const busy = note?.session === state.session?.id ? state.session?.busy : state.sessions.find((s) => s.id === note?.session)?.busy
+    const busy =
+      note?.session === state.session?.id
+        ? state.session?.busy
+        : state.sessions.find((s) => s.id === note?.session)?.busy
     return note && note === newest && !busy ? "undone" : "asked"
   }
   /** The next waiting message gets its turn, or the agent goes idle. */
@@ -546,7 +652,13 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   if (full > 0) state.context = { used: Math.round(full * 200_000), limit: 200_000 }
   switch (scenario) {
     case "connect":
-      Object.assign(state, { ...base(), connection: { status: "unconfigured" }, site: null, session: null, sessions: [] })
+      Object.assign(state, {
+        ...base(),
+        connection: { status: "unconfigured" },
+        site: null,
+        session: null,
+        sessions: [],
+      })
       state.page.url = ""
       state.review.notes = []
       items = []
@@ -576,8 +688,20 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }
       state.review = { enabled: false, mode: "preview", brush: false, autoReload: false, notes: [], unplaced: 0 }
       state.models = [
-        { providerID: "anthropic", id: "opus-4-5", name: "Opus 4.5", images: true, variants: ["low", "medium", "high"] },
-        { providerID: "anthropic", id: "sonnet-4-5", name: "Sonnet 4.5", images: true, variants: ["low", "medium", "high"] },
+        {
+          providerID: "anthropic",
+          id: "opus-4-5",
+          name: "Opus 4.5",
+          images: true,
+          variants: ["low", "medium", "high"],
+        },
+        {
+          providerID: "anthropic",
+          id: "sonnet-4-5",
+          name: "Sonnet 4.5",
+          images: true,
+          variants: ["low", "medium", "high"],
+        },
         { providerID: "anthropic", id: "haiku-4-5", name: "Haiku 4.5", images: true, variants: [] },
         { providerID: "openai", id: "gpt-5", name: "GPT-5", images: true, variants: ["minimal", "high"] },
         { providerID: "openai", id: "gpt-5-mini", name: "GPT-5 mini", images: true, variants: [] },
@@ -591,7 +715,10 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
         { providerID: "local", id: "phi-4", name: "Phi-4 14B", images: false, variants: [] },
       ]
       state.defaultModel = { providerID: "anthropic", id: "opus-4-5" }
-      state.modelChoice = { suggested: { providerID: "anthropic", id: "opus-4-5" }, ...(params.has("previous") ? { previous: { providerID: "anthropic", id: "sonnet-4" } } : {}) }
+      state.modelChoice = {
+        suggested: { providerID: "anthropic", id: "opus-4-5" },
+        ...(params.has("previous") ? { previous: { providerID: "anthropic", id: "sonnet-4" } } : {}),
+      }
       items = []
       break
     case "canvas":
@@ -621,14 +748,26 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
           resources: ["src/components/marketing/navigation/PrimaryNavigation.tsx"],
           changes: [change("src/components/marketing/navigation/PrimaryNavigation.tsx", PATCH_NAV)],
         },
-        { id: "p2", session: "s-bg", action: "bash", resources: ["npm run build -- --filter=storefront"], message: "Checks that the page still builds." },
+        {
+          id: "p2",
+          session: "s-bg",
+          action: "bash",
+          resources: ["npm run build -- --filter=storefront"],
+          message: "Checks that the page still builds.",
+        },
       ]
       break
     case "long": {
       const log = Array.from({ length: 46 }, (_, i) =>
-        i % 9 === 0 ? `\n src/components/${["Hero", "Footer", "PricingCard", "Header", "Button", "Nav"][i % 6]}.test.tsx` : `   ✓ renders the ${["heading", "lead", "button", "links", "card", "price"][i % 6]} at ${320 + i * 40}px (${3 + (i % 7)} ms)`,
+        i % 9 === 0
+          ? `\n src/components/${["Hero", "Footer", "PricingCard", "Header", "Button", "Nav"][i % 6]}.test.tsx`
+          : `   ✓ renders the ${["heading", "lead", "button", "links", "card", "price"][i % 6]} at ${320 + i * 40}px (${3 + (i % 7)} ms)`,
       ).join("\n")
-      const code = Array.from({ length: 34 }, (_, i) => `  { name: "${["Starter", "Team", "Business"][i % 3]}", price: ${(i + 1) * 4}, seats: ${i + 2}, featured: ${i % 3 === 1} },`).join("\n")
+      const code = Array.from(
+        { length: 34 },
+        (_, i) =>
+          `  { name: "${["Starter", "Team", "Business"][i % 3]}", price: ${(i + 1) * 4}, seats: ${i + 2}, featured: ${i % 3 === 1} },`,
+      ).join("\n")
       items = items.filter((i) => i.id !== TURN && !(i.kind === "user" && i.pending))
       const longLine = `--- a/src/pages/pricing.tsx
 +++ b/src/pages/pricing.tsx
@@ -639,16 +778,43 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
        {plans.map((plan) => <PricingCard key={plan.name} {...plan} />)}
 `
       items.push(
-        { kind: "user", id: "u-long", time: Date.now(), text: "Run the tests, then show me the plans file", images: [] },
+        {
+          kind: "user",
+          id: "u-long",
+          time: Date.now(),
+          text: "Run the tests, then show me the plans file",
+          images: [],
+        },
         {
           kind: "assistant",
           id: "a-long",
           time: Date.now(),
           done: true,
           parts: [
-            { kind: "tool", key: "t1", name: "bash", status: "done", title: "run npm test", detail: log + "\n\n Tests  46 passed (46)" },
-            { kind: "tool", key: "t2", name: "edit", status: "done", title: "edit src/pages/pricing.tsx", changes: [change("src/pages/pricing.tsx", longLine)] },
-            { kind: "text", key: "x1", text: "All 46 tests pass. Here is `src/data/plans.ts`:\n\n```ts\nexport const plans = [\n" + code + "\n]\n```\n\nThe featured plan is the one in the middle." },
+            {
+              kind: "tool",
+              key: "t1",
+              name: "bash",
+              status: "done",
+              title: "run npm test",
+              detail: log + "\n\n Tests  46 passed (46)",
+            },
+            {
+              kind: "tool",
+              key: "t2",
+              name: "edit",
+              status: "done",
+              title: "edit src/pages/pricing.tsx",
+              changes: [change("src/pages/pricing.tsx", longLine)],
+            },
+            {
+              kind: "text",
+              key: "x1",
+              text:
+                "All 46 tests pass. Here is `src/data/plans.ts`:\n\n```ts\nexport const plans = [\n" +
+                code +
+                "\n]\n```\n\nThe featured plan is the one in the middle.",
+            },
           ],
         },
       )
@@ -691,13 +857,22 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       Object.assign(state, { session: null, sessions: [] })
       state.review.notes = []
       state.review.unplaced = 0
-      items = [{ kind: "marker", id: "m-open", time: Date.now(), text: "Can't open a conversation: the folder /home/dev/code/acme/storefront no longer exists.", tone: "error" }]
+      items = [
+        {
+          kind: "marker",
+          id: "m-open",
+          time: Date.now(),
+          text: "Can't open a conversation: the folder /home/dev/code/acme/storefront no longer exists.",
+          tone: "error",
+        },
+      ]
       break
     case "offline":
       state.connection = { status: "offline", url: "http://my-box.example:4096", error: "The connection was refused." }
       break
     case "pageerror":
-      state.page.url = "http://a-very-long-development-hostname.some-team.example:3000/products/category/shoes?sort=price&direction=ascending&page=4"
+      state.page.url =
+        "http://a-very-long-development-hostname.some-team.example:3000/products/category/shoes?sort=price&direction=ascending&page=4"
       state.page.error = "The connection was refused (ERR_CONNECTION_REFUSED)."
       break
     case "stress-code":
@@ -721,15 +896,22 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   const live = items.some((i) => i.kind === "assistant" && !i.done) || (scenario === "busy" && items.length > 0)
   if (live && state.session) {
     for (const i of items)
-      if (i.kind === "user" && i.pending) queue.push({ id: i.id, n: i.note?.n, reply: (i.note && NOTE_REPLY[i.note.n]) ?? REPLY })
+      if (i.kind === "user" && i.pending)
+        queue.push({ id: i.id, n: i.note?.n, reply: (i.note && NOTE_REPLY[i.note.n]) ?? REPLY })
     state.session.busy = true
     const still = items.find((i): i is ChatAssistant => i.id === TURN && i.kind === "assistant")
     if (still)
       stop = (why = "Stopped", proceed = true) => {
         stop = () => {}
-        const parts = still.parts.map((p) => (p.kind === "tool" && p.status === "running" ? { ...p, status: "done" as const } : p))
+        const parts = still.parts.map((p) =>
+          p.kind === "tool" && p.status === "running" ? { ...p, status: "done" as const } : p,
+        )
         emit({ type: "item", session: sid(), item: { ...still, done: true, parts } })
-        emit({ type: "item", session: sid(), item: { kind: "marker", id: `m-${++serial}`, time: Date.now(), text: why, tone: "info" } })
+        emit({
+          type: "item",
+          session: sid(),
+          item: { kind: "marker", id: `m-${++serial}`, time: Date.now(), text: why, tone: "info" },
+        })
         settle(why === "Redirected" ? "Set aside for your newer message." : "Stopped before it finished.")
         if (proceed) next()
         else push()
@@ -742,9 +924,16 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
 
   const page = fakePage(state.review.notes.length > 0)
 
-  const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => ReturnType<Commands[K]> | Promise<ReturnType<Commands[K]>> } = {
+  const commands: {
+    [K in CommandName]: (...args: Parameters<Commands[K]>) => ReturnType<Commands[K]> | Promise<ReturnType<Commands[K]>>
+  } = {
     navigate(url) {
-      state.page = { ...state.page, url: /^https?:/.test(url) ? url : `http://${url}`, error: undefined, canGoBack: true }
+      state.page = {
+        ...state.page,
+        url: /^https?:/.test(url) ? url : `http://${url}`,
+        error: undefined,
+        canGoBack: true,
+      }
       state.site ??= { origin: ORIGIN }
       push()
     },
@@ -758,7 +947,15 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     setPageBounds(bounds: Rect | null) {
       page.style.display = bounds ? "block" : "none"
       // Rounded like the real page view (PAGE_RADIUS in main/page.ts).
-      if (bounds) Object.assign(page.style, { left: `${bounds.x}px`, top: `${bounds.y}px`, width: `${bounds.width}px`, height: `${bounds.height}px`, borderRadius: "9px", overflow: "hidden" })
+      if (bounds)
+        Object.assign(page.style, {
+          left: `${bounds.x}px`,
+          top: `${bounds.y}px`,
+          width: `${bounds.width}px`,
+          height: `${bounds.height}px`,
+          borderRadius: "9px",
+          overflow: "hidden",
+        })
       calls.push(bounds)
     },
     toggleReview() {
@@ -808,13 +1005,21 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     localServer: () => (new URLSearchParams(location.search).has("nolocal") ? null : { url: "http://127.0.0.1:49374" }),
     async connectLocal() {
       await new Promise((r) => setTimeout(r, 400))
-      Object.assign(state, base(), { connection: { status: "online", url: "http://127.0.0.1:49374", version: "1.4.2" } })
+      Object.assign(state, base(), {
+        connection: { status: "online", url: "http://127.0.0.1:49374", version: "1.4.2" },
+      })
       push()
     },
     servers: () => [
       { id: "srv_1", url: "http://localhost:4096", local: true, current: state.connection.status === "online" },
       { id: "srv_2", name: "Studio Mac", url: "https://studio.example.dev", local: false, current: false },
-      { id: "srv_3", name: "omarchy", url: "https://eb501e0e4f991ca4.7fek5zuoivit.opentunnel.xyz", local: false, current: false },
+      {
+        id: "srv_3",
+        name: "omarchy",
+        url: "https://eb501e0e4f991ca4.7fek5zuoivit.opentunnel.xyz",
+        local: false,
+        current: false,
+      },
     ],
     useServer() {},
     forgetServer() {},
@@ -823,7 +1028,12 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       state.connection = { status: "unconfigured" }
       push()
     },
-    projects: () => ["/home/dev/code/acme/storefront", "/home/dev/code/acme/marketing-site", "/home/dev/code/blog", "/srv/www/a-rather-long-organisation-name/internal-tools/design-review-playground"],
+    projects: () => [
+      "/home/dev/code/acme/storefront",
+      "/home/dev/code/acme/marketing-site",
+      "/home/dev/code/blog",
+      "/srv/www/a-rather-long-organisation-name/internal-tools/design-review-playground",
+    ],
     async listFolders(path) {
       await new Promise((r) => setTimeout(r, 150))
       const names = TREE[path]
@@ -835,18 +1045,30 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       { directory: "/home/dev/code/acme/marketing-site", on: "dev-box" },
       { directory: "/home/dev/code/blog", on: "dev-box" },
       { directory: "/Users/kiryl/Documents/cde/zing-social", server: "srv_2", on: "Studio Mac" },
-      { directory: "/srv/www/a-rather-long-organisation-name/internal-tools/design-review-playground", server: "srv_3", on: "omarchy" },
+      {
+        directory: "/srv/www/a-rather-long-organisation-name/internal-tools/design-review-playground",
+        server: "srv_3",
+        on: "omarchy",
+      },
     ],
     refreshRunning() {},
     stopRunning(directory, id) {
-      state.running = state.running.filter((r) => !((directory === undefined || r.directory === directory) && (id === undefined || r.id === id)))
+      state.running = state.running.filter(
+        (r) => !((directory === undefined || r.directory === directory) && (id === undefined || r.id === id)),
+      )
       push()
     },
     openProject(directory) {
       state.site = { origin: "", directory }
       state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }
       state.review.notes = []
-      state.session = { id: SESSION, title: `Review · ${directory.split("/").pop()}`, updated: Date.now(), busy: false, directory }
+      state.session = {
+        id: SESSION,
+        title: `Review · ${directory.split("/").pop()}`,
+        updated: Date.now(),
+        busy: false,
+        directory,
+      }
       state.sessions = [state.session]
       push()
       emit({ type: "reset", session: SESSION, items: [] })
@@ -874,7 +1096,11 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
         const item = { kind: "assistant" as const, id: `sum-${++serial}`, time: Date.now(), summary: "manual" as const }
         emit({ type: "item", session: sid(), item: { ...item, parts: [], done: false } })
         setTimeout(() => {
-          emit({ type: "item", session: sid(), item: { ...item, parts: [{ kind: "text", key: "text:0", text: SUMMARY }], done: true } })
+          emit({
+            type: "item",
+            session: sid(),
+            item: { ...item, parts: [{ kind: "text", key: "text:0", text: SUMMARY }], done: true },
+          })
           // Nothing has counted what the summary left: the meter goes until the next step.
           delete state.context
           push()
@@ -883,8 +1109,14 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       }
       if (name === "undo")
         return args === "yes"
-          ? { say: 'Took back your message "tighter". /redo brings it back; your next message makes it final.', draft: "tighter" }
-          : { say: 'This takes back your message "tighter" and everything after it: the agent\'s replies, and the changes it made to files since then. Press Enter to undo.', draft: "/undo yes" }
+          ? {
+              say: 'Took back your message "tighter". /redo brings it back; your next message makes it final.',
+              draft: "tighter",
+            }
+          : {
+              say: 'This takes back your message "tighter" and everything after it: the agent\'s replies, and the changes it made to files since then. Press Enter to undo.',
+              draft: "/undo yes",
+            }
       if (name === "redo") throw new Error("Nothing to redo.")
       if (name === "new") return void this.newSession()
       if (name === "rename") {
@@ -915,12 +1147,20 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       const at = queue.findIndex((w) => w.n === note.n)
       if (at >= 0) emit({ type: "remove", session: sid(), item: queue.splice(at, 1)[0]!.id })
       // As main does: it stays on the list, stopped, with Retry.
-      state.review.notes = state.review.notes.map((x) => (x.id === id ? { ...x, status: "failed" as const, error: "Cancelled.", stopped: true as const } : x))
+      state.review.notes = state.review.notes.map((x) =>
+        x.id === id ? { ...x, status: "failed" as const, error: "Cancelled.", stopped: true as const } : x,
+      )
       push()
     },
     stop: () => stop(),
     newSession() {
-      state.session = { id: `s-${++serial}`, title: "New conversation", updated: Date.now(), busy: false, directory: state.site?.directory ?? DIRECTORY }
+      state.session = {
+        id: `s-${++serial}`,
+        title: "New conversation",
+        updated: Date.now(),
+        busy: false,
+        directory: state.site?.directory ?? DIRECTORY,
+      }
       push()
       emit({ type: "reset", session: sid(), items: [] })
     },
@@ -935,11 +1175,25 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       const note = state.review.notes.find((n) => n.id === id)
       const picture = (fill: string, pad: number) =>
         `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="480" height="260"><rect width="480" height="260" fill="#f4f1ea"/><rect x="40" y="${40 + pad}" width="220" height="26" rx="4" fill="#222"/><rect x="40" y="${96 + pad * 2}" width="360" height="12" rx="3" fill="#999"/><rect x="40" y="${118 + pad * 2}" width="300" height="12" rx="3" fill="#999"/><rect x="40" y="${166 + pad * 2}" width="${120 + pad * 4}" height="${36 + pad}" rx="8" fill="${fill}"/></svg>`)}`
-      return note?.pictures ? { before: picture("#2563eb", 0), ...(note.pictures === "both" ? { after: picture("#16a34a", 8) } : {}) } : {}
+      return note?.pictures
+        ? { before: picture("#2563eb", 0), ...(note.pictures === "both" ? { after: picture("#16a34a", 8) } : {}) }
+        : {}
     },
     noteDiff: () => [
-      { file: "src/components/pricing/PlanCard.tsx", additions: 3, deletions: 2, patch: "@@ -12,7 +12,8 @@ export function PlanCard(props) {\n   return (\n     <article class=\"plan\">\n-      <button class=\"btn\">Start free trial</button>\n-      <p class=\"fine\">No card needed</p>\n+      <button class=\"btn btn-lg\">Start free trial</button>\n+      <p class=\"fine\">No card needed.</p>\n+      <p class=\"fine\">Cancel any time.</p>\n     </article>\n   )" },
-      { file: "src/styles/buttons.css", additions: 4, deletions: 0, patch: "@@ -40,3 +40,7 @@\n .btn:hover {\n   filter: brightness(1.05);\n }\n+.btn-lg {\n+  height: 48px;\n+  padding: 0 20px;\n+}" },
+      {
+        file: "src/components/pricing/PlanCard.tsx",
+        additions: 3,
+        deletions: 2,
+        patch:
+          '@@ -12,7 +12,8 @@ export function PlanCard(props) {\n   return (\n     <article class="plan">\n-      <button class="btn">Start free trial</button>\n-      <p class="fine">No card needed</p>\n+      <button class="btn btn-lg">Start free trial</button>\n+      <p class="fine">No card needed.</p>\n+      <p class="fine">Cancel any time.</p>\n     </article>\n   )',
+      },
+      {
+        file: "src/styles/buttons.css",
+        additions: 4,
+        deletions: 0,
+        patch:
+          "@@ -40,3 +40,7 @@\n .btn:hover {\n   filter: brightness(1.05);\n }\n+.btn-lg {\n+  height: 48px;\n+  padding: 0 20px;\n+}",
+      },
     ],
     takeBackWay: (id) => takeBackWay(id),
     takeBackNote(id) {
@@ -949,7 +1203,18 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       return how
     },
     addCheckpoint(name) {
-      emit({ type: "item", session: sid(), item: { kind: "marker", id: `checkpoint:c-${++serial}`, time: Date.now(), tone: "info", text: name || "Checkpoint", checkpoint: `c-${serial}` } })
+      emit({
+        type: "item",
+        session: sid(),
+        item: {
+          kind: "marker",
+          id: `checkpoint:c-${++serial}`,
+          time: Date.now(),
+          tone: "info",
+          text: name || "Checkpoint",
+          checkpoint: `c-${serial}`,
+        },
+      })
     },
     removeCheckpoint(id) {
       emit({ type: "remove", session: sid(), item: `checkpoint:${id}` })
@@ -980,15 +1245,20 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       const found = from.find((s) => s.id === id)
       if (!found) return
       const { archived: _a, pinned: _p, ...rest } = found
-      if (archived) (put = [{ ...rest, archived: true }, ...put]), (state.sessions = state.sessions.filter((s) => s.id !== id))
-      else (put = put.filter((s) => s.id !== id)), (state.sessions = [...state.sessions, rest].sort((x, y) => y.updated - x.updated))
-      if (archived && state.session?.id === id) return void (state.sessions[0] ? this.openSession(state.sessions[0].id) : this.newSession())
+      if (archived)
+        ((put = [{ ...rest, archived: true }, ...put]), (state.sessions = state.sessions.filter((s) => s.id !== id)))
+      else
+        ((put = put.filter((s) => s.id !== id)),
+          (state.sessions = [...state.sessions, rest].sort((x, y) => y.updated - x.updated)))
+      if (archived && state.session?.id === id)
+        return void (state.sessions[0] ? this.openSession(state.sessions[0].id) : this.newSession())
       push()
     },
     deleteSession(id) {
       put = put.filter((s) => s.id !== id)
       state.sessions = state.sessions.filter((s) => s.id !== id)
-      if (state.session?.id === id) return void (state.sessions[0] ? this.openSession(state.sessions[0].id) : this.newSession())
+      if (state.session?.id === id)
+        return void (state.sessions[0] ? this.openSession(state.sessions[0].id) : this.newSession())
       push()
     },
     setModel(model) {
@@ -1075,7 +1345,7 @@ async function stress(emit: (e: ChatEvent) => void, session: string) {
   const blocks = [
     paragraph.repeat(4),
     "- first point about the `hero` section\n- second point about **contrast**\n- third point, a little longer than the others so that it wraps",
-    "```tsx\nexport function Card({ children }: Props) {\n  return <article className=\"card pl-8\">{children}</article>\n}\n```",
+    '```tsx\nexport function Card({ children }: Props) {\n  return <article className="card pl-8">{children}</article>\n}\n```',
     paragraph.repeat(3),
   ]
   let source = ""
@@ -1084,11 +1354,15 @@ async function stress(emit: (e: ChatEvent) => void, session: string) {
   const frame = () => new Promise<number>((r) => requestAnimationFrame(r))
 
   const run = async (id: string, perFrame: number) => {
-    emit({ type: "item", session, item: { kind: "assistant", id, time: Date.now(), done: false, parts: [{ kind: "text", key: "x", text: "" }] } })
+    emit({
+      type: "item",
+      session,
+      item: { kind: "assistant", id, time: Date.now(), done: false, parts: [{ kind: "text", key: "x", text: "" }] },
+    })
     const gaps: number[] = []
     let apply = 0
     let last = await frame()
-    for (let at = 0; at < source.length; ) {
+    for (let at = 0; at < source.length;) {
       const t0 = performance.now()
       for (let i = 0; i < perFrame && at < source.length; i++, at += 20)
         emit({ type: "delta", session, item: id, key: "x", text: source.slice(at, at + 20) })
@@ -1112,9 +1386,25 @@ async function stress(emit: (e: ChatEvent) => void, session: string) {
   const paced = await run("stress-paced", 20)
   const flood = await run("stress-flood", 2000)
   const t0 = performance.now()
-  emit({ type: "item", session, item: { kind: "assistant", id: "stress-flood", time: Date.now(), done: true, parts: [{ kind: "text", key: "x", text: source }] } })
+  emit({
+    type: "item",
+    session,
+    item: {
+      kind: "assistant",
+      id: "stress-flood",
+      time: Date.now(),
+      done: true,
+      parts: [{ kind: "text", key: "x", text: source }],
+    },
+  })
   await frame()
-  const result = { deltas: 2000, chars: source.length, paced, flood, finalParseMs: Math.round((performance.now() - t0) * 10) / 10 }
+  const result = {
+    deltas: 2000,
+    chars: source.length,
+    paced,
+    flood,
+    finalParseMs: Math.round((performance.now() - t0) * 10) / 10,
+  }
   Object.assign(window, { __stress: result })
   // The numbers go to the console and to shot.mjs's report, never into the conversation.
   console.log("stress", JSON.stringify(result))
@@ -1128,7 +1418,11 @@ async function stressCode(emit: (e: ChatEvent) => void, session: string) {
   const lines = Array.from({ length: 300 }, (_, i) => `  const value${i} = compute(${i}, props.spacing) // line ${i}`)
   const source = "Here is the file:\n\n```tsx\n" + lines.join("\n") + "\n```\n\nThat is all of it."
   const id = "stress-code"
-  emit({ type: "item", session, item: { kind: "assistant", id, time: Date.now(), done: false, parts: [{ kind: "text", key: "x", text: "" }] } })
+  emit({
+    type: "item",
+    session,
+    item: { kind: "assistant", id, time: Date.now(), done: false, parts: [{ kind: "text", key: "x", text: "" }] },
+  })
   const gaps: number[] = []
   let running = true
   let last = performance.now()
@@ -1152,7 +1446,11 @@ async function stressCode(emit: (e: ChatEvent) => void, session: string) {
   await new Promise((r) => requestAnimationFrame(r))
   const streamMs = performance.now() - t0
   running = false
-  emit({ type: "item", session, item: { kind: "assistant", id, time: Date.now(), done: true, parts: [{ kind: "text", key: "x", text: source }] } })
+  emit({
+    type: "item",
+    session,
+    item: { kind: "assistant", id, time: Date.now(), done: true, parts: [{ kind: "text", key: "x", text: source }] },
+  })
   gaps.sort((a, b) => a - b)
   const round = (n: number) => Math.round(n * 10) / 10
   const result = {

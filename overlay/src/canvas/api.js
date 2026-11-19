@@ -72,9 +72,28 @@ function letGo() {
 // ── what the rest of the overlay sees ───────────────────────────────────────────────────────
 export {
   HTML as html,
-  mountCanvas as mount, setOn, resumeCanvas as resume, letGo, syncUi, drawBar, cvFrame as frame,
-  cvMove as pointerMove, cvUp as pointerUp, cancelDrag as pointerCancel, cvKey as key, zoneOf, closePop, select,
-  draft, restoreEdits as restore, unsendCanvas as refuse, finish, dropFinished, showEdits, treeChanged, readPathsIfDue,
+  mountCanvas as mount,
+  setOn,
+  resumeCanvas as resume,
+  letGo,
+  syncUi,
+  drawBar,
+  cvFrame as frame,
+  cvMove as pointerMove,
+  cvUp as pointerUp,
+  cancelDrag as pointerCancel,
+  cvKey as key,
+  zoneOf,
+  closePop,
+  select,
+  draft,
+  restoreEdits as restore,
+  unsendCanvas as refuse,
+  finish,
+  dropFinished,
+  showEdits,
+  treeChanged,
+  readPathsIfDue,
 };
 export const on = () => C.on;
 /** A sent batch is switched off for the host's "before" picture: that counts as a capture. */
@@ -91,4 +110,3 @@ export const busyFrames = () => C.on && S.enabled && !!(C.drag || C.edit || (C.s
 // (C.typeTimer: CSS or classes typed but not yet an undo step. Until that pause ends the batch
 // still looks empty and the host has no draft of it: a reload then would lose what was typed.)
 export const busy = () => !!(C.drag || C.edit || C.typeTimer || C.snap !== EMPTY || (C.on && C.sel));
-

@@ -26,9 +26,13 @@ export type Shots = {
 
 const PREFIX = "data:image/jpeg;base64,"
 
-export function createShots(dir: string, log: (level: "warn", msg: string, data?: unknown) => void = () => undefined): Shots {
+export function createShots(
+  dir: string,
+  log: (level: "warn", msg: string, data?: unknown) => void = () => undefined,
+): Shots {
   const folder = path.join(dir, "shots")
-  const file = (id: string, which: Which) => path.join(folder, `${crypto.createHash("sha1").update(id).digest("hex")}-${which}.jpg`)
+  const file = (id: string, which: Which) =>
+    path.join(folder, `${crypto.createHash("sha1").update(id).digest("hex")}-${which}.jpg`)
   const queue = createQueue()
   return {
     save(id, which, uri) {
@@ -61,7 +65,8 @@ export function createShots(dir: string, log: (level: "warn", msg: string, data?
     },
     drop(id) {
       return queue.run(id, async () => {
-        for (const which of ["before", "after"] as const) await fs.promises.rm(file(id, which), { force: true }).catch(() => undefined)
+        for (const which of ["before", "after"] as const)
+          await fs.promises.rm(file(id, which), { force: true }).catch(() => undefined)
       })
     },
     idle: () => queue.idle(),

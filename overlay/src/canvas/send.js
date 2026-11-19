@@ -33,11 +33,16 @@ export function submitCanvas(background) {
     return flash("Too long to send: shorten the text marked in the inspector");
   // (The host takes no longer text: sent as it is, the edit would be dropped there without a word.)
   if (B.ops.some((o) => o.kind === "text" && line(o.to).length > MAX_TEXT))
-    return flash(`Too long to send: a text edit holds ${MAX_TEXT} characters at most. Double-click the text to shorten it`);
+    return flash(
+      `Too long to send: a text edit holds ${MAX_TEXT} characters at most. Double-click the text to shorten it`,
+    );
   const rss = [...new Set([...entries.map((e) => e.rs), ...B.ops.map((o) => o.rs)])];
   const els = rss.map(elOf).filter(Boolean);
   // The copies are the page's own only while the batch is on: outlined and in the crop, not targets.
-  const copies = B.ops.filter((o) => o.kind === "duplicate").map((o) => C.copies.get(o.copy)).filter(Boolean);
+  const copies = B.ops
+    .filter((o) => o.kind === "duplicate")
+    .map((o) => C.copies.get(o.copy))
+    .filter(Boolean);
   const props = new Map(entries.map((e) => [e.rs, topProps(e.css)]));
   // Elements the new rules match: only where nothing else says where the note is about.
   const matched = [];
@@ -52,7 +57,10 @@ export function submitCanvas(background) {
     for (const [rs, list] of props) {
       const el = elOf(rs);
       const cs = el && getComputedStyle(el);
-      vals.set(rs, list.map((p) => (cs ? value(cs.getPropertyValue(p)) : "")));
+      vals.set(
+        rs,
+        list.map((p) => (cs ? value(cs.getPropertyValue(p)) : "")),
+      );
     }
     return { vals, rects: [...els, ...copies, ...matched].map(rectOf) };
   };
@@ -79,15 +87,25 @@ export function submitCanvas(background) {
   const after = measure();
 
   /** @type {any[]} */
-  const edits = [], who = []; // (who: each edit's element, and its op if it has one)
+  const edits = [],
+    who = []; // (who: each edit's element, and its op if it has one)
   for (const e of entries) {
     if (e.css.trim())
-      edits.push({ kind: "style", ...tidy(e, sel(e)), css: e.css,
+      edits.push({
+        kind: "style",
+        ...tidy(e, sel(e)),
+        css: e.css,
         changes: props.get(e.rs).map((prop, i) => {
           // (and the page's variables it was set with: the agent is to use those, not the px)
           const tokens = varsIn(e.css, prop);
-          return { prop, from: before.vals.get(e.rs)[i], to: after.vals.get(e.rs)[i], ...(tokens.length ? { tokens } : {}) };
-        }) });
+          return {
+            prop,
+            from: before.vals.get(e.rs)[i],
+            to: after.vals.get(e.rs)[i],
+            ...(tokens.length ? { tokens } : {}),
+          };
+        }),
+      });
     if (e.cls) edits.push({ kind: "class", ...tidy(e, sel(e)), from: line(e.cls.from), to: line(e.cls.to) });
     while (who.length < edits.length) who.push({ rs: e.rs });
   }
@@ -98,7 +116,8 @@ export function submitCanvas(background) {
     if (op.kind === "move")
       Object.assign(out, {
         parent: { selector: sel(op.parent), label: op.parent.label, layout: op.parent.layout },
-        fromIndex: op.fromIndex, toIndex: op.toIndex,
+        fromIndex: op.fromIndex,
+        toIndex: op.toIndex,
         before: op.before ? { selector: sel(op.before), label: op.before.label } : null,
       });
     edits.push(out);
@@ -106,7 +125,9 @@ export function submitCanvas(background) {
   // An edit made in a copy says which "duplicate" made it: in the code that element is still to
   // come. A copy an earlier note asked for is named by what it copies.
   const dupAt = new Map(who.flatMap((w, i) => (w.op && w.op.kind === "duplicate" ? [[w.op.copy, i]] : [])));
-  const earlier = new Map(C.sent.flatMap((b) => b.B.ops.filter((o) => o.kind === "duplicate").map((o) => [o.copy, o.label])));
+  const earlier = new Map(
+    C.sent.flatMap((b) => b.B.ops.filter((o) => o.kind === "duplicate").map((o) => [o.copy, o.label])),
+  );
   edits.forEach((x, i) => {
     const el = elOf(who[i].rs);
     const c = el ? copyAround(el) : "";
@@ -124,11 +145,13 @@ export function submitCanvas(background) {
     viewport: vp(),
     // Described as they are now, but under the selector they had before this batch's class edits.
     // (Not those in a copy: there is no such element in the code, and their edits say so.)
-    targets: els.filter((el) => !copyAround(el)).map((el) => {
-      const rs = stableSel(el);
-      const known = B.els[rs] || B.ops.find((o) => o.rs === rs);
-      return { ...describe(el), ...(known ? { selector: sel(known) } : {}) };
-    }),
+    targets: els
+      .filter((el) => !copyAround(el))
+      .map((el) => {
+        const rs = stableSel(el);
+        const known = B.els[rs] || B.ops.find((o) => o.rs === rs);
+        return { ...describe(el), ...(known ? { selector: sel(known) } : {}) };
+      }),
     area: null,
     strokes: [],
     bounds: bounds && round(bounds),
@@ -150,7 +173,10 @@ export function submitCanvas(background) {
   if (C.pop) setPop(C.pop);
   select(null);
   // Outlines for the screenshot: the edited elements, wherever they are in each picture.
-  S.sel = [...els.filter((el, i) => after.rects[i].w > 0 || before.rects[i].w > 0), ...copies.filter((n) => n.isConnected)];
+  S.sel = [
+    ...els.filter((el, i) => after.rects[i].w > 0 || before.rects[i].w > 0),
+    ...copies.filter((n) => n.isConnected),
+  ];
   syncFields(true);
   drawBar();
   dispatch(note);
@@ -172,7 +198,8 @@ export function unsendCanvas(id, say) {
   b.id = "draft";
   b.seen = b.n = undefined;
   for (const rs in later.B.els) {
-    const e = later.B.els[rs], old = b.B.els[rs];
+    const e = later.B.els[rs],
+      old = b.B.els[rs];
     if (!old) b.B.els[rs] = e;
     else {
       if (e.css.trim()) old.css = old.css.trim() ? `${old.css}\n${e.css}` : e.css;
@@ -200,7 +227,8 @@ export function finish() {
 
 /** A sent batch is a preview until the agent is finished with its note. */
 export function dropFinished() {
-  let changed = false, lost = 0;
+  let changed = false,
+    lost = 0;
   C.sent = C.sent.filter((b) => {
     const p = S.pins.find((x) => x.id === b.id);
     if (p) b.seen = b.n = p.n || true;
@@ -222,7 +250,11 @@ export function dropFinished() {
     }
     // Say what just happened to the preview, for a few seconds, where the reviewer is looking.
     const name = typeof b.n === "number" ? `Note ${b.n}` : "Note";
-    C.done = !p ? `${name} removed · preview removed` : p.status === "done" ? `${name} done · preview removed` : `${name} ${p.status} · edits put back`;
+    C.done = !p
+      ? `${name} removed · preview removed`
+      : p.status === "done"
+        ? `${name} done · preview removed`
+        : `${name} ${p.status} · edits put back`;
     if (dropped) C.done += ` · ${dropped === 1 ? "an edit" : `${dropped} edits`} made in its copy dropped`;
     clearTimeout(C.doneTimer);
     C.doneTimer = setTimeout(() => {
@@ -267,4 +299,3 @@ export function showEdits(msg) {
   requestAnimationFrame(() => requestAnimationFrame(tell));
   setTimeout(tell, 400); // frames may not come (a hidden window): the host waits a second at most
 }
-

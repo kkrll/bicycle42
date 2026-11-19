@@ -56,14 +56,38 @@ export const HTML = `<div class="cv" hidden><div class="band" hidden></div>
     <div class="corner" hidden><div class="pop" hidden></div><button type="button" class="help" title="Keys and gestures" aria-label="Keys and gestures">${icon("help")}</button></div>
     <div class="sug" id="b42-sug" role="listbox" hidden></div>`;
 
-export let corner, bar, insp, cv, cnote, treeEl, trows, tspace, clsEl, cssEl, freeEl, compEl, ipath, bandEl, ghostEl, insEl, labEl, dimEl, handles, edges, hitEl, gzEl, shieldEl;
+export let corner,
+  bar,
+  insp,
+  cv,
+  cnote,
+  treeEl,
+  trows,
+  tspace,
+  clsEl,
+  cssEl,
+  freeEl,
+  compEl,
+  ipath,
+  bandEl,
+  ghostEl,
+  insEl,
+  labEl,
+  dimEl,
+  handles,
+  edges,
+  hitEl,
+  gzEl,
+  shieldEl;
 
 export function mountCanvas() {
   bar = root.querySelector(".bar");
   corner = root.querySelector(".corner");
   cnote = bar.querySelector(".cnote");
   cv = root.querySelector(".cv");
-  [bandEl, ghostEl, insEl, labEl, dimEl] = [".band", ".ghost", ".ins", ".lab.live", ".lab.dim"].map((s) => cv.querySelector(s));
+  [bandEl, ghostEl, insEl, labEl, dimEl] = [".band", ".ghost", ".ins", ".lab.live", ".lab.dim"].map((s) =>
+    cv.querySelector(s),
+  );
   hitEl = cv.querySelector(".hit");
   gzEl = cv.querySelector(".gzs");
   shieldEl = cv.querySelector(".shield");
@@ -72,7 +96,9 @@ export function mountCanvas() {
   // What each grab element means, and its cursor: corners (top-left, top-right, bottom-left,
   // bottom-right), then edges (top, right, bottom, left).
   handles.forEach((el, i) => (el._z = { t: "resize", hx: i % 2 ? 1 : -1, hy: i > 1 ? 1 : -1 }));
-  edges.forEach((el, i) => (el._z = { t: "resize", hx: i === 1 ? 1 : i === 3 ? -1 : 0, hy: i === 0 ? -1 : i === 2 ? 1 : 0 }));
+  edges.forEach(
+    (el, i) => (el._z = { t: "resize", hx: i === 1 ? 1 : i === 3 ? -1 : 0, hy: i === 0 ? -1 : i === 2 ? 1 : 0 }),
+  );
   for (const el of [...handles, ...edges]) el.style.cursor = cursorOf(el._z);
   insp = root.querySelector(".insp");
   treeEl = insp.querySelector(".tree");
@@ -87,7 +113,23 @@ export function mountCanvas() {
   // Keys and typing in the bar and the inspector must not reach the page's own shortcuts.
   // (The same for the mouse on them, and on the grab elements around the selection.)
   for (const box of [bar, corner, insp, cv])
-    for (const t of ["keydown", "keyup", "keypress", "input", "beforeinput", "paste", "copy", "cut", "click", "dblclick", "mousedown", "mouseup", "pointerdown", "pointerup", "wheel"])
+    for (const t of [
+      "keydown",
+      "keyup",
+      "keypress",
+      "input",
+      "beforeinput",
+      "paste",
+      "copy",
+      "cut",
+      "click",
+      "dblclick",
+      "mousedown",
+      "mouseup",
+      "pointerdown",
+      "pointerup",
+      "wheel",
+    ])
       box.addEventListener(t, (e) => e.stopPropagation());
   bar.querySelector(".count").addEventListener("click", () => (C.on ? setPop("list") : setMode("canvas")));
   corner.querySelector(".help").addEventListener("click", () => setPop("help"));
@@ -104,8 +146,12 @@ export function mountCanvas() {
     f.addEventListener("blur", () => (C.typeTimer ? commit() : drawBar()));
     f.addEventListener("focus", drawBar); // the send hint names the key that sends from here
   }
-  for (const a of [cssEl, freeEl]) a.addEventListener("scroll", () => (a.previousElementSibling.scrollTop = a.scrollTop), { passive: true });
-  for (const [cls, pin] of [[".t-el", false], [".t-gl", true]])
+  for (const a of [cssEl, freeEl])
+    a.addEventListener("scroll", () => (a.previousElementSibling.scrollTop = a.scrollTop), { passive: true });
+  for (const [cls, pin] of [
+    [".t-el", false],
+    [".t-gl", true],
+  ])
     insp.querySelector(cls).addEventListener("click", (e) => {
       C.pin = pin;
       drawTabs();
@@ -113,7 +159,11 @@ export function mountCanvas() {
     });
   compEl.addEventListener("input", (e) => unmarkValue(e.target.parentElement));
   // (blur does not bubble; it is caught on the way down)
-  compEl.addEventListener("blur", (e) => e.target.classList && e.target.classList.contains("cval") && setValue(e.target), true);
+  compEl.addEventListener(
+    "blur",
+    (e) => e.target.classList && e.target.classList.contains("cval") && setValue(e.target),
+    true,
+  );
   compEl.addEventListener("click", (e) => {
     const row = e.target.closest(".crow");
     const tok = e.target.classList.contains("ctok");
@@ -128,11 +178,15 @@ export function mountCanvas() {
   });
   attachSuggest({ cssEl, freeEl, compEl }); // (after the fields' own listeners: it reads what they have made of the typing)
 
-  treeEl.addEventListener("scroll", () => {
-    T.scroll = treeEl.scrollTop;
-    T.need = true;
-    kick();
-  }, { passive: true });
+  treeEl.addEventListener(
+    "scroll",
+    () => {
+      T.scroll = treeEl.scrollTop;
+      T.need = true;
+      kick();
+    },
+    { passive: true },
+  );
   trows.addEventListener("click", (e) => {
     const row = e.target.closest(".trow");
     if (!row || !row._el) return;
@@ -186,8 +240,18 @@ export function mountCanvas() {
 
   // While text is edited in place, or the pointer works the canvas, the page's own handlers
   // must not see the typing. (keydown has its own path, above.)
-  for (const t of ["keyup", "keypress", "beforeinput", "input", "paste", "cut", "copy", "compositionstart", "compositionupdate", "compositionend"])
+  for (const t of [
+    "keyup",
+    "keypress",
+    "beforeinput",
+    "input",
+    "paste",
+    "cut",
+    "copy",
+    "compositionstart",
+    "compositionupdate",
+    "compositionend",
+  ])
     window.addEventListener(t, (e) => S.enabled && C.on && !isOurs(e) && e.stopImmediatePropagation(), true);
   drawBar();
 }
-

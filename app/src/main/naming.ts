@@ -20,7 +20,12 @@ export const isPlaceholder = (title: string) => !title.trim() || PLACEHOLDER.tes
 export function titleFrom(text: string): string | undefined {
   const line = text
     .split("\n")
-    .map((l) => l.replace(/^[\s#>*\-–—•\d.)]+(?=\S)/, "").replace(/\s+/g, " ").trim())
+    .map((l) =>
+      l
+        .replace(/^[\s#>*\-–—•\d.)]+(?=\S)/, "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
     .find((l) => /[\p{L}\p{N}]/u.test(l))
   if (!line || line.startsWith("/")) return undefined
   const name = line.replace(/[.:;,!\s]+$/, "")

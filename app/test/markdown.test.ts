@@ -58,7 +58,10 @@ app.whenReady().then(async () => {
 `,
     )
     const electron = load("electron") as unknown as string
-    const r = spawnSync(electron, ["--ozone-platform=headless", "--disable-gpu", main], { encoding: "utf8", timeout: 60_000 })
+    const r = spawnSync(electron, ["--ozone-platform=headless", "--disable-gpu", main], {
+      encoding: "utf8",
+      timeout: 60_000,
+    })
     const line = r.stdout.split("\n").find((l) => l.startsWith("CHECKS ") || l.startsWith("ERROR "))
     if (!line?.startsWith("CHECKS ")) throw new Error(`the checks did not run: ${line ?? r.stderr}`)
     return JSON.parse(line.slice(7)) as Check[]

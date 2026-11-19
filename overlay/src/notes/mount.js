@@ -28,20 +28,23 @@ export function mount() {
   sentEl = root.querySelector(".sent");
 
   // Keys typed into the card must not reach the page's own shortcuts.
-  for (const t of ["keydown", "keyup", "keypress", "input", "beforeinput", "paste", "copy", "cut"]) card.addEventListener(t, (e) => e.stopPropagation());
+  for (const t of ["keydown", "keyup", "keypress", "input", "beforeinput", "paste", "copy", "cut"])
+    card.addEventListener(t, (e) => e.stopPropagation());
   textarea.addEventListener("paste", onPaste);
-  card.querySelector(".kpop").replaceChildren(...CARD_KEYS.map(([k, v]) => {
-    const row = document.createElement("div");
-    row.className = "krow";
-    const kk = document.createElement("span");
-    kk.className = "kk";
-    kk.append(keyNodes(k));
-    const kv = document.createElement("span");
-    kv.className = "kv";
-    kv.textContent = v;
-    row.append(kk, kv);
-    return row;
-  }));
+  card.querySelector(".kpop").replaceChildren(
+    ...CARD_KEYS.map(([k, v]) => {
+      const row = document.createElement("div");
+      row.className = "krow";
+      const kk = document.createElement("span");
+      kk.className = "kk";
+      kk.append(keyNodes(k));
+      const kv = document.createElement("span");
+      kv.className = "kv";
+      kv.textContent = v;
+      row.append(kk, kv);
+      return row;
+    }),
+  );
   // Neither button takes the caret from the note: the words stay where they were being typed.
   for (const b of card.querySelectorAll(".kq, .csend")) b.addEventListener("mousedown", (e) => e.preventDefault());
   // ↵ as a button: the same as the key. The host admits a note after a real click as after Enter.

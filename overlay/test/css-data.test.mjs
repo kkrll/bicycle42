@@ -15,11 +15,30 @@ test("the list has Chrome's properties, some 600 of them", () => {
 });
 
 test("no descriptors (src, syntax, unicode-range…): they are not properties", () => {
-  const descriptors = ["src", "syntax", "inherits", "initial-value", "unicode-range", "system", "pad", "range", "fallback", "font-display", "symbols", "size-adjust"];
-  assert.deepEqual(names.filter((n) => descriptors.includes(n)), []);
+  const descriptors = [
+    "src",
+    "syntax",
+    "inherits",
+    "initial-value",
+    "unicode-range",
+    "system",
+    "pad",
+    "range",
+    "fallback",
+    "font-display",
+    "symbols",
+    "size-adjust",
+  ];
+  assert.deepEqual(
+    names.filter((n) => descriptors.includes(n)),
+    [],
+  );
   // What is both (a descriptor of @font-face or @page, and a property) stays.
   for (const p of ["font-family", "font-weight", "size", "scrollbar-color"]) assert.ok(p in CSS_PROPS, p);
-  assert.deepEqual(names.filter((n) => n.startsWith("-")), []);
+  assert.deepEqual(
+    names.filter((n) => n.startsWith("-")),
+    [],
+  );
 });
 
 // ── the generator, on a source laid out as Blink's is not ──────────────────────────────────
@@ -33,7 +52,8 @@ const blink = (data, after = "") => `{
 }`;
 
 test("the generator reads a block whatever its indentation, its first key or its comments", () => {
-  const out = merge(blink(`
+  const out = merge(
+    blink(`
 { name: "width", keywords: ["auto", "fit-content"] },
         {
           // A comment before the name, with a brace } and a "name: " in it.
@@ -55,7 +75,9 @@ test("the generator reads a block whatever its indentation, its first key or its
     { name: "src", is_descriptor: true, is_property: false },
     { name: "size", is_descriptor: true, keywords: ["auto"] },
     { name: "-internal-thing" }, { name: "-alternative-thing", keywords: ["x"] },
-`), META);
+`),
+    META,
+  );
   assert.deepEqual(out, {
     "align-items": { v: ["center"], w: 0 },
     color: { v: ["a", "b"], w: 200 }, // (devtools_keywords is Blink's override of keywords)
@@ -67,7 +89,10 @@ test("the generator reads a block whatever its indentation, its first key or its
 
 test("the generator fails, and says so, on a source it does not understand", () => {
   // A property that is not in a block of data: it would be dropped without a word.
-  assert.throws(() => merge(blink(`{ name: "width" },`, `\n  more: [\n    {\n      name: "height",\n    },\n  ],`), META), /"name:" lines/);
+  assert.throws(
+    () => merge(blink(`{ name: "width" },`, `\n  more: [\n    {\n      name: "height",\n    },\n  ],`), META),
+    /"name:" lines/,
+  );
   assert.throws(() => merge(blink(`{ keywords: ["auto"] },`), META), /0 names/);
   assert.throws(() => merge(blink(`{ name: "width", name: "height" },`), META), /2 names/);
   assert.throws(() => merge(`{ properties: [] }`, META), /no "data: \["/);
@@ -85,9 +110,16 @@ test("alignment and display keywords are there", () => {
 });
 
 test("no -webkit- keys or values", () => {
-  assert.deepEqual(names.filter((n) => n.startsWith("-webkit-")), []);
+  assert.deepEqual(
+    names.filter((n) => n.startsWith("-webkit-")),
+    [],
+  );
   for (const [k, p] of Object.entries(CSS_PROPS)) {
-    assert.deepEqual(p.v.filter((v) => v.startsWith("-webkit-")), [], k);
+    assert.deepEqual(
+      p.v.filter((v) => v.startsWith("-webkit-")),
+      [],
+      k,
+    );
   }
 });
 

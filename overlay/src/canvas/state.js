@@ -18,8 +18,25 @@ export const MAX_CSS = 4000;
 export const MAX_SHEET = 8000;
 export const MAX_CLASS = 1000;
 export const MAX_TEXT = 2000;
-export const COMPUTED = ["display", "flex-direction", "align-items", "justify-content", "gap", "width", "height", "padding", "margin",
-  "font-family", "font-size", "font-weight", "line-height", "letter-spacing", "color", "background-color", "border-radius"];
+export const COMPUTED = [
+  "display",
+  "flex-direction",
+  "align-items",
+  "justify-content",
+  "gap",
+  "width",
+  "height",
+  "padding",
+  "margin",
+  "font-family",
+  "font-size",
+  "font-weight",
+  "line-height",
+  "letter-spacing",
+  "color",
+  "background-color",
+  "border-radius",
+];
 export const newBatch = () => ({ els: {}, sheet: "", ops: [] });
 export const EMPTY = JSON.stringify(newBatch());
 export const C = {
@@ -37,7 +54,8 @@ export const C = {
   applied: new Map(), // Element → { cls?: original class attribute, text?: original text } written by us
   found: new Map(), // stable selector → Element
   paths: new Map(), // an element's stamp (as a selector) → { path, tag }: where it last was
-  pathsDirty: false, pathsAt: 0,
+  pathsDirty: false,
+  pathsAt: 0,
   moves: {}, // the stylesheet of `order` rules, shared by all batches
   orders: new Map(), // parent selector → the `order` rules last worked out for it
   marks: new Map(), // Element → "ed" | "hid" | "ed hid": what the tree marks
@@ -52,9 +70,21 @@ export const C = {
   geoKey: "",
   edit: null, // text being edited in place
   rev: 0,
-  px: 0, py: 0, moved: false, over: false, last: null,
-  drawn: false, msg: "", msgTimer: 0, typeTimer: 0, typeRaf: 0, hideTimer: 0,
-  ph: 300, collapsed: false, compKey: "", compAt: 0,
+  px: 0,
+  py: 0,
+  moved: false,
+  over: false,
+  last: null,
+  drawn: false,
+  msg: "",
+  msgTimer: 0,
+  typeTimer: 0,
+  typeRaf: 0,
+  hideTimer: 0,
+  ph: 300,
+  collapsed: false,
+  compKey: "",
+  compAt: 0,
 };
 try {
   const p = JSON.parse(sessionStorage.getItem("b42-inspector") || "{}");
@@ -66,4 +96,3 @@ export const num = (s) => parseFloat(s) || 0;
 export const px = (n) => `${Math.round(n * 100) / 100}px`;
 export const clean = (s) => s.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, ""); // tabs and line breaks stay
 export const kids = (P) => [...P.children].filter((c) => c !== hostEl);
-

@@ -3,7 +3,25 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CSS_PROPS } from "../src/canvas/css-data.js";
-import { alone, caretContext, COLOURS, family, isNumber, matches, propNames, scaleOf, step, TOKEN_NAME, valueContext, valuesAt, valuesOf, varToken, wants, WIDE, withVars } from "../src/canvas/suggest-model.js";
+import {
+  alone,
+  caretContext,
+  COLOURS,
+  family,
+  isNumber,
+  matches,
+  propNames,
+  scaleOf,
+  step,
+  TOKEN_NAME,
+  valueContext,
+  valuesAt,
+  valuesOf,
+  varToken,
+  wants,
+  WIDE,
+  withVars,
+} from "../src/canvas/suggest-model.js";
 
 /** The context at `|` in `src`. */
 const at = (src, sheet = false) => {
@@ -77,9 +95,18 @@ test("a declaration without its semicolon: the next line is a new one, as number
   assert.deepEqual([v.kind, v.prop, v.word, v.first], ["value", "width", "a", true]);
   assert.equal(at(".a { color: red\n  al|", true).kind, "name");
   // A value goes on over a line only after a comma, the colon or an open bracket.
-  assert.deepEqual([at("transition: color 1s,\n  op|").kind, at("transition: color 1s,\n  op|").prop], ["value", "transition"]);
-  assert.deepEqual([at("transition: color 1s,\n  opacity 2s,\n  tr|").prop, at("transition: color 1s,\n  opacity 2s,\n  tr|").first], ["transition", false]);
-  assert.deepEqual([at("color:\n  re|").kind, at("color:\n  re|").prop, at("color:\n  re|").first], ["value", "color", true]);
+  assert.deepEqual(
+    [at("transition: color 1s,\n  op|").kind, at("transition: color 1s,\n  op|").prop],
+    ["value", "transition"],
+  );
+  assert.deepEqual(
+    [at("transition: color 1s,\n  opacity 2s,\n  tr|").prop, at("transition: color 1s,\n  opacity 2s,\n  tr|").first],
+    ["transition", false],
+  );
+  assert.deepEqual(
+    [at("color:\n  re|").kind, at("color:\n  re|").prop, at("color:\n  re|").first],
+    ["value", "color", true],
+  );
   assert.equal(kind("color: red\ntwo words|"), "none");
   assert.equal(kind("color: red\n&:hov|"), "selector");
   assert.equal(kind("color: red\nsp|an { }"), "selector");
@@ -103,9 +130,30 @@ test("a stylesheet: never inside a selector", () => {
 });
 
 test("a field with one value (a computed row)", () => {
-  assert.deepEqual(valueContext("align-items", "center", 6), { kind: "value", prop: "align-items", word: "center", s: 0, e: 6, first: true });
-  assert.deepEqual(valueContext("align-items", "center", 2), { kind: "value", prop: "align-items", word: "ce", s: 0, e: 6, first: true });
-  assert.deepEqual(valueContext("align-items", "", 0), { kind: "value", prop: "align-items", word: "", s: 0, e: 0, first: true });
+  assert.deepEqual(valueContext("align-items", "center", 6), {
+    kind: "value",
+    prop: "align-items",
+    word: "center",
+    s: 0,
+    e: 6,
+    first: true,
+  });
+  assert.deepEqual(valueContext("align-items", "center", 2), {
+    kind: "value",
+    prop: "align-items",
+    word: "ce",
+    s: 0,
+    e: 6,
+    first: true,
+  });
+  assert.deepEqual(valueContext("align-items", "", 0), {
+    kind: "value",
+    prop: "align-items",
+    word: "",
+    s: 0,
+    e: 0,
+    first: true,
+  });
   const c = valueContext("padding", "20px auto", 9);
   assert.deepEqual([c.word, c.s, c.e, c.first], ["auto", 5, 9, false]);
   assert.equal(valueContext("color", "rgb(0 0 0)", 5).kind, "none");
@@ -158,24 +206,43 @@ test("property names: by weight, then by the alphabet", () => {
 });
 
 test("a property's values: its own as given, auto and none where taken, the CSS-wide ones", () => {
-  const props = { "align-items": { v: ["normal", "center", "start"], w: 1 }, display: { v: ["block", "none"], w: 1 }, gap: { v: [], w: 0 } };
-  const takes = (p, v) => all(p, v) && !(p === "align-items" && (v === "auto" || v === "none")) && !(p === "gap" && v === "none");
+  const props = {
+    "align-items": { v: ["normal", "center", "start"], w: 1 },
+    display: { v: ["block", "none"], w: 1 },
+    gap: { v: [], w: 0 },
+  };
+  const takes = (p, v) =>
+    all(p, v) && !(p === "align-items" && (v === "auto" || v === "none")) && !(p === "gap" && v === "none");
   assert.deepEqual(valuesOf("align-items", props, takes), ["normal", "center", "start", ...WIDE]);
   assert.deepEqual(valuesOf("display", props, all), ["block", "none", "auto", ...WIDE]); // none is listed once, where the data has it
   assert.deepEqual(valuesOf("gap", props, takes), ["auto", ...WIDE]);
   assert.deepEqual(valuesOf("not-there", props, all), ["auto", "none", ...WIDE]);
-  assert.deepEqual(valuesOf("not-there", props, () => false), []);
+  assert.deepEqual(
+    valuesOf("not-there", props, () => false),
+    [],
+  );
   // What the browser does not take is left out, wherever it came from.
-  assert.deepEqual(valuesOf("align-items", props, (p, v) => all(p, v) && v !== "center" && v !== "revert" && v !== "auto" && v !== "none"), ["normal", "start", "inherit", "initial", "unset"]);
+  assert.deepEqual(
+    valuesOf(
+      "align-items",
+      props,
+      (p, v) => all(p, v) && v !== "center" && v !== "revert" && v !== "auto" && v !== "none",
+    ),
+    ["normal", "start", "inherit", "initial", "unset"],
+  );
   const real = valuesOf("align-items", CSS_PROPS, all);
-  assert.ok(real.indexOf("center") < real.indexOf("start") && real.indexOf("start") < real.indexOf("inherit"), real.join());
+  assert.ok(
+    real.indexOf("center") < real.indexOf("start") && real.indexOf("start") < real.indexOf("inherit"),
+    real.join(),
+  );
   assert.equal(matches(real, "c")[0], "center");
 });
 
 test("the named colours, wherever a colour goes: after the property's own keywords, before the CSS-wide ones", () => {
   assert.equal(COLOURS.length, 149);
   assert.equal(new Set(COLOURS).size, 149);
-  for (const c of ["red", "rebeccapurple", "gray", "grey", "aliceblue", "yellowgreen", "transparent"]) assert.ok(COLOURS.includes(c), c);
+  for (const c of ["red", "rebeccapurple", "gray", "grey", "aliceblue", "yellowgreen", "transparent"])
+    assert.ok(COLOURS.includes(c), c);
   assert.ok(COLOURS.every((c) => /^[a-z]+$/.test(c)));
   const color = valuesOf("color", CSS_PROPS, all);
   assert.deepEqual(color.slice(0, 2), ["currentcolor", "black"], "its own first");
@@ -183,10 +250,20 @@ test("the named colours, wherever a colour goes: after the property's own keywor
   assert.equal(color.filter((v) => v === "black").length, 1);
   assert.equal(color.length, new Set([...CSS_PROPS.color.v, ...COLOURS, ...WIDE, "auto", "none"]).size);
   assert.deepEqual(matches(color, "re").slice(0, 3), ["rebeccapurple", "red", "revert"]);
-  assert.deepEqual(matches(color, "red"), ["red", "darkred", "indianred", "mediumvioletred", "orangered", "palevioletred"]);
+  assert.deepEqual(matches(color, "red"), [
+    "red",
+    "darkred",
+    "indianred",
+    "mediumvioletred",
+    "orangered",
+    "palevioletred",
+  ]);
   // A shorthand that takes a colour has them after its own.
   const border = valuesOf("border", CSS_PROPS, all);
-  assert.ok(border.includes("tomato") && border.indexOf("solid") < border.indexOf("aliceblue"), border.slice(0, 20).join());
+  assert.ok(
+    border.includes("tomato") && border.indexOf("solid") < border.indexOf("aliceblue"),
+    border.slice(0, 20).join(),
+  );
   // Not where `red` is only a name (a font's, an animation's): there `#f00` is nothing.
   const names = (p, v) => v !== "#f00";
   assert.ok(!valuesOf("font-family", CSS_PROPS, names).includes("red"));
@@ -237,10 +314,21 @@ test("a { in a comment or a string after the caret opens nothing (review: DeepSe
 // ── the page's variables ────────────────────────────────────────────────────────────────────
 test("in a var( the caret is on a variable's name: the whole var(…) is what an item replaces", () => {
   assert.deepEqual(at("gap: var(|"), { kind: "value", prop: "gap", word: "", s: 5, e: 9, first: true, inVar: true });
-  assert.deepEqual(at("gap: var(--sp|"), { kind: "value", prop: "gap", word: "--sp", s: 5, e: 13, first: true, inVar: true });
+  assert.deepEqual(at("gap: var(--sp|"), {
+    kind: "value",
+    prop: "gap",
+    word: "--sp",
+    s: 5,
+    e: 13,
+    first: true,
+    inVar: true,
+  });
   // in a whole one, with its `)`: up to and with it
   const c = at("margin: 0 var(--sp|ace-4); color: red");
-  assert.deepEqual([c.kind, c.prop, c.word, c.s, c.e, c.first, c.inVar], ["value", "margin", "--sp", 10, 24, false, true]);
+  assert.deepEqual(
+    [c.kind, c.prop, c.word, c.s, c.e, c.first, c.inVar],
+    ["value", "margin", "--sp", 10, 24, false, true],
+  );
   // a var( opens the list at once; other brackets are still nothing
   assert.equal(wants(at("gap: var(|"), false), true);
   assert.equal(kind("width: calc(|"), "none");
@@ -255,7 +343,10 @@ test("typing -- in a value is a variable's name, and a variable matches on what 
   const c = at("gap: --sp|");
   assert.deepEqual([c.kind, c.word, c.s, c.e], ["value", "--sp", 5, 9]);
   assert.equal(wants(c, false), true);
-  assert.deepEqual(matches(["normal", "var(--space-4)", "var(--Space-Big)", "var(--brand)"], "--sp"), ["var(--space-4)", "var(--Space-Big)"]);
+  assert.deepEqual(matches(["normal", "var(--space-4)", "var(--Space-Big)", "var(--brand)"], "--sp"), [
+    "var(--space-4)",
+    "var(--Space-Big)",
+  ]);
   assert.deepEqual(matches(["var(--space-4)", "normal"], "var(--s"), ["var(--space-4)"]);
 });
 
@@ -271,12 +362,23 @@ test("a var(--name) at a caret or a selection; one with a fallback is none", () 
 });
 
 test("a token's scale: its family, the ones the property takes, by size, else by name", () => {
-  assert.deepEqual([family("--space-4"), family("--radius-lg"), family("--color-gray-500"), family("--brand"), family("--x-")], ["--space-", "--radius-", "--color-gray-", "", ""]);
+  assert.deepEqual(
+    [family("--space-4"), family("--radius-lg"), family("--color-gray-500"), family("--brand"), family("--x-")],
+    ["--space-", "--radius-", "--color-gray-", "", ""],
+  );
   const tokens = [
-    { name: "--space-1", value: "4px" }, { name: "--space-2", value: ".5rem" }, { name: "--space-3", value: "calc(4px * 3)" },
-    { name: "--space-10", value: "40px" }, { name: "--space-x-1", value: "1px" }, { name: "--space-auto", value: "auto" },
-    { name: "--gray-100", value: "#eee" }, { name: "--gray-50", value: "#fafafa" }, { name: "--gray-900", value: "#111" },
-    { name: "--radius-lg", value: "12px" }, { name: "--radius-sm", value: "4px" }, { name: "--radius-md", value: "8px" },
+    { name: "--space-1", value: "4px" },
+    { name: "--space-2", value: ".5rem" },
+    { name: "--space-3", value: "calc(4px * 3)" },
+    { name: "--space-10", value: "40px" },
+    { name: "--space-x-1", value: "1px" },
+    { name: "--space-auto", value: "auto" },
+    { name: "--gray-100", value: "#eee" },
+    { name: "--gray-50", value: "#fafafa" },
+    { name: "--gray-900", value: "#111" },
+    { name: "--radius-lg", value: "12px" },
+    { name: "--radius-sm", value: "4px" },
+    { name: "--radius-md", value: "8px" },
   ];
   const px = { "4px": 4, ".5rem": 8, "calc(4px * 3)": 12, "40px": 40, "1px": 1, "12px": 12, "8px": 8 };
   const size = (v) => px[v] ?? NaN;
@@ -284,7 +386,10 @@ test("a token's scale: its family, the ones the property takes, by size, else by
   assert.deepEqual(scaleOf(tokens, "--space-3", length, size), ["--space-1", "--space-2", "--space-3", "--space-10"]);
   assert.deepEqual(scaleOf(tokens, "--radius-sm", length, size), ["--radius-sm", "--radius-md", "--radius-lg"]);
   // no sizes: by name, the numbers in it as numbers
-  assert.deepEqual(scaleOf(tokens, "--gray-900", (v) => v.startsWith("#"), size), ["--gray-50", "--gray-100", "--gray-900"]);
+  assert.deepEqual(
+    scaleOf(tokens, "--gray-900", (v) => v.startsWith("#"), size),
+    ["--gray-50", "--gray-100", "--gray-900"],
+  );
   // on no scale: a name with no family, one the property does not take, one not there
   assert.deepEqual(scaleOf(tokens, "--brand", length, size), []);
   assert.deepEqual(scaleOf(tokens, "--space-auto", length, size), []);
@@ -292,13 +397,24 @@ test("a token's scale: its family, the ones the property takes, by size, else by
 });
 
 test("the variables come after a property's own keywords, before the colours and the CSS-wide ones", () => {
-  assert.deepEqual(withVars(["normal", "inherit", "initial"], ["var(--a)"]), ["normal", "var(--a)", "inherit", "initial"]);
-  assert.deepEqual(withVars(["currentcolor", "aliceblue", "inherit"], ["var(--brand)"]), ["currentcolor", "var(--brand)", "aliceblue", "inherit"]);
+  assert.deepEqual(withVars(["normal", "inherit", "initial"], ["var(--a)"]), [
+    "normal",
+    "var(--a)",
+    "inherit",
+    "initial",
+  ]);
+  assert.deepEqual(withVars(["currentcolor", "aliceblue", "inherit"], ["var(--brand)"]), [
+    "currentcolor",
+    "var(--brand)",
+    "aliceblue",
+    "inherit",
+  ]);
   assert.deepEqual(withVars(["a", "b"], ["var(--a)"]), ["a", "b", "var(--a)"]);
   assert.deepEqual(withVars(["a"], []), ["a"]);
 });
 
 test("a variable's name is offered only when it is plain: the host and the prompt take no other", () => {
   for (const ok of ["--space-4", "--Brand_2", "--a"]) assert.ok(TOKEN_NAME.test(ok), ok);
-  for (const no of ["--", "-a", "--a b", "--a\"b", "--<img>", `--${"x".repeat(61)}`, "--ünï"]) assert.ok(!TOKEN_NAME.test(no), no);
+  for (const no of ["--", "-a", "--a b", '--a"b', "--<img>", `--${"x".repeat(61)}`, "--ünï"])
+    assert.ok(!TOKEN_NAME.test(no), no);
 });

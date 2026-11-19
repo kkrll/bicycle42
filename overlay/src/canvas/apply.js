@@ -12,7 +12,8 @@ import { hostEl } from "../mount.js";
 /** A top-level cut of stylesheet text: one string per rule, so a change re-inserts one rule. */
 export function splitRules(text) {
   const out = [];
-  let depth = 0, start = 0;
+  let depth = 0,
+    start = 0;
   const cut = (end) => {
     const t = text.slice(start, end);
     if (t.replace(/\/\*[\s\S]*?(\*\/|$)/g, "").trim()) out.push(t.trim());
@@ -46,7 +47,8 @@ function setRules(b, k, rules) {
     b[k] = new CSSStyleSheet();
     b[`${k}Rules`] = [];
   }
-  const sheet = b[k], old = b[`${k}Rules`];
+  const sheet = b[k],
+    old = b[`${k}Rules`];
   const put = (text, i) => {
     try {
       sheet.insertRule(text, i);
@@ -98,7 +100,14 @@ export function stackOf(P) {
   for (const el of P.children) {
     if (el === hostEl) continue;
     const cs = getComputedStyle(el);
-    if (cs.display === "none" || cs.display === "contents" || cs.position === "absolute" || cs.position === "fixed" || cs.float !== "none") continue;
+    if (
+      cs.display === "none" ||
+      cs.display === "contents" ||
+      cs.position === "absolute" ||
+      cs.position === "fixed" ||
+      cs.float !== "none"
+    )
+      continue;
     if (/^(inline|table-|ruby)/.test(cs.display)) return null;
     if (typeof (/** @type {any} */ (el).offsetTop) !== "number") return null; // (an <svg> has no offsetTop to place it by)
     out.push({ el, top: /** @type {HTMLElement} */ (el).offsetTop, h: /** @type {HTMLElement} */ (el).offsetHeight });
@@ -147,7 +156,9 @@ export function applyAll() {
     if (el) marks.set(el, marks.has(el) && marks.get(el) !== m ? "ed hid" : m);
     return el;
   };
-  let dirty = syncCopies(), watchClass = false, watchDom = false;
+  let dirty = syncCopies(),
+    watchClass = false,
+    watchDom = false;
   const named = new Set();
   // A copy shows the style edits of what it copies: its root in the copy's own rule (its own edits
   // are in a rule of twice the weight, so they win), a descendant at the same place in the copy
@@ -157,13 +168,16 @@ export function applyAll() {
     if (!C.hide.has(b.id))
       for (const op of b.B.ops)
         if (op.kind === "duplicate") {
-          const src = elOf(op.rs), node = C.copies.get(op.copy);
+          const src = elOf(op.rs),
+            node = C.copies.get(op.copy);
           if (src && node && node.isConnected) dups.push({ src, node, rs: op.copy });
         }
   const imagesOf = (rs) => {
     const el = dups.length && elOf(rs);
     if (!el) return [];
-    const out = [], seen = new Set([el]), todo = [el];
+    const out = [],
+      seen = new Set([el]),
+      todo = [el];
     while (todo.length) {
       const x = todo.shift();
       for (const d of dups) {
@@ -241,28 +255,49 @@ export function applyAll() {
     const all = P.children;
     // In block flow the rules are offsets, so where the children are is part of what they say.
     const stack = /flex|grid/.test(getComputedStyle(P).display) ? null : stackOf(P) || [];
-    const sig = ops.map((o) => `${o.rs}>${o.before ? o.before.rs : ""}`).join("|") + (stack ? `@${stack.map((s) => `${s.top},${s.h}`).join(" ")}` : "");
+    const sig =
+      ops.map((o) => `${o.rs}>${o.before ? o.before.rs : ""}`).join("|") +
+      (stack ? `@${stack.map((s) => `${s.top},${s.h}`).join(" ")}` : "");
     if (stack) for (const x of stack) stacked.push(x.el);
     let c = C.orders.get(prs);
     let same = !!c && c.P === P && c.sig === sig && c.kids.length === all.length;
     for (let i = 0; same && i < all.length; i++) same = c.kids[i] === all[i];
     if (!same && stack) {
       const kidsNow = [...all];
-      C.orders.set(prs, (c = { P, sig, kids: kidsNow, rules: blockRules(prs, stack, ordered(kidsNow.filter((x) => x !== hostEl), ops), kidsNow) }));
+      C.orders.set(
+        prs,
+        (c = {
+          P,
+          sig,
+          kids: kidsNow,
+          rules: blockRules(
+            prs,
+            stack,
+            ordered(
+              kidsNow.filter((x) => x !== hostEl),
+              ops,
+            ),
+            kidsNow,
+          ),
+        }),
+      );
     } else if (!same) {
       const kidsNow = [...all];
       const base = kidsNow.filter((x) => x !== hostEl);
       const L = ordered(base, ops);
       const rules = [];
-      let first = 0, last = L.length - 1;
+      let first = 0,
+        last = L.length - 1;
       while (first <= last && L[first] === base[first]) first++;
       while (last > first && L[last] === base[last]) last--;
       if (first <= last) {
         const at = new Map(kidsNow.map((el, i) => [el, i + 1]));
         // Those before the first change keep their order (0); the changed run is numbered; the
         // rest follow under one rule.
-        for (let i = first; i <= last; i++) rules.push(`${prs} > :nth-child(${at.get(L[i])}) { order: ${i - first + 1} !important; }`);
-        if (base[last + 1]) rules.push(`${prs} > :nth-child(n + ${at.get(base[last + 1])}) { order: ${last - first + 2} !important; }`);
+        for (let i = first; i <= last; i++)
+          rules.push(`${prs} > :nth-child(${at.get(L[i])}) { order: ${i - first + 1} !important; }`);
+        if (base[last + 1])
+          rules.push(`${prs} > :nth-child(n + ${at.get(base[last + 1])}) { order: ${last - first + 2} !important; }`);
       }
       C.orders.set(prs, (c = { P, sig, kids: kidsNow, rules }));
     }
@@ -328,7 +363,9 @@ export function applyAll() {
 
 // A block reorder's offsets are in pixels: worked out again when a box of the stack changes size
 // (the window's width, an image that loads, a font, a <details> that opens; none is a mutation).
-let sizes = null, sized = [], fresh = false;
+let sizes = null,
+  sized = [],
+  fresh = false;
 function watchSizes(els) {
   if (els.length === sized.length && els.every((x, i) => x === sized[i])) return;
   sized = els;
@@ -348,10 +385,12 @@ function watch(mode) {
     if (mode) {
       C.obs = C.obs || new MutationObserver(() => applyAll());
       C.obs.observe(document.documentElement, {
-        childList: true, subtree: true, characterData: true, ...(mode === 2 ? { attributes: true, attributeFilter: ["class"] } : {}),
+        childList: true,
+        subtree: true,
+        characterData: true,
+        ...(mode === 2 ? { attributes: true, attributeFilter: ["class"] } : {}),
       });
     }
   }
   if (C.obs && mode) C.obs.takeRecords(); // our own writes are not news
 }
-

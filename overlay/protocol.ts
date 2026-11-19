@@ -7,28 +7,28 @@
 // becomes instructions to a coding agent (see `pageNote` in app/src/main/review.ts).
 
 /** A rectangle: viewport CSS px. */
-export type Box = { x: number; y: number; w: number; h: number }
+export type Box = { x: number; y: number; w: number; h: number };
 
 /** The page's window when a message was made. */
-export type Viewport = { w: number; h: number; dpr: number; scrollX: number; scrollY: number }
+export type Viewport = { w: number; h: number; dpr: number; scrollX: number; scrollY: number };
 
-export type Mode = "notes" | "canvas" | "motion"
+export type Mode = "notes" | "canvas" | "motion";
 
 /** What the page's framework calls an element (React, Vue), with its dev source when present. */
-export type Component = { /** "react" or "vue". */ framework?: string; name: string; stack: string[]; source?: string }
+export type Component = { /** "react" or "vue". */ framework?: string; name: string; stack: string[]; source?: string };
 
 /** One element a note is about. */
 export type Target = {
-  selector: string
-  tag: string
-  text?: string
-  rect: Box
-  component?: Component
+  selector: string;
+  tag: string;
+  text?: string;
+  rect: Box;
+  component?: Component;
   /** More of the element's identity, for a host that wants it: its id, its classes, a few attributes. */
-  id?: string
-  classes?: string
-  attrs?: Record<string, string>
-}
+  id?: string;
+  classes?: string;
+  attrs?: Record<string, string>;
+};
 
 /** One canvas-mode edit: something the reviewer did to a real element of the page by dragging,
  *  typing or deleting, or by writing CSS for it in the inspector. Absolute (a target value, not a
@@ -39,138 +39,138 @@ export type Target = {
  *  are the older, one-property form of the same and are still read. The overlay sends "style",
  *  "class", "move", "text" and "hide". */
 export type Edit = {
-  kind: "move" | "resize" | "gap" | "padding" | "margin" | "text" | "hide" | "style" | "class" | "duplicate"
+  kind: "move" | "resize" | "gap" | "padding" | "margin" | "text" | "hide" | "style" | "class" | "duplicate";
   /** The edited element (for gap: the parent whose gap changed). */
-  selector: string
-  tag: string
+  selector: string;
+  tag: string;
   /** A plain name for it: "Button · Start free trial". */
-  label: string
-  component?: string
+  label: string;
+  component?: string;
   /** The CSS property changed, when there is one: "width", "row-gap", "padding-top", … */
-  prop?: string
+  prop?: string;
   /** "16px", the old text, or (class) the original class attribute. */
-  from?: string
+  from?: string;
   /** "32px", the new text, or (class) the edited class attribute. */
-  to?: string
+  to?: string;
   /** style only: the declarations typed for this element (and written by gestures), verbatim. */
-  css?: string
+  css?: string;
   /** style only: each property set, with its computed value before and after, and the page's
    *  variables (design tokens) its value was set with: `["--space-4"]` for `gap: var(--space-4)`. */
-  changes?: Array<{ prop: string; from: string; to: string; tokens?: string[] }>
+  changes?: Array<{ prop: string; from: string; to: string; tokens?: string[] }>;
   /** move only. */
-  parent?: { selector: string; label: string; layout: "flex-row" | "flex-column" | "grid" | "block" }
+  parent?: { selector: string; label: string; layout: "flex-row" | "flex-column" | "grid" | "block" };
   /** 0-based among element siblings. */
-  fromIndex?: number
-  toIndex?: number
+  fromIndex?: number;
+  toIndex?: number;
   /** The sibling it now sits before; null = it is the last one. */
-  before?: { selector: string; label: string } | null
+  before?: { selector: string; label: string } | null;
   /** How many siblings look like the same component. More than 1 means "repeated". */
-  repeated?: number
+  repeated?: number;
   /** The element is in a copy that the "duplicate" edit at this index (0-based, in the same
    *  note) made: it is not in the code yet. A duplicate edit names the element it copies. */
-  copyOf?: number
+  copyOf?: number;
   /** The element is in a copy that an earlier note asked for: the label of what it copies. */
-  inCopy?: string
-}
+  inCopy?: string;
+};
 
 /** One animation, changed in motion mode (or only talked about, for a transition or a script's
  *  animation, which the page can't edit). Everything in it ends up in the prompt or in the panel. */
 export type Motion = {
-  kind: "keyframes" | "transition" | "script"
+  kind: "keyframes" | "transition" | "script";
   /** The keyframes' name (a script's animation id; "transition" for a transition). */
-  name: string
+  name: string;
   /** The element that plays it, and its plain name: "Heading · Ship calmer interfaces". */
-  selector: string
-  label: string
+  selector: string;
+  label: string;
   /** keyframes: how many elements play these keyframes. More than 1: a change to them changes all. */
-  shared?: number
+  shared?: number;
   /** keyframes: a new animation on the element. */
-  isNew?: true
+  isNew?: true;
   /** keyframes: the element got keyframes of its own (`name`), copied from these. */
-  from?: string
+  from?: string;
   /** keyframes: the element's `animation` value now, and before. */
-  animation?: { to: string; from?: string }
+  animation?: { to: string; from?: string };
   /** keyframes: the @keyframes text now, and before. */
-  keyframes?: { to: string; from?: string }
+  keyframes?: { to: string; from?: string };
   /** keyframes: what changed in how it plays, each with its value before and after. */
-  changes?: Array<{ prop: "duration" | "delay" | "easing" | "count" | "direction" | "fill"; from: string; to: string }>
+  changes?: Array<{ prop: "duration" | "delay" | "easing" | "count" | "direction" | "fill"; from: string; to: string }>;
   /** keyframes: what should start it, when that is not what starts it now. */
-  starts?: "load" | "view" | "hover" | "click" | "appear" | "scroll"
+  starts?: "load" | "view" | "hover" | "click" | "appear" | "scroll";
   /** transition and script: what the page has, in one line. */
-  current?: string
-}
+  current?: string;
+};
 
 /** A note, as the overlay sends it. */
 export type PageNote = {
-  id: string
-  text: string
-  url: string
+  id: string;
+  text: string;
+  url: string;
   /** The page's title, and when the note was made (ms since the epoch). */
-  title?: string
-  time?: number
-  viewport: Viewport
+  title?: string;
+  time?: number;
+  viewport: Viewport;
   /** What the note is about. Canvas mode: the edited elements. Motion mode: the one that moves. */
-  targets: Target[]
-  area: Box | null
-  strokes: number[][][]
+  targets: Target[];
+  area: Box | null;
+  strokes: number[][][];
   /** The targets, the area and the strokes, united. Canvas mode: the edited elements' rects
    *  before and after, united. */
-  bounds: Box | null
+  bounds: Box | null;
   /** "bg" when sent with alt+Enter: to the host's background session. */
-  lane?: "bg"
+  lane?: "bg";
   /** A note template chosen with "/" in the note card ("variants", "grade", …). */
-  template?: string
+  template?: string;
   /** Pictures the reviewer pasted into the note, as data URIs. Named here, not by the page. */
-  images?: Array<{ name: string; uri: string }>
+  images?: Array<{ name: string; uri: string }>;
   /** Canvas mode: what the reviewer changed on the live page. Such a note may have no words. */
-  edits?: Edit[]
+  edits?: Edit[];
   /** Canvas mode: new CSS rules the reviewer typed for the whole batch, verbatim. A note may be
    *  nothing but this. */
-  css?: string
+  css?: string;
   /** Motion mode: the one animation the note is about. Its words may be empty when it changes
    *  something. */
-  motion?: Motion
-}
+  motion?: Motion;
+};
 
 /** The unsent work, which the host keeps so a reload loses nothing: the note in progress, with
  *  canvas mode's unsent batch and motion mode's unsent animations beside it. The host does not
  *  look inside; it gives it back as it was. */
 export type Draft = {
-  text: string
+  text: string;
   /** Selectors of what is selected for the note. */
-  targets: string[]
+  targets: string[];
   /** Both in document coordinates (a note's own are the viewport's). */
-  area: Box | null
-  strokes: number[][][]
-  template: string | null
+  area: Box | null;
+  strokes: number[][][];
+  template: string | null;
   /** Canvas mode's unsent batch (opaque: { els, sheet, ops }), where its elements were (to find
    *  them after a reload), and the words typed under it. */
-  edits?: unknown
-  paths?: unknown
-  note?: string
+  edits?: unknown;
+  paths?: unknown;
+  note?: string;
   /** Motion mode's unsent edits (opaque: { kf, use, note? }). */
-  motion?: unknown
-}
+  motion?: unknown;
+};
 
 /** A sent note's mark on the page. selector, tag, text and component are from the note's first
  *  target, for finding its element again; `at` is the last-resort position. */
 export type Pin = {
-  id: string
-  n: number
-  status: "queued" | "working" | "done" | "failed" | "paused" | "stopped"
-  lane?: "bg"
-  selector?: string
-  tag?: string
-  text?: string
-  component?: string
+  id: string;
+  n: number;
+  status: "queued" | "working" | "done" | "failed" | "paused" | "stopped";
+  lane?: "bg";
+  selector?: string;
+  tag?: string;
+  text?: string;
+  component?: string;
   /** Document coordinates. */
-  at?: [number, number]
+  at?: [number, number];
   /** The reviewer's words, for the pin's tooltip. */
-  note?: string
-}
+  note?: string;
+};
 
 /** A note template, offered after "/" in the note card. */
-export type Template = { name: string; hint: string }
+export type Template = { name: string; hint: string };
 
 /** page → host: window.__review(JSON.stringify(msg)): the app's preload sends it over IPC, the harness has a shim. */
 export type PageMessage =
@@ -194,7 +194,7 @@ export type PageMessage =
   /** Reply to "edits", two frames after the page changed; id and show are echoed as received. */
   | { type: "edits-shown"; id: string; show: boolean }
   /** Reply to "frame", two frames after it was done: the window as it is then; id as received. */
-  | { type: "frame-shown"; id: string; viewport: Viewport }
+  | { type: "frame-shown"; id: string; viewport: Viewport };
 
 /** host → page: window.__b42.receive(msg), the message or its JSON. */
 export type HostMessage =
@@ -221,13 +221,13 @@ export type HostMessage =
   | { type: "frame"; id: string; hold?: boolean; scroll?: [number, number] }
   /** Bring the pin `id` into view: where its element is now (else where the note was made), a
    *  third of the window down, scrolled smoothly. Nothing happens for a pin with no place. */
-  | { type: "show"; id: string }
+  | { type: "show"; id: string };
 
 /** What the overlay puts on the page's window (in its own script world, when the host gives it one). */
 export type OverlayApi = {
-  version: string
+  version: string;
   /** True while the reviewer is mid-note (card open, selection, drag, capture): a host that
    *  reloads the page waits for false. */
-  busy(): boolean
-  receive(msg: HostMessage | string): void
-}
+  busy(): boolean;
+  receive(msg: HostMessage | string): void;
+};

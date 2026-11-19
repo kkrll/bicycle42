@@ -161,7 +161,8 @@ export function onKeyDown(e) {
     if (!e.repeat) startPeek();
     return;
   }
-  const want = !mod(e) || e.altKey ? undefined : e.shiftKey ? (e.code === "KeyP" ? "brush" : undefined) : MODE_KEYS[e.code];
+  const want =
+    !mod(e) || e.altKey ? undefined : e.shiftKey ? (e.code === "KeyP" ? "brush" : undefined) : MODE_KEYS[e.code];
   if (want) {
     block(e);
     if (want === "preview") return send({ type: "toggle" });
@@ -202,4 +203,3 @@ export function setPins(pins) {
   if (Motion.hasSent()) Motion.dropFinished();
   kick();
 }
-

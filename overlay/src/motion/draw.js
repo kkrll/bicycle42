@@ -7,7 +7,28 @@ import { rectOf } from "../page.js";
 import { setRoom } from "../room.js";
 import * as Notes from "../notes/api.js";
 import * as Canvas from "../canvas/api.js";
-import { apply, curve, DOCK_H, esc, frames, KIND_TITLE, kindIcon, M, MAJOR, mi, mq, name, openDirty, openKf, openUse, r1, RATE_TEXT, readOnly, scan, secs } from "./model.js";
+import {
+  apply,
+  curve,
+  DOCK_H,
+  esc,
+  frames,
+  KIND_TITLE,
+  kindIcon,
+  M,
+  MAJOR,
+  mi,
+  mq,
+  name,
+  openDirty,
+  openKf,
+  openUse,
+  r1,
+  RATE_TEXT,
+  readOnly,
+  scan,
+  secs,
+} from "./model.js";
 import { animOf, knownNames, letGo, position, running, selectEl, show } from "./open.js";
 import { cssText, keyInfo, laneOrder, rows, segEase, sharedBy, snapshot, timing } from "./edit.js";
 import { closePop, cssEl, dock, ftEl, hdEl, kbEl, listEl, msgEl, noteEl, sug, sugHide, tagEl, tlEl } from "./input.js";
@@ -75,7 +96,7 @@ function watchSuspects(on) {
     const now = performance.now();
     for (const m of list) {
       const c = seen.get(m.target) || seen.set(m.target, { n: 0, t: now }).get(m.target);
-      if (now - c.t > 1000) (c.n = 0), (c.t = now);
+      if (now - c.t > 1000) ((c.n = 0), (c.t = now));
       if (++c.n === 20 && !M.suspects.has(m.target)) {
         M.suspects.add(m.target);
         drawList();
@@ -116,15 +137,21 @@ export function drawList() {
   if (!dock || !M.on) return;
   const list = rows();
   listEl._rows = list;
-  listEl.innerHTML = list.map((r, i) => r.group ? `<div class="m-grp">${esc(r.group)}</div>`
-    : `<div class="m-it k-${r.kind}${r.on ? " on" : ""}${r.sub ? " sub" : ""}${r.last ? " last" : ""}${r.off ? " off" : ""}${r.running ? " run" : ""}" data-row="${i}"
+  listEl.innerHTML =
+    list
+      .map((r, i) =>
+        r.group
+          ? `<div class="m-grp">${esc(r.group)}</div>`
+          : `<div class="m-it k-${r.kind}${r.on ? " on" : ""}${r.sub ? " sub" : ""}${r.last ? " last" : ""}${r.off ? " off" : ""}${r.running ? " run" : ""}" data-row="${i}"
       title="${r.sub ? "" : `${KIND_TITLE[r.kind]}${r.running ? ", playing" : ""}`}">${r.sub ? "" : kindIcon(r.kind)}<span class="m-nm">${esc(r.text)}</span>
       <span class="m-ex">${esc(r.aside)}</span>${r.dirty ? '<i class="m-ed"></i>' : ""}
-      ${r.duration !== null && r.duration !== undefined ? `<span class="m-du">${Math.round(r.duration)}</span>` : ""}</div>`).join("") ||
-    `<div class="m-none">Nothing moves on this page</div>`;
+      ${r.duration !== null && r.duration !== undefined ? `<span class="m-du">${Math.round(r.duration)}</span>` : ""}</div>`,
+      )
+      .join("") || `<div class="m-none">Nothing moves on this page</div>`;
 }
 function timingFields() {
-  const t = timing(), ro = readOnly() ? "disabled" : "";
+  const t = timing(),
+    ro = readOnly() ? "disabled" : "";
   return `<label class="m-tf"><span>Duration</span><input class="m-fld num" data-t="duration" value="${Math.round(t.duration)}" inputmode="numeric" ${ro}><span class="m-unit">ms</span></label>
     <label class="m-tf"><span>Delay</span><input class="m-fld num" data-t="delay" value="${Math.round(t.delay)}" inputmode="numeric" ${ro}><span class="m-unit">ms</span></label>
     <label class="m-tf"><span>Easing</span><input class="m-fld ease" data-t="easing" data-sug="ease" value="${esc(t.easing)}" spellcheck="false" autocomplete="off" ${ro}>${curve(t.easing)}</label>`;
@@ -134,7 +161,8 @@ function drawHead() {
   const o = M.open;
   hdEl.hidden = !o;
   if (!o) return void (hdEl.innerHTML = "");
-  const b = (v, t) => `<button type="button" data-m="view" data-v="${v}" class="${M.view === v ? "on" : ""}">${t}</button>`;
+  const b = (v, t) =>
+    `<button type="button" data-m="view" data-v="${v}" class="${M.view === v ? "on" : ""}">${t}</button>`;
   hdEl.innerHTML = `<div class="m-seg" role="tablist">${b("keys", "Keyframes")}${b("css", "CSS")}</div><div class="m-timing">${timingFields()}</div>
     <button type="button" class="m-btn ic" data-m="more" title="More">${mi("more")}</button><span class="m-sp"></span>
     <div class="m-tools"><button type="button" class="m-btn" data-m="rate" title="Speed while looking">${RATE_TEXT[M.rate]}</button>
@@ -144,20 +172,29 @@ function drawHead() {
       <button type="button" class="m-btn ic" data-m="discard" ${openDirty() ? "" : "disabled"} title="${openUse() && openUse().isNew ? "Remove this new animation" : "Put back as the page has it"}">${mi("reset")}</button></div>`;
 }
 function laneBars(p) {
-  const fr = frames().filter((f) => p in f.vals), selKey = M.key, out = [];
+  const fr = frames().filter((f) => p in f.vals),
+    selKey = M.key,
+    out = [];
   if (!fr.length) return "";
   const on = (f) => selKey && selKey.at === f.at && (selKey.prop === p || selKey.prop === null);
-  if (fr.length === 1) out.push(`<i class="m-sb solo${on(fr[0]) ? " on" : ""}" style="--fa: ${fr[0].at / 100}; --fb: ${fr[0].at / 100}; --l: -10px; --r: 10px"></i>`);
+  if (fr.length === 1)
+    out.push(
+      `<i class="m-sb solo${on(fr[0]) ? " on" : ""}" style="--fa: ${fr[0].at / 100}; --fb: ${fr[0].at / 100}; --l: -10px; --r: 10px"></i>`,
+    );
   // The outer ends of a lane's bars reach past its first and last keyframes, so those grips sit
   // inside them; where two bars meet, a gap holds the grip they share.
   fr.forEach((f, i) => {
     const next = fr[i + 1];
     if (!next) return;
-    const ease = segEase(f.at, p), flat = f.vals[p] === next.vals[p];
+    const ease = segEase(f.at, p),
+      flat = f.vals[p] === next.vals[p];
     out.push(`<i class="m-sb${on(f) ? " on" : ""}${flat ? " flat" : ""}" data-seg="${f.at}" data-prop="${esc(p)}" title="${esc(ease)}"
       style="--fa: ${f.at / 100}; --fb: ${next.at / 100}; --l: ${i === 0 ? -10 : 3}px; --r: ${i === fr.length - 2 ? 10 : -3}px"></i>`);
   });
-  for (const f of fr) out.push(`<i class="m-key m-gr${on(f) ? " on" : ""}" style="--at: ${f.at / 100}" data-at="${f.at}" data-prop="${esc(p)}" title="${esc(f.vals[p])}"></i>`);
+  for (const f of fr)
+    out.push(
+      `<i class="m-key m-gr${on(f) ? " on" : ""}" style="--at: ${f.at / 100}" data-at="${f.at}" data-prop="${esc(p)}" title="${esc(f.vals[p])}"></i>`,
+    );
   return out.join("");
 }
 export function drawLanes() {
@@ -166,40 +203,80 @@ export function drawLanes() {
   if (!o) {
     // Something that does not move: new keyframes, or keyframes the page already has.
     const names = M.sel ? knownNames() : [];
-    const have = names.length ? `<div class="m-or">or play keyframes the page has</div><div class="m-chips">${names.map((n) =>
-      `<button type="button" class="m-chip" data-m="use" data-v="${esc(n)}" title="Play ${esc(n)} on this element">${esc(n)}</button>`).join("")}</div>` : "";
-    tlEl.innerHTML = `<div class="m-empty">${M.sel ? `<div>Nothing moves this</div><button type="button" class="m-btn m-new" data-m="new">${mi("plus")}New animation</button>${have}`
-      : "<div>Click something on the page, or a row of the list</div>"}</div>`;
+    const have = names.length
+      ? `<div class="m-or">or play keyframes the page has</div><div class="m-chips">${names
+          .map(
+            (n) =>
+              `<button type="button" class="m-chip" data-m="use" data-v="${esc(n)}" title="Play ${esc(n)} on this element">${esc(n)}</button>`,
+          )
+          .join("")}</div>`
+      : "";
+    tlEl.innerHTML = `<div class="m-empty">${
+      M.sel
+        ? `<div>Nothing moves this</div><button type="button" class="m-btn m-new" data-m="new">${mi("plus")}New animation</button>${have}`
+        : "<div>Click something on the page, or a row of the list</div>"
+    }</div>`;
     return;
   }
-  const ro = readOnly(), selKey = M.key, fr = frames(), T = Math.max(1, +timing().duration || 0);
+  const ro = readOnly(),
+    selKey = M.key,
+    fr = frames(),
+    T = Math.max(1, +timing().duration || 0);
   M.T = T;
-  const major = MAJOR.find((m) => T / m <= 7) || 5000, minor = major / 5;
+  const major = MAJOR.find((m) => T / m <= 7) || 5000,
+    minor = major / 5;
   const ticks = [];
   for (let n = 0; n <= T + 0.5; n += minor) {
     const big = Math.round(n / minor) % 5 === 0;
     ticks.push(`<i class="m-tick${big ? " big" : ""}" style="--at: ${n / T}">${big ? `<b>${secs(n)}</b>` : ""}</i>`);
   }
   // the whole keyframes, under the ruler: one grabs every property at that moment
-  const whole = fr.map((f) => `<i class="m-key wk${selKey && selKey.at === f.at && selKey.prop === null ? " on" : ""}" style="--at: ${f.at / 100}" data-at="${f.at}" data-prop=""></i>`).join("");
+  const whole = fr
+    .map(
+      (f) =>
+        `<i class="m-key wk${selKey && selKey.at === f.at && selKey.prop === null ? " on" : ""}" style="--at: ${f.at / 100}" data-at="${f.at}" data-prop=""></i>`,
+    )
+    .join("");
   const tr = o.kind === "transition";
-  const html = [`<div class="m-lrow m-ruler"><div class="m-lab"><button type="button" class="m-btn ic play" data-m="play" title="${tr ? "Switch the state" : "Play (space)"}">${mi(running() ? "pause" : "play")}</button><span class="m-time"></span></div>
-    <div class="m-trk" data-ruler>${ticks.join("")}${whole}</div></div>`];
+  const html = [
+    `<div class="m-lrow m-ruler"><div class="m-lab"><button type="button" class="m-btn ic play" data-m="play" title="${tr ? "Switch the state" : "Play (space)"}">${mi(running() ? "pause" : "play")}</button><span class="m-time"></span></div>
+    <div class="m-trk" data-ruler>${ticks.join("")}${whole}</div></div>`,
+  ];
   // the band: the keyframes' name, and who else plays them
-  const n = sharedBy(), u = openUse(), k = openKf(), nm = tr ? "transition" : o.name;
+  const n = sharedBy(),
+    u = openUse(),
+    k = openKf(),
+    nm = tr ? "transition" : o.name;
   // Keyframes made here are named here; the page's own keep their name (the code uses it).
-  const title = k && k.isNew ? `<input class="m-fld m-name" data-name value="${esc(nm)}" spellcheck="false" autocomplete="off" aria-label="Name" title="Rename these keyframes">` : `<b>${esc(nm)}</b>`;
-  const remove = u && u.isNew ? `<span class="m-sp"></span><button type="button" class="m-btn m-own" data-m="discard" title="Take this animation off the element">${mi("trash", 14)}Remove</button>` : "";
-  const note = n > 1 ? `<span class="m-shared" title="These keyframes are played by ${n} elements: a change to them changes all of them. Duration, delay and easing are this element's own.">${mi("link", 14)}${n} elements</span>
+  const title =
+    k && k.isNew
+      ? `<input class="m-fld m-name" data-name value="${esc(nm)}" spellcheck="false" autocomplete="off" aria-label="Name" title="Rename these keyframes">`
+      : `<b>${esc(nm)}</b>`;
+  const remove =
+    u && u.isNew
+      ? `<span class="m-sp"></span><button type="button" class="m-btn m-own" data-m="discard" title="Take this animation off the element">${mi("trash", 14)}Remove</button>`
+      : "";
+  const note =
+    n > 1
+      ? `<span class="m-shared" title="These keyframes are played by ${n} elements: a change to them changes all of them. Duration, delay and easing are this element's own.">${mi("link", 14)}${n} elements</span>
       <button type="button" class="m-btn m-own" data-m="detach" title="Give this element its own copy of the keyframes to change; the other ${n - 1 === 1 ? "element keeps" : `${n - 1} elements keep`} them as they are">Duplicate</button>`
-    : u && u.from ? `<span class="m-shared">Copy of <b>${esc(u.from)}</b>, for this element only</span>` : "";
+      : u && u.from
+        ? `<span class="m-shared">Copy of <b>${esc(u.from)}</b>, for this element only</span>`
+        : "";
   const lanes = laneOrder();
-  const rowsHtml = lanes.map((p) => `<div class="m-lrow m-lane${selKey && selKey.prop === p ? " kon" : ""}"><div class="m-lab"><span title="${esc(p)}">${esc(p)}</span>${ro ? "" : `<button type="button" class="m-btn ic m-x" data-m="rmlane" data-prop="${esc(p)}" title="Remove">${icon("x", 14)}</button>`}</div>
-      <div class="m-trk"><div class="m-trk m-kspan" data-prop="${esc(p)}">${laneBars(p)}</div></div></div>`);
+  const rowsHtml = lanes.map(
+    (
+      p,
+    ) => `<div class="m-lrow m-lane${selKey && selKey.prop === p ? " kon" : ""}"><div class="m-lab"><span title="${esc(p)}">${esc(p)}</span>${ro ? "" : `<button type="button" class="m-btn ic m-x" data-m="rmlane" data-prop="${esc(p)}" title="Remove">${icon("x", 14)}</button>`}</div>
+      <div class="m-trk"><div class="m-trk m-kspan" data-prop="${esc(p)}">${laneBars(p)}</div></div></div>`,
+  );
   html.push(`<div class="m-lanes"><div class="m-bands"><i class="m-band"></i></div>
     <div class="m-lrow m-ghead"><div class="m-lab">${kindIcon(tr ? "transition" : o.kind === "script" ? "script" : "css")}${title}</div><div class="m-trk">${note}${remove}</div></div>
     ${rowsHtml.join("")}</div>`);
-  if (!ro) html.push(`<div class="m-addp"><input class="m-fld" data-addp data-sug="props" placeholder="+ Property" spellcheck="false" autocomplete="off"></div>`);
+  if (!ro)
+    html.push(
+      `<div class="m-addp"><input class="m-fld" data-addp data-sug="props" placeholder="+ Property" spellcheck="false" autocomplete="off"></div>`,
+    );
   html.push(`<div class="m-phl"><div class="m-flag" hidden><b></b></div></div>`);
   tlEl.innerHTML = html.join("");
 }
@@ -208,8 +285,11 @@ export function keyEditor() {
   if (!k) return "";
   const ro = k.ro ? "disabled" : "";
   return `<div class="m-keyed"><input class="m-fld num" data-k="at" value="${r1(k.at)}" ${ro}><span class="m-unit">%</span>
-    ${k.prop === null ? `<span class="m-p">${Object.keys(k.f.vals).length} properties</span><span class="m-sp"></span>`
-      : `<span class="m-p">${esc(k.prop)}</span><input class="m-fld val" data-k="val" value="${esc(k.value)}" spellcheck="false" autocomplete="off" ${ro}>`}
+    ${
+      k.prop === null
+        ? `<span class="m-p">${Object.keys(k.f.vals).length} properties</span><span class="m-sp"></span>`
+        : `<span class="m-p">${esc(k.prop)}</span><input class="m-fld val" data-k="val" value="${esc(k.value)}" spellcheck="false" autocomplete="off" ${ro}>`
+    }
     ${k.last ? "" : `<input class="m-fld ease" data-k="ease" data-sug="ease" value="${esc(k.ease)}" placeholder="${esc(k.dflt)}" spellcheck="false" ${ro}><button type="button" class="m-btn ic m-cvb" data-m="kease" ${ro} title="Easing">${curve(k.ease || k.dflt)}</button>`}
     ${ro ? "" : `<button type="button" class="m-btn ic" data-m="rmkey" title="Delete (⌫)">${mi("trash")}</button>`}</div>`;
 }
@@ -226,7 +306,8 @@ function sentStatus() {
 /** The note that goes with the open animation, and Send; or what the line has to say. */
 export function drawFoot() {
   if (!ftEl) return;
-  const o = M.open, can = !!o && (openDirty() || !!noteEl.value.trim());
+  const o = M.open,
+    can = !!o && (openDirty() || !!noteEl.value.trim());
   const busy = root.activeElement === noteEl || !!noteEl.value;
   const msg = M.msg || (busy ? "" : M.done || (o && openDirty() ? "" : sentStatus()));
   noteEl.hidden = !!msg;
@@ -236,7 +317,11 @@ export function drawFoot() {
   msgEl.classList.toggle("warn", !!M.msg);
   const go = ftEl.querySelector(".m-go");
   go.disabled = !can;
-  go.title = can ? "Send this animation to the agent (↵)" : o ? "Change it, or say what it should do, first" : "Open an animation first";
+  go.title = can
+    ? "Send this animation to the agent (↵)"
+    : o
+      ? "Change it, or say what it should do, first"
+      : "Open an animation first";
 }
 /** A message on the line under the timeline, for a moment. */
 export function flash(text) {
@@ -278,7 +363,8 @@ export function frame(capturing) {
       a.play();
     }
   }
-  const run = running(), p = position();
+  const run = running(),
+    p = position();
   const flag = tlEl.querySelector(".m-flag");
   if (flag && M.T) {
     hide(flag, p === null);
@@ -308,7 +394,10 @@ export function frame(capturing) {
   if (sel && sel.isConnected) {
     const r = rectOf(sel);
     // While it plays, only its corners: the motion is not covered.
-    out.push([{ x: Math.round(r.x - 3), y: Math.round(r.y - 3), w: Math.round(r.w + 6), h: Math.round(r.h + 6) }, `${run ? "mcorn" : "csel"}${performance.now() < M.findUntil ? " mfind" : ""}`]);
+    out.push([
+      { x: Math.round(r.x - 3), y: Math.round(r.y - 3), w: Math.round(r.w + 6), h: Math.round(r.h + 6) },
+      `${run ? "mcorn" : "csel"}${performance.now() < M.findUntil ? " mfind" : ""}`,
+    ]);
     const text = name(sel);
     if (tagEl._t !== text) tagEl.textContent = tagEl._t = text;
     hide(tagEl, false);
@@ -322,4 +411,5 @@ export function frame(capturing) {
   return out;
 }
 /** More frames are needed: something plays, is dragged, or a ring is going out. */
-export const busyFrames = () => M.on && S.enabled && (running() || !!M.drag || performance.now() < M.findUntil || !!(M.ro && M.ro.on));
+export const busyFrames = () =>
+  M.on && S.enabled && (running() || !!M.drag || performance.now() < M.findUntil || !!(M.ro && M.ro.on));

@@ -16,8 +16,13 @@ export function serializeDraft() {
   if (!noteDraft && !canvas && !motion) return null;
   // (Between a send and its "captured", S.sel holds the sent note's outlines: not a draft.)
   return {
-    text: Notes.textarea.value, targets: (noteDraft ? S.sel : []).map(selectorFor), area: S.area, strokes: S.strokes, template: S.template,
-    ...canvas, ...(motion ? { motion } : {}),
+    text: Notes.textarea.value,
+    targets: (noteDraft ? S.sel : []).map(selectorFor),
+    area: S.area,
+    strokes: S.strokes,
+    template: S.template,
+    ...canvas,
+    ...(motion ? { motion } : {}),
   };
 }
 

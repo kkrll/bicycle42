@@ -120,7 +120,12 @@ const OPTIONAL_EVENT_TYPES = [
 
 /** Without the optional events: what says that a summary asked for has been written, or will
  *  not be. It is written between two steps, or in a run of its own. */
-const AFTER_SUMMARY = new Set(["session.step.started", "session.execution.succeeded", "session.execution.failed", "session.execution.interrupted"])
+const AFTER_SUMMARY = new Set([
+  "session.step.started",
+  "session.execution.succeeded",
+  "session.execution.failed",
+  "session.execution.interrupted",
+])
 
 /** Events after which a session's summary (title, model, agent, busy) has changed. They carry
  *  only the changed field, so listen() re-reads the session. */
@@ -178,7 +183,13 @@ const DROPPED = "\u0000dropped"
 
 /** `payload` is a user message or an inbox item's payload: both are `{ text, files? }`. With
  *  `named`, a picture is shown by the address it gives (`file` is its place in the files). */
-function userItem(id: string, time: number, payload: Raw, pending: boolean, named?: (file: number, mime: string, data?: string) => string): ChatUser {
+function userItem(
+  id: string,
+  time: number,
+  payload: Raw,
+  pending: boolean,
+  named?: (file: number, mime: string, data?: string) => string,
+): ChatUser {
   const text = str(payload.text) ?? ""
   const images: ChatImage[] = []
   for (const [i, raw] of list(payload.files).entries()) {
@@ -197,7 +208,13 @@ function fileChanges(metadata: unknown): FileChange[] | undefined {
   for (const raw of list(rec(metadata).files)) {
     const f = rec(raw)
     const file = str(f.file)
-    if (file) changes.push({ file, patch: str(f.patch) ?? "", additions: num(f.additions) ?? 0, deletions: num(f.deletions) ?? 0 })
+    if (file)
+      changes.push({
+        file,
+        patch: str(f.patch) ?? "",
+        additions: num(f.additions) ?? 0,
+        deletions: num(f.deletions) ?? 0,
+      })
   }
   return changes.length ? changes : undefined
 }
@@ -218,7 +235,12 @@ function toolTitle(name: string, input: unknown, dir: string | undefined): strin
   return clip(title, 80)
 }
 
-const TOOL_STATUS: Record<string, ToolStatus> = { streaming: "pending", running: "running", completed: "done", error: "error" }
+const TOOL_STATUS: Record<string, ToolStatus> = {
+  streaming: "pending",
+  running: "running",
+  completed: "done",
+  error: "error",
+}
 const DETAIL_MAX = 4096
 
 /** `state` is a tool part's state as the message list has it: `{ status, input, content?,
@@ -268,7 +290,14 @@ function assistantItem(id: string, time: number, m: Raw, dir: string | undefined
 function endMarker(id: string, time: number, outcome: unknown, error: unknown): ChatMarker | undefined {
   if (outcome === "interrupted") return { kind: "marker", id, time, text: "Stopped", tone: "error" }
   if (outcome === "failed")
-    return { kind: "marker", id, time, text: `Failed: ${str(rec(error).message) ?? "unknown error"}`, tone: "error", failed: true }
+    return {
+      kind: "marker",
+      id,
+      time,
+      text: `Failed: ${str(rec(error).message) ?? "unknown error"}`,
+      tone: "error",
+      failed: true,
+    }
   return undefined
 }
 
@@ -288,14 +317,27 @@ const SUMMARY_KEY = "text:0"
 const summaryReason = (reason: unknown): "manual" | "auto" => (reason === "auto" ? "auto" : "manual")
 
 function summaryItem(id: string, time: number, reason: unknown, text: string, done: boolean): ChatAssistant {
-  return { kind: "assistant", id, time, parts: text ? [{ kind: "text", key: SUMMARY_KEY, text }] : [], done, summary: summaryReason(reason) }
+  return {
+    kind: "assistant",
+    id,
+    time,
+    parts: text ? [{ kind: "text", key: SUMMARY_KEY, text }] : [],
+    done,
+    summary: summaryReason(reason),
+  }
 }
 
 /** A summary that did not happen. "Nothing to compact yet" is an answer, not a fault. */
 function summaryFailed(id: string, time: number, error: unknown): ChatMarker {
   const e = rec(error)
   const why = str(e.message)?.replace(/[.\s]+$/, "")
-  return { kind: "marker", id, time, text: `The conversation was not summarised${why ? `: ${why}` : ""}.`, tone: e.type === "compaction.unavailable" ? "info" : "error" }
+  return {
+    kind: "marker",
+    id,
+    time,
+    text: `The conversation was not summarised${why ? `: ${why}` : ""}.`,
+    tone: e.type === "compaction.unavailable" ? "info" : "error",
+  }
 }
 
 // ── how full the context is ─────────────────────────────────────────────────────────────────────
@@ -309,7 +351,10 @@ function summaryFailed(id: string, time: number, error: unknown): ChatMarker {
 export function contextUsed(tokens: unknown): number | undefined {
   const t = rec(tokens)
   const cache = rec(t.cache)
-  const used = [t.input, cache.read, cache.write, t.output, t.reasoning].reduce<number>((sum, n) => sum + Math.max(0, num(n) ?? 0), 0)
+  const used = [t.input, cache.read, cache.write, t.output, t.reasoning].reduce<number>(
+    (sum, n) => sum + Math.max(0, num(n) ?? 0),
+    0,
+  )
   return used > 0 ? used : undefined
 }
 
@@ -340,8 +385,17 @@ export function contextOf(messages: unknown[], undone?: string): ContextUse | un
 /** The line where an undone part of the conversation was. `turns` is how many of the user's
  *  messages went. */
 function undoneMarker(boundary: string, time: number, turns: number): ChatMarker {
-  const what = turns === 1 ? "Your last message and the agent's work on it are" : `Your last ${turns} messages and the agent's work on them are`
-  return { kind: "marker", id: `undone:${boundary}`, time, text: `${what} undone. /redo brings ${turns === 1 ? "it" : "them"} back; your next message makes it final.`, tone: "info" }
+  const what =
+    turns === 1
+      ? "Your last message and the agent's work on it are"
+      : `Your last ${turns} messages and the agent's work on them are`
+  return {
+    kind: "marker",
+    id: `undone:${boundary}`,
+    time,
+    text: `${what} undone. /redo brings ${turns === 1 ? "it" : "them"} back; your next message makes it final.`,
+    tone: "info",
+  }
 }
 
 function agentMarker(id: string, time: number, agent: unknown): ChatMarker {
@@ -359,7 +413,10 @@ export function chatItems(
   undone?: string,
   pictures?: { session: string; name: NamePicture },
 ): ChatItem[] {
-  const named = (message: string) => pictures && ((file: number, mime: string, data?: string) => pictures.name({ session: pictures.session, message, file }, mime, data))
+  const named = (message: string) =>
+    pictures &&
+    ((file: number, mime: string, data?: string) =>
+      pictures.name({ session: pictures.session, message, file }, mime, data))
   const items: ChatItem[] = []
   const delivered = new Set<string>()
   /** The user's messages from `undone` on, once it is reached. */
@@ -374,7 +431,7 @@ export function chatItems(
       continue
     }
     delivered.add(id)
-    if (undone && id === undone) (gone = 0), (goneAt = time)
+    if (undone && id === undone) ((gone = 0), (goneAt = time))
     if (gone >= 0) {
       if (m.type === "user") gone++
       continue
@@ -467,7 +524,9 @@ function question(raw: unknown, warn: Warn): Question | undefined {
     const options = list(f.options).flatMap((rawOption) => {
       const o = rec(rawOption)
       const value = str(o.value)
-      return value === undefined ? [] : [defined({ value, label: str(o.label) ?? value, description: str(o.description) })]
+      return value === undefined
+        ? []
+        : [defined({ value, label: str(o.label) ?? value, description: str(o.description) })]
     })
     fields.push(
       defined({
@@ -547,7 +606,11 @@ const messageID = (eventID: unknown) => "msg_" + (str(eventID) ?? "").replace(/^
  *
  *  It keeps the steps that are still running, so a step's end can be sent as one whole item.
  *  Deltas pass straight through: a `delta` ChatEvent holds the appended text and nothing else. */
-export function createEventMapper(emit: (event: BackendEvent) => void, warn: Warn = () => {}, pictures?: NamePicture): (raw: unknown) => void {
+export function createEventMapper(
+  emit: (event: BackendEvent) => void,
+  warn: Warn = () => {},
+  pictures?: NamePicture,
+): (raw: unknown) => void {
   const steps = new Map<string, Step>()
   /** Inbox ids of the server's own (non-user) items, which never reach the chat. */
   const notOurs = new Set<string>()
@@ -584,7 +647,9 @@ export function createEventMapper(emit: (event: BackendEvent) => void, warn: War
         if (!id) return
         if (item.type !== "user") return void notOurs.add(id)
         emit({ type: "inbox", session, id, status: "queued" })
-        const named = pictures && ((file: number, mime: string, data?: string) => pictures({ session, message: id, file }, mime, data))
+        const named =
+          pictures &&
+          ((file: number, mime: string, data?: string) => pictures({ session, message: id, file }, mime, data))
         return chat({ type: "item", session, item: userItem(id, time, rec(item.payload), true, named) })
       }
       case "session.inbox.delivered": {
@@ -632,7 +697,8 @@ export function createEventMapper(emit: (event: BackendEvent) => void, warn: War
         if (!running || !text) return
         const first = !running.text
         running.text += text
-        if (first) return chat({ type: "part", session, item: running.id, part: { kind: "text", key: SUMMARY_KEY, text } })
+        if (first)
+          return chat({ type: "part", session, item: running.id, part: { kind: "text", key: SUMMARY_KEY, text } })
         return chat({ type: "delta", session, item: running.id, key: SUMMARY_KEY, text })
       }
       case "session.compaction.ended": {
@@ -643,12 +709,20 @@ export function createEventMapper(emit: (event: BackendEvent) => void, warn: War
         if (!running) return emit({ type: "resync", session })
         // What the summary left in the context is counted by the next step.
         emit({ type: "context", session })
-        return chat({ type: "item", session, item: summaryItem(running.id, running.time, d.reason, str(d.text) ?? running.text, true) })
+        return chat({
+          type: "item",
+          session,
+          item: summaryItem(running.id, running.time, d.reason, str(d.text) ?? running.text, true),
+        })
       }
       case "session.compaction.failed": {
         const running = summaries.get(session)
         summaries.delete(session)
-        return chat({ type: "item", session, item: summaryFailed(running?.id ?? str(d.inputID) ?? messageID(ev.id), running?.time ?? time, d.error) })
+        return chat({
+          type: "item",
+          session,
+          item: summaryFailed(running?.id ?? str(d.inputID) ?? messageID(ev.id), running?.time ?? time, d.error),
+        })
       }
 
       // Part of the conversation was undone, brought back, or given up for good: what the
@@ -661,7 +735,13 @@ export function createEventMapper(emit: (event: BackendEvent) => void, warn: War
       case "session.step.started": {
         const id = str(d.assistantMessageID)
         if (!id) return
-        const step: Step = { time: num(d.started) ?? time, dir: str(rec(ev.location).directory), provider: str(rec(d.model).providerID), parts: [], tools: new Map() }
+        const step: Step = {
+          time: num(d.started) ?? time,
+          dir: str(rec(ev.location).directory),
+          provider: str(rec(d.model).providerID),
+          parts: [],
+          tools: new Map(),
+        }
         steps.set(id, step)
         gaps.delete(session)
         return chat({ type: "item", session, item: { kind: "assistant", id, time: step.time, parts: [], done: false } })
@@ -680,7 +760,15 @@ export function createEventMapper(emit: (event: BackendEvent) => void, warn: War
           return void gaps.add(session)
         }
         const error = type === "session.step.failed" ? str(rec(d.error).message) : undefined
-        const item: ChatAssistant = defined({ kind: "assistant", id, time: step.time, parts: step.parts, done: true, ended: time, error })
+        const item: ChatAssistant = defined({
+          kind: "assistant",
+          id,
+          time: step.time,
+          parts: step.parts,
+          done: true,
+          ended: time,
+          error,
+        })
         const used = error === undefined && type === "session.step.ended" ? contextUsed(d.tokens) : undefined
         if (used) emit({ type: "context", session, context: defined({ used, providerID: step.provider }) })
         return chat({ type: "item", session, item })
@@ -802,7 +890,8 @@ type WireMention = { start: number; end: number; text: string }
  *  attachment still goes, just without a place). */
 function wireMention(text: string, m: Mention): WireMention | undefined {
   const { start, end } = m
-  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end > text.length) return undefined
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end > text.length)
+    return undefined
   return { start, end, text: text.slice(start, end) }
 }
 
@@ -837,7 +926,12 @@ const atLocation = (directory: string) => `location%5Bdirectory%5D=${encodeURICo
 
 /** Reads `data:` frames off an SSE body until it ends. The server sends nothing else: no
  *  `event:` or `id:` lines, and a `: heartbeat` comment to keep the line open. */
-async function readEvents(body: ReadableStream<Uint8Array>, alive: () => void, onEvent: (raw: unknown) => void, warn: Warn) {
+async function readEvents(
+  body: ReadableStream<Uint8Array>,
+  alive: () => void,
+  onEvent: (raw: unknown) => void,
+  warn: Warn,
+) {
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buf = ""
@@ -881,7 +975,13 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-export function createOpenCode(opts: { url: string; password: string; fetch?: typeof fetch; log?: Log; pictures?: NamePicture }): OpenCode {
+export function createOpenCode(opts: {
+  url: string
+  password: string
+  fetch?: typeof fetch
+  log?: Log
+  pictures?: NamePicture
+}): OpenCode {
   const log: Log = opts.log ?? (() => {})
   const warned = new Set<string>()
   /** Once per message: a server that sends one odd thing sends it a thousand times. */
@@ -936,7 +1036,13 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
 
   /** Resolves with a response whose status is 2xx. `signal` belongs to the caller: when it
    *  fires, the rejection is the abort itself, not a "can't reach". */
-  async function send(method: string, path: string, body: unknown, signal: AbortSignal, accept: string): Promise<Response> {
+  async function send(
+    method: string,
+    path: string,
+    body: unknown,
+    signal: AbortSignal,
+    accept: string,
+  ): Promise<Response> {
     if (!base) throw new Error(`"${opts.url}" is not a server address`)
     const headers: Record<string, string> = { Authorization: authorization, Accept: accept }
     if (body !== undefined) headers["Content-Type"] = "application/json"
@@ -959,7 +1065,13 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
   /** One JSON call. Resolves `undefined` for an empty answer (204). */
   async function api(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<unknown> {
     const timeout = AbortSignal.timeout(timing.request)
-    const res = await send(method, path, body, signal ? AbortSignal.any([signal, timeout]) : timeout, "application/json")
+    const res = await send(
+      method,
+      path,
+      body,
+      signal ? AbortSignal.any([signal, timeout]) : timeout,
+      "application/json",
+    )
     let text: string
     try {
       text = await res.text()
@@ -975,7 +1087,8 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
     }
   }
 
-  const data = async (method: string, path: string, body?: unknown, signal?: AbortSignal) => rec(await api(method, path, body, signal)).data
+  const data = async (method: string, path: string, body?: unknown, signal?: AbortSignal) =>
+    rec(await api(method, path, body, signal)).data
   const sessionPath = (id: string) => `/api/session/${encodeURIComponent(id)}`
 
   /** The server refused the optional events (OPTIONAL_EVENT_TYPES), so this client goes without
@@ -997,7 +1110,11 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
     const version = str(said.version)
     if (!version) throw new Error(`${host} doesn't answer like an OpenCode server`)
     // "kkrll.local" → "kkrll": the computer's own name, as a person would say it.
-    const computer = (str(said.hostname) ?? "").replace(/[\x00-\x1f]+/g, " ").trim().replace(/\.(local|lan|home|localdomain)$/i, "").slice(0, 60)
+    const computer = (str(said.hostname) ?? "")
+      .replace(/[\x00-\x1f]+/g, " ")
+      .trim()
+      .replace(/\.(local|lan|home|localdomain)$/i, "")
+      .slice(0, 60)
     return { version, ...(computer ? { computer } : {}) }
   }
 
@@ -1131,7 +1248,14 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
         const id = str(a.id)
         if (!id || a.mode === "primary" || a.hidden === true) continue
         const description = str(a.description)
-        agents.push(defined({ kind: "agent", id, label: str(a.name) ?? id, detail: description && clip(description, DETAIL_MAX_CHARS) }))
+        agents.push(
+          defined({
+            kind: "agent",
+            id,
+            label: str(a.name) ?? id,
+            detail: description && clip(description, DETAIL_MAX_CHARS),
+          }),
+        )
       }
       return agents
     },
@@ -1154,7 +1278,14 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
         const id = str(s.id)
         if (!id) continue
         const description = str(s.description)
-        skills.push(defined({ kind: "skill", id, label: str(s.name) ?? id, detail: description && clip(description, DETAIL_MAX_CHARS) }))
+        skills.push(
+          defined({
+            kind: "skill",
+            id,
+            label: str(s.name) ?? id,
+            detail: description && clip(description, DETAIL_MAX_CHARS),
+          }),
+        )
       }
       return skills
     },
@@ -1170,7 +1301,9 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
         const path = str(e.path)?.replace(/\/+$/, "")
         if (!kind || !path) continue
         const cut = path.lastIndexOf("/")
-        found.push(defined({ kind, id: path, label: path.slice(cut + 1), detail: cut > 0 ? path.slice(0, cut) : undefined }))
+        found.push(
+          defined({ kind, id: path, label: path.slice(cut + 1), detail: cut > 0 ? path.slice(0, cut) : undefined }),
+        )
       }
       return found
     },
@@ -1212,7 +1345,12 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
       // "queue" unless asked otherwise. The server's default, "steer", folds the message into the
       // running turn, and the work before it never gets its own answer. An id must start with
       // "msg_" (400 otherwise) and comes back unchanged, here and in the inbox events.
-      const body = { id: input.id, text: input.text, ...attachments(input.text, input.files, input.mentions), delivery: deliveryOf(input.delivery) }
+      const body = {
+        id: input.id,
+        text: input.text,
+        ...attachments(input.text, input.files, input.mentions),
+        delivery: deliveryOf(input.delivery),
+      }
       let sent: Raw
       try {
         sent = rec(await data("POST", `${sessionPath(id)}/prompt`, body))
@@ -1249,7 +1387,10 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
 
     async lastTurn(id) {
       // The newest page is enough: what is undone is the end of the conversation.
-      const [info, page] = await Promise.all([data("GET", sessionPath(id)), data("GET", `${sessionPath(id)}/message?order=desc&limit=${PAGE}`)])
+      const [info, page] = await Promise.all([
+        data("GET", sessionPath(id)),
+        data("GET", `${sessionPath(id)}/message?order=desc&limit=${PAGE}`),
+      ])
       const boundary = str(rec(rec(info).revert).messageID)
       // Newest first: everything down to the boundary is already undone.
       let undone = !!boundary
@@ -1285,10 +1426,18 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
     async diff(id, message) {
       // Three lines around each change: without `context` every patch is the whole file.
       const found: FileChange[] = []
-      for (const raw of list(await data("GET", `${sessionPath(id)}/diff?from=${encodeURIComponent(message)}&context=3`))) {
+      for (const raw of list(
+        await data("GET", `${sessionPath(id)}/diff?from=${encodeURIComponent(message)}&context=3`),
+      )) {
         const f = rec(raw)
         const file = str(f.file)
-        if (file) found.push({ file, patch: str(f.patch) ?? "", additions: num(f.additions) ?? 0, deletions: num(f.deletions) ?? 0 })
+        if (file)
+          found.push({
+            file,
+            patch: str(f.patch) ?? "",
+            additions: num(f.additions) ?? 0,
+            deletions: num(f.deletions) ?? 0,
+          })
       }
       return found
     },
@@ -1331,7 +1480,9 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
 
     async waiting(id) {
       // The inbox also holds reminders the server queues for the model (type "synthetic").
-      return list(await data("GET", `${sessionPath(id)}/inbox`)).flatMap((raw) => (rec(raw).type === "user" ? (str(rec(raw).id) ?? []) : []))
+      return list(await data("GET", `${sessionPath(id)}/inbox`)).flatMap((raw) =>
+        rec(raw).type === "user" ? (str(rec(raw).id) ?? []) : [],
+      )
     },
 
     // Seen on 2.2.6 and 2.2.7: this ends the run in progress and nothing else (a subagent's run
@@ -1351,7 +1502,12 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
         const s = rec(raw)
         const id = str(s.id)
         if (!id || str(s.status) !== "running") continue
-        out.push({ id, directory, command: (str(s.command) ?? "").replace(/\s+/g, " ").trim().slice(0, 300), started: num(rec(s.time).started) ?? 0 })
+        out.push({
+          id,
+          directory,
+          command: (str(s.command) ?? "").replace(/\s+/g, " ").trim().slice(0, 300),
+          started: num(rec(s.time).started) ?? 0,
+        })
       }
       return out
     },
@@ -1373,9 +1529,17 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
       const before = lastRead.get(id)
       lastRead.delete(id)
       // After a gap only new messages are missing, unless something was undone meanwhile.
-      const messages = (gap && before && before.undone === undone && (await since(id, before.messages))) || (await all(id))
+      const messages =
+        (gap && before && before.undone === undone && (await since(id, before.messages))) || (await all(id))
       const dir = str(rec(rec(info).location).directory)
-      const items = chatItems(messages, list(inbox), dir, warn, undone, opts.pictures && { session: id, name: opts.pictures })
+      const items = chatItems(
+        messages,
+        list(inbox),
+        dir,
+        warn,
+        undone,
+        opts.pictures && { session: id, name: opts.pictures },
+      )
       if (opts.pictures) {
         // Kept for the next gap, without the pictures' bytes: those are named by now.
         for (const m of messages)
@@ -1491,7 +1655,11 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
               // from now on. Anything else (the password, the network) is not about the filter.
               if (limited || rec(err).status !== 400) throw err
               limited = true
-              log("warn", `${host} does not send the events for summaries and undo (an older server?). Going on without them: those are read back instead.`, err instanceof Error ? err.message : err)
+              log(
+                "warn",
+                `${host} does not send the events for summaries and undo (an older server?). Going on without them: those are read back instead.`,
+                err instanceof Error ? err.message : err,
+              )
               res = await subscribe(EVENT_TYPES, conn.signal)
             }
             if (!res.body) throw new Error(`${host} doesn't answer like an OpenCode server`)
@@ -1510,7 +1678,8 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
                 const type = str(rec(raw).type)
                 const id = str(rec(rec(raw).data).sessionID)
                 if (type && id && SUMMARY_EVENTS.has(type)) void refresh(id)
-                if (type && id && AFTER_SUMMARY.has(type) && summarising.delete(id)) emit({ type: "resync", session: id })
+                if (type && id && AFTER_SUMMARY.has(type) && summarising.delete(id))
+                  emit({ type: "resync", session: id })
               },
               warn,
             )

@@ -40,13 +40,16 @@ async function open() {
   await page.goto(`${base}/?delay=150&page=canvas`);
   await page.waitForFunction(() => document.getElementById("page").contentWindow?.__b42);
   const f = page.frames().find((fr) => fr.url().endsWith("/harness/canvas.html"));
-  await f.waitForFunction(() => document.querySelector("b42-review") && document.documentElement.hasAttribute("data-b42-review"));
+  await f.waitForFunction(
+    () => document.querySelector("b42-review") && document.documentElement.hasAttribute("data-b42-review"),
+  );
   await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
   await f.waitForFunction(() => !document.querySelector("b42-review").shadowRoot.querySelector(".insp").hidden);
   const b = await f.locator("#plans").boundingBox();
   await page.mouse.click(b.x + b.width - 5, b.y + 5); // the row itself, not a card
   await f.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelectorAll(".crow").length > 0);
-  const ui = (fn, arg) => f.evaluate(`(${fn})(document.querySelector("b42-review").shadowRoot, ${JSON.stringify(arg ?? null)})`);
+  const ui = (fn, arg) =>
+    f.evaluate(`(${fn})(document.querySelector("b42-review").shadowRoot, ${JSON.stringify(arg ?? null)})`);
   /** A pause in the typing, and the frames in which the page and the list follow. */
   const settle = async (ms = 160) => {
     await new Promise((r) => setTimeout(r, ms));
@@ -61,36 +64,61 @@ async function open() {
     await settle();
   };
   /** The list: null when closed, else its items, the highlighted one and where it is. */
-  const list = () => ui((r) => {
-    const l = r.querySelector(".sug");
-    if (l.hidden || l.style.visibility === "hidden") return null;
-    const b = l.getBoundingClientRect();
-    // (an item's own text: a variable's value beside it is in its .tv)
-    const own = (c) => (c ? [...c.childNodes].filter((n) => n.nodeType === 3).map((n) => n.nodeValue).join("") : undefined);
-    return { items: [...l.children].map(own), on: own(l.querySelector(".sg.on")), vals: [...l.children].map((c) => c.querySelector(".tv")?.textContent ?? null),
-      swatches: [...l.children].map((c) => c.querySelector("i")?.style.background || null), x: b.x, y: b.y, w: b.width, h: b.height, scrolls: l.scrollHeight > l.clientHeight };
-  });
+  const list = () =>
+    ui((r) => {
+      const l = r.querySelector(".sug");
+      if (l.hidden || l.style.visibility === "hidden") return null;
+      const b = l.getBoundingClientRect();
+      // (an item's own text: a variable's value beside it is in its .tv)
+      const own = (c) =>
+        c
+          ? [...c.childNodes]
+              .filter((n) => n.nodeType === 3)
+              .map((n) => n.nodeValue)
+              .join("")
+          : undefined;
+      return {
+        items: [...l.children].map(own),
+        on: own(l.querySelector(".sg.on")),
+        vals: [...l.children].map((c) => c.querySelector(".tv")?.textContent ?? null),
+        swatches: [...l.children].map((c) => c.querySelector("i")?.style.background || null),
+        x: b.x,
+        y: b.y,
+        w: b.width,
+        h: b.height,
+        scrolls: l.scrollHeight > l.clientHeight,
+      };
+    });
   const value = (cls) => ui((r, c) => r.querySelector(`.${c}`).value, cls);
   const focus = () => ui((r) => r.activeElement?.className ?? "");
-  const style = (sel, prop) => f.evaluate(([s, p]) => getComputedStyle(document.querySelector(s)).getPropertyValue(p), [sel, prop]);
-  const row = (prop) => f.locator("b42-review .crow", { has: f.locator(".cp", { hasText: new RegExp(`^${prop}$`) }) }).locator(".cval");
+  const style = (sel, prop) =>
+    f.evaluate(([s, p]) => getComputedStyle(document.querySelector(s)).getPropertyValue(p), [sel, prop]);
+  const row = (prop) =>
+    f.locator("b42-review .crow", { has: f.locator(".cp", { hasText: new RegExp(`^${prop}$`) }) }).locator(".cval");
   /** What is selected in a text area, and where it starts. */
-  const sel = (cls) => ui((r, c) => { const x = r.querySelector(`.${c}`); return { text: x.value.slice(x.selectionStart, x.selectionEnd), at: x.selectionStart }; }, cls);
+  const sel = (cls) =>
+    ui((r, c) => {
+      const x = r.querySelector(`.${c}`);
+      return { text: x.value.slice(x.selectionStart, x.selectionEnd), at: x.selectionStart };
+    }, cls);
   const pick = (cls, a, b = a) => ui((r, [c, i, j]) => r.querySelector(`.${c}`).setSelectionRange(i, j), [cls, a, b]);
   /** A real double click on the letter at `offset` of a text area (found in the layer under it that mirrors its text). */
   const dbl = async (cls, offset) => {
-    const at = await ui((r, [c, o]) => {
-      const walk = document.createTreeWalker(r.querySelector(`.${c}`).previousElementSibling, NodeFilter.SHOW_TEXT);
-      for (let n, left = o; (n = walk.nextNode()); left -= n.nodeValue.length) {
-        if (left >= n.nodeValue.length) continue;
-        const g = document.createRange();
-        g.setStart(n, left);
-        g.setEnd(n, left + 1);
-        const b = g.getBoundingClientRect();
-        return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
-      }
-      return null;
-    }, [cls, offset]);
+    const at = await ui(
+      (r, [c, o]) => {
+        const walk = document.createTreeWalker(r.querySelector(`.${c}`).previousElementSibling, NodeFilter.SHOW_TEXT);
+        for (let n, left = o; (n = walk.nextNode()); left -= n.nodeValue.length) {
+          if (left >= n.nodeValue.length) continue;
+          const g = document.createRange();
+          g.setStart(n, left);
+          g.setEnd(n, left + 1);
+          const b = g.getBoundingClientRect();
+          return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+        }
+        return null;
+      },
+      [cls, offset],
+    );
     const frame = await page.locator("#page").boundingBox();
     await page.mouse.dblclick(frame.x + at.x, frame.y + at.y);
     await settle();
@@ -106,25 +134,64 @@ test("element styles: names as a name is typed, then the property's values; Tab 
   let l = await list();
   assert.deepEqual(l.items.slice(0, 3), ["align-items", "align-content", "align-self"]);
   assert.equal(l.on, "align-items");
-  assert.ok(l.items.includes("vertical-align") && l.items.indexOf("vertical-align") > l.items.indexOf("all"), "names that only contain the word come last");
+  assert.ok(
+    l.items.includes("vertical-align") && l.items.indexOf("vertical-align") > l.items.indexOf("all"),
+    "names that only contain the word come last",
+  );
   assert.ok(l.h <= 168 && l.scrolls, "eight rows show, the rest scrolls");
   // In the layer, over the inspector and not cut by it; the field says what it controls.
   const a = await ui((r) => {
-    const l = r.querySelector(".sug"), b = l.getBoundingClientRect(), t = r.querySelector(".css");
+    const l = r.querySelector(".sug"),
+      b = l.getBoundingClientRect(),
+      t = r.querySelector(".css");
     const top = r.elementFromPoint(b.x + 20, b.y + 10);
-    return { parent: l.parentNode === r, top: !!top && l.contains(top), role: l.getAttribute("role"), opt: l.firstChild.getAttribute("role"), sel: l.firstChild.getAttribute("aria-selected"),
-      auto: t.getAttribute("aria-autocomplete"), exp: t.getAttribute("aria-expanded"), pop: t.getAttribute("aria-haspopup"), tRole: t.getAttribute("role"), act: t.getAttribute("aria-activedescendant"), id: l.firstChild.id, owns: t.getAttribute("aria-controls") === l.id,
-      inView: b.x >= 0 && b.y >= 0 && b.right <= innerWidth && b.bottom <= innerHeight };
+    return {
+      parent: l.parentNode === r,
+      top: !!top && l.contains(top),
+      role: l.getAttribute("role"),
+      opt: l.firstChild.getAttribute("role"),
+      sel: l.firstChild.getAttribute("aria-selected"),
+      auto: t.getAttribute("aria-autocomplete"),
+      exp: t.getAttribute("aria-expanded"),
+      pop: t.getAttribute("aria-haspopup"),
+      tRole: t.getAttribute("role"),
+      act: t.getAttribute("aria-activedescendant"),
+      id: l.firstChild.id,
+      owns: t.getAttribute("aria-controls") === l.id,
+      inView: b.x >= 0 && b.y >= 0 && b.right <= innerWidth && b.bottom <= innerHeight,
+    };
   });
   // (A text area is no combobox and has no aria-expanded: it says a list pops up, which, and the item in it.)
-  assert.deepEqual(a, { parent: true, top: true, role: "listbox", opt: "option", sel: "true", auto: "list", exp: null, pop: "listbox", tRole: null, act: a.id, id: "b42-sg-0", owns: true, inView: true });
-  assert.equal(await ui((r) => r.querySelectorAll("#b42-sug").length + r.querySelectorAll("#b42-sg-0").length), 2, "the ids are the one shadow root's, once each");
+  assert.deepEqual(a, {
+    parent: true,
+    top: true,
+    role: "listbox",
+    opt: "option",
+    sel: "true",
+    auto: "list",
+    exp: null,
+    pop: "listbox",
+    tRole: null,
+    act: a.id,
+    id: "b42-sg-0",
+    owns: true,
+    inView: true,
+  });
+  assert.equal(
+    await ui((r) => r.querySelectorAll("#b42-sug").length + r.querySelectorAll("#b42-sg-0").length),
+    2,
+    "the ids are the one shadow root's, once each",
+  );
 
   await press("Tab");
   assert.equal(await value("css"), "align-items: ", "Tab takes the name and adds the colon, not two spaces");
   assert.equal(await focus(), "css", "…and the focus stays");
   l = await list();
-  assert.deepEqual(l.items.slice(0, 4), ["normal", "stretch", "baseline", "center"], "the values open at once, in Chrome's order");
+  assert.deepEqual(
+    l.items.slice(0, 4),
+    ["normal", "stretch", "baseline", "center"],
+    "the values open at once, in Chrome's order",
+  );
   assert.deepEqual(l.items.slice(-4), ["inherit", "initial", "unset", "revert"]);
   assert.ok(!l.items.includes("auto") && !l.items.includes("none"), "align-items takes neither auto nor none");
 
@@ -135,7 +202,13 @@ test("element styles: names as a name is typed, then the property's values; Tab 
   assert.equal(await value("css"), "align-items: center", "Enter takes the value: no new line");
   assert.equal(await list(), null);
   assert.equal(await style("#plans", "align-items"), "center");
-  assert.deepEqual(await ui((r) => [r.querySelector(".css").getAttribute("aria-activedescendant"), r.querySelector(".css").getAttribute("aria-expanded")]), [null, null]);
+  assert.deepEqual(
+    await ui((r) => [
+      r.querySelector(".css").getAttribute("aria-activedescendant"),
+      r.querySelector(".css").getAttribute("aria-expanded"),
+    ]),
+    [null, null],
+  );
 
   // Typing on: the list follows, and closes when nothing matches.
   await type(";\nzz");
@@ -218,7 +291,10 @@ test("the style boxes: ↑/↓ are the caret's; they step or cycle only a number
   await pick("css", text.indexOf("flex") + 2);
   await press("ArrowDown");
   let at = (await sel("css")).at;
-  assert.ok(at > text.indexOf("gap") && at <= text.indexOf("align-items") - 1, `the caret is in the second line (${at})`);
+  assert.ok(
+    at > text.indexOf("gap") && at <= text.indexOf("align-items") - 1,
+    `the caret is in the second line (${at})`,
+  );
   await press("ArrowDown", "ArrowDown");
   assert.ok((await sel("css")).at > text.indexOf("margin"), "…then in the last");
   assert.equal(await value("css"), text, "nothing changed");
@@ -257,7 +333,10 @@ test("the style boxes: ↑/↓ are the caret's; they step or cycle only a number
   await dbl("css", text.indexOf("center") + 2);
   assert.equal((await sel("css")).text, "center");
   await press("ArrowDown");
-  assert.deepEqual([(await sel("css")).text, await style("#plans", "align-items"), await list()], ["start", "start", null]);
+  assert.deepEqual(
+    [(await sel("css")).text, await style("#plans", "align-items"), await list()],
+    ["start", "start", null],
+  );
   await press("ArrowDown");
   assert.equal((await sel("css")).text, "end");
   await press("ArrowUp", "ArrowUp", "ArrowUp");
@@ -292,7 +371,11 @@ test("Enter after a whole keyword is a new line, though longer keywords start wi
   const { page, f, errors, ui, press, type, list, value, style } = await open();
   await f.locator("b42-review .css").click();
   await type("display: flex");
-  assert.deepEqual([(await list()).on, (await list()).items.includes("inline-flex")], ["flex", true], "the list is open, on what is typed");
+  assert.deepEqual(
+    [(await list()).on, (await list()).items.includes("inline-flex")],
+    ["flex", true],
+    "the list is open, on what is typed",
+  );
   await press("Enter");
   assert.equal(await list(), null);
   await type("gap: 4px");
@@ -320,7 +403,10 @@ test("Enter after a whole keyword is a new line, though longer keywords start wi
   await press("Shift+ArrowUp");
   assert.equal(await list(), null);
   assert.equal(await value("css"), before);
-  assert.ok((await ui((r) => r.querySelector(".css").selectionEnd - r.querySelector(".css").selectionStart)) > 0, "shift+↑ selected a line");
+  assert.ok(
+    (await ui((r) => r.querySelector(".css").selectionEnd - r.querySelector(".css").selectionStart)) > 0,
+    "shift+↑ selected a line",
+  );
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -335,8 +421,24 @@ test("names are properties this browser takes: no descriptors, nothing it would 
   await press();
   const all = (await list()).items;
   assert.ok(all.length > 450, `${all.length} names`);
-  assert.deepEqual(await f.evaluate((names) => names.filter((n) => !CSS.supports(n, "initial")), all), [], "none of them would be flagged as unknown");
-  for (const d of ["src", "syntax", "inherits", "unicode-range", "system", "pad", "range", "fallback", "font-display", "origin-trial-test-property"]) assert.ok(!all.includes(d), d);
+  assert.deepEqual(
+    await f.evaluate((names) => names.filter((n) => !CSS.supports(n, "initial")), all),
+    [],
+    "none of them would be flagged as unknown",
+  );
+  for (const d of [
+    "src",
+    "syntax",
+    "inherits",
+    "unicode-range",
+    "system",
+    "pad",
+    "range",
+    "fallback",
+    "font-display",
+    "origin-trial-test-property",
+  ])
+    assert.ok(!all.includes(d), d);
   assert.ok(all.includes("scrollbar-color") && all.includes("align-items") && all.includes("font-family"));
   assert.deepEqual(errors, []);
   await page.close();
@@ -348,17 +450,33 @@ test("the named colours are offered wherever a colour goes, with their swatch", 
   await type("color: re");
   let l = await list();
   assert.deepEqual(l.items.slice(0, 3), ["rebeccapurple", "red", "revert"]);
-  const swatch = () => ui((r) => Object.fromEntries([...r.querySelectorAll(".sug .sg")].slice(0, 3).map((g) => [g.textContent, g.firstElementChild ? g.firstElementChild.style.background : null])));
+  const swatch = () =>
+    ui((r) =>
+      Object.fromEntries(
+        [...r.querySelectorAll(".sug .sg")]
+          .slice(0, 3)
+          .map((g) => [g.textContent, g.firstElementChild ? g.firstElementChild.style.background : null]),
+      ),
+    );
   assert.deepEqual(await swatch(), { rebeccapurple: "rebeccapurple", red: "red", revert: null });
   await press("ArrowDown");
   assert.equal(await style("#plans", "color"), "rgb(255, 0, 0)", "shown on the page");
   await press("Enter");
   assert.equal(await value("css"), "color: red");
-  assert.deepEqual(await f.evaluate((cs) => cs.filter((c) => !CSS.supports("color", c)), COLOURS), [], "every colour of the list is one");
+  assert.deepEqual(
+    await f.evaluate((cs) => cs.filter((c) => !CSS.supports("color", c)), COLOURS),
+    [],
+    "every colour of the list is one",
+  );
   // After a property's own keywords; and in a shorthand that takes a colour.
   await type(";\nbackground-color: ");
   l = await list();
-  assert.ok(l.items.indexOf("currentcolor") < l.items.indexOf("aliceblue") && l.items.indexOf("yellowgreen") < l.items.indexOf("transparent") && l.items.indexOf("transparent") < l.items.indexOf("inherit"), l.items.slice(0, 6).join());
+  assert.ok(
+    l.items.indexOf("currentcolor") < l.items.indexOf("aliceblue") &&
+      l.items.indexOf("yellowgreen") < l.items.indexOf("transparent") &&
+      l.items.indexOf("transparent") < l.items.indexOf("inherit"),
+    l.items.slice(0, 6).join(),
+  );
   await type("transparent;\nborder: 1px solid tom");
   assert.deepEqual((await list()).items, ["tomato"]);
   // Not where `red` would be a name (a font's): no colours there.
@@ -372,16 +490,34 @@ test("a computed row: coming back to the row's own value in the list declares no
   const { page, errors, ui, press, type, list, value, focus, style, row } = await open();
   const ai = row("align-items");
   await ai.click();
-  assert.deepEqual(await ui((r) => [r.activeElement.getAttribute("role"), r.activeElement.getAttribute("aria-expanded"), r.activeElement.getAttribute("aria-controls"), r.activeElement.getAttribute("aria-haspopup")]), ["combobox", "false", "b42-sug", null]);
+  assert.deepEqual(
+    await ui((r) => [
+      r.activeElement.getAttribute("role"),
+      r.activeElement.getAttribute("aria-expanded"),
+      r.activeElement.getAttribute("aria-controls"),
+      r.activeElement.getAttribute("aria-haspopup"),
+    ]),
+    ["combobox", "false", "b42-sug", null],
+  );
   await press(`${MOD}+a`);
   await type("n");
   assert.deepEqual((await list()).items.slice(0, 2), ["normal", "baseline"]);
   await press("ArrowDown");
-  assert.deepEqual([await ai.inputValue(), await value("css"), await style("#plans", "align-items")], ["baseline", "align-items: baseline;", "baseline"]);
+  assert.deepEqual(
+    [await ai.inputValue(), await value("css"), await style("#plans", "align-items")],
+    ["baseline", "align-items: baseline;", "baseline"],
+  );
   await press("ArrowUp"); // back on "normal": what the row had
-  assert.deepEqual([await ai.inputValue(), await value("css"), await style("#plans", "align-items")], ["normal", "", "normal"], "no `align-items: normal;` for a value it has anyway");
+  assert.deepEqual(
+    [await ai.inputValue(), await value("css"), await style("#plans", "align-items")],
+    ["normal", "", "normal"],
+    "no `align-items: normal;` for a value it has anyway",
+  );
   await press("Enter");
-  assert.deepEqual([await list(), await ai.inputValue(), await value("css"), await focus()], [null, "normal", "", "cval"]);
+  assert.deepEqual(
+    [await list(), await ai.inputValue(), await value("css"), await focus()],
+    [null, "normal", "", "cval"],
+  );
   assert.equal(await ui((r) => r.querySelector(".undo").disabled), true, "and no undo step");
   // The same way round, ended with Escape.
   await press(`${MOD}+a`);
@@ -389,7 +525,10 @@ test("a computed row: coming back to the row's own value in the list declares no
   await press("ArrowDown", "ArrowDown", "ArrowUp", "ArrowUp");
   assert.deepEqual([(await list()).on, await value("css")], ["normal", ""]);
   await press("ArrowDown", "Escape");
-  assert.deepEqual([await list(), await ai.inputValue(), await value("css"), await style("#plans", "align-items")], [null, "n", "", "normal"]);
+  assert.deepEqual(
+    [await list(), await ai.inputValue(), await value("css"), await style("#plans", "align-items")],
+    [null, "n", "", "normal"],
+  );
   assert.equal(await ui((r) => r.querySelector(".undo").disabled), true);
   // A value that is another one is written, as before.
   await page.keyboard.press("Control+Space");
@@ -425,8 +564,15 @@ test("a computed row: values only, under the field; ↑/↓ cycles; Enter writes
   let l = await list();
   assert.deepEqual(l.items.slice(0, 2), ["end", "stretch"]);
   const at = await ui((r) => {
-    const b = r.activeElement.getBoundingClientRect(), s = r.querySelector(".sug").getBoundingClientRect();
-    return { under: s.top >= b.bottom || s.bottom <= b.top, near: Math.abs(s.left - b.left) < 16, role: r.activeElement.getAttribute("role"), exp: r.activeElement.getAttribute("aria-expanded"), act: r.activeElement.getAttribute("aria-activedescendant") };
+    const b = r.activeElement.getBoundingClientRect(),
+      s = r.querySelector(".sug").getBoundingClientRect();
+    return {
+      under: s.top >= b.bottom || s.bottom <= b.top,
+      near: Math.abs(s.left - b.left) < 16,
+      role: r.activeElement.getAttribute("role"),
+      exp: r.activeElement.getAttribute("aria-expanded"),
+      act: r.activeElement.getAttribute("aria-activedescendant"),
+    };
   });
   assert.deepEqual(at, { under: true, near: true, role: "combobox", exp: "true", act: "b42-sg-0" });
   await press("ArrowDown");
@@ -479,7 +625,11 @@ test("the stylesheet: nothing in a selector; a click on an item takes it and kee
   assert.equal(await value("free"), ".card:hover { display: grid");
   assert.equal(await list(), null);
   await type("; }\n.card { color: bl");
-  assert.deepEqual((await list()).items.slice(0, 3), ["black", "blanchedalmond", "blue"], "the property's own keyword first, then the named colours");
+  assert.deepEqual(
+    (await list()).items.slice(0, 3),
+    ["black", "blanchedalmond", "blue"],
+    "the property's own keyword first, then the named colours",
+  );
   await type("ac");
   assert.deepEqual((await list()).items, ["black"]);
   await press("ArrowDown"); // one item: it is shown
@@ -506,7 +656,10 @@ test("the page's variables: offered where the property takes them, with their va
   assert.deepEqual(vars, ["var(--space-1)", "var(--space-2)", "var(--space-3)", "var(--space-4)", "var(--space-6)"]);
   // (gap has no keyword of its own in Chrome's list: the CSS-wide ones come after the variables)
   assert.deepEqual(l.items.slice(0, 6), [...vars, "inherit"]);
-  assert.deepEqual(vars.map((v) => l.vals[l.items.indexOf(v)]), ["4px", ".5rem", "calc(4px * 3)", "16px", "24px"]);
+  assert.deepEqual(
+    vars.map((v) => l.vals[l.items.indexOf(v)]),
+    ["4px", ".5rem", "calc(4px * 3)", "16px", "24px"],
+  );
   assert.equal(l.vals[l.items.indexOf("inherit")], null, "a keyword has no value beside it");
   // `--` lists the variables only; looking through them shows each on the page; Enter takes one
   await type("--sp");
@@ -520,7 +673,10 @@ test("the page's variables: offered where the property takes them, with their va
   // ↑ on a selected one (a double click on its name): the next step up, by size, and still selected
   await dbl("css", 13);
   await press("ArrowUp");
-  assert.deepEqual([await value("css"), await sel("css"), await style("#plans", "column-gap")], ["gap: var(--space-3)", { text: "var(--space-3)", at: 5 }, "12px"]);
+  assert.deepEqual(
+    [await value("css"), await sel("css"), await style("#plans", "column-gap")],
+    ["gap: var(--space-3)", { text: "var(--space-3)", at: 5 }, "12px"],
+  );
   await press("ArrowUp", "ArrowUp");
   assert.equal(await value("css"), "gap: var(--space-6)");
   // the top of the scale: nothing, and the key is taken (the 6 in the name is no number)
@@ -545,7 +701,13 @@ test("the page's variables: offered where the property takes them, with their va
   await f.locator("b42-review .t-gl").click();
   await f.locator("b42-review .free").click();
   await type(".x { margin: --sp");
-  assert.deepEqual((await list()).items, ["var(--space-1)", "var(--space-2)", "var(--space-3)", "var(--space-4)", "var(--space-6)"]);
+  assert.deepEqual((await list()).items, [
+    "var(--space-1)",
+    "var(--space-2)",
+    "var(--space-3)",
+    "var(--space-4)",
+    "var(--space-6)",
+  ]);
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -559,7 +721,10 @@ test("a computed row offers the variables too: the one taken goes into Element s
   assert.deepEqual(l.items, ["var(--space-1)", "var(--space-2)", "var(--space-3)", "var(--space-4)", "var(--space-6)"]);
   await press("ArrowDown", "ArrowDown", "Enter");
   assert.equal(await style("#plans", "column-gap"), "12px");
-  assert.equal(await f.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelector(".css").value), "gap: var(--space-3);");
+  assert.equal(
+    await f.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelector(".css").value),
+    "gap: var(--space-3);",
+  );
   assert.deepEqual(errors, []);
   await page.close();
 });

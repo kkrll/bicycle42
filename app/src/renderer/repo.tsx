@@ -28,7 +28,8 @@ export function RepoBar(props: { onOpen?: () => void }) {
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal("")
   const changes = () => state.repo?.changes ?? []
-  const totals = () => changes().reduce((t, f) => ({ plus: t.plus + f.additions, minus: t.minus + f.deletions }), { plus: 0, minus: 0 })
+  const totals = () =>
+    changes().reduce((t, f) => ({ plus: t.plus + f.additions, minus: t.minus + f.deletions }), { plus: 0, minus: 0 })
   const count = () => (changes().length === 1 ? "1 file changed" : `${changes().length} files changed`)
   /** The agent is on something: its changes would go into the commit half done. */
   const working = () => !!state.session?.busy || state.review.notes.some((n) => n.status === "working")

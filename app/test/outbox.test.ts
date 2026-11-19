@@ -18,7 +18,10 @@ test("the outbox writes in the order asked: a read waits for the write before it
   assert.equal(await first, true)
   assert.equal(await outbox.save("../n1", payload), true)
   assert.equal((await outbox.read("../n1"))?.id, "msg_later")
-  assert.ok(fs.readdirSync(path.join(dir, "outbox")).every((f) => /^[0-9a-f]{40}\.json$/.test(f)), "the id is never a file name")
+  assert.ok(
+    fs.readdirSync(path.join(dir, "outbox")).every((f) => /^[0-9a-f]{40}\.json$/.test(f)),
+    "the id is never a file name",
+  )
 
   void outbox.save("n2", { text: "two", files: [] })
   void outbox.drop("n2")

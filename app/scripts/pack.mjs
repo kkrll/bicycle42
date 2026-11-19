@@ -21,7 +21,9 @@ function macIcon() {
   for (const size of [16, 32, 128, 256, 512]) {
     for (const scale of [1, 2]) {
       const name = `icon_${size}x${size}${scale === 2 ? "@2x" : ""}.png`
-      execFileSync("sips", ["-z", String(size * scale), String(size * scale), png, "--out", path.join(set, name)], { stdio: "ignore" })
+      execFileSync("sips", ["-z", String(size * scale), String(size * scale), png, "--out", path.join(set, name)], {
+        stdio: "ignore",
+      })
     }
   }
   const icns = path.join(dir, "icon.icns")
@@ -30,7 +32,11 @@ function macIcon() {
 }
 
 // Everything the app needs is bundled into dist/ by the build, so only that and package.json ship.
-const keep = (file) => file === "" || file === "/package.json" || file === "/dist" || (file.startsWith("/dist/") && !file.startsWith("/dist/test"))
+const keep = (file) =>
+  file === "" ||
+  file === "/package.json" ||
+  file === "/dist" ||
+  (file.startsWith("/dist/") && !file.startsWith("/dist/test"))
 
 const icon = macIcon()
 const out = await packager({

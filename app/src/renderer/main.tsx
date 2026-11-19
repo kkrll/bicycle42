@@ -33,7 +33,9 @@ document.addEventListener("click", (e) => {
 
 const params = new URLSearchParams(location.search)
 const bridge =
-  window.b42 && !params.has("mock") ? window.b42 : (await import("./mock")).install(params.get("mock") || "review", params)
+  window.b42 && !params.has("mock")
+    ? window.b42
+    : (await import("./mock")).install(params.get("mock") || "review", params)
 
 start(bridge)
 listen(bridge)

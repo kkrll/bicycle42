@@ -13,12 +13,18 @@ const write = (name: string, body: string) => {
 }
 
 test("local server: the registration file gives the address and password", () => {
-  const file = write("a.json", JSON.stringify({ id: "x", version: "2.2.6", url: "http://127.0.0.1:49374", pid: 12, password: "secret" }))
+  const file = write(
+    "a.json",
+    JSON.stringify({ id: "x", version: "2.2.6", url: "http://127.0.0.1:49374", pid: 12, password: "secret" }),
+  )
   assert.deepEqual(readLocal(file), { url: "http://127.0.0.1:49374", password: "secret" })
 })
 
 test("local server: a server without a password is still a server", () => {
-  assert.deepEqual(readLocal(write("b.json", JSON.stringify({ url: "http://127.0.0.1:4096", pid: 1 }))), { url: "http://127.0.0.1:4096", password: "" })
+  assert.deepEqual(readLocal(write("b.json", JSON.stringify({ url: "http://127.0.0.1:4096", pid: 1 }))), {
+    url: "http://127.0.0.1:4096",
+    password: "",
+  })
 })
 
 test("local server: no file, broken JSON, or a file that is not a registration is no server", () => {
