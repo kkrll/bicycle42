@@ -99,6 +99,9 @@ const SHOTS = [
   { name: "phone-se", mock: "review", query: "&device=phone&phone=iphone-se&mode=preview" },
   // A phone taller than its room (a laptop's window), and the largest phone with the panel shut.
   { name: "phone-short", mock: "review", query: "&device=phone", size: [1280, 720] },
+  // A window with no room for all three: the panel and the page, or (Edit, Motion) the page and its dock.
+  { name: "phone-narrow", mock: "review", query: "&device=phone", size: [900, 700] },
+  { name: "phone-narrow-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", size: [900, 700] },
   { name: "phone-max-collapsed", mock: "review", query: "&device=phone&phone=iphone-16-pro-max&mode=preview", run: [click("[data-action=panel]")] },
   { name: "phone-wide", mock: "review", query: "&device=phone&mode=preview", size: [1984, 1276] },
   { name: "phone-clear", mock: "review", query: "&device=phone&mode=preview&facts=clear" },

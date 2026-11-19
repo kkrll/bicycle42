@@ -1,6 +1,6 @@
 /* Edit mode's inspector, drawn by the window (canvas-dock.tsx). It fills the dock's box (styles.css,
    .dock): under the page, a strip of 160px and up; beside a phone's page, a column of the window's
-   height, 300 to 900px wide. Its own box is the container its layout asks about:
+   height, 300 to 720px wide. Its own box is the container its layout asks about:
      narrow (under 520px), or a tall column under 700px: the tree above the styles;
      between: the tree on the left, the styles beside it (fields, then computed values);
      900px and wider: three columns, the tree, the computed values, the fields.

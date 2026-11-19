@@ -42,7 +42,7 @@ const PAGE_MIN = 120
  *  numbers as `.stage.phone > .device-col` and `.device-bar` in styles.css. */
 const PHONE_AROUND = 12 + 28 + 12 + 2 + 12
 /** A phone is never drawn smaller than this: under it the window is too small to review in. */
-const PHONE_FIT_MIN = 0.4
+const PHONE_FIT_MIN = 0.3
 /** The column at a phone's right is never left less than this by the panel: a dock's narrowest
  *  shape (`.stage.phone > .dock` in styles.css has the same number). */
 const COLUMN_MIN = 300
@@ -284,6 +284,8 @@ function TopBar(props: {
   bare: boolean
   urlRef: (el: HTMLInputElement) => void
   panelOpen: boolean
+  /** The panel is open but has no room in this window beside a phone's page and its dock. */
+  panelCrowded: boolean
   togglePanel: () => void
   showNotes: () => void
   openSettings: () => void
@@ -301,7 +303,12 @@ function TopBar(props: {
           aria-label="Notes and conversation"
           aria-pressed={props.panelOpen}
           aria-keyshortcuts={keys("mod", "\\")}
-          title={`${props.panelOpen ? "Hide" : "Show"} notes and conversation (${keys("mod", "\\")})`}
+          disabled={props.panelCrowded}
+          title={
+            props.panelCrowded
+              ? "No room for the notes beside a phone's page and its dock: widen the window, or leave Edit and Motion"
+              : `${props.panelOpen ? "Hide" : "Show"} notes and conversation (${keys("mod", "\\")})`
+          }
           onClick={props.togglePanel}
         >
           <Icon name="panel" />
@@ -488,10 +495,17 @@ export function App() {
   }
   const pageBox = () => {
     const p = phoneOf(state.page.phone)
-    return { width: Math.round(p.width * fit()), height: Math.round(p.height * fit()) }
+    // (The height from the width as it was rounded: main draws by the box's width over the phone's.)
+    const width = Math.round(p.width * fit())
+    return { width, height: Math.round((p.height * width) / p.width) }
   }
   // A dock the window draws: under the page at this height, or beside a phone's page.
-  const [dockHeight, setDockHeight] = createSignal(Math.max(DOCK_MIN, Number(recall("dock.height")) || DOCK_DEFAULT))
+  // Until it is dragged: DOCK_DEFAULT, or half the stage in a window so short that it is less
+  // (not smaller than that: Motion's timeline needs the height). From the stage as it is now,
+  // not as it was when the window opened.
+  const [dockChosen, setDockHeight] = createSignal<number | undefined>(Number(recall("dock.height")) || undefined)
+  const dockHeight = () =>
+    Math.max(DOCK_MIN, dockChosen() ?? (colHeight() > 0 ? Math.min(DOCK_DEFAULT, Math.round((colHeight() - 16) * 0.5)) : DOCK_DEFAULT))
   // (With no page open the box holds the window's own words, at its whole width.)
   const phone = () => state.page.device === "phone" && state.page.url !== ""
   let urlEl: HTMLInputElement | undefined
@@ -574,6 +588,12 @@ export function App() {
     remember("panel.open", panelOpen() ? "1" : "0")
   }
   const openPanel = () => panelOpen() || togglePanel()
+  // A window too narrow for the panel, a phone's page and the column at its right all at once
+  // shows two of them: with a dock (Edit, Motion) the page and the dock, which the mode cannot
+  // do without; else the panel and the page, and what the column says of the page waits.
+  const crowded = () => phone() && winWidth() < PANEL_MIN + pageBox().width + 18 + COLUMN_MIN + 8
+  const panelShown = () => panelOpen() && !(crowded() && !!dockShown())
+  const asideShown = () => phone() && !(crowded() && panelOpen())
   /** From the top bar's note counts: the panel, open on the notes, at the first one that needs
    *  the reviewer (failed, else working). */
   const showNotes = () => {
@@ -715,7 +735,8 @@ export function App() {
       <TopBar
         bare={!ready() || setup()}
         urlRef={(el) => (urlEl = el)}
-        panelOpen={panelOpen()}
+        panelOpen={panelShown()}
+        panelCrowded={panelOpen() && !panelShown()}
         togglePanel={togglePanel}
         showNotes={showNotes}
         openSettings={() => setSettings(true)}
@@ -725,10 +746,10 @@ export function App() {
       </Show>
       <main class="work" inert={!ready() || setup()}>
         {/* Hidden, not unmounted: the conversation keeps its scroll position and rendered text. */}
-        <aside class="panel" ref={panelEl} hidden={!panelOpen()}>
+        <aside class="panel" ref={panelEl} hidden={!panelShown()}>
           <Panel composerRef={(el) => (composerEl = el)} openSettings={() => setSettings(true)} size={panelSize()} />
         </aside>
-        <Show when={panelOpen()}>
+        <Show when={panelShown()}>
           <div
             class="resizer"
             classList={{ active: resizing() && !dockDragging() }}
@@ -816,7 +837,7 @@ export function App() {
           </Show>
         </div>
         </div>
-        <Show when={dockShown()} fallback={<Show when={phone()}><PhoneAside /></Show>}>
+        <Show when={dockShown()} fallback={<Show when={asideShown()}><PhoneAside /></Show>}>
           {(dock) => (
             <>
               <Show when={!phone()}>
