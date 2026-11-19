@@ -10,13 +10,14 @@
 // is shown as a phone's. A dock fills the box it is given and scrolls inside it.
 //
 // Beside a phone's page in a mode with no dock (Preview, Annotate) the column is "This page on
-// this phone" (PhoneAside, facts-pane.tsx): a pane of the window's that is no mode's dock. A
-// desktop's page has no column and no such pane.
+// this phone" (PhoneAside, facts-pane.tsx): a pane of the window's that is no mode's dock. Beside
+// a phone's page in Edit and Motion the dock has one line of it on top (FactsStrip): how many of
+// each, kept up to date as the page is edited. A desktop's page has no column and neither.
 import { Show, type Component } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import type { Dock } from "../shared/types"
 import { CanvasDock } from "./canvas-dock"
-import { FactsPane } from "./facts-pane"
+import { FactsPane, FactsStrip } from "./facts-pane"
 import { MotionDock } from "./motion-dock"
 import { state } from "./store"
 
@@ -36,8 +37,12 @@ export function dockShown(): Dock | null {
 }
 
 export function DockRegion(props: { dock: Dock }) {
+  const phone = () => state.page.device === "phone" && state.page.url !== "" && state.review.docks.includes("facts")
   return (
     <section class="dock" data-dock={props.dock} aria-label={NAME[props.dock]}>
+      <Show when={phone()}>
+        <FactsStrip />
+      </Show>
       <Show when={DOCKS[props.dock]} fallback={<p class="dock-empty">{NAME[props.dock]}</p>}>
         {(dock) => <Dynamic component={dock()} />}
       </Show>

@@ -1,37 +1,52 @@
 /* "This page on this phone" (facts-pane.tsx): the column beside a phone's page in Preview and
-   Annotate. A pane like a dock's (.dock in styles.css): a header, a body that scrolls inside
-   itself, a footer. Text sits 12px in from the pane's edge, and the content keeps to a column
-   narrow enough to read across: in a wide window the rows do not stretch. */
+   Annotate, and its one line above the dock in Edit and Motion. A pane like a dock's (.dock in
+   styles.css): a header, a body that scrolls inside itself, a footer. Text sits 12px in from the
+   pane's edge. In a pane 620px or wider the facts and the changed files are two columns, so a
+   row never runs much past 480px: its number stays near its words. */
+
+/* The three kinds' tones: the same three the overlay marks the page's elements with
+   (.box.fx.k-* in overlay/src/styles.css). Here only as dots, never as text. */
+:root {
+  --fact-wide: #dc2626;
+  --fact-taps: #f97316;
+  --fact-small: #3b82f6;
+}
 
 .fp {
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
+  container: fp / inline-size;
 }
 
-/* ── the header: the mode, and what this pane is ─────────────────────────────────────────────── */
+/* ── the header: what this pane is, and the marks on the page ──────────────────────────────────── */
 
+/* As the inspector's (.cd-head in canvas-dock.css): 36px, the words 12px in. */
 .fp-head {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   height: 36px;
-  padding: 0 12px;
+  padding: 0 6px 0 12px;
   border-bottom: 1px solid var(--rule);
 }
 
 .fp-title {
-  flex: none;
-  font-weight: 600;
-}
-
-.fp-lead {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--text-control);
+  font-weight: 600;
+}
+
+.fp-marks {
   color: var(--muted);
+}
+
+.fp-marks[aria-pressed="true"] {
+  color: var(--foreground);
 }
 
 /* ── the body ─────────────────────────────────────────────────────────────────────────────────── */
@@ -40,12 +55,22 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 8px 0 16px;
+  padding: 8px 12px 16px;
+}
+
+/* (618: the pane 620 wide, less its 1px borders.) */
+@container fp (min-width: 618px) {
+  .fp-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 24px;
+    /* (Both start with a section's heading: their tops line up.) */
+    align-items: start;
+  }
 }
 
 .fp-col {
-  max-width: 560px;
-  padding: 0 12px;
+  min-width: 0;
 }
 
 /* One line of words: as tall as a row. */
@@ -78,7 +103,7 @@
   margin-top: 12px;
 }
 
-/* A section's name, in sentence case, and how many. */
+/* A section's name, in sentence case, its tone and how many. */
 .fp-h {
   display: flex;
   align-items: center;
@@ -94,13 +119,34 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* A kind's tone: the legend of the marks on the page. */
+.fp-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--fact-taps);
+}
+
+.fp-dot-wide {
+  background: var(--fact-wide);
+}
+
+.fp-dot-small {
+  background: var(--fact-small);
+}
+
 .fp-rows {
   list-style: none;
 }
 
-/* A row: its label left, its number right. Its hover reaches 6px past the text on either side. */
+/* A row: its words, its number, and a last cell as wide as Note on every row (empty where there
+   is none), so every number in the pane ends at the same x. Its hover reaches 6px past the text
+   on either side. */
 .fp-row {
-  display: flex;
+  --fp-slot: 48px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--fp-slot);
   align-items: center;
   height: 28px;
   margin: 0 -6px;
@@ -111,20 +157,22 @@
   background: var(--surface);
 }
 
-.fp-hit {
-  flex: 1;
+.fp-cells {
   min-width: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  column-gap: 12px;
   height: 100%;
   padding: 0 6px;
+}
+
+.fp-hit {
   border-radius: var(--radius);
   text-align: left;
 }
 
 .fp-label {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -132,34 +180,37 @@
 }
 
 .fp-detail {
-  flex: none;
+  justify-self: end;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
-/* Note, in Annotate: quiet until its row is pointed at. */
-.fp-note {
-  flex: none;
-  height: 20px;
-  margin-right: 4px;
-  padding: 0 8px;
-  border-radius: calc(var(--radius) - 2px);
-  color: var(--muted);
-  font-weight: 500;
+.fp-slot {
+  display: flex;
+  justify-content: flex-end;
+  padding-right: 4px;
 }
 
-.fp-fact:hover .fp-note {
-  color: var(--foreground);
-  box-shadow: 0 0 0 1px var(--rule);
+/* Note, in Annotate: a small bordered button, quiet until pointed at. */
+.btn.fp-note {
+  width: 100%;
+  height: 22px;
+  padding: 0;
+  border-color: var(--rule);
 }
 
-.fp-note:hover {
-  background: var(--surface-strong);
+.fp-fact:hover .btn.fp-note {
+  border-color: var(--background-05);
 }
 
+/* The files the agent changed: words, not controls. */
 .fp-file {
-  gap: 12px;
-  padding: 0 6px;
+  color: var(--muted);
+  cursor: default;
+}
+
+.fp-file .fp-cells {
+  font-variant-numeric: tabular-nums;
 }
 
 .fp-more {
@@ -181,4 +232,51 @@
   padding: 6px 12px;
   border-top: 1px solid var(--rule);
   color: var(--muted);
+}
+
+/* ── the strip above Edit's and Motion's dock beside a phone's page ───────────────────────────── */
+
+.fs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Motion's dock sets its words 16px in (motion-dock.css): the strip's start with them. */
+.dock[data-dock="motion"] > .fs {
+  padding-left: 16px;
+}
+
+.fs > *,
+.fs-count {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fs-warn {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--ink-warn);
+}
+
+.fs-warn > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fs-ok .icon {
+  color: var(--ink-good);
 }
