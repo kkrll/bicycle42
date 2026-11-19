@@ -30,11 +30,14 @@
    resized is drawn anew each time (measured: no gain in software, a third more GPU time). */
 .box.sel, .box.csel { will-change: transform; }
 /* The same badge as in the app's notes list: 20 px, the same rounded-square corners, bold mono
-   digits, dark ink on amber and green, no ring. */
+   digits. Its state is in its shape, as there: outlined waits, a pulsing ring is being worked on,
+   filled is done; red is kept for the one that failed. On a page of any colour the outline needs
+   a fill of its own, white with dark ink, and two outlines, one dark inside and one white around
+   it, so one of them shows on any page. */
 .pin { position: fixed; left: -10px; top: -10px; box-sizing: border-box; min-width: 20px; height: 20px; padding: 0 5px;
   border-radius: 10px; corner-shape: superellipse(1.333); font: 700 12px/20px ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, monospace; text-align: center;
-  font-variant-numeric: tabular-nums; color: #fff; background: #6b7280;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); pointer-events: none; will-change: transform; }
+  font-variant-numeric: tabular-nums; color: #171717; background: #fff;
+  --ring: #171717; --rw: 1px; box-shadow: inset 0 0 0 var(--rw) var(--ring), 0 0 0 1px #fff, 0 1px 3px rgba(0, 0, 0, 0.3); pointer-events: none; will-change: transform; }
 .pins.live .pin { pointer-events: auto; cursor: pointer; }
 .pins.live .pin:hover { box-shadow: 0 0 0 2px var(--pa); }
 .vbar { position: fixed; left: 0; top: 0; display: flex; align-items: center; gap: 2px; height: 28px; padding: 0 3px; box-sizing: border-box;
@@ -48,7 +51,7 @@
 .vname { padding: 0 6px; font-variant-numeric: tabular-nums; }
 .vkeep { margin-left: 4px; padding: 0 10px !important; background: #fffaa0; color: #171717; font-weight: 600 !important; }
 .vbar .vkeep:hover { background: #fffcc4; }
-.pin.paused { background: #fff; color: #171717; box-shadow: inset 0 0 0 1.5px #f59e0b, 0 1px 3px rgba(0, 0, 0, 0.3); }
+.pin.paused { --rw: 2px; }
 .tip, .sent { position: fixed; left: 0; top: 0; box-sizing: border-box; pointer-events: none; background: #1a1a1b; color: #ededed;
   border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.12);
   font: 13px/1.4 system-ui, -apple-system, sans-serif; }
@@ -65,12 +68,12 @@
 /* The pulse of a working pin goes in four steps each way, not sixty frames a second: a pin can
    pulse for minutes with review off, and every frame of it is a frame the whole window is
    drawn again (measured: 107 ms of CPU a second smooth, 38 in steps, 12 to 27 with none). */
-.pin.working { background: #f59e0b; color: #10100e; animation: pulse 1s steps(4, jump-none) infinite; }
+.pin.working { --rw: 2px; animation: pulse 1s steps(4, jump-none) infinite; }
 @media (prefers-reduced-motion: reduce) { .pin.working { animation: none; } }
-.pin.done { background: #16a34a; color: #10100e; }
-.pin.failed { background: #dc2626; }
-.pin.stopped { background: #fff; color: #171717; box-shadow: inset 0 0 0 1.5px #6b7280, 0 1px 3px rgba(0, 0, 0, 0.3); }
-.pin.bg { border-radius: 4px; }
+.pin.done { background: #171717; color: #fff; }
+.pin.failed { color: #b91c1c; --ring: #dc2626; }
+.pin.stopped { color: #6b7280; box-shadow: 0 0 0 1px #fff, 0 1px 3px rgba(0, 0, 0, 0.3); outline: 1px dashed #6b7280; outline-offset: -1px; }
+.pin.bg:not(.done) { background: #d4d4d4; }
 .pin.approx { box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35); opacity: 0.75; }
 @keyframes pulse { 50% { opacity: 0.55; } }
 .card { position: fixed; left: 0; top: 0; box-sizing: border-box; padding: 10px; background: #1a1a1b; color: #ededed;

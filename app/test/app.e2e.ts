@@ -388,7 +388,7 @@ async function main() {
   check("the list names it by its edits and lists them in words", row?.text === NAME && row.edits?.join() === 'Styled "Card · Pro For small teams": padding: 16px → 32px.', JSON.stringify(row))
   check(
     "its row has the canvas icon, and its tooltip lists the edits",
-    (await until(() => ui(`(() => { const r = document.querySelectorAll(".notes-list .note")[3]; return !!r && !!r.querySelector('[title^="Canvas note: 1 edit"] svg') && r.querySelector(".note-main").title.includes("1. Styled") })()`))) === true,
+    (await until(() => ui(`(() => { if (document.querySelector('.note-group-name[aria-expanded="false"]')) document.querySelector('.note-group-name[aria-expanded="false"]').click(); const r = [...document.querySelectorAll(".notes-list .note")].find((x) => x.querySelector('[title^="Canvas note: 1 edit"] svg')); return !!r && r.querySelector(".note-main").title.includes("1. Styled") })()`))) === true,
   )
   emit("session.inbox.enqueued", { inboxID: `msg_${prompts.length}`, item: { type: "user", payload: { text: canvas?.text }, delivery: "queue" } })
   // It is in the conversation once the agent has picked it up; waiting, it is in the list only.

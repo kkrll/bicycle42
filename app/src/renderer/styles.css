@@ -349,9 +349,12 @@ details[open] > summary > .caret {
   rotate: 90deg;
 }
 
-/* A note's number: a disc for the main lane, a square for the background lane, in the colour of
-   its pin on the page. */
+/* A note's number on a disc; a background note's disc is tinted, with a stronger outline. Its state is in
+   its shape, not a colour: outlined waits, a pulsing outline is being worked on, filled is done.
+   Red is kept for the one that failed. */
 .badge {
+  --ring: var(--muted);
+  position: relative;
   flex: none;
   display: inline-grid;
   place-items: center;
@@ -359,8 +362,9 @@ details[open] > summary > .caret {
   height: 20px;
   padding: 0 5px;
   border-radius: 10px;
-  background: var(--status-queued);
-  color: var(--ink-light);
+  background: transparent;
+  color: var(--foreground);
+  box-shadow: inset 0 0 0 1.5px var(--ring);
   font-family: var(--font-mono);
   font-size: var(--text-control);
   font-weight: 700;
@@ -369,43 +373,65 @@ details[open] > summary > .caret {
 }
 
 .badge[data-lane="bg"] {
-  border-radius: 4px;
+  --ring: color-mix(in srgb, var(--foreground) 60%, transparent);
+  background: color-mix(in srgb, var(--foreground) 20%, transparent);
 }
 
-.badge[data-status="working"] {
-  background: var(--status-working);
-  color: var(--ink-dark);
+/* Being worked on: the outline in full colour, pulsing in steps like the pin on the page. The
+   outline is a layer of its own so the number does not fade with it. */
+.badge[data-status="working"],
+.badge[data-status="paused"] {
+  box-shadow: none;
+}
+
+.badge[data-status="working"]::after,
+.badge[data-status="paused"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  /* The design base squares every element's corners a little, but not a pseudo-element's. */
+  border-radius: inherit;
+  corner-shape: inherit;
+  box-shadow: inset 0 0 0 1.5px var(--foreground);
+}
+
+/* Started, but the server is out of reach: nothing is happening, so the outline stands still. */
+.badge[data-status="working"]::after {
+  animation: badge-pulse 1s steps(4, jump-none) infinite;
+}
+
+@keyframes badge-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge::after {
+    animation: none !important;
+  }
 }
 
 .badge[data-status="done"] {
-  background: var(--status-done);
-  color: var(--ink-dark);
+  --ring: var(--foreground);
+  background: var(--foreground);
+  color: var(--background);
 }
 
 .badge[data-status="failed"] {
-  background: var(--status-failed);
+  --ring: var(--status-failed);
+  color: var(--ink-bad);
 }
 
-/* Stopped or set aside by the reviewer: not a failure, so quiet grey. */
-.badge[data-status="stopped"] {
-  background: var(--surface-strong);
-  color: var(--muted);
-}
-
-/* Started, but the server is out of reach: nothing is happening, so it does not look busy. */
-.badge[data-status="paused"] {
-  background: transparent;
-  color: var(--foreground);
-  box-shadow: inset 0 0 0 1.5px var(--status-working);
-}
-
-/* Not sent yet: the pin exists but the agent has not got it. */
+/* Stopped or set aside by the reviewer, or not with the agent yet: a broken outline. */
+.badge[data-status="stopped"],
 .badge[data-status="capturing"],
 .badge[data-status="sending"],
 .badge[data-status="gone"] {
-  background: transparent;
-  color: var(--foreground);
-  box-shadow: inset 0 0 0 1.5px var(--status-queued);
+  color: var(--muted);
+  box-shadow: none;
+  outline: 1.5px dashed var(--muted);
+  outline-offset: -1.5px;
 }
 
 /* ── frame ────────────────────────────────────────────────────────────────────────────────── */
@@ -1200,6 +1226,70 @@ details[open] > summary > .caret {
   max-height: var(--list-h);
   overflow-y: auto;
   padding-bottom: 6px;
+}
+
+/* Where the panel's notes and conversations are: the server, then the code folder. */
+.place {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px 0 4px;
+  border-bottom: 1px solid var(--rule);
+  font-size: var(--text-control);
+  white-space: nowrap;
+}
+
+.place-server {
+  flex: none;
+  font-weight: 600;
+}
+
+.place-folder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+
+/* A group of the list: what its notes need. */
+.note-group {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 4px var(--gutter) 0;
+}
+
+/* Between two groups, a dotted line: lighter than the rules that divide the panel. */
+.note-group:not(:first-child) {
+  margin-top: 4px;
+  border-top: 1px dotted var(--background-05);
+}
+
+.note-group-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 calc(var(--gutter) + 2px);
+  font-size: var(--text-micro);
+  text-transform: uppercase;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+button.note-group-name {
+  height: 20px;
+  padding-left: 0;
+  border-radius: var(--radius);
+}
+
+button.note-group-name:hover {
+  color: var(--foreground);
+}
+
+.note[data-group="done"] .note-text {
+  color: var(--muted);
 }
 
 .note-line {
