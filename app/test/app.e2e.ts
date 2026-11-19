@@ -603,6 +603,25 @@ async function main() {
   await ui(`document.querySelector('[data-device="desktop"]').click()`)
   await until(() => page.view.getBounds().width === wide.width)
   check("the desktop switch gives its pane back", page.view.getBounds().width === wide.width && page.view.getBounds().x === wide.x && state().page.device === "desktop", `${JSON.stringify(page.view.getBounds())}, was ${JSON.stringify(wide)}`)
+  // The panel's edge and the dock's, by the keyboard and a double click, as the notes' divider:
+  // arrows step, Home and End go to the limits, a double click goes back to the usual size.
+  const panelW = () => ui(`Math.round(document.querySelector('.panel').getBoundingClientRect().width)`) as Promise<number>
+  const key = (sel: string, k: string) => ui(`document.querySelector(${JSON.stringify(sel)}).dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(k)}, bubbles: true, cancelable: true }))`)
+  const w0 = await panelW()
+  await key(".resizer", "ArrowRight")
+  const w1 = await panelW()
+  await key(".resizer", "Home")
+  const w2 = await panelW()
+  await ui(`document.querySelector('.resizer').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`)
+  const w3 = await panelW()
+  check("the panel's edge: an arrow steps it, Home is its least, a double click its usual width", w1 === w0 + 16 && w2 === 320 && w3 === 400, `${w0} ${w1} ${w2} ${w3}`)
+  const dockH = () => ui(`Math.round(document.querySelector('.dock').getBoundingClientRect().height)`) as Promise<number>
+  const h0 = await dockH()
+  await key(".dock-divider", "Home")
+  const h1 = await dockH()
+  await ui(`document.querySelector('.dock-divider').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`)
+  const h2 = await dockH()
+  check("the dock's edge: Home is its least, a double click its usual height", h1 === 160 && h2 === h0, `${h0} ${h1} ${h2}`)
 
   // ── motion mode's dock, drawn by the window: it drives the real page ───────────────────────
   const motionUrl = `${origin}/harness/motion-page.html`

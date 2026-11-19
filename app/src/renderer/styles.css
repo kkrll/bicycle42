@@ -1004,6 +1004,14 @@ details[open] > summary > .caret {
   background: var(--background);
 }
 
+/* While an edge is dragged: how large the page will be, in the middle of where it will be. */
+.page-size {
+  color: var(--muted);
+  font-size: var(--text-control);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .page-failed-host {
   max-width: 100%;
   overflow: hidden;

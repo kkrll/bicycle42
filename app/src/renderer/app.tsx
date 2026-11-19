@@ -488,6 +488,14 @@ export function App() {
   // be another phone than the one named.
   const [colHeight, setColHeight] = createSignal(0)
   const [winWidth, setWinWidth] = createSignal(window.innerWidth)
+  // While an edge is dragged the page is away, and its box says how large the page will be:
+  // a desktop's page is as large as its box, a phone's is the phone, drawn at the box's size.
+  const [pageSize, setPageSize] = createSignal({ width: 0, height: 0 })
+  const sizeSaid = () => {
+    if (!phone()) return `${pageSize().width} × ${pageSize().height}`
+    const p = phoneOf(state.page.phone)
+    return `${p.width} × ${p.height}${fit() < 1 ? ` · ${Math.round(fit() * 100)}%` : ""}`
+  }
   const fit = () => {
     const room = colHeight() - PHONE_AROUND
     const h = phoneOf(state.page.phone).height
@@ -555,6 +563,7 @@ export function App() {
     // centred in: that room is observed too.
     const observer = new ResizeObserver(() => {
       setColHeight(stageEl.clientHeight)
+      setPageSize({ width: pageEl.clientWidth, height: pageEl.clientHeight })
       schedule()
     })
     observer.observe(pageEl)
@@ -667,6 +676,11 @@ export function App() {
     setDockHeight(clampDock(clampDock(dockHeight()) + by))
     remember("dock.height", String(dockHeight()))
   }
+  /** Back to what it is until dragged (a double click on its edge, as on the notes' divider). */
+  const dockReset = () => {
+    setDockHeight(undefined)
+    remember("dock.height", "")
+  }
 
   // ── focus and shortcuts ──
   const focusUrl = () => {
@@ -765,9 +779,15 @@ export function App() {
             onPointerUp={dragEnd}
             onPointerCancel={dragEnd}
             onLostPointerCapture={dragEnd}
+            onDblClick={() => nudge(PANEL_DEFAULT - clampWidth(panelWidth()))}
             onKeyDown={(e) => {
+              // (As the notes' divider and the dock's: arrows step, Home and End go to the limits.)
               if (e.key === "ArrowRight") nudge(16)
               else if (e.key === "ArrowLeft") nudge(-16)
+              else if (e.key === "Home") nudge(PANEL_MIN - clampWidth(panelWidth()))
+              else if (e.key === "End") nudge(maxWidth() - clampWidth(panelWidth()))
+              else return
+              e.preventDefault()
             }}
           />
         </Show>
@@ -787,6 +807,11 @@ export function App() {
         {/* While a dialog is open or the panel is resized the page view is away: a quiet surface
             stands in for it, so the window does not go black. */}
         <div class="page" ref={pageEl} classList={{ veiled: settings() || switcherOpen() || runningOpen() || resizing() }}>
+          <Show when={resizing() && state.page.url !== "" && !loadFailed()}>
+            <p class="page-size" aria-hidden="true">
+              {sizeSaid()}
+            </p>
+          </Show>
           <Show when={state.page.url !== "" && loadFailed()}>
             <div class="page-failed" role="alert">
               <Icon name="alert" size={20} />
@@ -848,16 +873,22 @@ export function App() {
                   aria-orientation="horizontal"
                   aria-label="Resize the dock"
                   aria-valuemin={DOCK_MIN}
-                  aria-valuenow={dockHeight()}
+                  aria-valuemax={Math.max(DOCK_MIN, colHeight() - PAGE_MIN - 16)}
+                  aria-valuenow={Math.min(dockHeight(), Math.max(DOCK_MIN, colHeight() - PAGE_MIN - 16))}
                   tabindex="0"
                   onPointerDown={dockDragStart}
                   onPointerMove={dockDragMove}
                   onPointerUp={dockDragEnd}
                   onPointerCancel={dockDragEnd}
                   onLostPointerCapture={dockDragEnd}
+                  onDblClick={dockReset}
                   onKeyDown={(e) => {
                     if (e.key === "ArrowUp") dockNudge(16)
                     else if (e.key === "ArrowDown") dockNudge(-16)
+                    else if (e.key === "Home") dockNudge(DOCK_MIN - clampDock(dockHeight()))
+                    else if (e.key === "End") dockNudge(dockMax() - clampDock(dockHeight()))
+                    else return
+                    e.preventDefault()
                   }}
                 />
               </Show>
