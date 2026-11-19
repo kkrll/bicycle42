@@ -96,6 +96,10 @@ const SHOTS = [
   // The page as a phone's; and a dock the window draws (none is, yet: its box with its name), under the page and beside a phone's.
   { name: "phone", mock: "review", query: "&device=phone" },
   { name: "phone-se", mock: "review", query: "&device=phone&phone=iphone-se&mode=preview" },
+  // A phone taller than its room (a laptop's window), and the largest phone with the panel shut.
+  { name: "phone-short", mock: "review", query: "&device=phone", size: [1280, 720] },
+  { name: "phone-max-collapsed", mock: "review", query: "&device=phone&phone=iphone-16-pro-max&mode=preview", run: [click("[data-action=panel]")] },
+  { name: "phone-wide", mock: "review", query: "&device=phone&mode=preview", size: [1984, 1276] },
   { name: "dock", mock: "review", query: "&docks=motion&mode=motion" },
   { name: "phone-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit" },
   // Motion's dock drawn by the window: beside a phone's page (the list above what is open), and
