@@ -546,6 +546,13 @@ async function main() {
   // selection; rules in it show as a dot; Enter on the switch sends nothing.
   const tabs = () => ui(`(() => { const [el, gl] = document.querySelectorAll('.cd-tab'); return { on: el.getAttribute("aria-selected") === "true" ? "Element" : "Global", elOff: el.disabled, shown: document.querySelector('.cd-el').hidden ? "Global" : "Element", dot: !!gl.querySelector('.cd-dot') } })()`) as Promise<{ on: string; elOff: boolean; shown: string; dot: boolean }>
   check("Element | Global: a selection shows Element", JSON.stringify(await tabs()) === JSON.stringify({ on: "Element", elOff: false, shown: "Element", dot: false }), JSON.stringify(await tabs()))
+  // ← and → on the switch change the side, as on any pair of tabs.
+  const tabKey = (k: string) => ui(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(k)}, bubbles: true, cancelable: true }))`)
+  await ui(`document.querySelectorAll('.cd-tab')[0].focus()`)
+  await tabKey("ArrowRight")
+  const toGlobal = (await until(async () => (await tabs()).on === "Global", 2000)) === true && (await ui(`document.activeElement === document.querySelectorAll('.cd-tab')[1]`)) === true
+  await tabKey("ArrowLeft")
+  check("→ on the switch goes to Global and ← back to Element, the focus with it", toGlobal && (await until(async () => (await tabs()).on === "Element", 2000)) === true && (await ui(`document.activeElement === document.querySelectorAll('.cd-tab')[0]`)) === true, JSON.stringify(await tabs()))
   await ui(`document.querySelectorAll('.cd-tab')[1].click()`)
   await until(async () => (await tabs()).on === "Global")
   await paste("#cd-free", ".tile { color: red; }")

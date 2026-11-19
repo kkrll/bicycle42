@@ -221,7 +221,11 @@ export function CanvasDock() {
   function liveValue(row: CanvasComputed, text: string, hold = false) {
     setVal({ prop: row.prop, text })
     const v = oneLine(clean(text))
-    if (!sel() || !v || !supports(row.prop, v)) return
+    if (!sel() || !v) return
+    // A step to something the property does not take (a width under zero): marked as a typed
+    // one is, and not sent. The next step that is taken clears the mark.
+    if (!supports(row.prop, v)) return void setBad(row.prop, v)
+    if (bad[row.prop] !== undefined) setBad(row.prop, undefined as unknown as string)
     send({ type: "value", id: sel()!.id, prop: row.prop, value: v, live: true, ...(hold ? { hold: true } : {}) })
   }
   const rowOf = (prop: string) => view()?.computed.find((r) => r.prop === prop)
@@ -895,7 +899,20 @@ export function CanvasDock() {
         <span class="cd-path" title={sel() ? `${sel()!.label}${sel()!.tag !== sel()!.label ? ` · ${sel()!.tag}` : ""}` : ""}>
           {sel() ? `${sel()!.label}${sel()!.hidden ? " · hidden" : ""}` : "Nothing selected"}
         </span>
-        <div class="cd-tabs" role="tablist" aria-label="What the styles are for">
+        <div
+          class="cd-tabs"
+          role="tablist"
+          aria-label="What the styles are for"
+          onKeyDown={(e) => {
+            // ← and → change the side, as on any pair of tabs (and as the page's own inspector did).
+            if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return
+            const on = e.key === "ArrowRight"
+            if (!on && !sel()) return
+            e.preventDefault()
+            send({ type: "global", on })
+            e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')[on ? 1 : 0]?.focus()
+          }}
+        >
           <button
             type="button"
             role="tab"
