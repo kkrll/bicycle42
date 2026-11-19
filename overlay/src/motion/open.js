@@ -2,10 +2,9 @@
 // object for it, played, paused and stopped at a frame.
 
 import { adopt, BOOST } from "../page.js";
-import { apply, clamp, DOCK_H, fromApi, M, mq, parseKf, pathOf, r1, readList, scan, serialize, splitTop } from "./model.js";
-import { hosted } from "../panel.js";
+import { apply, clamp, fromApi, M, mq, parseKf, pathOf, r1, readList, scan, serialize, splitTop } from "./model.js";
 import { commit, nameProblem, snapshot } from "./edit.js";
-import { draw, flash, focusLater } from "./draw.js";
+import { draw, flash } from "./draw.js";
 import { kick } from "../render.js";
 
 // ── opening one ──────────────────────────────────────────────────────────────────────────
@@ -78,7 +77,6 @@ export function newAnimation() {
   for (let i = 2; nameProblem(nm); i++) nm = `new-animation-${i}`;
   M.kf.set(nm, { name: nm, isNew: true, orig: "", frames: [{ at: 0, ease: "", vals: { opacity: "0", translate: "0 12px" } }, { at: 100, ease: "", vals: { opacity: "1", translate: "0 0" } }] });
   attach(M.sel, nm);
-  focusLater("[data-name]");
 }
 /** Every keyframes the selected element could play: the page's, and those made here. */
 export const knownNames = () => [...new Set([...M.scan.rules.keys(), ...M.scan.anims.map((a) => a.name), ...M.kf.keys()])]
@@ -183,7 +181,7 @@ export function selectEl(el) {
 export function reveal(el) {
   if (!el || !el.isConnected) return;
   const r = el.getBoundingClientRect();
-  if (r.bottom < 0 || r.top > window.innerHeight - (hosted("motion") ? 0 : DOCK_H) || r.right < 0 || r.left > window.innerWidth) el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+  if (r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > window.innerWidth) el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
   M.findUntil = performance.now() + 1400;
   kick();
 }

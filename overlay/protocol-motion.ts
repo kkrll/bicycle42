@@ -1,5 +1,5 @@
-// Motion mode's dock when the host draws it (see Dock in protocol.ts): what the dock shows, and
-// what the reviewer can do in it. Types only.
+// Motion mode's dock, which only the host draws (see Dock in protocol.ts; the overlay has none of
+// its own): what the dock shows, and what the reviewer can do in it. Types only.
 //
 // The overlay keeps everything that is the page's: finding what moves, the keyframes and the
 // timing as the page has them, the edits and their undo, playing and seeking, sending the note.
@@ -92,7 +92,7 @@ export type MotionOpen = {
  *  The overlay sends a whole view whenever this changes, at most once a frame while it plays. */
 export type MotionClock = { pos: number | null; playing: boolean; on: boolean }
 
-/** The words of the choices the dock offers, the overlay's own (so the window never has a
+/** The words of the choices the dock offers, the overlay's (so the host never has a
  *  different list): `[value, label, what it means]`. */
 export type MotionChoices = {
   easings: string[]
@@ -132,7 +132,7 @@ export type MotionView = {
   choices: MotionChoices
 }
 
-/** One thing done in the dock. Each is what the same gesture does in the overlay's own dock. */
+/** One thing done in the dock, and what the overlay does to the page for it. */
 export type MotionAct =
   /** A row of the list opened (its `id`), or the pointer over one (its elements are outlined on
    *  the page) or over none. */

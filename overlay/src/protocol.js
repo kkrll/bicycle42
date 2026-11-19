@@ -38,13 +38,13 @@
  * it: the edit's rules select by it, so the edit stays on its element when the page moves it.
  * A sent batch stays applied until its pin is done, failed or stopped, or the page reloads.
  *
- * Motion mode (mod+I, or the host's switch; review mode on): what moves on the page, listed in a dock at the
- * bottom (CSS animations, transitions, the Web Animations API, frame-by-frame scripts), and one
- * animation open in a timeline: a lane per property, a bar between two keyframes, a grip on each.
- * click an element or a row · drag a grip in time · press twice on a lane to add a keyframe ·
- * space plays · ←/→ steps · Delete removes the keyframe · mod+Z / mod+shift+Z undo, redo · Enter
- * sends the open animation as one note (with the words typed for it) · Esc: deselect, then back to
- * notes. Keyframes belong to their name and to every element that plays them; duration, delay,
+ * Motion mode (mod+I, or the host's switch; review mode on): what moves on the page (CSS
+ * animations, transitions, the Web Animations API, frame-by-frame scripts), listed in the host's
+ * dock, and one animation open in its timeline: a lane per property, a bar between two keyframes,
+ * a grip on each (motion/host.js; a host that does not draw the dock has none). On the page:
+ * click an element to open its first animation · space plays · ←/→ steps · Delete removes the
+ * keyframe · mod+Z / mod+shift+Z undo, redo · Enter sends the open animation as one note (with
+ * the words typed for it) · Esc: the keyframe, then deselect, then back to notes. Keyframes belong to their name and to every element that plays them; duration, delay,
  * easing and the rest belong to the element. Previews are rules in a constructed stylesheet, as in
  * canvas mode; a sent animation stays applied until its pin is done, failed or stopped.
  */

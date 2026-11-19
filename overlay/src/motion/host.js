@@ -1,12 +1,13 @@
-// Motion mode, the host's dock: when the host draws motion's dock itself (hosted("motion"),
-// ../panel.js), the layer draws none. What its dock would show goes to the host as a view
-// (MotionView in ../../protocol-motion.ts), and what is done in the host's dock (MotionAct)
-// comes back here and calls what the layer's own dock calls: open.js, edit.js, send.js. Nothing
-// of the page's leaves this side: the host's dock is a drawing.
+// Motion mode, the host's dock: motion's dock (the list, the open animation's timeline, the note
+// and Send) is drawn by the host, when it says it draws it (hosted("motion"), ../panel.js); the
+// layer draws none of it, and a host that does not say so has no dock. What the dock shows goes
+// to the host as a view (MotionView in ../../protocol-motion.ts), and what is done in it
+// (MotionAct) comes back here and calls open.js, edit.js, send.js. Nothing of the page's leaves
+// this side: the host's dock is a drawing.
 //
-// Where a view is wanted: everywhere the layer's own dock would be drawn (draw, drawList,
-// drawFoot in draw.js ask for one instead of drawing while the dock is the host's), when the
-// dock becomes the host's (syncUi), and when the host asks ("resend", after its window reloads).
+// Where a view is wanted: wherever what the dock shows changed (draw, drawList, drawFoot in
+// draw.js ask for one), when the dock becomes the host's (syncUi), and when the host asks
+// ("resend", after its window reloads).
 // Asks within one task are one view, built once the task is done; panel.js sends at most one a
 // frame.
 //
@@ -28,7 +29,6 @@ import { apply, clamp, COUNT, DIRECTION, EASINGS, FILL, frames, HOW, M, name, op
 import { animOf, knownNames, newAnimation, position, reveal, running, seek, selectEl, toggle, useKf } from "./open.js";
 import { addKey, addLane, commit, cssText, detach, discard, keyInfo, laneOrder, moveKey, removeKey, removeLane, rows, segEase, setCss, setKey, setName, setTiming, sharedBy, timing, travel } from "./edit.js";
 import { submit } from "./send.js";
-import { closePop, noteEl, sugHide } from "./input.js";
 import { draw, flash, sentStatus } from "./draw.js";
 
 // ── the view ─────────────────────────────────────────────────────────────────────────────
@@ -53,7 +53,6 @@ function openView() {
   if (!o) return null;
   const t = timing(), k = openKf(), u = openUse(), fr = frames(), ki = keyInfo();
   const T = Math.max(1, +t.duration || 0);
-  M.T = T; // (the layer's own playhead reads it too, should the dock come back)
   return {
     kind: o.kind,
     name: o.kind === "transition" ? "transition" : o.name,
@@ -97,7 +96,7 @@ function body() {
     isolate: M.isolate,
     undo: M.past.length > 0,
     redo: M.future.length > 0,
-    note: noteEl ? noteEl.value : "",
+    note: M.note,
     msg: M.msg,
     status: M.done || (M.open && openDirty() ? "" : sentStatus()),
     choices: {
@@ -136,21 +135,13 @@ export function wantView() {
 }
 /** From the layer's frame: the playhead moved, or it started or stopped playing. */
 export function hostFrame() {
-  if (M.hostQueued || clockKey(clockNow()) === M.hostClock) return;
+  if (!hosted("motion") || M.hostQueued || clockKey(clockNow()) === M.hostClock) return;
   out();
 }
 /** The dock became the host's, or was given back, or the mode or review was switched. */
 export function hostSync() {
-  const h = hosted("motion");
-  if (h !== M.hosted) {
-    M.hosted = h;
-    if (h) {
-      closePop();
-      sugHide();
-      M.rowEls = null;
-    } else if (M.on) draw(); // the layer's own dock is drawn again, as it is now
-  }
-  if (h) wantView();
+  if (hosted("motion")) return wantView();
+  M.rowEls = null; // no dock: no row of it under the pointer
 }
 
 // ── what is done in the host's dock ──────────────────────────────────────────────────────
@@ -216,8 +207,7 @@ const ACTS = {
   step(a) {
     if (M.open && Number.isFinite(+a.by)) seek((position() ?? M.pos) + clamp(+a.by, -1, 1));
   },
-  // A keyframe pressed, dragged and let go: what the timeline's pointer does in the layer's own
-  // dock (tlDown, tlMove, tlUp in input.js), with the host's dock measuring where.
+  // A keyframe pressed, dragged and let go, the host's dock measuring where.
   select(a) {
     if (!M.open) return;
     if (!a.key) {
@@ -269,7 +259,7 @@ const ACTS = {
   },
   // The keyframes as text: each keystroke is shown on the page when it is keyframes, and why not
   // when it is not; leaving the field is one undo step, and text that is not keyframes is
-  // dropped for the last that was (as the layer's own text field does).
+  // dropped for the last that was.
   css(a) {
     M.cssWhy = setCss(str(a.text));
     if (a.done) {
@@ -285,8 +275,7 @@ const ACTS = {
   use: (a) => useKf(str(a.name)),
   detach: () => detach(),
   note(a) {
-    if (!noteEl) return;
-    noteEl.value = str(a.text);
+    M.note = str(a.text);
     draftChanged();
     draw();
   },
