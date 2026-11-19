@@ -1,4 +1,4 @@
-import { adopt, BOOST } from "../page.js";
+import { adopt, BOOST, restyled } from "../page.js";
 import { C, MAX_CLASS, MAX_CSS, MAX_SHEET } from "./state.js";
 import { elOf, stableSel, STAMP, stampOf } from "./stamps.js";
 import { usable } from "./css.js";
@@ -321,6 +321,7 @@ export function applyAll() {
   if (dirty) {
     C.rev++; // the selection's geometry, the computed list and the tree's marks are read again
     T.need = true;
+    restyled(); // (the facts pane's counts: an edit can fix a tap target)
   }
   drawBar();
   kick();
