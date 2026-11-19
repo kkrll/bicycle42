@@ -2,8 +2,8 @@
 // Element styles, the batch's Global stylesheet and the selection's computed values, beside a
 // phone's page or under a desktop's (dock.tsx). What it shows is the overlay's view
 // (dockViews.canvas: CanvasView in overlay/protocol-canvas.ts); what is done in it goes to the
-// overlay as an act (CanvasAct), which does it to the page with the same functions as the
-// overlay's own inspector. Nothing of the page's is kept here.
+// overlay as an act (CanvasAct), which does it to the page (overlay/src/canvas/host.js). The page
+// has no inspector of its own. Nothing of the page's is kept here.
 //
 // Typing never waits for the page: a field being typed in holds its own text and sends it whole
 // with every key; the view answers with the marks, the error line and the computed values, and
@@ -17,9 +17,9 @@
 // suggestion list opens inside the inspector's own box, under or above the caret, and so does the
 // keys list.
 //
-// The footer is the bar the overlay draws over the page when the inspector is its own (the
-// overlay draws none while this one is up): how many edits, undo, redo, Reset, the note's words,
-// Send and what happened to the note sent last (the view's `batch`). The note's words are the
+// The footer is the batch's bar (the page has none): how many edits, undo, redo, Reset, the
+// note's words, Send and what happened to the note sent last (the view's `batch`). The count
+// opens the list of the unsent edits, each removable on its own. The note's words are the
 // overlay's too, sent with every key, as Motion's are: they go with the batch and come back with
 // a refused one. Send is a "send" act, which main lets through to the page (admitNote).
 //
@@ -28,7 +28,7 @@
 // styles, canvas.tree.w beside them).
 import { For, Index, Show, batch, createEffect, createMemo, createSignal, on, onCleanup, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
-import type { CanvasAct, CanvasComputed, CanvasText, CanvasView } from "../../../overlay/protocol-canvas"
+import type { CanvasAct, CanvasComputed, CanvasEdit, CanvasText, CanvasView } from "../../../overlay/protocol-canvas"
 import { editKeys } from "../../../overlay/src/canvas/help.js"
 import { CSS_PROPS } from "../../../overlay/src/canvas/css-data.js"
 import { numberAt, step as stepNumber, stepSize } from "../../../overlay/src/canvas/number.js"
@@ -822,15 +822,46 @@ export function CanvasDock() {
   const [helpOpen, setHelpOpen] = createSignal(false)
   let helpBtn: HTMLButtonElement | undefined
   let helpEl: HTMLDivElement | undefined
-  /** Above the footer, no taller than the inspector's box leaves it. */
-  const helpAt = () => {
-    if (!helpOpen() || !rootEl) return {}
+  /** Above the footer, no taller than the inspector's box leaves it. (`open`: read for the
+   *  list it places, so the place is worked out again when it opens.) */
+  const popAt = (open: boolean) => {
+    if (!open || !rootEl) return {}
     const foot = rootEl.querySelector(".cd-foot")?.getBoundingClientRect().height ?? 0
     return { bottom: `${foot + 4}px`, "max-height": `${Math.max(60, rootEl.getBoundingClientRect().height - foot - 12)}px` }
   }
+
+  // ── the edits list: from the count, inside the inspector's box ──
+  // Open while the view has it (CanvasBatch.list): the overlay makes it only then, since each row
+  // is measured with the batch off and on. A row selects its element on the page (the
+  // stylesheet's shows Global); its × takes that one edit out, as an undo step.
+  const editList = () => batchV()?.list
+  let countBtn: HTMLButtonElement | undefined
+  let editsEl: HTMLDivElement | undefined
+  const showEdits = (open: boolean) => {
+    if (open) setHelpOpen(false)
+    if (open !== !!editList()) send({ type: "edits", open })
+  }
+  let wantSheet = false
+  createEffect(() => {
+    const g = global() // (read first: the effect follows it, whatever wantSheet is now)
+    if (wantSheet && g && els.sheet) {
+      wantSheet = false
+      els.sheet.focus({ preventScroll: true })
+    }
+  })
+  const goTo = (row: CanvasEdit) => {
+    if (row.id) send({ type: "select", id: row.id, show: true })
+    else if (row.key === "sheet") {
+      // The stylesheet is the batch's, not an element's: it lives under Global.
+      wantSheet = true
+      send({ type: "global", on: true })
+    }
+  }
+
   const outside = (e: PointerEvent) => {
     const t = e.target as Node
     if (helpOpen() && !helpEl?.contains(t) && !helpBtn?.contains(t)) setHelpOpen(false)
+    if (editList() && !editsEl?.contains(t) && !countBtn?.contains(t)) showEdits(false)
   }
   onMount(() => document.addEventListener("pointerdown", outside, true))
   onCleanup(() => document.removeEventListener("pointerdown", outside, true))
@@ -847,6 +878,12 @@ export function CanvasDock() {
           e.preventDefault()
           setHelpOpen(false)
           helpBtn?.focus()
+          return
+        }
+        if (e.key === "Escape" && editList()) {
+          e.preventDefault()
+          showEdits(false)
+          countBtn?.focus()
           return
         }
         onKey(e)
@@ -1063,9 +1100,20 @@ export function CanvasDock() {
         </div>
       </div>
       <footer class="cd-foot" aria-label="This batch">
-        <span class="cd-count" title={edits() ? "Unsent edits in this batch" : "Nothing edited yet"}>
+        <button
+          type="button"
+          class="icon-btn labelled cd-count"
+          ref={countBtn}
+          disabled={!edits()}
+          aria-expanded={!!editList()}
+          title={edits() ? "Show what is in this batch" : "Nothing edited yet"}
+          onClick={() => showEdits(!editList())}
+        >
           {edits() ? `${edits()} edit${edits() === 1 ? "" : "s"}` : "No edits"}
-        </span>
+          <Show when={edits()}>
+            <Icon name={editList() ? "down" : "up"} />
+          </Show>
+        </button>
         <span class="cd-acts">
           <button type="button" class="icon-btn cd-undo" aria-label="Undo" title={`Undo (${keys("mod", "Z")})`} disabled={!batchV()?.undo} onClick={() => send({ type: "undo" })}>
             <FIcon name="undo" />
@@ -1128,13 +1176,16 @@ export function CanvasDock() {
           aria-label="Keys and gestures"
           aria-expanded={helpOpen()}
           title="Keys and gestures"
-          onClick={() => setHelpOpen(!helpOpen())}
+          onClick={() => {
+            if (!helpOpen()) showEdits(false)
+            setHelpOpen(!helpOpen())
+          }}
         >
           <FIcon name="help" />
         </button>
       </footer>
       <Show when={helpOpen()}>
-        <div class="cd-keys thin-scroll" ref={helpEl} role="dialog" aria-label="Keys and gestures" style={helpAt()}>
+        <div class="cd-keys thin-scroll" ref={helpEl} role="dialog" aria-label="Keys and gestures" style={popAt(helpOpen())}>
           <For each={KEYS}>
             {([k, v]) => (
               <div class="cd-krow">
@@ -1146,6 +1197,25 @@ export function CanvasDock() {
             )}
           </For>
         </div>
+      </Show>
+      <Show when={editList()}>
+        {(rows) => (
+          <div class="cd-edits thin-scroll" ref={editsEl} role="dialog" aria-label="Unsent edits" style={popAt(!!editList())}>
+            <For each={rows()}>
+              {(row) => (
+                <div class="cd-erow" title={`${row.label} — ${row.text}`}>
+                  <button type="button" class="cd-ego" disabled={!row.id && row.key !== "sheet"} onClick={() => goTo(row)}>
+                    <span class="cd-elabel">{row.label}</span>
+                    <span class="cd-etext">— {row.text}</span>
+                  </button>
+                  <button type="button" class="icon-btn small cd-ex" aria-label="Remove this edit" title="Remove this edit" onClick={() => send({ type: "unedit", key: row.key })}>
+                    <Icon name="close" />
+                  </button>
+                </div>
+              )}
+            </For>
+          </div>
+        )}
       </Show>
       <Show when={list()}>
         {(l) => (

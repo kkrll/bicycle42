@@ -9,7 +9,6 @@ import * as Canvas from "./canvas/api.js";
 import * as Motion from "./motion/api.js";
 import { boxes as factBoxes } from "./facts/host.js";
 import { boxes, docBoxes, docHost, domVersion, pinsEl, root } from "./mount.js";
-import { roomFrame } from "./room.js";
 
 export function pool(container, n, make) {
   while (container.children.length < n) container.appendChild(make());
@@ -122,7 +121,6 @@ export function render() {
   readView();
   // A batch hidden for the host's "before" picture counts as a capture: no chrome in that picture.
   const capturing = !!S.pending || Canvas.hiding();
-  roomFrame(performance.now(), capturing);
   drawVariants(capturing);
   const canvasBoxes = Canvas.frame(capturing);
   const motionBoxes = Motion.frame(capturing);

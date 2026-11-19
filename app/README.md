@@ -308,11 +308,10 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
 - **The bar's hints wait two seconds** (`HINT_DELAY`), and one that is up stays a moment after
   the pointer leaves its control (`HINT_LINGER`): on the way to the next control the same
   element gets new words, and is not taken down and put up again.
-- **A dock the window draws.** Edit mode's inspector is the overlay's, drawn at the bottom of the
-  page, unless the window draws it; motion mode's dock only the window draws (the overlay has
-  none of its own). A dock named in `HOSTED_PANES` (`shared/types.ts`) is drawn by the window:
-  the overlay is told after every "state" ("docks"), shows no dock of its own and makes no room
-  for one, sends what the dock shows (`PanelMessage`, the "panel" stream, kept
+- **A dock the window draws.** Edit mode's inspector and motion mode's dock are the window's
+  only: the overlay draws neither and the page has none of its own. A dock named in
+  `HOSTED_PANES` (`shared/types.ts`) is drawn by the window: the overlay is told after every
+  "state" ("docks"), sends what the dock shows (`PanelMessage`, the "panel" stream, kept
   in `dockViews` in `renderer/store.ts`) and does what the window's dock asks (the `panel`
   command, `dockAct`). Main carries both and reads neither. The dock's component goes into
   `DOCKS` in `renderer/dock.tsx`; the window puts it under the page (its top edge drags, as the
@@ -340,14 +339,20 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   handles) sizes the tree: its height above the styles, its width beside them; arrows step 16
   px, Home and End go to the limits, a double click gives it its share again; kept
   (`canvas.tree.h`, `canvas.tree.w`). The tree scrolls up and down only: a long row ends in "…".
-- **The bar is the inspector's footer.** While the window draws the inspector the page has no
-  bar over it: the footer has how many edits ("No edits", "3 edits"), undo, redo, Reset, the
-  note ("Add a note…"; Enter sends, alt+Enter to the background, mod+Enter from the inspector's
-  fields), Send and, in the note's place while it is empty, what happened to the note sent last
-  ("Sent · preview stays until note 4 is done", a refusal for a moment). The words are the
-  overlay's, sent with every key (CanvasView `batch`, the acts "note" and "reset"), so a refused
-  note brings them back. Its "?" opens the keys list (the overlay's `canvas/help.js`) inside the
-  inspector's box. Folded under a desktop's page, the inspector keeps its footer.
+- **The bar is the inspector's footer.** The page has no bar over it in Edit: the footer has how
+  many edits ("No edits", "3 edits"), undo, redo, Reset, the note ("Add a note…"; Enter sends,
+  alt+Enter to the background, mod+Enter from the inspector's fields), Send and, in the note's
+  place while it is empty, what happened to the note sent last ("Sent · preview stays until note
+  4 is done", a refusal for a moment). The words are the overlay's, sent with every key
+  (CanvasView `batch`, the acts "note" and "reset"), so a refused note brings them back. The count
+  is a button: it opens the list of the unsent edits inside the inspector's box, each as what it
+  is on and what it does ("Card · Pro For small teams — padding 16 → 24"); a row selects its
+  element and brings it into view (the stylesheet's shows Global, the caret in its box), its ×
+  takes that one edit out as an undo step (the acts "edits", "select" with `show`, "unedit"; the
+  overlay makes the rows only while the list is open, since each is measured with the batch off
+  and on). A press anywhere outside it, on the page too, or Escape shuts it, and so does the last
+  edit going. Its "?" opens the keys list (the overlay's `canvas/help.js`) inside the inspector's
+  box. Folded under a desktop's page, the inspector keeps its footer.
 - **Send in a dock of the window's** (motion's Send, the inspector's Send and mod+Enter) has no key or
   click in the page to come with, which the page view asks of every note: on a "send" act the
   controller tells the page view to let the next note through, once (`admitNote`).
@@ -357,7 +362,7 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   and back.
 - Shots: `phone`, `phone-se`, `phone-wide`, `phone-clear`, `dock`, `phone-dock`,
   `phone-dock-keys`, `phone-least-dock`, `phone-motion-dock`, `dock-more`, `dock-narrow`,
-  `canvas-dock`, `canvas-dock-narrow` (the mock takes `&device=phone`,
+  `canvas-dock`, `canvas-dock-edits` (the footer's list of edits open), `canvas-dock-narrow` (the mock takes `&device=phone`,
   `&docks=motion,canvas`, `&mode=preview|edit|motion`, `&facts=clear`; it feeds motion's dock a
   sample view, the inspector the one in `mock-canvas.ts`, and the facts pane one of a pricing page).
 

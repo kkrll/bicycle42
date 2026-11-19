@@ -53,7 +53,7 @@ async function strokes({ page }) {
 }
 const canvasOn = async (page) => {
   await page.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" })); // the switch is the host's
-  await page.waitForFunction(() => !document.querySelector("b42-review").shadowRoot.querySelector(".insp").hidden);
+  await page.waitForFunction(() => window.__canvasViews > 0); // the host's inspector has its first view
 };
 /** Press on a card, move it 48 px and back, let go where it started: nothing is reordered, and
  *  the card is selected by the drag (from inside a frame), not by a click. */
@@ -128,7 +128,7 @@ const fourStrokes = (r) => {
   const points = [...r.querySelectorAll(".strokes path")].map((p) => p.getAttribute("d").split("L").length);
   return points.length === 4 && points.every((n) => n > 290) && !r.querySelector(".card").hidden;
 };
-const inspecting = (r) => !r.querySelector(".insp").hidden && window.__b42.busy();
+const inspecting = () => window.__canvasViews > 0 && window.__b42.busy();
 
 // page and enabled and pins: what the page opens with. setup: gestures before the settling pause.
 // ready: must be true in the overlay's shadow root before measuring (the setup did what it says).

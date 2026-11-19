@@ -18,12 +18,11 @@ export type Viewport = { w: number; h: number; dpr: number; scrollX: number; scr
 
 export type Mode = "notes" | "canvas" | "motion"
 
-/** A mode with a dock: canvas mode's inspector, motion mode's dock. The overlay draws the
- *  inspector at the bottom of the page, unless the host says it draws it itself ("docks"); motion
- *  mode's dock it never draws, so a host that does not say it draws that one has none. For a dock
- *  the host draws, the overlay shows none and makes no room for one, tells the host what the dock
- *  would show ("panel", a view), and does what the host's dock asks of it ("panel", an act). What a view and an act
- *  carry is each dock's own: protocol-motion.ts, protocol-canvas.ts. */
+/** A mode with a dock: canvas mode's inspector, motion mode's dock. The overlay draws neither: the
+ *  host says which it draws itself ("docks"), and a host that does not say so for a dock has none.
+ *  For a dock the host draws, the overlay tells the host what the dock shows ("panel", a view) and
+ *  does what the host's dock asks of it ("panel", an act). What a view and an act carry is each
+ *  dock's own: protocol-motion.ts, protocol-canvas.ts. */
 export type Dock = Exclude<Mode, "notes">
 
 /** A pane the host draws: a mode's dock, or "facts" ("This page on this phone", protocol-facts.ts),

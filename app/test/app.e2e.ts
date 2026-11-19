@@ -464,7 +464,7 @@ async function main() {
   const shownValue = (await ui(`document.querySelector('.cd-sug .cd-sg.on .cd-sgn').textContent`)) as string
   check("arrowing through the values shows each on the page", (await until(() => js(`getComputedStyle(document.querySelector(${JSON.stringify(CARD)})).marginLeft !== ${JSON.stringify(`${marginBefore}px`)} || ${JSON.stringify(shownValue)} === "0"`))) === true, shownValue)
   await winKey("Escape", 27)
-  check("…and Escape puts back what was typed, on the page too", (await until(async () => (await cardPx("marginLeft")) === marginBefore && (await ui(`!document.querySelector('.cd-sug') && document.querySelector('.cd-css').value.endsWith("\\nmargin: ")`)) === true)) === true)
+  check("…and Escape puts back what was typed, on the page too", (await until(async () => (await cardPx("marginLeft")) === marginBefore && (await ui(`!document.querySelector('.cd-sug') && document.querySelector('.cd-css').value.endsWith("\\nmargin: ")`)) === true)) === true, `${shownValue}: ${await cardPx("marginLeft")} (was ${marginBefore}) ${JSON.stringify(await ui(`document.querySelector('.cd-css').value`))} ${await ui(`!!document.querySelector('.cd-sug')`)}`)
   // Back to what was sent: the typed line out, then undo the ↑ and the scrub.
   await ui(`(() => { const f = document.querySelector('.cd-css'); f.select() })()`)
   await windowDbg.sendCommand("Input.insertText", { text: `width: ${width0 + 24}px;\npadding: 42px;` })
@@ -478,6 +478,417 @@ async function main() {
     await sleep(150)
   }
   check("…a step at a time, back to the page as it was sent", (await until(async () => Math.abs((await cardPx("width")) - width0) < 0.6 && (await cardPx("paddingLeft")) === 32 && (await ui(`document.querySelector('.cd-css').value`)) === "")) === true, `${await cardPx("width")} ${await cardPx("paddingLeft")}`)
+
+  // ── the window's inspector, as the page's own was tested ───────────────────────────────────
+  // What overlay/test/canvas.test.mjs and suggest-ui.test.mjs checked of the page's own inspector
+  // and bar, before they went: the same, in the window's. (The page side of each act is the
+  // overlay's tests', canvas-hosted.test.mjs.)
+  const MODK = process.platform === "darwin" ? 4 : 2
+  const fieldOf = (id: string) => `document.querySelector(${JSON.stringify(id)})`
+  /** A field's text, what is selected in it and where, and whether it has the focus. */
+  const fieldAt = (id: string) => ui(`(() => { const f = ${fieldOf(id)}; return { value: f.value, sel: f.value.slice(f.selectionStart, f.selectionEnd), at: f.selectionStart, focus: document.activeElement === f } })()`) as Promise<{ value: string; sel: string; at: number; focus: boolean }>
+  const valueOf = async (id: string) => (await fieldAt(id)).value
+  /** Text put in a field whole, as a paste puts it (no suggestions open for it). */
+  const paste = (id: string, text: string) => ui(`(() => { const f = ${fieldOf(id)}; f.focus(); f.value = ${JSON.stringify(text)}; f.setSelectionRange(f.value.length, f.value.length); f.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertFromPaste" })) })()`)
+  const pick = (id: string, a: number, b = a) => ui(`${fieldOf(id)}.setSelectionRange(${a}, ${b})`)
+  const typeW = async (text: string) => {
+    await windowDbg.sendCommand("Input.insertText", { text })
+    await sleep(30)
+  }
+  /** A key; Enter and Tab with their character, so a field takes it when nothing else does. */
+  const keyW = async (key: string, modifiers = 0) => {
+    const codes: Record<string, number> = { Enter: 13, Tab: 9, Escape: 27, ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39, Backspace: 8, Home: 36, End: 35, " ": 32, a: 65, z: 90 }
+    const text = modifiers & ~8 ? undefined : key === "Enter" ? "\r" : key === "Tab" ? "\t" : undefined
+    const code = key === " " ? "Space" : key.length === 1 ? `Key${key.toUpperCase()}` : key
+    await windowDbg.sendCommand("Input.dispatchKeyEvent", { type: text ? "keyDown" : "rawKeyDown", key, code, windowsVirtualKeyCode: codes[key], modifiers, ...(text ? { text, unmodifiedText: text } : {}) })
+    await windowDbg.sendCommand("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: codes[key], modifiers })
+    await sleep(30)
+  }
+  /** The suggestion list: null when shut; its items (an item's own words), the highlighted one,
+   *  a variable's value beside it, the swatches, and where it is. */
+  const sugW = () =>
+    ui(`(() => { const l = document.querySelector('.cd-sug'); if (!l) return null; const rows = [...l.querySelectorAll('.cd-sg')]; const b = l.getBoundingClientRect(), d = document.querySelector('.dock .cd').getBoundingClientRect(); return { items: rows.map((g) => g.querySelector('.cd-sgn').textContent), on: l.querySelector('.cd-sg.on .cd-sgn')?.textContent ?? null, vals: rows.map((g) => g.querySelector('.cd-sgv')?.textContent ?? null), swatches: rows.map((g) => g.querySelector('.cd-swatch')?.style.background || null), scrolls: l.scrollHeight > l.clientHeight, inside: b.top >= d.top && b.bottom <= d.bottom && b.left >= d.left && b.right <= d.right } })()`) as Promise<{ items: string[]; on: string | null; vals: (string | null)[]; swatches: (string | null)[]; scrolls: boolean; inside: boolean } | null>
+  const pageStyle = (sel: string, prop: string) => js(`getComputedStyle(document.querySelector(${JSON.stringify(sel)})).getPropertyValue(${JSON.stringify(prop)})`) as Promise<string>
+  const settleW = (ms = 160) => sleep(ms)
+  /** The tree's row of the element with this id. */
+  const treeRow = (id: string) => `[...document.querySelectorAll('.cd-trow')].find((r) => r.querySelector('.cd-ti')?.textContent === ${JSON.stringify(id)})`
+  const footer = () => ui(`(() => { const q = (s) => document.querySelector(s); return { count: q('.cd-count').textContent, undo: q('.cd-undo').disabled, redo: q('.cd-redo').disabled, reset: q('.cd-reset').disabled, send: q('.cd-send').disabled, sendTitle: q('.cd-send').title, sendX: Math.round(q('.cd-send').getBoundingClientRect().left), msg: q('.cd-msg')?.textContent ?? "" } })()`) as Promise<{ count: string; undo: boolean; redo: boolean; reset: boolean; send: boolean; sendTitle: string; sendX: number; msg: string }>
+  const selectPlans = async () => {
+    await ui(`${treeRow("#plans")}.click()`)
+    await until(async () => (await header()) === "section#plans.row")
+    await sleep(250)
+  }
+
+  // The tree: a twisty opens and shuts a row; the keyboard walks it; a row under the pointer outlines its element.
+  await ui(`${treeRow("#grid")}.querySelector('.cd-tw').click()`)
+  const gridOpen = () => ui(`${treeRow("#grid")}?.getAttribute("aria-expanded")`)
+  check("the tree: a twisty opens a row", (await until(async () => (await gridOpen()) === "true")) === true)
+  await ui(`${treeRow("#grid")}.querySelector('.cd-tw').click()`)
+  check("…and shuts it", (await until(async () => (await gridOpen()) === "false")) === true)
+  await ui(`${treeRow("#grid")}.click()`)
+  await until(async () => (await header()) === "section#grid.grid")
+  await ui(`document.querySelector('.cd-tree').focus()`)
+  await keyW("ArrowRight")
+  await until(async () => (await gridOpen()) === "true")
+  await keyW("ArrowDown")
+  check("the tree's keys: → opens a row, ↓ goes to the next", (await until(async () => (await header()) === "div.tile")) === true, await header())
+  await keyW("ArrowLeft")
+  await keyW("ArrowLeft")
+  check("…← goes out to the parent, and again shuts it", (await until(async () => (await header()) === "section#grid.grid" && (await gridOpen()) === "false")) === true, await header())
+  const headerRow = (await ui(`(() => { const r = [...document.querySelectorAll('.cd-trow')].find((x) => x.querySelector('.cd-tt').textContent === "header").getBoundingClientRect(); return { x: Math.round(r.x + 60), y: Math.round(r.y + r.height / 2) } })()`)) as { x: number; y: number }
+  await winMouse("mouseMoved", headerRow.x, headerRow.y, { button: "none" })
+  await winMouse("mouseMoved", headerRow.x + 2, headerRow.y, { button: "none" })
+  const hoverOff = () => js(`(() => { const b = ${shadow}.querySelector('.box.hover')?.getBoundingClientRect(), h = document.querySelector('header').getBoundingClientRect(); return b ? Math.abs(b.left - h.left) + Math.abs(b.top - h.top) + Math.abs(b.width - h.width) : -1 })()`) as Promise<number>
+  check("a row under the pointer outlines its element on the page", (await until(async () => { const d = await hoverOff(); return d >= 0 && d < 2 })) === true, String(await hoverOff()))
+  await winMouse("mouseMoved", headerRow.x, headerRow.y - 400, { button: "none" })
+
+  // Element | Global: nothing selected is Global only; a chosen Global stays through the next
+  // selection; rules in it show as a dot; Enter on the switch sends nothing.
+  const tabs = () => ui(`(() => { const [el, gl] = document.querySelectorAll('.cd-tab'); return { on: el.getAttribute("aria-selected") === "true" ? "Element" : "Global", elOff: el.disabled, shown: document.querySelector('.cd-el').hidden ? "Global" : "Element", dot: !!gl.querySelector('.cd-dot') } })()`) as Promise<{ on: string; elOff: boolean; shown: string; dot: boolean }>
+  check("Element | Global: a selection shows Element", JSON.stringify(await tabs()) === JSON.stringify({ on: "Element", elOff: false, shown: "Element", dot: false }), JSON.stringify(await tabs()))
+  await ui(`document.querySelectorAll('.cd-tab')[1].click()`)
+  await until(async () => (await tabs()).on === "Global")
+  await paste("#cd-free", ".tile { color: red; }")
+  await ui(`${treeRow("#plans")}.click()`)
+  await until(async () => (await header()) === "section#plans.row")
+  check("…Global, chosen, stays through the next selection, and a dot says it has rules", (await until(async () => JSON.stringify(await tabs()) === JSON.stringify({ on: "Global", elOff: false, shown: "Global", dot: true }))) === true, JSON.stringify(await tabs()))
+  check("…which the page has", (await until(async () => (await pageStyle("#grid .tile", "color")) === "rgb(255, 0, 0)")) === true)
+  const notesBefore = state().review.notes.length
+  await ui(`document.querySelectorAll('.cd-tab')[1].focus()`)
+  await keyW("Enter")
+  await sleep(300)
+  check("…Enter on the switch sends nothing", state().review.notes.length === notesBefore && (await tabs()).on === "Global")
+  // (the edits list's Stylesheet row shows Global and puts the caret in its box)
+  await ui(`document.querySelectorAll('.cd-tab')[0].click()`)
+  await until(async () => (await tabs()).on === "Element")
+  await ui(`document.querySelector('.cd-count').click()`)
+  await until(() => ui(`!!document.querySelector('.cd-edits .cd-erow')`))
+  await ui(`[...document.querySelectorAll('.cd-edits .cd-erow')].find((r) => r.textContent.startsWith("Stylesheet")).querySelector('.cd-ego').click()`)
+  check("…the edits list's Stylesheet row shows Global, the caret in its box", (await until(async () => (await tabs()).on === "Global" && (await ui(`document.activeElement?.id`)) === "cd-free")) === true, `${JSON.stringify(await tabs())} ${await ui(`document.activeElement?.id`)}`)
+  await ui(`document.querySelector('.cd-count').click()`)
+  await paste("#cd-free", "")
+  await ui(`document.querySelector('#cd-free').blur()`) // (the step closes)
+  await ui(`document.querySelectorAll('.cd-tab')[0].click()`)
+  await until(async () => (await tabs()).on === "Element" && !(await tabs()).dot)
+
+  // The layout: wide, the tree, the computed values and the fields side by side, each its own
+  // column; Tab goes from the class line to the styles box.
+  const cols = (await ui(`(() => { const q = (s) => document.querySelector(s).getBoundingClientRect(); const t = q('.cd-tree'), c = q('.cd-comp'), i = q('.cd-in'); return { side: t.right <= c.left + 1 && c.right <= i.left + 1, top: Math.abs(c.top - i.top) <= 1, wide: q('.cd').width >= 900 } })()`)) as { side: boolean; top: boolean; wide: boolean }
+  check("wide, the inspector is three columns side by side: the tree, the computed values, the fields", !cols.wide || (cols.side && cols.top), JSON.stringify(cols))
+  await ui(`document.querySelector('#cd-cls').focus()`)
+  await keyW("Tab")
+  check("…and Tab goes from the class line to the styles box", (await ui(`document.activeElement?.id`)) === "cd-css")
+  await ui(`document.querySelector('.cd-fold').click()`)
+  check("folded to its header, the inspector shows no Element | Global switch", (await until(() => ui(`!document.querySelector('.cd-tabs').checkVisibility()`))) === true)
+  await ui(`document.querySelector('.cd-fold').click()`)
+  await until(() => ui(`document.querySelector('.cd-tabs').checkVisibility()`))
+
+  // Icons are SVG, and what is clicked is at least 24px.
+  const icons = (await ui(`(() => { const sel = ['.cd-fold', '.cd-undo', '.cd-redo', '.cd-help', '.cd-trow .cd-tw']; return sel.map((s) => { const b = document.querySelector(s), r = b.getBoundingClientRect(); return s + ":" + (!!b.querySelector('svg')) + ":" + (s === '.cd-trow .cd-tw' || (r.width >= 24 && r.height >= 24)) }).concat(/[▾▸▴▲▼◂✕✖×●•‹›❮❯]/.test(document.querySelector('.cd').innerText) ? ["a glyph"] : []) })()`)) as string[]
+  check("icons are SVG, and what is clicked is at least 24px", icons.every((x) => x.endsWith(":true:true")), icons.join(" "))
+
+  // The footer: Send is off with nothing to send and says so; with an edit it names its keys;
+  // undo and redo follow; it stays where it is through every state.
+  let foot = await footer()
+  const sendX = foot.sendX
+  check("the footer with nothing edited: no undo, Reset or Send, and Send says why", foot.count === "No edits" && foot.reset && foot.send && foot.sendTitle === "Nothing to send yet", JSON.stringify(foot))
+  await paste("#cd-css", "width: 300px;")
+  await ui(`document.querySelector('#cd-css').blur()`)
+  foot = (await until(async () => ((await footer()).count === "1 edit" ? footer() : null))) ?? (await footer())
+  check("…with an edit: undo, Reset and Send, which names the keys that do the same", !foot.undo && foot.redo && !foot.reset && !foot.send && /in the note, .*in a field\)$/.test(foot.sendTitle) && foot.sendX === sendX, JSON.stringify(foot))
+  await ui(`document.querySelector('.cd-undo').click()`)
+  foot = (await until(async () => ((await footer()).count === "No edits" ? footer() : null))) ?? (await footer())
+  check("…undo takes it back and lights redo", foot.count === "No edits" && !foot.redo && foot.sendX === sendX && (await pageStyle("#plans", "width")) !== "300px", JSON.stringify(foot))
+  await ui(`document.querySelector('.cd-redo').click()`)
+  check("…redo brings it back", (await until(async () => (await footer()).count === "1 edit" && (await pageStyle("#plans", "width")) === "300px")) === true)
+  await ui(`document.querySelector('.cd-reset').click()`)
+  await until(async () => (await footer()).count === "No edits")
+  await ui(`document.querySelector('.cd-tree').focus()`)
+  await keyW("Enter")
+  await sleep(200)
+  foot = await footer()
+  check("…Enter (outside a field) with nothing edited says so, sends nothing, and the footer stays where it is", state().review.notes.length === notesBefore && foot.sendX === sendX && /^Nothing to send yet/.test(foot.msg), JSON.stringify(foot))
+  check("…a refusal is cut with an ellipsis where it is too long, whole in its title; the header has no send hint of its own", (await ui(`(() => { const m = document.querySelector('.cd-msg'); return m.title === m.textContent && getComputedStyle(m).textOverflow === "ellipsis" && !/send/i.test(document.querySelector('.cd-head').textContent) })()`)) === true)
+
+  // The keys list: from the "?", inside the inspector's box; Escape shuts it.
+  await ui(`(() => { const b = document.querySelector('.cd-help'); b.focus(); b.click() })()`)
+  const keysList = (await ui(`(() => { const k = document.querySelector('.cd-keys'); if (!k) return null; const b = k.getBoundingClientRect(), d = document.querySelector('.dock .cd').getBoundingClientRect(); return { text: k.textContent, inside: b.top >= d.top && b.bottom <= d.bottom && b.left >= d.left && b.right <= d.right } })()`)) as { text: string; inside: boolean } | null
+  check("the \"?\" lists the keys and gestures, inside the inspector's box", !!keysList && keysList.inside && /double-click text/.test(keysList.text) && /Delete/.test(keysList.text) && /drag the space between items/.test(keysList.text), JSON.stringify(keysList))
+  await keyW("Escape")
+  check("…and Escape shuts it", (await until(() => ui(`!document.querySelector('.cd-keys')`))) === true)
+
+  // Computed values are fields: Enter writes one into Element styles; one the browser rejects is
+  // marked and not written, Escape puts the old one back; the name copies the line; the page's
+  // variable beside a value writes it as that variable.
+  await clickAt(`document.querySelector(${JSON.stringify(CARD)})`)
+  await until(async () => (await header()) === "article.card")
+  await sleep(250)
+  const cvalSel = (prop: string) => `.cd-cval[data-prop="${prop}"]`
+  await paste(cvalSel("width"), "260px")
+  await keyW("Enter")
+  check("a computed value typed and Entered goes into Element styles, and the page has it", (await until(async () => (await valueOf("#cd-css")) === "width: 260px;" && (await pageStyle(CARD, "width")) === "260px")) === true, await valueOf("#cd-css"))
+  check("…Enter in a value sends nothing", state().review.notes.length === notesBefore)
+  await paste(cvalSel("width"), "banana")
+  await keyW("Enter")
+  const badW = () => ui(`(() => { const f = document.querySelector('${cvalSel("width")}'); return { value: f.value, bad: f.classList.contains("bad"), title: f.title } })()`) as Promise<{ value: string; bad: boolean; title: string }>
+  check("…a value the browser rejects is marked and not written", JSON.stringify(await badW()) === JSON.stringify({ value: "banana", bad: true, title: "invalid value for width: not written" }) && (await valueOf("#cd-css")) === "width: 260px;", JSON.stringify(await badW()))
+  await keyW("Escape")
+  check("…Escape puts the old one back", (await until(async () => { const b = await badW(); return b.value === "260px" && !b.bad })) === true, JSON.stringify(await badW()))
+  await ui(`document.querySelector('${cvalSel("width")}').focus()`)
+  await keyW("Tab")
+  check("…Tab goes to the next value", (await ui(`document.activeElement?.dataset?.prop ?? ""`)) === "height")
+  check("…a long value is cut with an ellipsis, whole in its title", (await ui(`(() => { const x = document.querySelector('${cvalSel("font-family")}'); return x.title === x.value && getComputedStyle(x).textOverflow === "ellipsis" })()`)) === true)
+  await keyW("Escape")
+  await ui(`[...document.querySelectorAll('.cd-cp')].find((b) => b.textContent === "display").click()`)
+  check("a computed value's name copies the line into Element styles", (await until(async () => (await valueOf("#cd-css")) === "width: 260px;\ndisplay: block;")) === true, await valueOf("#cd-css"))
+  await paste(cvalSel("margin"), "16px")
+  await keyW("Enter")
+  const marginTok = () => ui(`[...document.querySelectorAll('.cd-crow')].find((r) => r.querySelector('.cd-cp').textContent === "margin")?.querySelector('.cd-ctok')?.textContent ?? ""`) as Promise<string>
+  const tokenRow = await until(async () => (await marginTok()) === "--space-4")
+  await ui(`[...document.querySelectorAll('.cd-crow')].find((r) => r.querySelector('.cd-cp').textContent === "margin")?.querySelector('.cd-ctok')?.click()`)
+  check("…and the page's variable beside a value writes it as that variable", tokenRow === true && (await until(async () => (await valueOf("#cd-css")) === "width: 260px;\ndisplay: block;\nmargin: var(--space-4);")) === true, `${await marginTok()} ${await valueOf("#cd-css")}`)
+  // A scrub: Escape during it puts the value back and leaves no step.
+  const nameAt = async (prop: string) => (await ui(`(() => { const r = [...document.querySelectorAll('.cd-cp')].find((b) => b.textContent === ${JSON.stringify(prop)}).getBoundingClientRect(); return { x: Math.round(r.x + 20), y: Math.round(r.y + r.height / 2) } })()`)) as { x: number; y: number }
+  const wAt = await nameAt("width")
+  await winMouse("mouseMoved", wAt.x, wAt.y, { button: "none" })
+  await winMouse("mousePressed", wAt.x, wAt.y)
+  for (let i = 1; i <= 5; i++) await winMouse("mouseMoved", wAt.x + i * 6, wAt.y, { buttons: 1 })
+  await until(async () => (await pageStyle(CARD, "width")) === "290px")
+  await keyW("Escape")
+  check("Escape during a scrub puts the value back", (await until(async () => (await pageStyle(CARD, "width")) === "260px" && (await valueOf("#cd-css")).startsWith("width: 260px;"))) === true, await pageStyle(CARD, "width"))
+  await winMouse("mouseMoved", wAt.x + 60, wAt.y, { buttons: 1 })
+  await winMouse("mouseReleased", wAt.x + 60, wAt.y)
+  await sleep(200)
+  check("…and the drag is over, with nothing written", (await pageStyle(CARD, "width")) === "260px" && (await valueOf("#cd-css")).startsWith("width: 260px;"))
+  // A value typed in the row and dragged at once: the drag starts from it.
+  await paste(cvalSel("width"), "240px")
+  const wTyped = await nameAt("width")
+  await winMouse("mouseMoved", wTyped.x, wTyped.y, { button: "none" })
+  await winMouse("mousePressed", wTyped.x, wTyped.y)
+  for (let i = 1; i <= 5; i++) await winMouse("mouseMoved", wTyped.x + i * 2, wTyped.y, { buttons: 1 })
+  await winMouse("mouseReleased", wTyped.x + 10, wTyped.y)
+  check("a value typed in a row and dragged at once: the drag starts from what was typed", (await until(async () => (await pageStyle(CARD, "width")) === "250px" && (await valueOf("#cd-css")).startsWith("width: 250px;"))) === true, `${await pageStyle(CARD, "width")} ${await valueOf("#cd-css")}`)
+  // Escape in a field leaves it; outside a field it takes the selection away.
+  await ui(`document.querySelector('#cd-css').focus()`)
+  await keyW("Escape")
+  check("Escape in a field leaves the field, the selection stays", (await ui(`document.activeElement?.id ?? ""`)) !== "cd-css" && (await header()) === "article.card")
+  await ui(`document.querySelector('.cd-reset').click()`)
+  await until(async () => (await footer()).count === "No edits")
+
+  // ── suggestions, in the window: as the page's own list had them ──
+  await selectPlans()
+  await paste("#cd-css", "")
+  await ui(`document.querySelector('#cd-css').focus()`)
+  await typeW("al")
+  let s = await sugW()
+  check(
+    "suggestions: the names as a name is typed, the best first, the rest scrolling, inside the inspector",
+    !!s && s.items.slice(0, 3).join() === "align-items,align-content,align-self" && s.on === "align-items" && s.items.indexOf("vertical-align") > s.items.indexOf("all") && s.scrolls && s.inside,
+    JSON.stringify(s?.items.slice(0, 5)),
+  )
+  await keyW("Tab")
+  s = await sugW()
+  check("…Tab takes the name with its colon and opens its values at once, in Chrome's order", (await valueOf("#cd-css")) === "align-items: " && (await fieldAt("#cd-css")).focus && !!s && s.items.slice(0, 4).join() === "normal,stretch,baseline,center" && s.items.slice(-4).join() === "inherit,initial,unset,revert" && !s.items.includes("auto"), JSON.stringify(s?.items))
+  await typeW("c")
+  s = await sugW()
+  check("…what starts with what is typed, then what contains it", !!s && s.items.slice(0, 2).join() === "center,stretch", JSON.stringify(s?.items))
+  await keyW("Enter")
+  check("…Enter takes the value: no new line, the list shut, the page has it", (await valueOf("#cd-css")) === "align-items: center" && !(await sugW()) && (await until(async () => (await pageStyle("#plans", "align-items")) === "center")) === true, await valueOf("#cd-css"))
+  await typeW(";\nwid")
+  check("…the list follows the typing", (await sugW())?.on === "width")
+  await typeW("q")
+  check("…and shuts when nothing matches", !(await sugW()))
+  await keyW("Backspace")
+  check("…deleting does not open it", !(await sugW()))
+  await keyW(" ", 2)
+  check("…ctrl+space does", (await sugW())?.on === "width")
+  await keyW("Enter")
+  await typeW("12")
+  check("…and a number is not completed", !(await sugW()) && (await valueOf("#cd-css")) === "align-items: center;\nwidth: 12", await valueOf("#cd-css"))
+
+  // The highlighted value shows on the page; Escape puts back what was typed; one undo step at most.
+  await paste("#cd-css", "")
+  await settleW(800)
+  await typeW("align-items: st")
+  await settleW(800) // the typing is a step of its own
+  check("a value's list: what starts with it, then what contains it", (await sugW())?.items.join() === "stretch,start,self-start,flex-start", JSON.stringify((await sugW())?.items))
+  await keyW("ArrowDown")
+  check("…the highlighted value shows on the page, in place of what was typed", (await valueOf("#cd-css")) === "align-items: start" && (await until(async () => (await pageStyle("#plans", "align-items")) === "start")) === true)
+  await settleW(800) // looked at for longer than a typing pause: still no step
+  await keyW("ArrowDown")
+  await keyW("ArrowDown")
+  await keyW("ArrowDown")
+  check("…around the end", (await sugW())?.on === "stretch")
+  await keyW("Escape")
+  check("…Escape puts back what was typed, on the page too, and the field keeps the focus", !(await sugW()) && (await valueOf("#cd-css")) === "align-items: st" && (await fieldAt("#cd-css")).focus && (await until(async () => (await pageStyle("#plans", "align-items")) === "normal")) === true)
+  await settleW(800)
+  await keyW("z", MODK)
+  check("…and the look through the list left no step: undo takes the typing", (await until(async () => (await valueOf("#cd-css")) === "")) === true, await valueOf("#cd-css"))
+  await keyW("z", MODK | 8)
+  await until(async () => (await valueOf("#cd-css")) === "align-items: st")
+
+  // The style boxes: ↑/↓ are the caret's; they step or cycle only a number or keyword that is selected.
+  const boxText = "display: flex;\ngap: 12px;\nalign-items: center;\nmargin: -4px auto"
+  await paste("#cd-css", boxText)
+  await settleW(800)
+  await pick("#cd-css", boxText.indexOf("flex") + 2)
+  await keyW("ArrowDown")
+  let fa = await fieldAt("#cd-css")
+  check("the style box: ↓ with a caret alone moves it a line, and changes nothing", fa.value === boxText && fa.at > boxText.indexOf("gap") && fa.at < boxText.indexOf("align-items"), JSON.stringify(fa))
+  await pick("#cd-css", boxText.indexOf("12px"), boxText.indexOf("12px") + 4)
+  await keyW("ArrowUp")
+  await keyW("ArrowUp")
+  fa = await fieldAt("#cd-css")
+  check("…a selected number steps, still selected, the page following", fa.value === boxText.replace("12px", "14px") && fa.sel === "14px" && (await until(async () => (await pageStyle("#plans", "column-gap")) === "14px")) === true, JSON.stringify(fa))
+  await settleW(800)
+  await keyW("z", MODK)
+  check("…and the two presses were one step", (await until(async () => (await valueOf("#cd-css")) === boxText)) === true, await valueOf("#cd-css"))
+  const kw = boxText.indexOf("center")
+  await pick("#cd-css", kw, kw + 6)
+  await keyW("ArrowDown")
+  fa = await fieldAt("#cd-css")
+  check("…a selected keyword goes to the property's next one", fa.sel === "start" && !(await sugW()) && (await until(async () => (await pageStyle("#plans", "align-items")) === "start")) === true, JSON.stringify(fa))
+  const now1 = fa.value
+  await pick("#cd-css", now1.indexOf("-4px"), now1.length)
+  await keyW("ArrowUp")
+  check("…and more than one token selected is the field's", (await valueOf("#cd-css")) === now1)
+
+  // Enter after a whole keyword is a new line, though longer keywords start with it; shift+↓ is not the list's.
+  await paste("#cd-css", "")
+  await settleW(800)
+  await typeW("display: flex")
+  check("Enter after a whole keyword: the list is open on it", (await sugW())?.on === "flex")
+  await keyW("Enter")
+  await typeW("gap: 4px")
+  check("…and Enter is a new line", (await valueOf("#cd-css")) === "display: flex\ngap: 4px", await valueOf("#cd-css"))
+  await typeW(";\nalign-items: st")
+  const beforeShift = await valueOf("#cd-css")
+  await keyW("ArrowDown", 8)
+  check("…shift+↓ selects: the list shuts and nothing is shown on the page", !(await sugW()) && (await valueOf("#cd-css")) === beforeShift && (await pageStyle("#plans", "align-items")) === "normal")
+
+  // Names are properties this browser takes; colours where a colour goes, with their swatch.
+  await paste("#cd-css", "")
+  await typeW("sr")
+  check("names are properties: src is @font-face's", !(await sugW())?.items.includes("src"))
+  await keyW("Backspace")
+  await keyW("Backspace")
+  await keyW(" ", 2)
+  const allNames = (await sugW())?.items ?? []
+  check(
+    "…every name this browser takes, nothing it would flag as unknown, no descriptors",
+    allNames.length > 450 && ["src", "syntax", "inherits", "unicode-range", "font-display"].every((d) => !allNames.includes(d)) && ["scrollbar-color", "align-items", "font-family"].every((n) => allNames.includes(n)) && (await ui(`${JSON.stringify(allNames)}.filter((n) => !CSS.supports(n, "initial")).length`)) === 0,
+    String(allNames.length),
+  )
+  await keyW("Escape")
+  await paste("#cd-css", "")
+  await typeW("color: re")
+  s = await sugW()
+  check("the named colours, with their swatch", !!s && s.items.slice(0, 3).join() === "rebeccapurple,red,revert" && s.swatches.slice(0, 3).join() === "rebeccapurple,red,", JSON.stringify(s?.items.slice(0, 3)))
+  await keyW("ArrowDown")
+  check("…shown on the page", (await until(async () => (await pageStyle("#plans", "color")) === "rgb(255, 0, 0)")) === true)
+  await keyW("Enter")
+  await typeW(";\nfont-family: re")
+  check("…and none where a colour is no value (a font's name)", !(await sugW())?.items.includes("red"))
+  await keyW("Escape")
+
+  // A computed row: values only, under the field; ↑/↓ cycles; coming back to its own value declares nothing.
+  await paste("#cd-css", "")
+  await ui(`document.querySelector('#cd-css').blur()`)
+  await settleW(800)
+  const ai = cvalSel("align-items")
+  await ui(`(() => { const f = document.querySelector('${ai}'); f.focus(); f.setSelectionRange(f.value.length, f.value.length) })()`)
+  await keyW("ArrowDown")
+  check("a computed row: ↓ on its keyword goes to the next, live", (await until(async () => (await pageStyle("#plans", "align-items")) === "stretch" && (await valueOf("#cd-css")) === "align-items: stretch;")) === true, await valueOf("#cd-css"))
+  await settleW(800)
+  await keyW("z", MODK)
+  check("…one undo step", (await until(async () => (await valueOf("#cd-css")) === "" && (await pageStyle("#plans", "align-items")) === "normal")) === true)
+  await ui(`(() => { const f = document.querySelector('${ai}'); f.focus(); f.select() })()`)
+  await typeW("n")
+  s = await sugW()
+  check("…typing in it lists the values under the field", !!s && s.items.slice(0, 2).join() === "normal,baseline" && s.inside, JSON.stringify(s?.items.slice(0, 4)))
+  await keyW("ArrowDown")
+  await until(async () => (await pageStyle("#plans", "align-items")) === "baseline")
+  await keyW("ArrowUp")
+  check("…coming back to the row's own value declares nothing", (await until(async () => (await valueOf("#cd-css")) === "" && (await pageStyle("#plans", "align-items")) === "normal")) === true, await valueOf("#cd-css"))
+  await keyW("Enter")
+  await sleep(300)
+  check("…and Enter on it declares nothing either", (await valueOf("#cd-css")) === "" && (await footer()).count === "No edits")
+  await keyW("Escape")
+
+  // The stylesheet: nothing offered in a selector; a click on an item takes it and keeps the focus.
+  await ui(`document.querySelectorAll('.cd-tab')[1].click()`)
+  await until(async () => (await tabs()).on === "Global")
+  await ui(`document.querySelector('#cd-free').focus()`)
+  await typeW(".card:ho")
+  check("the stylesheet: nothing offered in a selector", !(await sugW()))
+  await typeW("ver { disp")
+  check("…a name in a rule", (await sugW())?.items.join() === "display")
+  const firstSg = (await ui(`(() => { const r = document.querySelector('.cd-sg').getBoundingClientRect(); return { x: Math.round(r.x + 10), y: Math.round(r.y + r.height / 2) } })()`)) as { x: number; y: number }
+  await winMouse("mousePressed", firstSg.x, firstSg.y)
+  await winMouse("mouseReleased", firstSg.x, firstSg.y)
+  await sleep(50)
+  check("…a click on an item takes it and keeps the focus", (await valueOf("#cd-free")) === ".card:hover { display: " && (await fieldAt("#cd-free")).focus, await valueOf("#cd-free"))
+  await paste("#cd-free", "")
+  await ui(`document.querySelectorAll('.cd-tab')[0].click()`)
+  await until(async () => (await tabs()).on === "Element")
+
+  // The page's variables: where the property takes them, with their values; ↑ ↓ walk a selected one's scale.
+  await paste("#cd-css", "")
+  await ui(`document.querySelector('#cd-css').focus()`)
+  await typeW("gap: ")
+  s = await sugW()
+  const vars = s?.items.filter((i) => i.startsWith("var(")) ?? []
+  check(
+    "the page's variables: those the property takes, each with its value",
+    vars.join() === "var(--space-1),var(--space-2),var(--space-3),var(--space-4),var(--space-6)" && vars.map((v) => s!.vals[s!.items.indexOf(v)]).join() === "4px,.5rem,calc(4px * 3),16px,24px",
+    JSON.stringify(s?.items.slice(0, 8)) + JSON.stringify(s?.vals.slice(0, 8)),
+  )
+  await typeW("--sp")
+  await keyW("ArrowDown")
+  check("…shown on the page as the list goes through them", (await until(async () => (await pageStyle("#plans", "column-gap")) === "8px")) === true)
+  await keyW("Enter")
+  await pick("#cd-css", 5, 19)
+  await keyW("ArrowUp")
+  fa = await fieldAt("#cd-css")
+  check("…↑ on a selected one: the next up its scale, still selected", fa.value === "gap: var(--space-3)" && fa.sel === "var(--space-3)" && (await until(async () => (await pageStyle("#plans", "column-gap")) === "12px")) === true, JSON.stringify(fa))
+  await keyW("Escape")
+  // …and a computed row offers them too: the one taken goes into Element styles.
+  await paste("#cd-css", "")
+  await ui(`document.querySelector('#cd-css').blur()`)
+  await settleW(800)
+  await ui(`(() => { const f = document.querySelector('${cvalSel("gap")}'); f.focus(); f.select() })()`)
+  await typeW("--")
+  check("a computed row offers the variables too", (await sugW())?.items.join() === "var(--space-1),var(--space-2),var(--space-3),var(--space-4),var(--space-6)")
+  await keyW("ArrowDown")
+  await keyW("ArrowDown")
+  await keyW("Enter")
+  check("…the one taken goes into Element styles", (await until(async () => (await valueOf("#cd-css")) === "gap: var(--space-3);" && (await pageStyle("#plans", "column-gap")) === "12px")) === true, await valueOf("#cd-css"))
+  await keyW("Escape")
+  await ui(`document.querySelector('.cd-reset').click()`)
+  await until(async () => (await footer()).count === "No edits")
+
+  // The tree after a far-down element is selected from the page: its row in view, the pane full.
+  await js(`(() => { const d = document.createElement("div"); d.id = "deep"; d.style.cssText = "font-size:0;line-height:0"; for (let i = 0; i < 600; i++) d.appendChild(document.createElement("i")).textContent = "x"; let fa = d; for (let i = 0; i < 6; i++) fa = fa.appendChild(document.createElement("div")); const p = fa.appendChild(document.createElement("p")); p.id = "far-down"; p.textContent = "target"; p.style.cssText = "font-size:14px;line-height:20px;margin:0"; document.body.prepend(d) })()`)
+  await sleep(400)
+  await clickAt(`document.querySelector("#far-down")`)
+  const treeFill = () => ui(`(() => { const t = document.querySelector('.cd-tree').getBoundingClientRect(); const rows = [...document.querySelectorAll('.cd-trow')].map((r) => ({ top: r.getBoundingClientRect().top, h: r.getBoundingClientRect().height, on: r.classList.contains("on"), text: r.textContent })); let blank = 0; for (let y = t.top + 11; y < t.bottom - 11; y += 22) if (!rows.some((r) => r.text && y >= r.top && y < r.top + r.h)) blank++; const on = rows.find((r) => r.on); return { blank, sel: !!on && on.top >= t.top - 1 && on.top + on.h <= t.bottom + 1 } })()`) as Promise<{ blank: number; sel: boolean }>
+  check("the tree: a far-down element selected from the page has its row in view, the pane full of rows", (await until(async () => { const t = await treeFill(); return t.blank === 0 && t.sel })) === true, JSON.stringify(await treeFill()))
+  await ui(`document.querySelector('.cd-fold').click()`)
+  await sleep(150)
+  await ui(`document.querySelector('.cd-fold').click()`)
+  check("…and after the inspector is folded and opened again", (await until(async () => { const t = await treeFill(); return t.blank === 0 && t.sel })) === true, JSON.stringify(await treeFill()))
+  await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
+  await until(async () => !(await inspector()))
+  await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
+  await until(inspector)
+  await clickAt(`document.querySelector("#far-down")`)
+  check("…and after leaving Edit and coming back", (await until(async () => { const t = await treeFill(); return t.blank === 0 && t.sel })) === true, JSON.stringify(await treeFill()))
+  await js(`(() => { for (let i = 0; i < 300; i++) document.querySelector("#deep i").remove() })()`)
+  await sleep(400)
+  check("…and after the page changes above it", (await until(async () => (await treeFill()).blank === 0)) === true, JSON.stringify(await treeFill()))
+  await js(`document.getElementById("deep").remove()`)
+  await clickAt(`document.querySelector(${JSON.stringify(CARD)})`)
+  await until(async () => (await header()) === "article.card")
 
   // ── "/" in the message box: the app's own commands first, then the site's ──────────────────
   const box = `document.querySelector(".composer textarea")`
@@ -677,6 +1088,26 @@ async function main() {
   await ui(`document.querySelector('.cd-css').focus()`)
   await windowDbg.sendCommand("Input.insertText", { text: "gap: 4px;" })
   await until(() => ui(`document.querySelector('.cd-foot .cd-count').textContent === "1 edit" && !document.querySelector('.cd-send').disabled`))
+  // The count opens the list of the unsent edits, inside the inspector's box; a row's × takes
+  // that edit out (an undo step: the footer's undo brings it back).
+  const gapped = () => js(`[...document.querySelectorAll("#plans *")].filter((e) => getComputedStyle(e).columnGap === "4px").length`) as Promise<number>
+  const editRows = () => ui(`[...document.querySelectorAll('.cd-edits .cd-erow')].map((r) => r.querySelector('.cd-ego').textContent)`) as Promise<string[]>
+  await ui(`document.querySelector('.cd-note').focus()`) // (leaving the styles box makes the typing a step)
+  await ui(`document.querySelector('.cd-count').click()`)
+  const listed = await until(async () => (await editRows()).length === 1)
+  check(
+    "the footer's count opens the list of the unsent edits, each in words, inside the inspector's box",
+    listed === true && /^\w+ · .+— gap \S+ → 4$/.test((await editRows())[0] ?? "") && (await ui(`document.querySelector('.cd-count').getAttribute("aria-expanded")`)) === "true" && (await ui(`(() => { const l = document.querySelector('.cd-edits').getBoundingClientRect(), d = document.querySelector('.dock .cd').getBoundingClientRect(); return l.top >= d.top && l.bottom <= d.bottom && l.left >= d.left && l.right <= d.right })()`)) === true,
+    JSON.stringify(await editRows()),
+  )
+  await ui(`document.querySelector('.cd-edits .cd-ex').click()`)
+  check("…its × takes that edit out, on the page too, and the list shuts with nothing in it", (await until(async () => (await ui(`document.querySelector('.cd-count').textContent === "No edits" && !document.querySelector('.cd-edits')`)) === true && (await gapped()) === 0)) === true)
+  await ui(`document.querySelector('.cd-undo').click()`)
+  check("…as an undo step: undo brings it back", (await until(async () => (await ui(`document.querySelector('.cd-count').textContent`)) === "1 edit" && (await gapped()) === 1)) === true)
+  await ui(`document.querySelector('.cd-count').click()`)
+  await until(async () => (await editRows()).length === 1)
+  await clickAt(`document.querySelector(${JSON.stringify(CARD)})`)
+  check("…and a press on the page shuts it", (await until(() => ui(`!document.querySelector('.cd-edits')`))) === true)
   await ui(`document.querySelector('.cd-note').focus()`)
   await windowDbg.sendCommand("Input.insertText", { text: "tighter please" })
   const footNotes = state().review.notes.length

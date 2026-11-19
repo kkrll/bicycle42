@@ -4,7 +4,6 @@ import { elOf, stableSel, STAMP, stampOf } from "./stamps.js";
 import { usable } from "./css.js";
 import { syncCopies } from "./copies.js";
 import { drawBar } from "./bar.js";
-import { T } from "./tree.js";
 import { kick } from "../render.js";
 import { hostEl } from "../mount.js";
 
@@ -320,7 +319,6 @@ export function applyAll() {
   watch(watchClass ? 2 : watchDom ? 1 : 0);
   if (dirty) {
     C.rev++; // the selection's geometry, the computed list and the tree's marks are read again
-    T.need = true;
     restyled(); // (the facts pane's counts: an edit can fix a tap target)
   }
   drawBar();

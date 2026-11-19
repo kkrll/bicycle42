@@ -3,7 +3,7 @@ import { elOf, freshStamp, meta, STAMP, stampSel } from "./stamps.js";
 import { commit } from "./batch.js";
 import { flash } from "./bar.js";
 import { select } from "./select.js";
-import { syncFields } from "./inspector.js";
+import { syncFields } from "./host.js";
 import { hostEl } from "../mount.js";
 
 // ── duplicate: a copy of an element, right after it ─────────────────────────────────────────

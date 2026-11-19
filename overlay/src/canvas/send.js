@@ -8,9 +8,8 @@ import { applyAll } from "./apply.js";
 import { commit, countEdits } from "./batch.js";
 import { select } from "./select.js";
 import { copyAround, dropInside } from "./copies.js";
-import { drawBar, flash, setPop } from "./bar.js";
-import { syncFields } from "./inspector.js";
-import { cnote } from "./mount.js";
+import { drawBar, flash } from "./bar.js";
+import { syncFields } from "./host.js";
 import { hostEl } from "../mount.js";
 
 // ── sending ─────────────────────────────────────────────────────────────────────────────────
@@ -118,7 +117,7 @@ export function submitCanvas(background) {
   const bounds = union(seen);
   const note = {
     id: `n_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-    text: cnote.value.trim(),
+    text: C.note.trim(),
     url: location.href,
     title: document.title,
     viewport: vp(),
@@ -138,19 +137,18 @@ export function submitCanvas(background) {
     ...(css ? { css } : {}),
   };
   // The batch stays applied under the note's id; a new empty draft takes its place.
-  C.unsent = { id: note.id, snap: C.snap, past: C.past, future: C.future, note: cnote.value, sel: C.sel };
+  C.unsent = { id: note.id, snap: C.snap, past: C.past, future: C.future, note: C.note, sel: C.sel };
   C.draft.id = note.id;
   C.sent.push(C.draft);
   C.draft = { id: "draft", B: newBatch() };
   C.snap = EMPTY;
   C.past = [];
   C.future = [];
-  cnote.value = "";
-  S.quiet = note.id; // no "Sent" chip over the page: the bar says it
-  if (C.pop) setPop(C.pop);
+  C.note = "";
+  S.quiet = note.id; // no "Sent" chip over the page: the host's footer says it
   select(null);
   // Outlines for the screenshot: the edited elements, wherever they are in each picture.
-  S.sel = [...els.filter((el, i) => after.rects[i].w > 0 || before.rects[i].w > 0), ...copies.filter((n) => n.isConnected)];
+  S.sel = [...els.filter((_, i) => after.rects[i].w > 0 || before.rects[i].w > 0), ...copies.filter((n) => n.isConnected)];
   syncFields(true);
   drawBar();
   dispatch(note);
@@ -185,7 +183,7 @@ export function unsendCanvas(id, say) {
   C.snap = u.snap;
   C.past = u.past;
   C.future = u.future;
-  cnote.value = [u.note, cnote.value].filter((w) => w.trim()).join(" ");
+  C.note = [u.note, C.note].filter((w) => w.trim()).join(" ");
   S.sel = []; // the outlines that were for the screenshot
   commit(); // what was added since, if anything, is one more undo step
   select(u.sel && u.sel.isConnected ? u.sel : null);

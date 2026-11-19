@@ -1,12 +1,11 @@
 import { send } from "./state.js";
 
 // ── the panes the host draws ────────────────────────────────────────────────────────────────
-// Canvas mode's inspector is drawn at the bottom of the page, by the layer, unless the host says
-// it draws it itself (Dock in ../protocol.ts). Motion mode's dock is only ever the host's: the
-// layer has none of its own, so a host that does not say it draws it has none. For a hosted dock
-// the layer shows none and makes no room for one; the mode tells the host what its dock would
-// show (sendView) and does what the host's dock asks (onAct). Which docks are hosted is here and
-// nowhere else: a mode asks (hosted) wherever it would show its dock or measure it.
+// Canvas mode's inspector and motion mode's dock are only ever the host's: the layer draws neither
+// and makes no room on the page for one. The host says which it draws (Dock in ../protocol.ts);
+// for those the mode tells the host what its dock shows (sendView) and does what the host's dock
+// asks (onAct). A host that does not say it draws a dock has none. Which docks are hosted is here
+// and nowhere else: a mode asks (hosted) wherever it would send a view.
 // "facts" (facts/host.js) is a pane of the host's that is no mode's dock: the layer never draws
 // it, and only the host's asking makes it work.
 const PANES = ["canvas", "motion", "facts"];

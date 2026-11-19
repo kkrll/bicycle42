@@ -5,15 +5,15 @@ import * as Motion from "./motion/api.js";
 
 // ── mode ────────────────────────────────────────────────────────────────────────────────────
 // Notes, canvas or motion: one at a time, and the brush only in notes mode. Switching from one
-// to another is none of the modes' own business: it is here. (The bar tells the host the mode:
-// Canvas.drawBar() calls tellMode.)
+// to another is none of the modes' own business: it is here. (Canvas.drawBar() tells the host the
+// mode: it calls tellMode.)
 let modeTold; // "mode|brush" as the host last heard it; undefined until its first "state"
 
 /** The three modes, each with the same few handlers for the page's pointer and keys (input.js):
  *  pointerDown(e, zone), pointerMove(e), pointerUp(e), key(e); canvas mode also has zoneOf(e).
  *  Canvas and motion mode are switched with setOn; notes mode is what is on when neither is.
- *  A frame and busy() are not routed: canvas mode's bar and unsent batch outlive canvas mode
- *  (notes mode shows them too), so each module draws itself, and says it is busy, whatever is on.
+ *  A frame and busy() are not routed: canvas mode's unsent batch outlives canvas mode (notes
+ *  mode shows a chip for it), so each module draws itself, and says it is busy, whatever is on.
  *  (Notes mode's frame is its ink, its card and the hover; whether it is busy is read in mount.js.) */
 const MODES = { notes: Notes, canvas: Canvas, motion: Motion };
 

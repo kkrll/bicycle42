@@ -1,10 +1,10 @@
-// Canvas mode's inspector when the host draws it (see Dock in protocol.ts): what the inspector
+// Canvas mode's inspector, which the host draws (see Dock in protocol.ts): what the inspector
 // shows, and what the reviewer can do in it. Types only.
 //
 // The overlay keeps everything that is the page's: the selection and its outlines, the handles
 // and the drags, the batch, its undo and its previews, the note's words, sending the note. The
-// bar it draws over the page when the inspector is its own is the host's inspector's footer
-// instead (`batch`, and the acts "note", "reset", "undo", "redo", "send"): no bar on the page.
+// batch's bar is the inspector's footer (`batch`, and the acts "note", "reset", "undo", "redo",
+// "send", "edits", "unedit"): there is none on the page.
 // The host's inspector is a drawing of `CanvasView` and a source of `CanvasAct`s; it keeps
 // nothing the overlay does not also have, so a reload of either side loses nothing.
 //
@@ -101,7 +101,7 @@ export type CanvasView = {
    *  root's while Global is shown. */
   tokens: CanvasToken[]
   tree: CanvasTree
-  /** What the bar over the page says when the inspector is the overlay's, for the footer. */
+  /** What the footer says: the batch's edits, undo and redo, the note, a refusal, the state. */
   batch: CanvasBatch
 }
 
@@ -120,7 +120,16 @@ export type CanvasBatch = {
    *  (text edited in place on the page), the note sent last until the agent is done with it, a
    *  note done or failed and its preview gone. "" for nothing. */
   status: string
+  /** The unsent edits, one row each, while the host's list of them is open ("edits"); absent
+   *  while it is shut. It shuts by itself when the last edit goes, and on a press on the page. */
+  list?: CanvasEdit[]
 }
+
+/** One unsent edit, in words: what it is on ("Card · Pro For small teams", "Stylesheet") and
+ *  what it does ("padding 16 → 24", "hidden", "2 rules"). `key` names it for "unedit"; `id` is
+ *  its element's while that is on the page (a click on the row selects it), absent for the
+ *  stylesheet. */
+export type CanvasEdit = { key: string; label: string; text: string; id?: number }
 
 /** One thing done in the inspector. `id` is a row's or the selection's (CanvasRow.id). */
 export type CanvasAct =
@@ -129,7 +138,8 @@ export type CanvasAct =
   | { type: "tree"; first: number; count: number }
   /** A row's children shown or not; without `open`, the other way. */
   | { type: "open"; id: number; open?: boolean }
-  | { type: "select"; id: number }
+  /** `show`: and scrolled into view on the page (a row of the edits list). */
+  | { type: "select"; id: number; show?: boolean }
   /** The pointer on a row (0: off the rows): its element is outlined on the page. */
   | { type: "hover"; id: number }
   /** An arrow on the tree: up and down the rows, right opens or goes in, left closes or goes out. */
@@ -151,11 +161,15 @@ export type CanvasAct =
   | { type: "redo" }
   /** Send the batch (mod+Enter, the footer's Send); `bg` to the background lane (alt). */
   | { type: "send"; bg?: boolean }
-  /** Every unsent edit removed, as one undo step (the bar's Reset). */
+  /** Every unsent edit removed, as one undo step (the footer's Reset). */
   | { type: "reset" }
   /** The note's words as typed in the footer, whole. */
   | { type: "note"; text: string }
-  /** Esc outside a field: the bar's open list closes, else the selection goes, else Annotate. */
+  /** The list of the unsent edits shown in the footer, or not (CanvasBatch.list). */
+  | { type: "edits"; open: boolean }
+  /** One unsent edit taken out of the batch (CanvasEdit.key), as an undo step. */
+  | { type: "unedit"; key: string }
+  /** Esc outside a field: the edits list closes, else the selection goes, else Annotate. */
   | { type: "escape" }
   /** Delete and mod+D on the tree: the selection hidden (a copy taken out), or duplicated. */
   | { type: "hide" }

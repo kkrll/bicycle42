@@ -7,34 +7,33 @@ import { commit, countEdits, redo, reset, undo } from "./batch.js";
 import { submitCanvas } from "./send.js";
 import { hideSel, select } from "./select.js";
 import { draftCopy, dropCopy, duplicateSel } from "./copies.js";
-import { drawBar, flash, sentStatus, setPop } from "./bar.js";
-import { cnote } from "./mount.js";
+import { editRows, removeEdit } from "./edits.js";
+import { elOf } from "./stamps.js";
+import { drawBar, flash, hush, sentStatus } from "./bar.js";
 import { draftChanged } from "../draft.js";
 import { buildRows, rowParts, T, toggleRow, treeKey } from "./tree.js";
-import { drawTabs, follow, FULL, pretty, syncFields } from "./inspector.js";
 import { sizeOf, tokenMatch, tokensOf } from "./tokens.js";
 import { setMode } from "../mode.js";
 import { send } from "../state.js";
 import { hosted, onAct } from "../panel.js";
-import { active } from "../render.js";
+import { active, kick } from "../render.js";
 import { domVersion, root } from "../mount.js";
 
 // ── the inspector the host draws ────────────────────────────────────────────────────────────
-// When the host draws canvas's inspector itself (panel.js), the layer's own is hidden and this
-// file stands in for it: in every frame the layer's inspector would be drawn, the view is made
-// (CanvasView in ../../protocol-canvas.ts) and sent when it is not what was sent last; and what
-// the host's inspector asks (CanvasAct) is done here by the functions the layer's own fields,
-// rows and keys call. Nothing of the page's is kept anywhere else: the host draws what it is told.
-// The bar over the page is the inspector's too then: the layer shows none (frame.js), and the
-// view's `batch` is what it would say, the acts what its buttons and its note field do. The
-// note's words stay the layer's (cnote): they go with the batch, and come back with a refused one.
+// Canvas mode's inspector is the host's (panel.js): the page has none of its own. In every
+// canvas frame the view is made (CanvasView in ../../protocol-canvas.ts) and sent when it is not
+// what was sent last; and what the host's inspector asks (CanvasAct) is done here. Nothing of the
+// page's is kept anywhere else: the host draws what it is told. Its footer is the batch's bar:
+// the view's `batch` is what it says, the acts what its buttons and its note field do. The note's
+// words are the batch's (C.note): they go with it, and come back with a refused one.
+// A host that does not say it draws the inspector gets no view: canvas mode then works the page
+// (selecting, the drags, text in place, the keys) with no inspector at all.
 //
-// What the view costs to make is what the layer's inspector costs to draw: the tree is walked
-// again when the DOM changed (a few times a second at most), the computed values are read when
-// the selection, the batch or its element changed (and once a second), and only the rows the
-// host shows are read, a screenful around them.
+// What the view costs to make: the tree is walked again when the DOM changed (a few times a
+// second at most), the computed values are read when the selection, the batch or its element
+// changed (and once a second), and only the rows the host shows are read, a screenful around them.
 
-/** How long a step that waits for "commit" may wait: until it comes (as suggest.js holds one). */
+/** How long a step that waits for "commit" may wait: until it comes. */
 const HELD = 3600e3;
 
 const H = {
@@ -46,6 +45,7 @@ const H = {
   toks: [], read: [], toksAt: 0, // the variables: as sent, as tokens.js read them off the selection
   sizes: new Map(), // a variable's value → its size (tokens.js keeps 500; a design system has more)
   texts: new Map(), // a box's text → { marks, error }
+  listKey: "", list: [], // the list of the unsent edits, and the batch it was made for
 };
 
 function idOf(el) {
@@ -66,12 +66,52 @@ const elOfId = (id) => {
 const selId = () => (C.sel && C.sel.isConnected ? idOf(C.sel) : 0);
 
 // ── the view ────────────────────────────────────────────────────────────────────────────────
-/** A canvas frame, with the host's inspector: the view, sent if it changed. False when the host
- *  draws no inspector: the layer draws its own. */
+/** The batch's text changed by something other than the host's typing (undo, a drag, a value
+ *  set, a new selection): the host's fields take the view's text then (`force`). */
+export function syncFields(force) {
+  if (force) C.forced++;
+  drawBar();
+}
+
+/** The batch's text changed under the reviewer's hands: the page follows within a frame, and the
+ *  undo step closes when they pause (unless `held`: a drag closes its own when it ends). */
+export function follow(held) {
+  hush();
+  clearTimeout(C.typeTimer);
+  C.typeTimer = held ? 0 : setTimeout(commit, 700);
+  // The key press itself only stores the text. Applying happens in the next frame; on a page
+  // where applying is slow (measured: the restyle it causes is forced and timed), it waits for a
+  // short pause in the typing instead of running on every frame.
+  if (!C.typeRaf)
+    C.typeRaf = requestAnimationFrame(() => {
+      C.typeRaf = 0;
+      clearTimeout(C.slowTimer);
+      if (C.slow) C.slowTimer = setTimeout(applyTimed, 100);
+      else applyTimed();
+    });
+  kick();
+}
+
+function applyTimed() {
+  const t0 = performance.now();
+  applyAll();
+  void getComputedStyle(document.documentElement).opacity; // the restyle happens now, not later, so it can be timed
+  C.slow = performance.now() - t0 > 8;
+}
+
+/** Computed values as a designer reads them: colours as hex, lengths to a tenth of a pixel. */
+const pretty = (v) =>
+  v.replace(/rgba?\((\d+), (\d+), (\d+)(?:, ([\d.]+))?\)/g, (_, r, g, b, a) =>
+    `#${[r, g, b].map((x) => Number(x).toString(16).padStart(2, "0")).join("")}${a === undefined ? "" : Math.round(Number(a) * 255).toString(16).padStart(2, "0")}`)
+    .replace(/(-?\d+\.\d\d+)px/g, (_, x) => `${Math.round(Number(x) * 10) / 10}px`);
+
+const FULL = "This element's styles are full: shorten them first";
+
+/** A canvas frame: the view, sent if it changed. Nothing when the host draws no inspector. */
 export function hostView() {
   if (!hosted("canvas")) {
     H.sent = "";
-    return false;
+    return;
   }
   const el = C.sel && C.sel.isConnected ? C.sel : null;
   const global = !el || !!C.pin;
@@ -82,8 +122,8 @@ export function hostView() {
     force: C.forced,
     sel: el ? { id: idOf(el), label: line(kindName(el)), tag: treeName(el), hidden: !!C.marks.get(el)?.includes("hid") } : null,
     global,
-    // (The attribute as it is now, as the layer's class line has it; typing too long to apply
-    // never reaches the attribute, so then the typed text is what there is to show.)
+    // (The attribute as it is now; typing too long to apply never reaches the attribute, so then
+    // the typed text is what there is to show.)
     classes: { text: tooLong ? en.cls.to : el ? el.getAttribute("class") ?? "" : "", long: tooLong },
     css: textOf(en ? en.css : "", false),
     sheet: textOf(C.draft.B.sheet, true),
@@ -99,24 +139,41 @@ export function hostView() {
     H.sent = json;
     send(/** @type {any} */ ({ type: "panel", panel: "canvas", view }));
   }
-  return true;
 }
 
-/** What the bar would say (drawBar): the edits, undo and redo, the note, a refusal, the state. */
+/** What the footer says: the edits, undo and redo, the note, a refusal, the state; and while
+ *  the host's list of them is open, the edits themselves. */
 function batchView() {
   const B = C.draft.B;
   const n = countEdits(B) + (B.sheet.trim() ? 1 : 0);
-  return {
+  if (!n) C.list = false; // (nothing left to list: it closes, as it opens only with something in it)
+  const out = {
     edits: n,
     undo: C.past.length > 0,
     redo: C.future.length > 0,
-    note: cnote ? cnote.value : "",
+    note: C.note,
     msg: C.msg,
     status: C.edit ? "Editing text" : C.done || (n ? "" : sentStatus()),
   };
+  if (C.list) out.list = list();
+  return out;
 }
 
-/** A box's text with what the browser would not take, as inspector.js's mark() says it. */
+/** The unsent edits in words. Each is measured with the batch off and on, so they are made again
+ *  only when the batch changed, and only while the host shows them. */
+function list() {
+  const key = `${JSON.stringify(C.draft.B)}|${C.rev}`;
+  if (key !== H.listKey) {
+    H.listKey = key;
+    H.list = editRows(true).map((r) => {
+      const el = r.rs && elOf(r.rs);
+      return { key: r.key, label: r.label, text: r.text, ...(el && el.isConnected ? { id: idOf(el) } : {}) };
+    });
+  }
+  return H.list;
+}
+
+/** A box's text with what the browser would not take: the ranges to underline, and the line under the box. */
 function textOf(text, sheet) {
   let t = H.texts.get(text);
   if (!t) {
@@ -130,10 +187,14 @@ function textOf(text, sheet) {
   return { text, ...t };
 }
 
-/** The computed values and the page's variables. The page's own changes are read as drawComputed
- *  reads them (a few times a second at most, and once a second whatever happened); a change of the
- *  batch, the selection or its attributes at once: the host shows what was just written, and the
- *  value it shows until the view has it would otherwise stand for a moment as the old one. The
+/** The computed values and the page's variables. The page changes an element's look without
+ *  changing the tree (a class or an inline style set by its script: the agent's edit, hot-reloaded,
+ *  is often just that), so the selection's own two attributes are part of the key; the page's own
+ *  changes are read a few times a second at most, and once a second whatever happened (a
+ *  stylesheet swapped, a class on a parent); a change of the batch, the selection or its attributes
+ *  at once: the host shows what was just written, and the value it shows until the view has it
+ *  would otherwise stand for a moment as the old one. (A drag's own property in the style
+ *  attribute is not the page's change: the attribute as it was before the drag counts.) The
  *  variables are read again only when the page or the selection changed (or once a second). */
 function computed(el, global) {
   const now = performance.now();
@@ -218,19 +279,17 @@ function tree(el) {
 }
 
 // ── what the host's inspector asks ──────────────────────────────────────────────────────────
-/** The step waits for "commit" (a suggestion shown, a scrub), as suggest.js holds it. */
+/** The step waits for "commit" (a suggestion shown on the page, a scrub). */
 function hold() {
   clearTimeout(C.typeTimer);
   C.typeTimer = setTimeout(commit, HELD);
 }
 
-/** Typing in one of the host's fields: what the layer's typed() does with its own. */
+/** Typing in one of the host's fields: the field's whole text. */
 function typed(a) {
   const v = clean(String(a.text ?? "")).slice(0, 100000);
-  if (a.field === "sheet") {
-    C.draft.B.sheet = v;
-    drawTabs();
-  } else {
+  if (a.field === "sheet") C.draft.B.sheet = v;
+  else {
     if (!C.sel || Number(a.id) !== selId()) return; // typed for a selection that is gone
     const e = entry(C.sel);
     if (a.field === "css") e.css = v;
@@ -243,7 +302,7 @@ function typed(a) {
   if (a.hold) hold();
 }
 
-/** A computed value written into Element styles: setValue's way, or liveValue's with `live`. */
+/** A computed value written into Element styles: an undo step, or with `live` as typing is. */
 function value(a) {
   if (!C.sel || Number(a.id) !== selId()) return;
   const p = String(a.prop ?? ""), v = line(clean(String(a.value ?? "")));
@@ -280,8 +339,15 @@ function act(a) {
     case "select": {
       const el = elOfId(a.id);
       if (el && el !== C.sel) select(el);
+      if (el && a.show) el.scrollIntoView({ block: "center", inline: "nearest" });
       break;
     }
+    case "edits":
+      C.list = !!a.open && countEdits(C.draft.B) + (C.draft.B.sheet.trim() ? 1 : 0) > 0;
+      break;
+    case "unedit":
+      removeEdit(String(a.key ?? ""));
+      break;
     case "hover": {
       const el = a.id ? elOfId(a.id) : null;
       if (el !== C.hover) C.hover = el;
@@ -292,7 +358,6 @@ function act(a) {
       break;
     case "global":
       C.pin = !!a.on;
-      drawTabs();
       break;
     case "text":
       typed(a);
@@ -318,9 +383,8 @@ function act(a) {
       reset();
       break;
     case "note":
-      // The words typed in the host's field: the layer's own field's, as if typed there.
-      if (!cnote) return;
-      cnote.value = clean(String(a.text ?? "")).replace(/[\r\n]+/g, " ").slice(0, 10000);
+      // The words typed in the host's field: the batch's.
+      C.note = clean(String(a.text ?? "")).replace(/[\r\n]+/g, " ").slice(0, 10000);
       draftChanged();
       drawBar();
       break;
@@ -331,7 +395,7 @@ function act(a) {
       submitCanvas(!!a.bg);
       break;
     case "escape":
-      if (C.pop) setPop(C.pop);
+      if (C.list) C.list = false;
       else if (C.sel) select(null);
       else setMode("notes");
       break;
@@ -346,7 +410,6 @@ function act(a) {
     default:
       return;
   }
-  T.need = true;
   active(); // frames for a moment: the page follows, and the view says what it made of it
 }
 onAct("canvas", act);

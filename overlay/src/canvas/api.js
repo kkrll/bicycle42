@@ -11,9 +11,9 @@ import { endEdit, inEdit as inEditedText } from "./text.js";
 import { syncUi } from "./cursor.js";
 import { closePop, drawBar, hush, setPop } from "./bar.js";
 import { cvKey } from "./keys.js";
-import { syncFields } from "./inspector.js";
+import { syncFields } from "./host.js";
 import { cvFrame } from "./frame.js";
-import { bar, cnote, HTML, mountCanvas } from "./mount.js";
+import { bar, HTML, mountCanvas } from "./mount.js";
 import { setMode } from "../mode.js";
 import { pagePress } from "../input.js";
 import { animating, kick } from "../render.js";
@@ -25,14 +25,15 @@ function setOn(on) {
   if (on === C.on || !bar) return;
   hush();
   if (C.pop) setPop(C.pop);
+  C.list = false;
   if (on) {
     // A note in progress becomes the start of the canvas session: its element is selected and
-    // its words move to the bar's note field. (A drawing or an area has no place here.)
+    // its words are the batch's note. (A drawing or an area has no place here.)
     const el = S.sel.length === 1 ? S.sel[0] : null;
     const words = Notes.textarea.value.trim();
     if (S.card || Notes.hasDraft()) Notes.clearDraft();
     Notes.hideSent();
-    if (words && !cnote.value) cnote.value = words;
+    if (words && !C.note) C.note = words;
     C.on = true;
     select(el && el.isConnected ? el : null);
   } else {

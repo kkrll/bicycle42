@@ -75,11 +75,11 @@ const SECOND = "#plans article:nth-of-type(2)";
 test("hosted: the layer shows no inspector and makes no room; the view names the selection, its rows, values and variables", async () => {
   const { page, f, errors } = await open();
   const s = await f.evaluate(() => ({
-    insp: document.querySelector("b42-review").shadowRoot.querySelector(".insp").hidden,
-    bar: document.querySelector("b42-review").shadowRoot.querySelector(".bar").hidden,
+    insp: !!document.querySelector("b42-review").shadowRoot.querySelector(".insp, .sug, textarea:not(.card textarea)"),
+    bar: document.querySelector("b42-review").shadowRoot.querySelector(".bar").checkVisibility(),
     room: getComputedStyle(document.documentElement).paddingBottom,
   }));
-  assert.deepEqual(s, { insp: true, bar: true, room: "0px" }); // (the bar is the host's footer)
+  assert.deepEqual(s, { insp: false, bar: false, room: "0px" }); // (the bar is the host's footer)
   let v = await view(page);
   assert.equal(v.sel, null);
   assert.equal(v.global, true, "nothing selected: the stylesheet");
@@ -267,21 +267,37 @@ test("hosted: the bar is the inspector's footer: none on the page; the view says
   await page.close();
 });
 
-test("not hosted: the bar is the layer's, over the page, as it always was", async () => {
+test("not hosted: no inspector and no bar, on the page or in views; canvas mode still edits the page", async () => {
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   await page.goto(`${base}/?delay=150&page=canvas`);
   const f = await pageFrame(page);
   await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
   await frames(f, 3);
-  assert.deepEqual(await barShown(f), { bar: true, corner: true });
-  // Hosted while it is up: it goes; given back: it is there again.
+  assert.deepEqual(await barShown(f), { bar: false, corner: false });
+  // the drags work the page without one, and Enter sends
+  await clickAt(page, f, SECOND, 100, 80);
+  const b = await f.locator(SECOND).boundingBox();
+  await page.mouse.move(b.x + b.width, b.y + 30);
+  await page.mouse.down();
+  await page.mouse.move(b.x + b.width + 60, b.y + 30, { steps: 8 });
+  await frames(f);
+  await page.mouse.up();
+  await frames(f);
+  assert.equal(Math.round((await f.locator(SECOND).boundingBox()).width), 260);
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.__harness.notes.length === 1);
+  assert.deepEqual(await page.evaluate(() => window.__harness.panel.filter((m) => m.panel === "canvas").length), 0, "no view was sent");
+  assert.equal(await f.evaluate(() => getComputedStyle(document.documentElement).paddingBottom), "0px", "and no room made");
+  // hosted while it is up: the views start; given back: they stop, and nothing comes on the page
   await page.evaluate(() => window.__harness.hostDocks(["canvas"]));
   await page.waitForFunction(() => window.__harness.panel.some((m) => m.panel === "canvas" && m.view));
-  await frames(f);
-  assert.deepEqual(await barShown(f), { bar: false, corner: false });
   await page.evaluate(() => window.__harness.hostDocks([]));
   await frames(f, 3);
-  assert.deepEqual(await barShown(f), { bar: true, corner: true });
+  const n = await page.evaluate(() => window.__harness.panel.length);
+  await clickAt(page, f, "#title");
+  await frames(f, 3);
+  assert.equal(await page.evaluate(() => window.__harness.panel.length), n);
+  assert.deepEqual(await barShown(f), { bar: false, corner: false });
   await page.close();
 });
 
@@ -299,7 +315,7 @@ test("hosted, after a reload: the host is told again, the view comes back with t
   await f2.waitForFunction((s) => getComputedStyle(document.querySelector(s)).paddingTop === "40px", SECOND);
   // canvas mode is still on, and a fresh view says what the reloaded page has
   await page.waitForFunction((n) => window.__harness.panel.slice(n).some((m) => m.panel === "canvas" && m.view), before);
-  assert.equal(await f2.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelector(".insp").hidden), true);
+  assert.equal(await f2.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelector(".bar").checkVisibility()), false);
   await clickAt(page, f2, SECOND, 10, 10); // (in its padding: the card grew by it)
   const v = await until(page, `(v) => v.sel && v.css.text === "padding: 40px;"`).then(() => view(page));
   assert.equal(v.tree.rows[v.tree.sel - v.tree.first]?.ed, true, "its row has the edited dot");
@@ -307,6 +323,74 @@ test("hosted, after a reload: the host is told again, the view comes back with t
   const n = await page.evaluate(() => window.__harness.panel.length);
   await act(page, { type: "tree", first: 0, count: 20 });
   await page.waitForFunction((k) => window.__harness.panel.slice(k).some((m) => m.view), n);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted edits list: opened from the footer, the view lists the unsent edits in words; a row selects, its × removes that one edit as an undo step", async () => {
+  const { page, f, errors } = await open();
+  const drag = async (x, y, x2, y2) => {
+    await page.mouse.move(x, y);
+    await frames(f);
+    await page.mouse.down();
+    await page.mouse.move(x2, y2, { steps: 8 });
+    await frames(f);
+    await page.mouse.up();
+    await frames(f);
+  };
+  await clickAt(page, f, SECOND, 100, 80);
+  const b = await f.locator(SECOND).boundingBox();
+  await drag(b.x + b.width, b.y + 30, b.x + b.width + 60, b.y + 30);
+  await act(page, { type: "global", on: true });
+  await act(page, { type: "text", field: "sheet", text: ".tile { color: red; }" });
+  await act(page, { type: "commit" });
+  await clickAt(page, f, "#cta");
+  await page.keyboard.press("Delete");
+  await until(page, "(v) => v.batch.edits === 3");
+  assert.equal((await view(page)).batch.list, undefined, "shut: no list in the view");
+  // open: each edit, as the bar worded it
+  await act(page, { type: "edits", open: true });
+  let v = await until(page, "(v) => v.batch.list").then(() => view(page));
+  assert.deepEqual(v.batch.list.map((r) => `${r.label} — ${r.text}`), ["Card · Pro For small teams — width 200 → 260", "Button · Start free trial — hidden", "Stylesheet — 1 rule"]);
+  assert.equal(v.batch.list[2].id, undefined, "the stylesheet is no element's");
+  // a row selects its element, hidden or not, and brings it into view
+  const hid = v.batch.list[1];
+  await act(page, { type: "select", id: hid.id, show: true });
+  v = await until(page, `(v) => v.sel?.id === ${hid.id}`).then(() => view(page));
+  assert.equal(v.sel.hidden, true);
+  assert.deepEqual(v.tree.rows.filter((r) => r.hid).map((r) => r.tag + r.idName), ["button#cta"]);
+  assert.deepEqual(v.tree.rows.filter((r) => r.ed).map((r) => r.tag + r.cls), ["article.card"]);
+  // × takes that one edit away, and that is a step like any other
+  await act(page, { type: "unedit", key: hid.key });
+  v = await until(page, "(v) => v.batch.edits === 2 && v.batch.list?.length === 2").then(() => view(page));
+  assert.notEqual(await style(f, "#cta", "display"), "none");
+  await act(page, { type: "undo" });
+  await until(page, "(v) => v.batch.list?.length === 3");
+  assert.equal(await style(f, "#cta", "display"), "none");
+  // the stylesheet's row is removed by its key too
+  await act(page, { type: "unedit", key: "sheet" });
+  await until(page, "(v) => v.batch.edits === 2 && !v.sheet.text");
+  assert.notEqual(await style(f, "#grid .tile", "color"), "rgb(255, 0, 0)");
+  // a key the batch no longer has does nothing
+  await act(page, { type: "unedit", key: "sheet" });
+  await frames(f, 3);
+  assert.equal((await view(page)).batch.edits, 2);
+  // Esc closes the list before anything else; a press on the page closes it too
+  await act(page, { type: "escape" });
+  v = await until(page, "(v) => !v.batch.list").then(() => view(page));
+  assert.ok(v.sel, "the selection stayed");
+  await act(page, { type: "edits", open: true });
+  await until(page, "(v) => v.batch.list");
+  await clickAt(page, f, "#title");
+  await until(page, "(v) => !v.batch.list");
+  // and it shuts by itself once the last edit is gone (and stays shut when asked with none)
+  await act(page, { type: "edits", open: true });
+  await until(page, "(v) => v.batch.list");
+  await act(page, { type: "reset" });
+  await until(page, "(v) => v.batch.edits === 0 && !v.batch.list");
+  await act(page, { type: "edits", open: true });
+  await frames(f, 3);
+  assert.equal((await view(page)).batch.list, undefined);
   assert.deepEqual(errors, []);
   await page.close();
 });

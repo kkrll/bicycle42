@@ -182,12 +182,11 @@ window.__b42 = {
         showPin(msg.id);
         break;
       case "docks":
-        // A dock the host draws from now on, or gives back: canvas's own goes or comes, with its
-        // room; motion's is the host's or none, and its views start or stop.
+        // A dock the host draws from now on, or gives back: its views start or stop. (The layer
+        // has no dock of its own for either mode.)
         if (!setHosted(msg.hosted)) break;
-        Canvas.syncUi();
         Motion.syncUi();
-        Canvas.drawBar(); // it sits above the inspector, or at the bottom when there is none
+        Canvas.drawBar(); // (the host's inspector, if it is one now, is told the batch in the next frame)
         kick();
         break;
       case "panel":

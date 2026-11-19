@@ -65,11 +65,17 @@ const PROBE = () => {
     };
   }
 };
-// The host: answers "ready" with the state and takes every note, as harness/host.js does.
+// The host: answers "ready" with the state, draws canvas mode's inspector (as the app does: it
+// counts the views it is sent) and takes every note, as harness/host.js does.
 const SHIM = ({ enabled, pins }) => {
+  window.__canvasViews = 0;
   window.__review = (json) => {
     const m = JSON.parse(json);
-    if (m.type === "ready") window.__b42.receive({ type: "state", enabled, pins });
+    if (m.type === "ready") {
+      window.__b42.receive({ type: "state", enabled, pins });
+      window.__b42.receive({ type: "docks", hosted: ["canvas"] });
+    }
+    if (m.type === "panel" && m.panel === "canvas" && m.view) window.__canvasViews++;
     if (m.type === "note") window.__b42.receive({ type: "captured", id: m.note.id });
   };
 };
