@@ -25,6 +25,7 @@ function setOn(on) {
   if (on === C.on || !bar) return;
   hush();
   if (C.pop) setPop(C.pop);
+  C.list = false;
   if (on) {
     // A note in progress becomes the start of the canvas session: its element is selected and
     // its words move to the bar's note field. (A drawing or an area has no place here.)

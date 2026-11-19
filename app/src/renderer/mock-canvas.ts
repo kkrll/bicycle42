@@ -1,8 +1,9 @@
 // What the overlay would tell the window's inspector (CanvasView in overlay/protocol-canvas.ts)
 // about the mock's pricing page with its middle card selected: for the mock (mock.ts) and the
-// screenshots (scripts/shot.mjs, "canvas-dock" and "phone-dock"). A rejected declaration is in
+// screenshots (scripts/shot.mjs, "canvas-dock" and "phone-dock"; "canvas-dock-edits" with the
+// footer's list of edits open: the mock answers the "edits" act). A rejected declaration is in
 // Element styles, so the underline and the error line show too.
-import type { CanvasRow, CanvasView } from "../../../overlay/protocol-canvas"
+import type { CanvasEdit, CanvasRow, CanvasView } from "../../../overlay/protocol-canvas"
 
 let next = 1
 const row = (depth: number, tag: string, kids: CanvasRow["kids"], extra: Partial<CanvasRow> = {}): CanvasRow => ({
@@ -38,7 +39,14 @@ const SELECTED = ROWS[7]!
 
 const CSS = "padding: 24px;\nborder-radius: var(--radius-lg);\ngap: 12px;\ncolor: brand;"
 
-export function canvasView(): CanvasView {
+/** The batch's three edits, as the footer's list has them once it is opened ("edits"). */
+const EDITS: CanvasEdit[] = [
+  { key: `css 1`, label: "Card · Pro For small teams", text: "padding 16 → 24, border-radius 8 → 12, gap 8 → 12", id: SELECTED.id },
+  { key: `op 0 hide 2`, label: "Card · Enterprise Talk to us", text: "hidden", id: ROWS[12]!.id },
+  { key: "sheet", label: "Stylesheet", text: "1 rule" },
+]
+
+export function canvasView(list = false): CanvasView {
   return {
     force: 1,
     // (What it is, never what it says: its component's name, the tree's name in the title.)
@@ -82,6 +90,6 @@ export function canvasView(): CanvasView {
       { name: "--text-base", value: "16px", size: 16 },
     ],
     tree: { total: ROWS.length, first: 0, rows: ROWS, sel: 7, hover: ROWS[11]!.id },
-    batch: { edits: 3, undo: true, redo: false, note: "", msg: "", status: "" },
+    batch: { edits: 3, undo: true, redo: false, note: "", msg: "", status: "", ...(list ? { list: EDITS } : {}) },
   }
 }

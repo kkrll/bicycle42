@@ -44,6 +44,7 @@ export const C = {
   copies: new Map(), // a copy's stamp (as a selector) → the copy, made by a "duplicate" edit (copies.js)
   copyRs: new Set(), // the stamps of every copy a batch names
   pop: "", // the list open above the bar: "list" (the batch), "help" (the keys) or none
+  list: false, // the host's list of the unsent edits is open (host.js)
   done: "", // what happened to the last sent batch, shown for a few seconds
   r: null, // the selection's rect in the last frame
   drag: null,

@@ -23,6 +23,7 @@ export function cvDown(e, z) {
   if (z && z.t === "page") z = null; // (the page's, under a band: see zoneOf)
   hush();
   if (C.pop) setPop(C.pop);
+  C.list = false;
   const f = root.activeElement;
   if (f && f !== Notes.textarea) f.blur(); // a click on the page ends typing in the bar or the inspector
   if (C.edit) endEdit(true);

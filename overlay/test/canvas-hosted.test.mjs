@@ -310,3 +310,71 @@ test("hosted, after a reload: the host is told again, the view comes back with t
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("hosted edits list: opened from the footer, the view lists the unsent edits in words; a row selects, its × removes that one edit as an undo step", async () => {
+  const { page, f, errors } = await open();
+  const drag = async (x, y, x2, y2) => {
+    await page.mouse.move(x, y);
+    await frames(f);
+    await page.mouse.down();
+    await page.mouse.move(x2, y2, { steps: 8 });
+    await frames(f);
+    await page.mouse.up();
+    await frames(f);
+  };
+  await clickAt(page, f, SECOND, 100, 80);
+  const b = await f.locator(SECOND).boundingBox();
+  await drag(b.x + b.width, b.y + 30, b.x + b.width + 60, b.y + 30);
+  await act(page, { type: "global", on: true });
+  await act(page, { type: "text", field: "sheet", text: ".tile { color: red; }" });
+  await act(page, { type: "commit" });
+  await clickAt(page, f, "#cta");
+  await page.keyboard.press("Delete");
+  await until(page, "(v) => v.batch.edits === 3");
+  assert.equal((await view(page)).batch.list, undefined, "shut: no list in the view");
+  // open: each edit, as the bar worded it
+  await act(page, { type: "edits", open: true });
+  let v = await until(page, "(v) => v.batch.list").then(() => view(page));
+  assert.deepEqual(v.batch.list.map((r) => `${r.label} — ${r.text}`), ["Card · Pro For small teams — width 200 → 260", "Button · Start free trial — hidden", "Stylesheet — 1 rule"]);
+  assert.equal(v.batch.list[2].id, undefined, "the stylesheet is no element's");
+  // a row selects its element, hidden or not, and brings it into view
+  const hid = v.batch.list[1];
+  await act(page, { type: "select", id: hid.id, show: true });
+  v = await until(page, `(v) => v.sel?.id === ${hid.id}`).then(() => view(page));
+  assert.equal(v.sel.hidden, true);
+  assert.deepEqual(v.tree.rows.filter((r) => r.hid).map((r) => r.tag + r.idName), ["button#cta"]);
+  assert.deepEqual(v.tree.rows.filter((r) => r.ed).map((r) => r.tag + r.cls), ["article.card"]);
+  // × takes that one edit away, and that is a step like any other
+  await act(page, { type: "unedit", key: hid.key });
+  v = await until(page, "(v) => v.batch.edits === 2 && v.batch.list?.length === 2").then(() => view(page));
+  assert.notEqual(await style(f, "#cta", "display"), "none");
+  await act(page, { type: "undo" });
+  await until(page, "(v) => v.batch.list?.length === 3");
+  assert.equal(await style(f, "#cta", "display"), "none");
+  // the stylesheet's row is removed by its key too
+  await act(page, { type: "unedit", key: "sheet" });
+  await until(page, "(v) => v.batch.edits === 2 && !v.sheet.text");
+  assert.notEqual(await style(f, "#grid .tile", "color"), "rgb(255, 0, 0)");
+  // a key the batch no longer has does nothing
+  await act(page, { type: "unedit", key: "sheet" });
+  await frames(f, 3);
+  assert.equal((await view(page)).batch.edits, 2);
+  // Esc closes the list before anything else; a press on the page closes it too
+  await act(page, { type: "escape" });
+  v = await until(page, "(v) => !v.batch.list").then(() => view(page));
+  assert.ok(v.sel, "the selection stayed");
+  await act(page, { type: "edits", open: true });
+  await until(page, "(v) => v.batch.list");
+  await clickAt(page, f, "#title");
+  await until(page, "(v) => !v.batch.list");
+  // and it shuts by itself once the last edit is gone (and stays shut when asked with none)
+  await act(page, { type: "edits", open: true });
+  await until(page, "(v) => v.batch.list");
+  await act(page, { type: "reset" });
+  await until(page, "(v) => v.batch.edits === 0 && !v.batch.list");
+  await act(page, { type: "edits", open: true });
+  await frames(f, 3);
+  assert.equal((await view(page)).batch.list, undefined);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

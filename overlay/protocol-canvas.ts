@@ -120,7 +120,16 @@ export type CanvasBatch = {
    *  (text edited in place on the page), the note sent last until the agent is done with it, a
    *  note done or failed and its preview gone. "" for nothing. */
   status: string
+  /** The unsent edits, one row each, while the host's list of them is open ("edits"); absent
+   *  while it is shut. It shuts by itself when the last edit goes, and on a press on the page. */
+  list?: CanvasEdit[]
 }
+
+/** One unsent edit, in words: what it is on ("Card · Pro For small teams", "Stylesheet") and
+ *  what it does ("padding 16 → 24", "hidden", "2 rules"). `key` names it for "unedit"; `id` is
+ *  its element's while that is on the page (a click on the row selects it), absent for the
+ *  stylesheet. */
+export type CanvasEdit = { key: string; label: string; text: string; id?: number }
 
 /** One thing done in the inspector. `id` is a row's or the selection's (CanvasRow.id). */
 export type CanvasAct =
@@ -129,7 +138,8 @@ export type CanvasAct =
   | { type: "tree"; first: number; count: number }
   /** A row's children shown or not; without `open`, the other way. */
   | { type: "open"; id: number; open?: boolean }
-  | { type: "select"; id: number }
+  /** `show`: and scrolled into view on the page (a row of the edits list). */
+  | { type: "select"; id: number; show?: boolean }
   /** The pointer on a row (0: off the rows): its element is outlined on the page. */
   | { type: "hover"; id: number }
   /** An arrow on the tree: up and down the rows, right opens or goes in, left closes or goes out. */
@@ -155,7 +165,11 @@ export type CanvasAct =
   | { type: "reset" }
   /** The note's words as typed in the footer, whole. */
   | { type: "note"; text: string }
-  /** Esc outside a field: the bar's open list closes, else the selection goes, else Annotate. */
+  /** The list of the unsent edits shown in the footer, or not (CanvasBatch.list). */
+  | { type: "edits"; open: boolean }
+  /** One unsent edit taken out of the batch (CanvasEdit.key), as an undo step. */
+  | { type: "unedit"; key: string }
+  /** Esc outside a field: the edits list closes, else the selection goes, else Annotate. */
   | { type: "escape" }
   /** Delete and mod+D on the tree: the selection hidden (a copy taken out), or duplicated. */
   | { type: "hide" }

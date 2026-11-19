@@ -7,6 +7,8 @@ import { commit, countEdits, redo, reset, undo } from "./batch.js";
 import { submitCanvas } from "./send.js";
 import { hideSel, select } from "./select.js";
 import { draftCopy, dropCopy, duplicateSel } from "./copies.js";
+import { editRows, removeEdit } from "./edits.js";
+import { elOf } from "./stamps.js";
 import { drawBar, flash, sentStatus, setPop } from "./bar.js";
 import { cnote } from "./mount.js";
 import { draftChanged } from "../draft.js";
@@ -46,6 +48,7 @@ const H = {
   toks: [], read: [], toksAt: 0, // the variables: as sent, as tokens.js read them off the selection
   sizes: new Map(), // a variable's value → its size (tokens.js keeps 500; a design system has more)
   texts: new Map(), // a box's text → { marks, error }
+  listKey: "", list: [], // the list of the unsent edits, and the batch it was made for
 };
 
 function idOf(el) {
@@ -102,11 +105,13 @@ export function hostView() {
   return true;
 }
 
-/** What the bar would say (drawBar): the edits, undo and redo, the note, a refusal, the state. */
+/** What the bar would say (drawBar): the edits, undo and redo, the note, a refusal, the state;
+ *  and while the host's list of them is open, the edits themselves. */
 function batchView() {
   const B = C.draft.B;
   const n = countEdits(B) + (B.sheet.trim() ? 1 : 0);
-  return {
+  if (!n) C.list = false; // (nothing left to list: it closes, as it opens only with something in it)
+  const out = {
     edits: n,
     undo: C.past.length > 0,
     redo: C.future.length > 0,
@@ -114,6 +119,22 @@ function batchView() {
     msg: C.msg,
     status: C.edit ? "Editing text" : C.done || (n ? "" : sentStatus()),
   };
+  if (C.list) out.list = list();
+  return out;
+}
+
+/** The unsent edits in words. Each is measured with the batch off and on, so they are made again
+ *  only when the batch changed, and only while the host shows them. */
+function list() {
+  const key = `${JSON.stringify(C.draft.B)}|${C.rev}`;
+  if (key !== H.listKey) {
+    H.listKey = key;
+    H.list = editRows(true).map((r) => {
+      const el = r.rs && elOf(r.rs);
+      return { key: r.key, label: r.label, text: r.text, ...(el && el.isConnected ? { id: idOf(el) } : {}) };
+    });
+  }
+  return H.list;
 }
 
 /** A box's text with what the browser would not take, as inspector.js's mark() says it. */
@@ -280,8 +301,15 @@ function act(a) {
     case "select": {
       const el = elOfId(a.id);
       if (el && el !== C.sel) select(el);
+      if (el && a.show) el.scrollIntoView({ block: "center", inline: "nearest" });
       break;
     }
+    case "edits":
+      C.list = !!a.open && countEdits(C.draft.B) + (C.draft.B.sheet.trim() ? 1 : 0) > 0;
+      break;
+    case "unedit":
+      removeEdit(String(a.key ?? ""));
+      break;
     case "hover": {
       const el = a.id ? elOfId(a.id) : null;
       if (el !== C.hover) C.hover = el;
@@ -332,6 +360,7 @@ function act(a) {
       break;
     case "escape":
       if (C.pop) setPop(C.pop);
+      else if (C.list) C.list = false;
       else if (C.sel) select(null);
       else setMode("notes");
       break;

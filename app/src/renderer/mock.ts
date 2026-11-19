@@ -783,6 +783,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     panel(act) {
       motionAct(act as PanelAct, (msg) => panelFns.forEach((fn) => fn(msg)))
       factsAct(act as PanelAct, (msg) => panelFns.forEach((fn) => fn(msg)))
+      canvasAct(act as PanelAct, (msg) => panelFns.forEach((fn) => fn(msg)))
     },
     setPageBounds(bounds: Rect | null) {
       page.style.display = bounds ? "block" : "none"
@@ -1315,6 +1316,13 @@ function factsAct(a: PanelAct, out: (m: PanelMessage) => void): void {
     factsMarks = act.on
     out({ panel: "facts", view: factsView() })
   } else if (act.type === "stop") out({ panel: "facts", view: null })
+}
+
+/** What the window's inspector asks that the screenshots show: the footer's list of edits. */
+function canvasAct(a: PanelAct, out: (m: PanelMessage) => void): void {
+  if (a.panel !== "canvas") return
+  const act = a.act
+  if (act.type === "edits") out({ panel: "canvas", view: canvasView(act.open) })
 }
 
 function motionAct(a: PanelAct, out: (m: PanelMessage) => void): void {

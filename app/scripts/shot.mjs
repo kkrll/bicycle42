@@ -126,6 +126,8 @@ const SHOTS = [
   { name: "dock-narrow", mock: "review", query: "&docks=motion&mode=motion", size: [1000, 720] },
   // Edit mode's inspector, drawn by the window under a desktop's page (mock-canvas.ts: a card selected).
   { name: "canvas-dock", mock: "review", query: "&docks=canvas&mode=edit", report: FOOTER },
+  // …and its footer's list of the unsent edits, opened from the count: inside the inspector too.
+  { name: "canvas-dock-edits", mock: "review", query: "&docks=canvas&mode=edit", run: [click(".cd-count")], wait: 300, report: `(() => { const k = document.querySelector(".cd-edits").getBoundingClientRect(), b = document.querySelector(".cd").getBoundingClientRect(); return k.top >= b.top && k.bottom <= b.bottom && k.left >= b.left && k.right <= b.right ? "inside the inspector" : "OUTSIDE " + JSON.stringify([k, b]) })()` },
   { name: "canvas-dock-narrow", mock: "review", query: "&docks=canvas&mode=edit", size: [1000, 720], report: FOOTER },
   { name: "collapsed", mock: "review", run: [click("[data-action=panel]")] },
   { name: "busy", mock: "busy", wait: 1500 },

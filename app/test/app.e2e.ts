@@ -677,6 +677,26 @@ async function main() {
   await ui(`document.querySelector('.cd-css').focus()`)
   await windowDbg.sendCommand("Input.insertText", { text: "gap: 4px;" })
   await until(() => ui(`document.querySelector('.cd-foot .cd-count').textContent === "1 edit" && !document.querySelector('.cd-send').disabled`))
+  // The count opens the list of the unsent edits, inside the inspector's box; a row's × takes
+  // that edit out (an undo step: the footer's undo brings it back).
+  const gapped = () => js(`[...document.querySelectorAll("#plans *")].filter((e) => getComputedStyle(e).columnGap === "4px").length`) as Promise<number>
+  const editRows = () => ui(`[...document.querySelectorAll('.cd-edits .cd-erow')].map((r) => r.querySelector('.cd-ego').textContent)`) as Promise<string[]>
+  await ui(`document.querySelector('.cd-note').focus()`) // (leaving the styles box makes the typing a step)
+  await ui(`document.querySelector('.cd-count').click()`)
+  const listed = await until(async () => (await editRows()).length === 1)
+  check(
+    "the footer's count opens the list of the unsent edits, each in words, inside the inspector's box",
+    listed === true && /^\w+ · .+— gap \S+ → 4$/.test((await editRows())[0] ?? "") && (await ui(`document.querySelector('.cd-count').getAttribute("aria-expanded")`)) === "true" && (await ui(`(() => { const l = document.querySelector('.cd-edits').getBoundingClientRect(), d = document.querySelector('.dock .cd').getBoundingClientRect(); return l.top >= d.top && l.bottom <= d.bottom && l.left >= d.left && l.right <= d.right })()`)) === true,
+    JSON.stringify(await editRows()),
+  )
+  await ui(`document.querySelector('.cd-edits .cd-ex').click()`)
+  check("…its × takes that edit out, on the page too, and the list shuts with nothing in it", (await until(async () => (await ui(`document.querySelector('.cd-count').textContent === "No edits" && !document.querySelector('.cd-edits')`)) === true && (await gapped()) === 0)) === true)
+  await ui(`document.querySelector('.cd-undo').click()`)
+  check("…as an undo step: undo brings it back", (await until(async () => (await ui(`document.querySelector('.cd-count').textContent`)) === "1 edit" && (await gapped()) === 1)) === true)
+  await ui(`document.querySelector('.cd-count').click()`)
+  await until(async () => (await editRows()).length === 1)
+  await clickAt(`document.querySelector(${JSON.stringify(CARD)})`)
+  check("…and a press on the page shuts it", (await until(() => ui(`!document.querySelector('.cd-edits')`))) === true)
   await ui(`document.querySelector('.cd-note').focus()`)
   await windowDbg.sendCommand("Input.insertText", { text: "tighter please" })
   const footNotes = state().review.notes.length

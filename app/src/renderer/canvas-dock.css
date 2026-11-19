@@ -683,11 +683,24 @@
   white-space: nowrap;
 }
 
-.cd-count {
+/* How many edits: a button that opens the list of them, the chevron after the words. */
+.cd .cd-count {
   grid-area: count;
+  justify-self: start;
   min-width: 52px;
+  margin-left: -8px;
+  padding: 0 6px 0 8px;
   font-variant-numeric: tabular-nums;
   color: var(--foreground);
+}
+
+.cd .cd-count:disabled {
+  opacity: 1;
+  color: var(--muted);
+}
+
+.cd-count[aria-expanded="true"] {
+  background: var(--surface-strong);
 }
 
 .cd-acts {
@@ -770,6 +783,71 @@
   border-radius: 8px;
   background: var(--background);
   overscroll-behavior: contain;
+}
+
+/* The edits list, from the count: as the keys list, at the footer's other end. A row is what the
+   edit is on and what it does; pressed, its element is selected; its × takes the edit out. */
+.cd-edits {
+  position: absolute;
+  z-index: 4;
+  left: 8px;
+  width: min(440px, calc(100% - 16px));
+  overflow: hidden auto;
+  padding: 4px;
+  border: 1px solid var(--background-03);
+  border-radius: 8px;
+  background: var(--background);
+  overscroll-behavior: contain;
+}
+
+.cd-erow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--radius);
+}
+
+.cd-erow:hover {
+  background: var(--surface);
+}
+
+.cd-ego {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  height: 28px;
+  padding: 0 4px 0 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.cd-ego:disabled {
+  cursor: default;
+}
+
+.cd-elabel {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--foreground);
+  font-weight: 500;
+  line-height: 28px;
+}
+
+.cd-etext {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  line-height: 28px;
+}
+
+.cd-ex {
+  color: var(--muted);
 }
 
 .cd-krow {

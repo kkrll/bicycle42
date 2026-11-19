@@ -1,14 +1,10 @@
 import { isMac } from "../state.js";
 import { icon, keyNodes } from "../ui.js";
-import { line } from "../page.js";
 import { C } from "./state.js";
 import { elOf } from "./stamps.js";
-import { topProps } from "./css.js";
-import { applyAll, splitRules } from "./apply.js";
-import { commit, countEdits } from "./batch.js";
-import { value } from "./send.js";
+import { countEdits } from "./batch.js";
+import { editRows, removeEdit } from "./edits.js";
 import { select } from "./select.js";
-import { dropCopy } from "./copies.js";
 import { dock } from "./cursor.js";
 import { syncFields } from "./inspector.js";
 import { bar, clsEl, cnote, corner, cssEl, freeEl } from "./mount.js";
@@ -91,65 +87,6 @@ export function drawBar() {
 // ── the bar's lists: what is in the batch, and the keys ─────────────────────────────────────
 const HELP = () => (C.on ? editKeys(isMac) : notesKeys(isMac));
 
-/** Computed values of every property an element's styles set, with the draft off and on. */
-function changesFor(entries) {
-  const props = new Map(entries.map((e) => [e.rs, topProps(e.css)]));
-  const read = () => {
-    const vals = new Map();
-    for (const [rs, list] of props) {
-      const el = elOf(rs);
-      const cs = el && getComputedStyle(el);
-      vals.set(rs, list.map((p) => (cs ? value(cs.getPropertyValue(p)) : "")));
-    }
-    return vals;
-  };
-  C.draft.id = "measuring";
-  C.hide.add("measuring");
-  applyAll();
-  const before = read();
-  C.hide.delete("measuring");
-  C.draft.id = "draft";
-  applyAll();
-  const after = read();
-  return new Map(entries.map((e) => [e.rs, props.get(e.rs).map((prop, i) => ({ prop, from: before.get(e.rs)[i], to: after.get(e.rs)[i] }))]));
-}
-
-/** The unsent batch in plain words, one row per edit. */
-function editRows() {
-  const B = C.draft.B, entries = Object.values(B.els), rows = [];
-  const changes = changesFor(entries.filter((e) => e.css.trim()));
-  const bare = (v) => v.replace(/(\d)px\b/g, "$1");
-  for (const e of entries) {
-    if (e.css.trim()) {
-      const list = changes.get(e.rs) || [];
-      const text = list.length
-        ? list.slice(0, 3).map((c) => `${c.prop} ${bare(c.from)} → ${bare(c.to)}`).join(", ") + (list.length > 3 ? `, and ${list.length - 3} more` : "")
-        : line(e.css).slice(0, 60);
-      rows.push({ kind: "style", rs: e.rs, label: e.label, text });
-    }
-    if (e.cls) rows.push({ kind: "class", rs: e.rs, label: e.label, text: `class “${line(e.cls.from)}” → “${line(e.cls.to)}”` });
-  }
-  for (const op of B.ops)
-    rows.push({ kind: op.kind, rs: op.kind === "duplicate" ? op.copy : op.rs, label: op.label, op,
-      text: op.kind === "hide" ? "hidden" : op.kind === "duplicate" ? "duplicated" : op.kind === "move" ? `moved from place ${op.fromIndex + 1} to ${op.toIndex + 1}` : `text “${line(op.from)}” → “${line(op.to)}”` });
-  if (B.sheet.trim()) {
-    const k = splitRules(B.sheet).length;
-    rows.push({ kind: "sheet", label: "Stylesheet", text: `${k} rule${k === 1 ? "" : "s"}` });
-  }
-  return rows;
-}
-
-function removeEdit(row) {
-  const B = C.draft.B;
-  if (row.kind === "style") B.els[row.rs].css = "";
-  else if (row.kind === "class") delete B.els[row.rs].cls;
-  else if (row.kind === "sheet") B.sheet = "";
-  else if (row.kind === "duplicate") return dropCopy(row.op.copy); // (with what was edited in the copy)
-  else B.ops.splice(B.ops.indexOf(row.op), 1);
-  commit(); // a step like any other: mod+Z brings it back
-  syncFields(true);
-}
-
 export function setPop(which) {
   C.pop = which === C.pop ? "" : which;
   drawPop();
@@ -165,7 +102,7 @@ export function closePop() {
 
 export function drawPop() {
   // Two lists, one open at a time: the batch above the bar, the keys above the "?" in the corner.
-  const rows = C.pop === "list" ? editRows() : [];
+  const rows = C.pop === "list" ? editRows(true) : [];
   if (C.pop === "list" && !rows.length) C.pop = "";
   const list = bar.querySelector(".pop"), keys = corner.querySelector(".pop");
   list.hidden = C.pop !== "list";
@@ -198,7 +135,7 @@ export function drawPop() {
       row.append(el("span", "el", r.label), el("span", "et", `— ${r.text}`), x);
       row.title = `${r.label} — ${r.text}`;
       row.addEventListener("click", (e) => {
-        if (x.contains(e.target)) return removeEdit(r);
+        if (x.contains(e.target)) return void removeEdit(r.key);
         if (r.kind === "sheet") {
           // The stylesheet is the batch's, not an element's: it lives under "Global".
           C.pin = true;
