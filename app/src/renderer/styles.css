@@ -1266,7 +1266,8 @@ details[open] > summary > .caret {
 .place,
 .notes,
 .chat {
-  border: 1px solid var(--background-05);
+  /* (The quieter rule, not the panes' hairline: a card is already off the window by its colour.) */
+  border: 1px solid var(--rule);
   border-radius: 10px;
   background: var(--card);
   overflow: hidden;
