@@ -14,6 +14,8 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..")
 const page = path.join(root, "dist/renderer/index.html")
 const out = process.env.SHOT_DIR ?? path.join(root, "shots")
 
+/** The phone line's width, and whether anything in it is cut: what it needs over what it has. */
+const PHONE_LINE = `(() => { const l = document.querySelector(".pl"), f = l.querySelector(".pl-facts"), c = l.querySelector(".pl-own .pl-cut"); return Math.round(l.getBoundingClientRect().width) + " wide; facts " + f.scrollWidth + "/" + f.clientWidth + (c ? "; own " + c.scrollWidth + "/" + c.clientWidth : "") })()`
 const click = (selector) => `document.querySelector(${JSON.stringify(selector)}).click()`
 const type = (selector, text) =>
   `(() => { const el = document.querySelector(${JSON.stringify(selector)}); el.value = ${JSON.stringify(text)}; el.dispatchEvent(new Event("input", { bubbles: true })) })()`
@@ -101,16 +103,16 @@ const SHOTS = [
   { name: "phone-short", mock: "review", query: "&device=phone", size: [1280, 720] },
   // A window with no room for all three: the panel and the page, or (Edit, Motion) the page and its dock.
   { name: "phone-narrow", mock: "review", query: "&device=phone", size: [900, 700] },
-  { name: "phone-narrow-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", size: [900, 700] },
+  { name: "phone-narrow-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", size: [900, 700], report: PHONE_LINE },
   // The column at its least (300px, the panel as wide as it goes): the phone line's counts and
   // the selection's fact shortened, nothing cut.
-  { name: "phone-least-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", run: [`document.querySelector(".resizer").dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }))`], wait: 300, report: `Math.round(document.querySelector(".pl").getBoundingClientRect().width)` },
-  { name: "phone-least", mock: "review", query: "&device=phone&mode=preview", run: [`document.querySelector(".resizer").dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }))`], wait: 300, report: `Math.round(document.querySelector(".pl").getBoundingClientRect().width)` },
+  { name: "phone-least-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", run: [`document.querySelector(".resizer").dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }))`], wait: 300, report: PHONE_LINE },
+  { name: "phone-least", mock: "review", query: "&device=phone&mode=preview", run: [`document.querySelector(".resizer").dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }))`], wait: 300, report: PHONE_LINE },
   { name: "phone-max-collapsed", mock: "review", query: "&device=phone&phone=iphone-16-pro-max&mode=preview", run: [click("[data-action=panel]")] },
   { name: "phone-wide", mock: "review", query: "&device=phone&mode=preview", size: [1984, 1276] },
   { name: "phone-clear", mock: "review", query: "&device=phone&mode=preview&facts=clear" },
   { name: "dock", mock: "review", query: "&docks=motion&mode=motion" },
-  { name: "phone-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit" },
+  { name: "phone-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", report: PHONE_LINE },
   // Motion's dock drawn by the window: beside a phone's page (the list above what is open), and
   // under the page with its "more" sheet open (inside the dock's box, never over the page).
   { name: "phone-motion-dock", mock: "review", query: "&device=phone&docks=motion&mode=motion" },
