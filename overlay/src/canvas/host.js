@@ -12,7 +12,8 @@ import { buildRows, rowParts, T, toggleRow, treeKey } from "./tree.js";
 import { drawTabs, follow, FULL, pretty, syncFields } from "./inspector.js";
 import { sizeOf, tokenMatch, tokensOf } from "./tokens.js";
 import { setMode } from "../mode.js";
-import { hosted, onAct, sendView } from "../panel.js";
+import { send } from "../state.js";
+import { hosted, onAct } from "../panel.js";
 import { active } from "../render.js";
 import { domVersion, root } from "../mount.js";
 
@@ -36,7 +37,8 @@ const H = {
   ids: new WeakMap(), els: new Map(), n: 0, // element ↔ the number the host names it by
   sent: "", // the last view, as JSON
   selFor: null, // the selection the rows were last placed for (see placeFor)
-  comp: [], toks: [], compKey: "", compAt: 0, compEl: null, // the computed section and the variables, and whose
+  comp: [], compKey: "", compOwn: "", compDom: -1, compAt: 0, // the computed section, and what it was read for
+  toks: [], read: [], toksAt: 0, // the variables: as sent, as tokens.js read them off the selection
   sizes: new Map(), // a variable's value → its size (tokens.js keeps 500; a design system has more)
   texts: new Map(), // a box's text → { marks, error }
 };
@@ -84,10 +86,12 @@ export function hostView() {
     tokens: H.toks,
     tree: tree(el),
   };
+  // Sent from here, not through sendView: this already runs once a frame at most, inside the
+  // frame, and sendView's own frame would make every answer a frame later than the page.
   const json = JSON.stringify(view);
   if (json !== H.sent) {
     H.sent = json;
-    sendView("canvas", view);
+    send(/** @type {any} */ ({ type: "panel", panel: "canvas", view }));
   }
   return true;
 }
@@ -106,19 +110,28 @@ function textOf(text, sheet) {
   return { text, ...t };
 }
 
-/** The computed values and the page's variables, read when drawComputed would read them. */
+/** The computed values and the page's variables. The page's own changes are read as drawComputed
+ *  reads them (a few times a second at most, and once a second whatever happened); a change of the
+ *  batch, the selection or its attributes at once: the host shows what was just written, and the
+ *  value it shows until the view has it would otherwise stand for a moment as the old one. The
+ *  variables are read again only when the page or the selection changed (or once a second). */
 function computed(el, global) {
   const now = performance.now();
   const inline = C.liveEl && C.liveEl.el === el ? C.liveEl.was : el && el.getAttribute("style");
-  const key = `${C.selRs}|${C.rev}|${domVersion}|${global}|${el ? `${el.getAttribute("class")}|${inline}` : ""}`;
-  // (A new selection is read at once: the values of the one before would stand under its name.)
-  if ((key === H.compKey && now - H.compAt < 1000) || (el === H.compEl && now - H.compAt < 150)) return;
+  const own = `${C.selRs}|${global}|${el ? `${el.getAttribute("class")}|${inline}` : ""}`;
+  const key = `${own}|${C.rev}`;
+  if (key === H.compKey && (domVersion === H.compDom ? now - H.compAt < 1000 : now - H.compAt < 150)) return;
+  const fresh = own !== H.compOwn || domVersion !== H.compDom || now - H.toksAt > 1000;
   H.compKey = key;
-  H.compEl = el;
+  H.compOwn = own;
+  H.compDom = domVersion;
   H.compAt = now;
   if (!el) {
     H.comp = [];
-    H.toks = global ? tokens(document.documentElement) : [];
+    if (fresh) {
+      H.toks = global ? tokens(document.documentElement) : [];
+      H.toksAt = now;
+    }
     return;
   }
   const cs = getComputedStyle(el);
@@ -126,10 +139,14 @@ function computed(el, global) {
   const list = COMPUTED.filter((p) => (p === "flex-direction" ? flex : p === "align-items" || p === "justify-content" || p === "gap" ? flex || grid : true));
   const en = C.draft.B.els[C.selRs];
   const mine = en ? topProps(en.css) : [];
-  const toks = tokensOf(el);
+  if (fresh) {
+    H.read = tokensOf(el);
+    H.toks = tokens(global ? document.documentElement : el, global ? null : H.read);
+    H.toksAt = now;
+  }
   H.comp = list.map((p) => {
     const raw = cs.getPropertyValue(p);
-    const t = tokenMatch(p, raw, toks, root);
+    const t = tokenMatch(p, raw, H.read, root);
     const row = { prop: p, value: pretty(raw) };
     if (t) {
       row.tokens = t.names;
@@ -138,7 +155,6 @@ function computed(el, global) {
     if (mine.some((m) => m === p || m.startsWith(`${p}-`) || p.startsWith(`${m}-`))) row.mine = true;
     return row;
   });
-  H.toks = tokens(global ? document.documentElement : el, global ? null : toks);
 }
 
 /** The page's variables for the suggestions, each with its size when it is one (for ↑/↓ along
