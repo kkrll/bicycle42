@@ -5,7 +5,7 @@ import * as Canvas from "./canvas/api.js";
 import * as Motion from "./motion/api.js";
 import { current, setBrush, setMode } from "./mode.js";
 import { kick } from "./render.js";
-import { hostEl, pinsEl } from "./mount.js";
+import { docHost, hostEl, pinsEl } from "./mount.js";
 
 // ── input ───────────────────────────────────────────────────────────────────────────────────
 export const isOurs = (e) => !!hostEl && e.composedPath().includes(hostEl);
@@ -137,6 +137,7 @@ function startPeek() {
   S.hover = null;
   hostEl.toggleAttribute("data-peek", true); // the layer's own elements let the pointer through (styles.css)
   hostEl.style.setProperty("opacity", "0", "important"); // (inline, over the element's all:initial)
+  docHost.style.setProperty("opacity", "0", "important");
   hideTip();
 }
 
@@ -145,6 +146,7 @@ export function endPeek() {
   S.peek = false;
   hostEl.toggleAttribute("data-peek", false);
   hostEl.style.removeProperty("opacity");
+  docHost.style.removeProperty("opacity");
   kick();
 }
 

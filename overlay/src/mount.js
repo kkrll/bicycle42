@@ -16,6 +16,11 @@ import STYLES from "./styles.css"; // its text: the build loads a stylesheet as 
 // The layer's own elements, made by mount(). A file can only assign what it declares, so they
 // are here and not with the rest of the state; every other file reads them.
 export let hostEl, root, boxes, pinsEl, cursorStyle, tip, variantsEl, variantStyle;
+// Outlines that move with the page and not with the window: a second element of the layer's, in
+// the document's flow (absolute at its origin, not fixed, not in the top layer), so the compositor
+// scrolls them with what they outline in the same frame. Put in the document only when it has
+// something to show (docLayer in render.js).
+export let docHost, docBoxes;
 export let domVersion = 0; // bumped on every DOM mutation; pins re-search only when it changes
 export let treeVersion = 0; // bumped when elements are added or removed (not for a text): variant groups are looked for again
 
@@ -77,6 +82,11 @@ function mount() {
           <button type="button" class="m-go" data-m="send" disabled>Send</button></div></div></div>
     <div class="m-pop" hidden></div><div class="m-sug" role="listbox" hidden></div>`;
   boxes = root.querySelector(".boxes");
+  docHost = document.createElement("b42-marks");
+  docHost.setAttribute("style", "all:initial;position:absolute;left:0;top:0;width:0;height:0;overflow:visible;z-index:2147483647;pointer-events:none;display:block");
+  const docRoot = docHost.attachShadow({ mode: "open" });
+  docRoot.innerHTML = `<style>${STYLES}</style><div class="boxes doc"></div>`;
+  docBoxes = docRoot.querySelector(".boxes");
   pinsEl = root.querySelector(".pins");
   Notes.mount();
   variantsEl = root.querySelector(".variants");

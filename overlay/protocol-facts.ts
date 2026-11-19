@@ -1,5 +1,5 @@
 // "This page on this phone": a pane the host draws beside a phone's page in a mode with no dock
-// (Preview, Annotate). See Pane in protocol.ts. Types only.
+// (Preview, Annotate); in Edit and Motion the column is the mode's dock and nothing is asked. See Pane in protocol.ts. Types only.
 //
 // What the page is at the size it is shown at, each fact tied to the element it is about: what
 // sticks out past the screen's right edge, tap targets smaller than a finger, inputs a phone
@@ -48,21 +48,17 @@ export type FactsView = {
   /** Text fields and selects whose text is under 16 px (iOS zooms the page to one that takes
    *  focus), up to 8. Detail: "14 px". */
   small: FactList
-  /** In canvas mode: the inspector's selection, when it is one of the facts (listed or past the
-   *  list's end; its first kind in the order above), with the detail its row would have. Kept up to
-   *  date as the reviewer edits it: null once the edit fixed it, and in any other mode. */
-  own?: { kind: FactKind; detail: string } | null
 }
 
 /** What the host's pane asks. "view": it is shown, work the facts out and keep them up to date
  *  until "stop" (with `marks`, as "marks" says); "refresh": again now. "marks": while the facts
  *  are worked out, draw a quiet outline on every listed element, in its kind's tone, or not (off
  *  until asked; the outlines follow scroll and layout, take no pointer, are in no screenshot and
- *  go with "stop"; in canvas and motion mode fainter, and never on canvas's selection).
+ *  go with "stop"). An outline of an element that scrolls with the document is drawn in a
+ *  layer that scrolls with it, so it never trails a scroll.
  *  "kind": while the pointer (or the focus) is on a kind's count, mark that kind's listed elements
- *  on the page, in any mode, marks on or off (null: none). "hover": outline that element on the
- *  page, strongly (null: none); "show": scroll it into view and flash its outline, and in canvas
- *  mode select it in the inspector, as a click on it would; "note": in notes mode, make it the
+ *  on the page, marks on or off (null: none). "hover": outline that element on the
+ *  page, strongly (null: none); "show": scroll it into view and flash its outline; "note": in notes mode, make it the
  *  note's selection, as a click on it would. */
 export type FactsAct =
   | { type: "view"; marks?: boolean }
