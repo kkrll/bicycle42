@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Facts test page</title>
+  <style>
+    /* No scrollbar takes room: the viewport is the frame's width, as on a phone. */
+    html { scrollbar-width: none; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 16px; font: 16px/1.5 system-ui, -apple-system, sans-serif; color: #1c1c1e; background: #fafaf8; }
+    nav { display: flex; gap: 8px; align-items: center; }
+    nav a { display: inline-block; padding: 4px 6px; color: #2a6df4; }
+    .banner { width: 520px; height: 40px; margin: 12px 0; background: #e9e9e2; }
+    .banner p { margin: 0; }
+    .clip { width: 200px; overflow: hidden; }
+    .clip div { width: 800px; height: 8px; background: #d8d8d2; }
+    .close { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 4px; background: #1c1c1e; color: #fff; }
+    .field { display: block; width: 240px; height: 48px; margin: 8px 0; padding: 0 12px; }
+    .cta { width: 160px; height: 48px; border: 0; border-radius: 8px; background: #1c1c1e; color: #fff; font: inherit; }
+    .gone { display: none; }
+  </style>
+</head>
+<body>
+  <nav><a id="nav" href="#pricing">Pricing</a><a href="#blog">Blog</a></nav>
+  <div class="banner" id="wide"><p>Spring sale banner</p></div>
+  <div class="clip"><div id="clipped"></div></div>
+  <button class="close" id="tiny" aria-label="Close">×</button>
+  <p id="para">Read the <a id="inline" href="#terms">terms of service</a> before you sign up for a plan.</p>
+  <input class="field" id="small" type="email" placeholder="Email" style="font-size: 14px">
+  <input class="field" id="ok" type="text" placeholder="Your name" style="font-size: 16px">
+  <button class="cta" id="big">Sign up</button>
+  <div class="gone"><button>Hidden away</button></div>
+  <button class="close" style="visibility: hidden">Invisible</button>
+  <div id="more"></div>
+</body>
+</html>

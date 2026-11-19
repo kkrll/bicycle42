@@ -37,7 +37,6 @@ import type {
   ConnectionState,
   ContextUse,
   Device,
-  Dock,
   FileChange,
   Lane,
   Mention,
@@ -45,6 +44,7 @@ import type {
   ModelInfo,
   ModelRef,
   NoteFocus,
+  Pane,
   PanelMessage,
   PermissionAsk,
   PromptFile,
@@ -58,7 +58,7 @@ import type {
   SessionSummary,
   SlashCommand,
 } from "../shared/types"
-import { HOSTED_DOCKS, PHONE, phoneOf } from "../shared/types"
+import { HOSTED_PANES, PHONE, phoneOf } from "../shared/types"
 import { noteImages, notePicture, type Frame } from "./images"
 import { readLocal } from "./local"
 import { isPlaceholder, placeholderTitle, titleFrom } from "./naming"
@@ -86,8 +86,8 @@ export type Host = {
   emit<K extends keyof Emitted>(stream: K, value: Emitted[K]): void
   /** Something the person has to be told before they go on, in a dialog of its own. */
   dialog(box: { type: "warning"; message: string; detail: string }): void
-  /** The docks this shell's window draws itself. Without it, HOSTED_DOCKS (shared/types.ts). */
-  docks?: readonly Dock[]
+  /** The panes this shell's window draws itself. Without it, HOSTED_PANES (shared/types.ts). */
+  docks?: readonly Pane[]
   log(level: Level, msg: string, data?: unknown): void
 }
 
@@ -249,9 +249,9 @@ export function createCore(host: Host): Core {
     return s.server.name ?? s.servers?.find((x) => x.id === s.current)?.computer
   }
 
-  /** The docks the window draws: what the overlay is told after every "state" (onPage). */
-  const docks = host.docks ?? HOSTED_DOCKS
-  const isDock = (name: unknown): name is Dock => docks.includes(name as Dock)
+  /** The panes the window draws: what the overlay is told after every "state" (onPage). */
+  const docks = host.docks ?? HOSTED_PANES
+  const isPane = (name: unknown): name is Pane => docks.includes(name as Pane)
   const device = (): Device => (store.settings().device === "phone" ? "phone" : "desktop")
   const phone = () => phoneOf(store.settings().phone)
 
@@ -1270,9 +1270,9 @@ export function createCore(host: Host): Core {
         if (typeof msg.id === "string" && review.note(msg.id)) host.emit("note", { id: msg.id })
         return
       case "panel":
-        // A hosted dock's view, or a ping's answer: the window's to read, carried as it came.
+        // A hosted pane's view, or a ping's answer: the window's to read, carried as it came.
         // (What is in it is the page's: the window draws it as text.)
-        if (isDock(msg.panel)) host.emit("panel", msg as PanelMessage)
+        if (isPane(msg.panel)) host.emit("panel", msg as PanelMessage)
         return
       case "pins-placement":
         review.setUnplaced(Array.isArray(msg.unplaced) ? (msg.unplaced as string[]) : [])
@@ -1828,10 +1828,13 @@ export function createCore(host: Host): Core {
       // From a dock the window draws, to the overlay that does it. Only for such a dock, and
       // only something with an act in it: the overlay reads the rest.
       const a = act as { panel?: unknown; act?: unknown } | null
-      if (!a || !isDock(a.panel) || typeof a.act !== "object" || a.act === null) return
+      if (!a || !isPane(a.panel) || typeof a.act !== "object" || a.act === null) return
+      const type = (a.act as { type?: unknown }).type
       // Send, in the window's dock: the note the overlay now makes has no key or click in the
       // page to come with, which the page view asks of every note. The window vouches for this one.
-      if ((a.act as { type?: unknown }).type === "send") page?.admitNote()
+      if (type === "send" && a.panel !== "facts") page?.admitNote()
+      // Note, in the facts pane: the note card opens on the page, and what is typed goes there.
+      if (type === "note" && a.panel === "facts") page?.focus()
       page?.send({ type: "panel", panel: a.panel, act: a.act } as Parameters<Page["send"]>[0])
     },
     clearNotes() {

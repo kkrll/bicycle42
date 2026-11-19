@@ -1,5 +1,6 @@
 import type { MotionAct, MotionView } from "./protocol-motion"
 import type { CanvasAct, CanvasView } from "./protocol-canvas"
+import type { FactsAct, FactsView } from "./protocol-facts"
 
 // The protocol between the overlay and its host: every message either side sends, and what a
 // note carries. Types only, nothing runs: the overlay's files name them in JSDoc (its `send`, its
@@ -24,17 +25,25 @@ export type Mode = "notes" | "canvas" | "motion"
  *  carry is each dock's own: protocol-motion.ts, protocol-canvas.ts. */
 export type Dock = Exclude<Mode, "notes">
 
-/** What a hosted dock shows, as the overlay last knew it: the whole of it each time, never a
+/** A pane the host draws: a mode's dock, or "facts" ("This page on this phone", protocol-facts.ts),
+ *  which is no mode's and which the overlay never draws itself. Every pane rides the same two
+ *  messages ("docks" says which the host draws, "panel" carries views and acts). The facts are
+ *  worked out only between the pane's "view" and "stop" acts; a new document, and one told
+ *  "stop", sends the view null: nothing is being worked out. */
+export type Pane = Dock | "facts"
+
+/** What a hosted pane shows, as the overlay last knew it: the whole of it each time, never a
  *  change to the one before, so a host that missed one is right again with the next. Its strings
  *  are the page's (a class, a text, a keyframe's name): a host draws them as text, never as markup. */
-export type PanelView = { panel: "motion"; view: MotionView } | { panel: "canvas"; view: CanvasView }
+export type PanelView = { panel: "motion"; view: MotionView } | { panel: "canvas"; view: CanvasView } | { panel: "facts"; view: FactsView | null }
 
-/** What the reviewer did in a hosted dock. "ping" is every dock's: the overlay answers it at once
+/** What the reviewer did in a hosted pane. "ping" is every pane's: the overlay answers it at once
  *  with a "panel" message carrying `pong: id` and no view (how long the way there and back takes). */
 export type PanelAct =
-  | { panel: Dock; act: { type: "ping"; id: number } }
+  | { panel: Pane; act: { type: "ping"; id: number } }
   | { panel: "motion"; act: MotionAct }
   | { panel: "canvas"; act: CanvasAct }
+  | { panel: "facts"; act: FactsAct }
 
 /** What the page's framework calls an element (React, Vue), with its dev source when present. */
 export type Component = { /** "react" or "vue". */ framework?: string; name: string; stack: string[]; source?: string }
@@ -220,7 +229,7 @@ export type PageMessage =
   /** A hosted dock's view (see Dock), whenever what it shows changed, at most once a frame. */
   | ({ type: "panel" } & PanelView)
   /** The answer to a hosted dock's "ping". */
-  | { type: "panel"; panel: Dock; pong: number }
+  | { type: "panel"; panel: Pane; pong: number }
 
 /** host → page: window.__b42.receive(msg), the message or its JSON. */
 export type HostMessage =
@@ -248,10 +257,10 @@ export type HostMessage =
   /** Bring the pin `id` into view: where its element is now (else where the note was made), a
    *  third of the window down, scrolled smoothly. Nothing happens for a pin with no place. */
   | { type: "show"; id: string }
-  /** The docks the host draws itself (see Dock), all of them each time; none until it says so.
-   *  Sent after "state", and again whenever the list changes. */
-  | { type: "docks"; hosted: Dock[] }
-  /** From a hosted dock: something the reviewer did there. Ignored for a dock that is not hosted. */
+  /** The panes the host draws itself (see Dock and Pane), all of them each time; none until it
+   *  says so. Sent after "state", and again whenever the list changes. */
+  | { type: "docks"; hosted: Pane[] }
+  /** From a hosted pane: something the reviewer did there. Ignored for a pane that is not hosted. */
   | ({ type: "panel" } & PanelAct)
 
 /** What the overlay puts on the page's window (in its own script world, when the host gives it one). */

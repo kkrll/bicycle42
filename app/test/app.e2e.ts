@@ -323,7 +323,7 @@ async function main() {
   const CARD = "#plans article:nth-of-type(2)"
   // The mode switch is the top bar's: Preview | Notes | Edit, and it follows the page's own keys.
   const modeShown = () => ui(`document.querySelector('.mode[aria-checked="true"]')?.dataset.mode`) as Promise<string>
-  // Edit mode's inspector is the window's (HOSTED_DOCKS): the page shows none of its own.
+  // Edit mode's inspector is the window's (HOSTED_PANES): the page shows none of its own.
   const inspector = () => ui(`!!document.querySelector('.dock .cd')?.checkVisibility()`) as Promise<boolean>
   const pageInspector = () => js(`${shadow}.querySelector('.insp')?.checkVisibility() ?? false`) as Promise<boolean>
   check("the top bar shows Annotate, and the page has no mode switch of its own", (await modeShown()) === "notes" && (await ui(`document.querySelector('.mode[aria-checked="true"]').textContent`)) === "Annotate" && state().review.mode === "notes" && (await js(`!${shadow}.querySelector('.seg, .m-brush')`)) === true)
@@ -554,17 +554,46 @@ async function main() {
   const label = (await ui(`document.querySelector('.phone-size').textContent`)) as string
   check("…and as tall as the phone, whatever room the window has: drawn smaller, and said so", (await until(() => js("Math.abs(innerHeight / innerWidth - 844 / 390) < 0.01 && innerHeight >= 844"), 3000)) === true && (fitted.width === 390 ? !label.includes("%") : label.includes(`${Math.round((fitted.width / 390) * 100)}%`)), `${JSON.stringify(fitted)} ${label} ${await js("innerWidth + 'x' + innerHeight")}`)
   // The panel is at the left, and the phone's page next to it in every mode: a mode with no
-  // dock has a column of its own there (the keys), so the page does not move.
+  // dock has a column of its own there (This page on this phone), so the page does not move.
   const panelRight = (await ui(`document.querySelector('.panel').getBoundingClientRect().right`)) as number
   check("the panel is at the window's left, the page after it", panelRight > 0 && panelRight <= narrow.x, `${panelRight} ${JSON.stringify(narrow)}`)
   await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
   await until(() => state().review.mode === "notes")
-  const aside = (await until(() => ui(`(() => { const r = document.querySelector('.dock.aside')?.getBoundingClientRect(); return r ? { x: r.x, text: document.querySelector('.aside-title').textContent } : null })()`))) as { x: number; text: string } | undefined
+  const aside = (await until(() => ui(`(() => { const r = document.querySelector('.dock.fp')?.getBoundingClientRect(); return r ? { x: r.x, text: document.querySelector('.fp-title').textContent } : null })()`))) as { x: number; text: string } | undefined
   await sleep(200) // (a frame or two: where the page is goes to main once a frame)
-  check("in Annotate the phone's page stays where it was, with the keys beside it", !!aside && page.view.getBounds().x === narrow.x && page.view.getBounds().width === narrow.width && aside.x >= narrow.x + narrow.width && aside.text === "Annotate", `${JSON.stringify(page.view.getBounds())} ${JSON.stringify(aside)}`)
+  check("in Annotate the phone's page stays where it was, with this page on this phone beside it", !!aside && page.view.getBounds().x === narrow.x && page.view.getBounds().width === narrow.width && aside.x >= narrow.x + narrow.width && aside.text === "Annotate", `${JSON.stringify(page.view.getBounds())} ${JSON.stringify(aside)}`)
+  // Preview: the facts are the real page's, worked out by its overlay with review off; the
+  // pointer on a row outlines its element on the page, the size the row says.
+  await ui(`document.querySelector('.mode[data-mode="preview"]').click()`)
+  await until(() => !state().review.enabled)
+  const tapRows = () => ui(`[...document.querySelectorAll('.fp-sec[aria-label="Tap targets under 44 px"] .fp-fact')].map((r) => r.querySelector('.fp-label').textContent + "|" + r.querySelector('.fp-detail').textContent)`) as Promise<string[]>
+  const taps = (await until(async () => ((await tapRows()).some((r) => r.startsWith("Start free trial|")) ? tapRows() : null))) ?? (await tapRows())
+  const cta = taps.find((r) => r.startsWith("Start free trial|")) ?? ""
+  check("in Preview the pane lists the page's own small tap targets", !!cta && (await ui(`document.querySelector('.fp-title').textContent`)) === "Preview", taps.join(", "))
+  const hoverRow = (on: boolean) => ui(`(() => { const r = [...document.querySelectorAll('.fp-fact')].find((r) => r.querySelector('.fp-label').textContent === "Start free trial"); r.dispatchEvent(new PointerEvent(${JSON.stringify(on ? "pointerenter" : "pointerleave")})) })()`)
+  const outlined = () => js(`[...(${shadow}?.querySelectorAll('.box.fx') ?? [])].map((b) => { const r = b.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] })`) as Promise<number[][]>
+  await hoverRow(true)
+  const boxes = (await until(async () => ((await outlined()).length ? outlined() : null), 3000)) ?? []
+  const target = (await js(`(() => { const r = document.getElementById("cta").getBoundingClientRect(); return [r.x, r.y, r.width, r.height] })()`)) as number[]
+  // (The outline's edges are on whole device pixels: within one of the element's.)
+  const near = (a: number[] | undefined, b: number[]) => !!a && a.every((v, i) => Math.abs(v - b[i]!) <= 1)
+  check("…and the pointer on its row outlines it on the page", boxes.length === 1 && near(boxes[0], target) && cta.endsWith(`|${Math.round(target[2]!)} × ${Math.round(target[3]!)}`), `${JSON.stringify(boxes)} / ${JSON.stringify(target)} / ${cta}`)
+  await hoverRow(false)
+  check("…and off the row, the outline goes", (await until(async () => (await outlined()).length === 0, 3000)) === true)
+  await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
+  await until(() => state().review.mode === "notes" && state().review.enabled)
+  // In Annotate a row's Note button starts a note about its element: the card opens on the page,
+  // with that element chosen, and the keyboard is the page's.
+  const cardOpen = () => js(`!!${shadow}?.querySelector('.card') && !${shadow}.querySelector('.card').hidden`) as Promise<boolean>
+  const noteBtn = await until(() => ui(`(() => { const r = [...document.querySelectorAll('.fp-fact')].find((r) => r.querySelector('.fp-label').textContent === "Start free trial"); const b = r?.querySelector('.fp-note'); if (!b) return false; b.click(); return true })()`), 3000)
+  check("in Annotate a row's Note button opens the note card on the page", noteBtn === true && (await until(cardOpen, 3000)) === true)
+  await page.view.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))`)
+  page.view.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" })
+  page.view.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" })
+  await until(async () => !(await cardOpen()), 2000)
   // Which phone: the list beside the switch.
   await ui(`(() => { const s = document.querySelector('.phone-pick select'); s.value = "iphone-se"; s.dispatchEvent(new Event("change", { bubbles: true })) })()`)
-  const asideX = () => ui(`document.querySelector('.dock.aside').getBoundingClientRect().x`) as Promise<number>
+  const asideX = () => ui(`document.querySelector('.dock.fp').getBoundingClientRect().x`) as Promise<number>
   check("another phone is another box, in the middle of the same column: what is beside it does not move", (await until(() => shaped(page.view.getBounds(), 375, 667))) === true && Math.abs((await asideX()) - aside!.x) < 1 && state().page.phone === "iphone-se", `${JSON.stringify(page.view.getBounds())} ${await asideX()} was ${aside?.x}`)
   check("…and its name beside the switch", (await ui(`document.querySelector('.phone-pick .pick-long').textContent`)) === "iPhone SE")
   await ui(`(() => { const s = document.querySelector('.phone-pick select'); s.value = "iphone-14"; s.dispatchEvent(new Event("change", { bubbles: true })) })()`)

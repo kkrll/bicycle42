@@ -5,19 +5,21 @@
 //
 // The UI speaks of sites, notes and changes. Backend words (session, inbox, provider) stop at
 // main: the renderer never sees a raw server payload.
-import type { Dock, PanelAct, PanelView } from "../../../overlay/protocol"
+import type { Dock, PanelAct, PanelView, Pane } from "../../../overlay/protocol"
 
 // ── the page's docks, drawn by the window ───────────────────────────────────────────────────────
 // Edit mode's inspector and motion mode's dock belong to the overlay, which draws them at the
 // bottom of the page; a dock the window draws itself is "hosted" (Dock in overlay/protocol.ts).
 // The overlay then says what the dock shows (PanelMessage, on the "panel" stream) and does what
 // the window's dock asks (the `panel` command). Main only carries both: it reads neither.
-export type { Dock, PanelAct }
-/** overlay → window: a hosted dock's view, or the answer to its "ping". */
-export type PanelMessage = PanelView | { panel: Dock; pong: number }
+// "facts" (This page on this phone, beside a phone's page in Preview and Annotate) is a pane of
+// the window's that is no mode's dock, and rides the same way (Pane in overlay/protocol.ts).
+export type { Dock, PanelAct, Pane }
+/** overlay → window: a hosted pane's view, or the answer to its "ping". */
+export type PanelMessage = PanelView | { panel: Pane; pong: number }
 
-/** The docks the window draws. One the overlay still draws itself is not in the list. */
-export const HOSTED_DOCKS: readonly Dock[] = ["canvas", "motion"]
+/** The panes the window draws. A dock the overlay still draws itself is not in the list. */
+export const HOSTED_PANES: readonly Pane[] = ["canvas", "motion", "facts"]
 
 /** What the page is shown as. "phone": as wide as the chosen phone's screen and at most as tall
  *  (CSS px), laid out as a phone's browser lays it out (the page's viewport tag counts,
@@ -329,8 +331,8 @@ export type AppState = {
     notes: NoteRow[]
     /** Pins whose element can no longer be found on the page. */
     unplaced: number
-    /** The docks the overlay was told the window draws (HOSTED_DOCKS, unless the shell says otherwise). */
-    docks: Dock[]
+    /** The panes the overlay was told the window draws (HOSTED_PANES, unless the shell says otherwise). */
+    docks: Pane[]
   }
   /** The site under review and the server folder (the repo) that holds its code. `null` until
    *  there is a repo or a page. The repo comes first: with one open and no page yet, `origin` is

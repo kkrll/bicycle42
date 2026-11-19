@@ -66,6 +66,15 @@ src/globals.d.ts    what the type check cannot read from the .js files
   `__harness.panel` holds what the overlay sent. Canvas's is `src/canvas/host.js`: the view is
   made in the frames the layer's inspector would be drawn in, the acts call what its fields, rows
   and keys call (`test/canvas-hosted.test.mjs`).
+- **"facts" is a pane only the host draws** (`Pane` in `protocol.ts`, `protocol-facts.ts`,
+  `src/facts/host.js`): what the page is at the size it is shown at (what sticks out past the
+  right edge, tap targets under 44 px, fields under 16 px, the viewport tag), each fact an
+  element the host's rows can outline ("hover"), bring into view ("show") or, in notes mode,
+  select for a note ("note"). Nothing is worked out until the host's pane says "view", and
+  nothing after "stop": in between, after load, on resize and after the page changed (400 ms
+  apart at least, in idle time, 4000 elements at most), with review on or off. Scrolling only
+  sends the new `scrollY`. A new document sends the view null, so a host whose pane is up asks
+  again. `?page=facts` is its harness page (`test/facts-hosted.test.mjs`).
 
 ![harness](docs/harness.png)
 

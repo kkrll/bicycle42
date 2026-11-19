@@ -109,9 +109,12 @@ The top bar has the mode: **Preview** (the page as it is), **Annotate** (point a
 and say what to change), **Edit** (change the page itself, then press Send) and **Motion** (see
 what moves on the page, change one animation, then send it), with the pencil for drawing beside
 them. Beside the address, **Desktop | Phone** shows the page as wide as its pane or as a phone
-has it; which phone (iPhone SE to iPhone 16 Pro Max, a Pixel, a Galaxy) is the list next to the
-switch. The notes and the conversation are at the window's left; a phone's page sits next to
-them, with the mode's panel (Edit's inspector, Motion's animations, or the keys) on its right.
+has it; which phone (iPhone SE to iPhone 16 Pro Max, a Pixel, a Galaxy) is the list above the
+page. A phone taller than the window is drawn smaller, whole, and still laid out at its real
+size. The notes and the conversation are at the window's left; a phone's page sits next to
+them, with the mode's panel on its right: Edit's inspector, Motion's animations, and in Preview
+and Annotate what the page is at this phone's size (what sticks out past the screen, tap
+targets under 44 px, inputs that make iOS zoom) and the files the agent changed.
 
 ## Keys
 
