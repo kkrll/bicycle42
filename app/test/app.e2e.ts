@@ -546,14 +546,34 @@ async function main() {
   win.setSize(1441, 900)
   check("and the page is laid out as a phone's", (await until(() => js("document.documentElement.clientWidth === 390"), 3000)) === true, String(await js("document.documentElement.clientWidth")))
   // The panel is at the left, and the phone's page next to it in every mode: a mode with no
-  // dock has a column of its own there (the keys), so the page does not move.
+  // dock has a column of its own there (This page on this phone), so the page does not move.
   const panelRight = (await ui(`document.querySelector('.panel').getBoundingClientRect().right`)) as number
   check("the panel is at the window's left, the page after it", panelRight > 0 && panelRight <= narrow.x, `${panelRight} ${JSON.stringify(narrow)}`)
   await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
   await until(() => state().review.mode === "notes")
-  const aside = (await until(() => ui(`(() => { const r = document.querySelector('.dock.aside')?.getBoundingClientRect(); return r ? { x: r.x, text: document.querySelector('.aside-title').textContent } : null })()`))) as { x: number; text: string } | undefined
+  const aside = (await until(() => ui(`(() => { const r = document.querySelector('.dock.fp')?.getBoundingClientRect(); return r ? { x: r.x, text: document.querySelector('.fp-title').textContent } : null })()`))) as { x: number; text: string } | undefined
   await sleep(200) // (a frame or two: where the page is goes to main once a frame)
-  check("in Annotate the phone's page stays where it was, with the keys beside it", !!aside && page.view.getBounds().x === narrow.x && page.view.getBounds().width === 390 && aside.x >= narrow.x + 390 && aside.text === "Annotate", `${JSON.stringify(page.view.getBounds())} ${JSON.stringify(aside)}`)
+  check("in Annotate the phone's page stays where it was, with this page on this phone beside it", !!aside && page.view.getBounds().x === narrow.x && page.view.getBounds().width === 390 && aside.x >= narrow.x + 390 && aside.text === "Annotate", `${JSON.stringify(page.view.getBounds())} ${JSON.stringify(aside)}`)
+  // Preview: the facts are the real page's, worked out by its overlay with review off; the
+  // pointer on a row outlines its element on the page, the size the row says.
+  await ui(`document.querySelector('.mode[data-mode="preview"]').click()`)
+  await until(() => !state().review.enabled)
+  const tapRows = () => ui(`[...document.querySelectorAll('.fp-sec[aria-label="Tap targets under 44 px"] .fp-fact')].map((r) => r.querySelector('.fp-label').textContent + "|" + r.querySelector('.fp-detail').textContent)`) as Promise<string[]>
+  const taps = (await until(async () => ((await tapRows()).some((r) => r.startsWith("Start free trial|")) ? tapRows() : null))) ?? (await tapRows())
+  const cta = taps.find((r) => r.startsWith("Start free trial|")) ?? ""
+  check("in Preview the pane lists the page's own small tap targets", !!cta && (await ui(`document.querySelector('.fp-title').textContent`)) === "Preview", taps.join(", "))
+  const hoverRow = (on: boolean) => ui(`(() => { const r = [...document.querySelectorAll('.fp-fact')].find((r) => r.querySelector('.fp-label').textContent === "Start free trial"); r.dispatchEvent(new PointerEvent(${JSON.stringify(on ? "pointerenter" : "pointerleave")})) })()`)
+  const outlined = () => js(`[...(${shadow}?.querySelectorAll('.box.fx') ?? [])].map((b) => { const r = b.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] })`) as Promise<number[][]>
+  await hoverRow(true)
+  const boxes = (await until(async () => ((await outlined()).length ? outlined() : null), 3000)) ?? []
+  const target = (await js(`(() => { const r = document.getElementById("cta").getBoundingClientRect(); return [r.x, r.y, r.width, r.height] })()`)) as number[]
+  // (The outline's edges are on whole device pixels: within one of the element's.)
+  const near = (a: number[] | undefined, b: number[]) => !!a && a.every((v, i) => Math.abs(v - b[i]!) <= 1)
+  check("…and the pointer on its row outlines it on the page", boxes.length === 1 && near(boxes[0], target) && cta.endsWith(`|${Math.round(target[2]!)} x ${Math.round(target[3]!)}`), `${JSON.stringify(boxes)} / ${JSON.stringify(target)} / ${cta}`)
+  await hoverRow(false)
+  check("…and off the row, the outline goes", (await until(async () => (await outlined()).length === 0, 3000)) === true)
+  await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
+  await until(() => state().review.mode === "notes" && state().review.enabled)
   // Which phone: the list beside the switch.
   await ui(`(() => { const s = document.querySelector('.phone-pick select'); s.value = "iphone-se"; s.dispatchEvent(new Event("change", { bubbles: true })) })()`)
   check("another phone is another box, at the same place", (await until(() => page.view.getBounds().width === 375 && page.view.getBounds().height === 667)) === true && page.view.getBounds().x === narrow.x && state().page.phone === "iphone-se", JSON.stringify(page.view.getBounds()))

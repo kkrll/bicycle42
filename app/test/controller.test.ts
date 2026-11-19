@@ -2206,7 +2206,7 @@ test("the facts pane is relayed as a dock is: its views (null too) reach the win
     const was = focus()
     for (const act of [{ type: "view" }, { type: "hover", id: 1 }, { type: "show", id: 1 }, { type: "stop" }]) await h.cmd("panel", { panel: "facts", act })
     await h.cmd("panel", { panel: "canvas", act: { type: "ping", id: 2 } })
-    assert.deepEqual(toOverlay("panel").map((m) => (m as { act: unknown }).act), [{ type: "view" }, { type: "hover", id: 1 }, { type: "show", id: 1 }, { type: "stop" }])
+    assert.deepEqual(toOverlay("panel").map((m) => (m as unknown as { act: unknown }).act), [{ type: "view" }, { type: "hover", id: 1 }, { type: "show", id: 1 }, { type: "stop" }])
     assert.equal(focus(), was)
     // Note: the card opens on the page, and what is typed next goes there. Nothing for the overlay to admit.
     await h.cmd("panel", { panel: "facts", act: { type: "note", id: 1 } })
