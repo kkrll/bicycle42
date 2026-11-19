@@ -1412,7 +1412,8 @@ details[open] > summary > .caret {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 calc(var(--gutter) + 2px);
+  /* (No padding of its own: the group's gutter is the notes' badges' left edge under it.) */
+  padding: 0;
   /* A section's name as every pane writes one: in sentence case, the size of the controls. */
   font-size: var(--text-control);
   font-weight: 600;

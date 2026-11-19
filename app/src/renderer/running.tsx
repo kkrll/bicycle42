@@ -33,7 +33,7 @@ export function RunningButton() {
   return (
     <Show when={state.running.length && state.connection.status === "online"}>
       <button class="icon-btn running-btn" data-action="running" aria-haspopup="dialog" aria-label={label()} title={label()} onClick={() => setRunningOpen(true)}>
-        <Icon name="stop" />
+        <Icon name="terminal" />
         <span class="running-count">{state.running.length}</span>
       </button>
     </Show>
