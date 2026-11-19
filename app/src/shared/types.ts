@@ -17,7 +17,7 @@ export type { Dock, PanelAct }
 export type PanelMessage = PanelView | { panel: Dock; pong: number }
 
 /** The docks the window draws. One the overlay still draws itself is not in the list. */
-export const HOSTED_DOCKS: readonly Dock[] = ["motion"]
+export const HOSTED_DOCKS: readonly Dock[] = ["canvas", "motion"]
 
 /** What the page is shown as. "phone": 390 CSS px wide and at most 844 tall, laid out as a
  *  phone's browser lays it out (the page's viewport tag counts, scrollbars take no room); the

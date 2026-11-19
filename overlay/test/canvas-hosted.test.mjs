@@ -1,0 +1,245 @@
+// End-to-end tests for canvas mode's inspector when the host draws it (src/canvas/host.js): the
+// view the overlay sends, and what the host's acts do to the page. The harness plays the host
+// (__harness.hostDocks, __harness.act, __harness.panel). Same set-up as canvas.test.mjs.
+import { test, before, after } from "node:test";
+import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { chromium } from "playwright-core";
+import { serve } from "../scripts/serve.mjs";
+
+const CANDIDATES = [
+  process.env.CHROMIUM,
+  "/usr/bin/chromium",
+  "/usr/bin/google-chrome",
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/Applications/Chromium.app/Contents/MacOS/Chromium",
+].filter(Boolean);
+const executablePath = CANDIDATES.find((p) => existsSync(p));
+
+let server, browser, base;
+
+before(async () => {
+  assert.ok(executablePath, `no Chromium found; set CHROMIUM (tried ${CANDIDATES.join(", ")})`);
+  server = await serve(0);
+  base = `http://127.0.0.1:${server.address().port}`;
+  browser = await chromium.launch({ executablePath, headless: true });
+});
+
+after(async () => {
+  await browser?.close();
+  server?.close();
+});
+
+async function pageFrame(page) {
+  await page.waitForFunction(() => document.getElementById("page").contentWindow?.__b42);
+  const f = page.frames().find((fr) => fr.url().endsWith("/harness/canvas.html"));
+  await f.waitForFunction(() => document.querySelector("b42-review") && document.documentElement.hasAttribute("data-b42-review"));
+  return f;
+}
+
+/** The canvas test page in canvas mode, with the inspector the host's: it says so first. */
+async function open() {
+  const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto(`${base}/?delay=150&page=canvas`);
+  const f = await pageFrame(page);
+  await page.evaluate(() => window.__harness.hostDocks(["canvas"]));
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
+  await page.waitForFunction(() => window.__harness.panel.some((m) => m.panel === "canvas" && m.view));
+  return { page, f, errors };
+}
+
+const frames = (f, n = 2) => f.evaluate((k) => new Promise((done) => {
+  const step = () => (k-- > 0 ? requestAnimationFrame(step) : done());
+  step();
+}), n);
+const clickAt = async (page, f, sel, dx, dy) => {
+  const b = await f.locator(sel).first().boundingBox();
+  await page.mouse.click(b.x + (dx ?? b.width / 2), b.y + (dy ?? b.height / 2));
+  await frames(f);
+};
+/** The view the overlay sent last. */
+const view = (page) => page.evaluate(() => window.__harness.panel.filter((m) => m.panel === "canvas" && m.view).at(-1).view);
+/** Wait until the last view passes `fn` (a function of the view, as source). */
+const until = (page, fn) => page.waitForFunction(`(() => { const v = window.__harness.panel.filter((m) => m.panel === "canvas" && m.view).at(-1)?.view; return !!v && (${fn})(v); })()`);
+const act = (page, a) => page.evaluate((x) => window.__harness.act("canvas", x), a);
+const style = (f, sel, prop) => f.evaluate(([s, p]) => getComputedStyle(document.querySelector(s)).getPropertyValue(p), [sel, prop]);
+const undoSteps = (f) => f.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelector(".undo").hidden);
+const SECOND = "#plans article:nth-of-type(2)";
+
+test("hosted: the layer shows no inspector and makes no room; the view names the selection, its rows, values and variables", async () => {
+  const { page, f, errors } = await open();
+  const s = await f.evaluate(() => ({
+    insp: document.querySelector("b42-review").shadowRoot.querySelector(".insp").hidden,
+    bar: document.querySelector("b42-review").shadowRoot.querySelector(".bar").hidden,
+    room: getComputedStyle(document.documentElement).paddingBottom,
+  }));
+  assert.deepEqual(s, { insp: true, bar: false, room: "0px" });
+  let v = await view(page);
+  assert.equal(v.sel, null);
+  assert.equal(v.global, true, "nothing selected: the stylesheet");
+  assert.equal(v.tree.rows[0].tag, "body");
+  assert.equal(v.tree.rows[0].kids, "open");
+
+  await clickAt(page, f, SECOND, 100, 80);
+  v = await until(page, "(v) => v.sel && v.computed.length").then(() => view(page));
+  assert.match(v.sel.label, /^Card · Pro/);
+  assert.equal(v.global, false);
+  assert.equal(v.classes.text, await f.evaluate((s) => document.querySelector(s).getAttribute("class") ?? "", SECOND));
+  // its row is among those sent, opened down to it, and named as the selection
+  const row = v.tree.rows[v.tree.sel - v.tree.first];
+  assert.ok(row, `row ${v.tree.sel} in ${v.tree.first}…${v.tree.first + v.tree.rows.length}`);
+  assert.equal(row.id, v.sel.id);
+  assert.equal(row.tag, "article");
+  assert.equal(v.computed.find((c) => c.prop === "padding").value, "16px");
+  assert.ok(v.tokens.length > 0 && v.tokens.every((t) => t.name.startsWith("--")), "the page's variables, for the suggestions");
+  // only what the host shows, not the whole document
+  assert.ok(v.tree.rows.length <= 90, `${v.tree.rows.length} rows`);
+  const weight = await page.evaluate(() => JSON.stringify(window.__harness.panel.filter((m) => m.view).at(-1)).length);
+  assert.ok(weight < 40000, `a view weighs ${weight} bytes`);
+  // a ping is answered at once
+  await act(page, { type: "ping", id: 3 });
+  await page.waitForFunction(() => window.__harness.panel.some((m) => m.pong === 3));
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted tree: a row opens and closes, is selected, outlined from the host; arrows walk", async () => {
+  const { page, f, errors } = await open();
+  let v = await view(page);
+  const plans = v.tree.rows.find((r) => r.idName === "#plans") ?? null;
+  const main = plans ?? v.tree.rows.find((r) => r.kids === "shut");
+  assert.ok(main, "a shut row under body");
+  await act(page, { type: "open", id: main.id });
+  v = await until(page, `(v) => v.tree.rows.find((r) => r.id === ${main.id})?.kids === "open"`).then(() => view(page));
+  const child = v.tree.rows[v.tree.rows.findIndex((r) => r.id === main.id) + 1];
+  assert.equal(child.depth, main.depth + 1);
+  await act(page, { type: "select", id: child.id });
+  v = await until(page, `(v) => v.sel?.id === ${child.id}`).then(() => view(page));
+  assert.equal(v.tree.rows[v.tree.sel - v.tree.first].id, child.id);
+  // the pointer on a row outlines its element on the page
+  await act(page, { type: "hover", id: main.id });
+  await until(page, `(v) => v.tree.hover === ${main.id}`);
+  assert.equal(await f.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelectorAll(".box.hover").length > 0), true);
+  await act(page, { type: "hover", id: 0 });
+  // ↓ the next row, ← back out to the parent, ← again closes it
+  await act(page, { type: "walk", key: "ArrowDown" });
+  v = await until(page, `(v) => v.sel && v.sel.id !== ${child.id}`).then(() => view(page));
+  await act(page, { type: "walk", key: "ArrowLeft" });
+  await until(page, `(v) => v.sel?.id === ${main.id}`);
+  await act(page, { type: "walk", key: "ArrowLeft" });
+  await until(page, `(v) => v.tree.rows.find((r) => r.id === ${main.id})?.kids === "shut"`);
+  // Esc: the selection goes; once more, canvas mode goes
+  await act(page, { type: "escape" });
+  await until(page, "(v) => v.sel === null");
+  await act(page, { type: "escape" });
+  await page.waitForFunction(() => window.__harness.mode === "notes");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted fields: classes and Element styles are typed in the host; the view marks what is not applied", async () => {
+  const { page, f, errors } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  const v = await until(page, "(v) => v.sel").then(() => view(page));
+  const id = v.sel.id;
+  await act(page, { type: "text", field: "classes", id, text: `${v.classes.text} tile` });
+  await f.waitForFunction((s) => document.querySelector(s).classList.contains("tile"), SECOND);
+  await until(page, `(v) => v.classes.text.endsWith(" tile")`);
+
+  await act(page, { type: "text", field: "css", id, text: "padding: 32px;\ncolor: nope;" });
+  const bad = await until(page, `(v) => v.css.text.startsWith("padding: 32px") && v.css.marks.length && v.computed.find((c) => c.prop === "padding")?.mine`).then(() => view(page));
+  assert.deepEqual(bad.css.marks.map((m) => [m.s, m.e, m.why]), [[15, 26, "invalid value for color"]]);
+  assert.equal(bad.css.error, "Not applied: invalid value for color");
+  await f.waitForFunction((s) => getComputedStyle(document.querySelector(s)).paddingTop === "32px", SECOND);
+  assert.equal(bad.computed.find((c) => c.prop === "padding")?.mine, true);
+
+  await act(page, { type: "text", field: "css", id, text: "padding: 32px;\ncolor: red;" });
+  const good = await until(page, `(v) => v.css.text.endsWith("red;") && !v.css.marks.length`).then(() => view(page));
+  assert.equal(good.css.error, "");
+  await f.waitForFunction((s) => getComputedStyle(document.querySelector(s)).color === "rgb(255, 0, 0)", SECOND);
+  // typing for a selection that has gone does nothing
+  await act(page, { type: "text", field: "css", id: id + 999, text: "padding: 1px;" });
+  await frames(f, 3);
+  assert.equal(await style(f, SECOND, "padding-top"), "32px");
+  // the stylesheet: Global
+  await act(page, { type: "global", on: true });
+  await until(page, "(v) => v.global");
+  await act(page, { type: "text", field: "sheet", text: ".tile { outline: 2px solid red; }\nnope {" });
+  const sheet = await until(page, `(v) => v.sheet.text.startsWith(".tile") && v.sheet.marks.length`).then(() => view(page));
+  assert.match(sheet.sheet.error, /unbalanced braces/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted values: a computed value set is one undo step; a scrub is live and one step; Esc during it puts it back; undo and redo", async () => {
+  const { page, f, errors } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  const { sel: { id } } = await until(page, "(v) => v.sel").then(() => view(page));
+  await act(page, { type: "value", id, prop: "padding", value: "24px" });
+  await f.waitForFunction((s) => getComputedStyle(document.querySelector(s)).paddingTop === "24px", SECOND);
+  await until(page, `(v) => v.css.text === "padding: 24px;"`);
+  assert.equal(await undoSteps(f), false, "an undo step at once");
+  // a value the browser does not take is not written
+  await act(page, { type: "value", id, prop: "padding", value: "lots" });
+  await frames(f, 3);
+  assert.equal((await view(page)).css.text, "padding: 24px;");
+
+  // a scrub: many live values, held, then one commit
+  await act(page, { type: "commit" });
+  for (const w of [210, 220, 230, 240]) {
+    await act(page, { type: "value", id, prop: "width", value: `${w}px`, live: true, hold: true });
+    await f.waitForFunction(([s, x]) => Math.round(document.querySelector(s).getBoundingClientRect().width) === x, [SECOND, w]);
+  }
+  await page.waitForTimeout(800); // a pause does not end the step
+  await act(page, { type: "commit" });
+  await until(page, `(v) => v.css.text === "padding: 24px;\\nwidth: 240px;"`);
+  await act(page, { type: "undo" });
+  await until(page, `(v) => v.css.text === "padding: 24px;"`);
+  assert.equal(await style(f, SECOND, "width") !== "240px", true);
+  await act(page, { type: "redo" });
+  await until(page, `(v) => v.css.text === "padding: 24px;\\nwidth: 240px;"`);
+  // Esc during a scrub: back to the step before it
+  const force = (await view(page)).force;
+  await act(page, { type: "value", id, prop: "width", value: "300px", live: true, hold: true });
+  await until(page, `(v) => v.css.text.endsWith("width: 300px;")`);
+  await act(page, { type: "revert" });
+  const back = await until(page, `(v) => v.css.text === "padding: 24px;\\nwidth: 240px;"`).then(() => view(page));
+  assert.ok(back.force > force, "the fields take the view's text");
+  assert.equal(Math.round(await f.evaluate((s) => document.querySelector(s).getBoundingClientRect().width, SECOND)), 240);
+  // the token button's write, and the name's copy, are values too; mod+Enter sends from the host
+  await act(page, { type: "send" });
+  await page.waitForFunction(() => window.__harness.notes.length === 1);
+  const note = await page.evaluate(() => window.__harness.notes[0]);
+  assert.deepEqual(note.edits.map((e) => e.kind), ["style"]);
+  assert.equal(note.edits[0].css, "padding: 24px;\nwidth: 240px;");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted, after a reload: the host is told again, the view comes back with the batch", async () => {
+  const { page, f, errors } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  const { sel: { id } } = await until(page, "(v) => v.sel").then(() => view(page));
+  await act(page, { type: "text", field: "css", id, text: "padding: 40px;" });
+  await act(page, { type: "commit" });
+  await page.waitForFunction(() => window.__harness.draft?.edits);
+  const before = await page.evaluate(() => window.__harness.panel.length);
+  await page.click("#reload");
+  await page.waitForTimeout(150);
+  const f2 = await pageFrame(page);
+  await f2.waitForFunction((s) => getComputedStyle(document.querySelector(s)).paddingTop === "40px", SECOND);
+  // canvas mode is still on, and a fresh view says what the reloaded page has
+  await page.waitForFunction((n) => window.__harness.panel.slice(n).some((m) => m.panel === "canvas" && m.view), before);
+  assert.equal(await f2.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelector(".insp").hidden), true);
+  await clickAt(page, f2, SECOND, 10, 10); // (in its padding: the card grew by it)
+  const v = await until(page, `(v) => v.sel && v.css.text === "padding: 40px;"`).then(() => view(page));
+  assert.equal(v.tree.rows[v.tree.sel - v.tree.first]?.ed, true, "its row has the edited dot");
+  // a host that starts again asks for the whole view: it is sent even though nothing changed
+  const n = await page.evaluate(() => window.__harness.panel.length);
+  await act(page, { type: "tree", first: 0, count: 20 });
+  await page.waitForFunction((k) => window.__harness.panel.slice(k).some((m) => m.view), n);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

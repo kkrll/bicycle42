@@ -272,13 +272,20 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   playhead scrubbed are drawn from the hand until the view agrees (an act's view comes back on
   the page's next frame, 20 to 35 ms headless; a ping is about 1 ms). Its popovers stay inside
   its box: the page view paints over the window wherever it sits.
+- **Edit's inspector is the window's** (`renderer/canvas-dock.tsx`, its own `canvas-dock.css`; the
+  overlay's side is `overlay/src/canvas/host.js`). Its fields are its own while typed in and its
+  suggestions are worked out here (the overlay's pure `suggest-model.js`, `number.js`,
+  `css-data.js`, and this window's `CSS.supports`), so typing never waits for the page.
+- **Send in a dock of the window's** (motion's Send, the inspector's mod+Enter) has no key or
+  click in the page to come with, which the page view asks of every note: on a "send" act the
+  controller tells the page view to let the next note through, once (`admitNote`).
 - **A view is the page's text.** A class, a keyframe's name, an element's words: the window draws
   them as text and never as markup, and keeps nothing of the page's that the overlay does not
   also have (a reload of either side loses nothing). `dockPing` measures the way to the overlay
   and back.
-- Shots: `phone`, `dock`, `phone-dock`, `phone-motion-dock`, `dock-more`, `dock-narrow` (the
-  mock takes `&device=phone`, `&docks=motion,canvas`, `&mode=edit|motion`; with motion's dock it
-  feeds a sample view).
+- Shots: `phone`, `dock`, `phone-dock`, `phone-motion-dock`, `dock-more`, `dock-narrow`,
+  `canvas-dock` (the mock takes `&device=phone`, `&docks=motion,canvas`, `&mode=edit|motion`; it
+  feeds motion's dock a sample view, and the inspector the one in `mock-canvas.ts`).
 
 ## What a canvas note sends
 

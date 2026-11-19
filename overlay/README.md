@@ -63,7 +63,9 @@ src/globals.d.ts    what the type check cannot read from the .js files
   `src/motion/host.js`: where the dock would be drawn a view is built instead, and each act calls
   what the in-page dock's gesture calls. In the harness,
   `__harness.hostDocks(["motion"])` plays such a host, `__harness.act(panel, act)` its dock, and
-  `__harness.panel` holds what the overlay sent.
+  `__harness.panel` holds what the overlay sent. Canvas's is `src/canvas/host.js`: the view is
+  made in the frames the layer's inspector would be drawn in, the acts call what its fields, rows
+  and keys call (`test/canvas-hosted.test.mjs`).
 
 ![harness](docs/harness.png)
 

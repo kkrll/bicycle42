@@ -1,0 +1,591 @@
+/* Edit mode's inspector, drawn by the window (canvas-dock.tsx). It fills the dock's box (styles.css,
+   .dock): under the page, a strip of 160px and up; beside a phone's page, a column of the window's
+   height, 300 to 900px wide. Its own box is the container its layout asks about:
+     narrow (under 520px), or a tall column under 700px: the tree above the styles;
+     between: the tree on the left, the styles beside it (fields, then computed values);
+     900px and wider: three columns, the tree, the computed values, the fields.
+   Tokens only; sizes from the scale (10 · 12 · 14 · 16). The page's words are monospaced. */
+
+.cd {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  container: cd / size;
+  overflow: hidden;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+}
+
+/* Folded to its header: the dock is only as tall as that (under the page only). */
+.dock:has(> .cd.shut) {
+  height: auto;
+}
+
+/* (A box sized by its container cannot be sized by its header: folded, it is no container.) */
+.cd.shut {
+  flex: none;
+  container-type: normal;
+}
+
+.cd.shut .cd-body,
+.cd.shut .cd-tabs {
+  display: none;
+}
+
+/* ── the header: what is selected, Element | Global, fold ─────────────────────────────────────── */
+
+.cd-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.cd.shut .cd-head {
+  border-bottom: 0;
+}
+
+.cd-title {
+  flex: none;
+  font-weight: 600;
+}
+
+.cd-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  user-select: text;
+}
+
+.cd-tabs {
+  flex: none;
+  display: flex;
+  gap: 1px;
+  height: 24px;
+  padding: 2px;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.cd-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: calc(var(--radius) - 2px);
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.cd-tab:not(:disabled):not([aria-selected="true"]):hover {
+  background: var(--surface-strong);
+  color: var(--foreground);
+}
+
+.cd-tab[aria-selected="true"] {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 0 0 1px var(--rule);
+}
+
+.cd-tab:disabled {
+  opacity: 0.55;
+}
+
+/* Rules are waiting in Global. */
+.cd-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* Beside a phone's page the inspector is the column: nothing to fold. */
+.stage.phone .cd-fold {
+  display: none;
+}
+
+/* ── the body: the tree and the styles ────────────────────────────────────────────────────── */
+
+.cd-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.cd-tree {
+  flex: 0 0 44%;
+  min-width: 0;
+  overflow: auto;
+  outline: none;
+  border-right: 1px solid var(--rule);
+  font-family: var(--font-mono);
+  font-size: var(--text-control);
+}
+
+.cd-tree:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.cd-tspace {
+  position: relative;
+  min-width: max-content;
+}
+
+.cd-trow {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding-right: 12px;
+  white-space: nowrap;
+}
+
+.cd-trow.hov {
+  background: var(--surface);
+}
+
+.cd-trow.on {
+  background: color-mix(in srgb, var(--accent) 16%, var(--background));
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* (On light paper the tint is near the hover's grey: the name says it too.) */
+.cd-trow.on .cd-tt {
+  font-weight: 600;
+}
+
+/* Edited in this batch: a small dot. Hidden by it: struck through, still selectable. */
+.cd-trow.ed::after {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-left: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.cd-trow.hid .cd-tt,
+.cd-trow.hid .cd-ti,
+.cd-trow.hid .cd-tc,
+.cd-trow.hid .cd-tx {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.cd-tw {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 22px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.cd-tw .icon {
+  transition: rotate var(--duration-micro) var(--ease-micro);
+}
+
+.cd-tw.open .icon {
+  rotate: 90deg;
+}
+
+.cd-tw.none {
+  visibility: hidden;
+}
+
+.cd-ti {
+  color: var(--accent);
+}
+
+.cd-tc {
+  color: var(--muted);
+}
+
+.cd-tx {
+  margin-left: 8px;
+  font-family: var(--font-sans);
+  font-style: italic;
+  color: var(--muted);
+}
+
+.cd-side {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cd-pane {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 12px 14px;
+}
+
+.cd-pane[hidden] {
+  display: none;
+}
+
+.cd-gl {
+  display: flex;
+  flex-direction: column;
+}
+
+.cd-gl > .cd-sec,
+.cd-gl > .cd-err {
+  flex: none;
+}
+
+.cd-gl > .cd-ed {
+  flex: 1;
+  min-height: 72px;
+}
+
+.cd-gl > .cd-ed > .cd-css {
+  height: 100%;
+  max-height: none;
+  field-sizing: fixed;
+}
+
+.cd-sec {
+  display: block;
+  margin: 12px 0 4px;
+  font-weight: 600;
+}
+
+.cd-sec i {
+  margin-left: 6px;
+  font-style: normal;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* ── the fields ───────────────────────────────────────────────────────────────────────────── */
+
+.cd-cls,
+.cd-css,
+.cd-hl {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--text-control);
+  line-height: 18px;
+  tab-size: 2;
+}
+
+.cd-cls {
+  height: 28px;
+  background: var(--surface);
+  user-select: text;
+}
+
+.cd-cls:focus,
+.cd-css:focus,
+.cd-cval:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.cd-cls:disabled,
+.cd-css:disabled {
+  opacity: 0.55;
+}
+
+.cd-cls.bad {
+  box-shadow: 0 0 0 1.5px var(--status-failed);
+}
+
+.cd-cls::placeholder,
+.cd-css::placeholder {
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-style: italic;
+}
+
+.cd-ed {
+  position: relative;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+/* The box grows with its text by itself (field-sizing), so typing never has to measure it. */
+.cd-css {
+  position: relative;
+  min-height: 44px;
+  max-height: 220px;
+  field-sizing: content;
+  overflow: auto;
+  resize: none;
+  background: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* Under the text, its double with what the page did not take underlined. */
+.cd-hl {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: transparent;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.cd-hl u {
+  text-decoration: underline wavy var(--status-failed);
+  text-decoration-skip-ink: none;
+}
+
+.cd-err {
+  margin: 4px 2px 0;
+  color: var(--ink-bad);
+  overflow-wrap: anywhere;
+}
+
+/* ── computed values ──────────────────────────────────────────────────────────────────────── */
+
+.cd-crow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 24px;
+  padding: 0 4px 0 8px;
+  border-radius: calc(var(--radius) - 2px);
+  font-family: var(--font-mono);
+}
+
+.cd-crow:hover {
+  background: var(--surface);
+}
+
+/* The name copies the value into Element styles, and is dragged to change its number. */
+.cd-cp {
+  flex: 0 0 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  color: var(--muted);
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.cd-cp:hover,
+.cd-cp.scrubbing {
+  color: var(--foreground);
+}
+
+/* A value reads as text until it is pointed at or focused: then it is a field. */
+.cd-cval {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  padding: 0 4px;
+  margin-left: -4px;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  background: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-control);
+  text-overflow: ellipsis;
+  user-select: text;
+}
+
+.cd-cval:hover {
+  background: var(--surface-strong);
+}
+
+.cd-cval:focus {
+  background: var(--background);
+  text-overflow: clip;
+}
+
+.cd-cval.bad {
+  text-decoration: underline wavy var(--status-failed);
+  text-decoration-skip-ink: none;
+  box-shadow: 0 0 0 1.5px var(--status-failed);
+}
+
+/* What this batch has changed on this element, in the accent (and heavier: on light paper the
+   accent is near the ink). */
+.cd-crow.mine .cd-cp,
+.cd-crow.mine .cd-cval {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* The page's variable the value is: a click writes it. */
+.cd-ctok {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  height: 20px;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: calc(var(--radius) - 2px);
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+
+.cd-ctok:hover {
+  background: var(--surface-strong);
+  color: var(--foreground);
+}
+
+/* ── suggestions: inside the inspector's box, never over the page ───────────────────────────── */
+
+.cd-sug {
+  position: absolute;
+  z-index: 3;
+  min-width: 160px;
+  max-width: min(360px, calc(100% - 8px));
+  overflow: hidden auto;
+  padding: 4px;
+  border: 1px solid var(--background-03);
+  border-radius: 8px;
+  background: var(--background);
+  font-family: var(--font-mono);
+  overscroll-behavior: contain;
+}
+
+.cd-sg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: calc(var(--radius) - 2px);
+  white-space: nowrap;
+}
+
+.cd-sg:hover {
+  background: var(--surface);
+}
+
+.cd-sg.on {
+  background: var(--accent);
+  color: var(--background);
+}
+
+.cd-sgn {
+  flex: none;
+}
+
+/* a variable's value, after its name: quieter, and cut when the row is too narrow */
+.cd-sgv {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+  padding-left: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+
+.cd-sg.on .cd-sgv {
+  color: inherit;
+}
+
+.cd-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px var(--background-05);
+}
+
+/* ── the shapes ───────────────────────────────────────────────────────────────────────────── */
+
+/* Wide: three columns, each scrolling by itself; the styles box takes the height that is left. */
+@container cd (min-width: 900px) {
+  .cd-tree {
+    flex-basis: 33.333%;
+  }
+
+  .cd-el {
+    display: flex;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .cd-el .cd-col {
+    min-width: 0;
+    overflow: auto;
+    padding: 0 12px 14px;
+  }
+
+  .cd-el .cd-comp {
+    order: -1;
+    flex: 0 0 50%;
+    border-right: 1px solid var(--rule);
+  }
+
+  .cd-el .cd-in {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .cd-el .cd-in > * {
+    flex: none;
+  }
+
+  .cd-el .cd-in > .cd-ed {
+    flex: 1;
+    min-height: 72px;
+  }
+
+  .cd-el .cd-in > .cd-ed > .cd-css {
+    height: 100%;
+    max-height: none;
+    field-sizing: fixed;
+  }
+}
+
+/* Narrow, or a tall column: the tree on top, the styles under it at the whole width. */
+@container cd (max-width: 519px) or ((max-width: 699px) and (orientation: portrait)) {
+  .cd-body {
+    flex-direction: column;
+  }
+
+  .cd-tree {
+    flex: 0 0 38%;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .cd-title {
+    display: none;
+  }
+
+  .cd-head {
+    gap: 8px;
+  }
+}
+
+/* A tall column has room for the styles box to grow before it scrolls. */
+@container cd (min-height: 640px) {
+  .cd-css {
+    max-height: 320px;
+  }
+}

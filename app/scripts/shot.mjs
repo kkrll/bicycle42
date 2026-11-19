@@ -103,6 +103,8 @@ const SHOTS = [
   { name: "dock-more", mock: "review", query: "&docks=motion&mode=motion", run: [click('.mdock-hd [aria-label="More"]')], wait: 400 },
   // Under a page in a narrow window: what is open, with a way back to the list.
   { name: "dock-narrow", mock: "review", query: "&docks=motion&mode=motion", size: [1000, 720] },
+  // Edit mode's inspector, drawn by the window under a desktop's page (mock-canvas.ts: a card selected).
+  { name: "canvas-dock", mock: "review", query: "&docks=canvas&mode=edit" },
   { name: "collapsed", mock: "review", run: [click("[data-action=panel]")] },
   { name: "busy", mock: "busy", wait: 1500 },
   { name: "permission", mock: "permission" },

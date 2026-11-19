@@ -30,6 +30,7 @@ import type {
   Shortcut,
   SlashCommand,
 } from "../shared/types"
+import { canvasView } from "./mock-canvas"
 import { setFocusedNote } from "./store"
 import type { MotionView } from "../../../overlay/protocol-motion"
 
@@ -1074,9 +1075,11 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       return () => chatFns.delete(fn)
     },
     onNoteFocus: () => () => true,
+    // A hosted dock's view, as the overlay would send it once the dock is shown.
     onPanel(fn) {
       panelFns.add(fn)
       if (state.review.docks.includes("motion")) fn({ panel: "motion", view: structuredClone(MOTION) })
+      if (state.review.docks.includes("canvas")) setTimeout(() => fn({ panel: "canvas", view: canvasView() }))
       return () => panelFns.delete(fn)
     },
     onShortcut(fn) {

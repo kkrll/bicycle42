@@ -11,11 +11,13 @@
 import { Show, type Component } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import type { Dock } from "../shared/types"
+import { CanvasDock } from "./canvas-dock"
 import { MotionDock } from "./motion-dock"
 import { state } from "./store"
 
 /** The component of each dock the window can draw. One that is not here yet is the overlay's. */
 const DOCKS: Partial<Record<Dock, Component>> = {
+  canvas: CanvasDock,
   motion: MotionDock,
 }
 

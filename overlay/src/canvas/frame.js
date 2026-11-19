@@ -8,6 +8,7 @@ import { endEdit } from "./text.js";
 import { dock } from "./cursor.js";
 import { drawTree, reveal, T } from "./tree.js";
 import { drawComputed, syncFields } from "./inspector.js";
+import { hostView } from "./host.js";
 import { bandEl, bar, corner, cv, dimEl, ghostEl, hitEl, insEl, insp, labEl } from "./mount.js";
 import { modeOn } from "../mode.js";
 import { hosted } from "../panel.js";
@@ -139,7 +140,8 @@ export function cvFrame(capturing) {
   if (seen && !d && !C.edit && r.y + r.h + 26 <= floor && r.y + r.h + 14 > 0) say(dimEl, `${Math.round(r.w)} × ${Math.round(r.h)}`, r.x + r.w / 2, r.y + r.h + 14, "lab dim mid");
   else gone(dimEl);
 
-  if (!C.collapsed) {
+  // The host's own inspector is drawn from the view (host.js); the layer's, hidden, is not drawn.
+  if (!hostView() && !C.collapsed) {
     drawTree();
     drawComputed();
   }
