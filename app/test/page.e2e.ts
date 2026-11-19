@@ -360,6 +360,32 @@ async function main() {
   page.load(moved)
   await until(() => !page.state().loading && !page.state().error && wc.getURL() === moved)
   check("a later good load clears the error", page.state().error === undefined && page.state().url === moved, page.state().error)
+  {
+    // The check above wins or loses this by timing: whether the good load starts before
+    // Chromium's error page for the failed one has finished loading. Then the error page's frame,
+    // replaced, reports its own load as aborted (-3, chrome-error://chromewebdata/) as the main
+    // frame after the good page has committed, and that must not become the error over the good
+    // page. Started from did-fail-load itself the good load is as early as it can be, and it
+    // usually wins: a few tries make sure the case is met, and each try must end without an error.
+    const stale: string[] = []
+    const watch = (_e: unknown, code: number, _d: string, failed: string) => void (code === -3 && failed.startsWith("chrome-error:") && stale.push(failed))
+    wc.on("did-fail-load", watch)
+    const wrong: string[] = []
+    let tries = 0
+    while (tries < 8 && (tries < 2 || !stale.length)) {
+      tries++
+      const ready = count("ready")
+      wc.once("did-fail-load", () => page.load(moved))
+      page.load(first)
+      await until(() => !page.state().loading && wc.getURL() === moved && count("ready") > ready)
+      if (wc.getURL() !== moved || count("ready") === ready) wrong.push(`try ${tries}: did not load (${wc.getURL()})`)
+      if (page.state().error !== undefined) wrong.push(`try ${tries}: ${page.state().error}`)
+    }
+    wc.off("did-fail-load", watch)
+    console.log(`  (${stale.length} of ${tries} tries had the error page's frame report its aborted load)`)
+    check("a good load started as the error page is drawn loads, with no error", !wrong.length && page.state().url === moved, wrong.join("; "))
+    check("…also when the error page's frame reports its own aborted load", stale.length > 0, `${stale.length} of ${tries}`)
+  }
   await until(() => inOverlay("!!window.__b42"), 2000)
 
   // ── pins: hover says what the note was, a click tells the app ──────────────────────────────
