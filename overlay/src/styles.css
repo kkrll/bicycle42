@@ -1,5 +1,5 @@
 :host { all: initial; }
-/* The peek (alt+W held): the layer is transparent, and the pointer goes through it to the page. */
+/* The peek (alt+A held): the layer is transparent, and the pointer goes through it to the page. */
 :host([data-peek]) * { pointer-events: none !important; }
 .ink { position: fixed; inset: 0; width: 100vw; height: 100vh; overflow: visible; pointer-events: none; }
 .ink.on { will-change: transform; }

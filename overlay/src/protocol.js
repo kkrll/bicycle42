@@ -15,7 +15,7 @@
  *
  * Modes: mod+U Preview (pressed again, back to the mode it left) · mod+P Annotate (notes) · mod+shift+P
  * the brush · mod+O Edit (canvas) · mod+I Motion. By the key's place (KeyU…), so any layout has them.
- * Inside the page they are the overlay's. alt+W held (KeyW): the peek, the layer out of sight until
+ * Inside the page they are the overlay's. alt+A held (KeyA): the peek, the layer out of sight until
  * either key is let go, nothing else changed (input.js).
  *
  * Gestures (review mode on): hover outlines · click selects · shift+click adds · drag selects an

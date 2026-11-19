@@ -117,7 +117,7 @@ them.
 | Modes, anywhere | |
 |---|---|
 | `mod+U` | Preview; again, back to the mode you were in |
-| hold `alt+W` | Peek: the page without the layer while held (your unsent edits stay on). Hover reaches the page, clicks don't |
+| hold `alt+A` | Peek: the page without the layer while held (your unsent edits stay on). Hover reaches the page, clicks don't |
 | `mod+P` / `mod+O` / `mod+I` | Annotate / Edit / Motion |
 | `mod+shift+P` | The pencil: draw on the page |
 

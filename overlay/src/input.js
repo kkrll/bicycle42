@@ -120,14 +120,15 @@ function brushKey() {
   setBrush(true);
 }
 
-// ── the peek: alt+W held ────────────────────────────────────────────────────────────────────
-// While alt+W is held the layer is out of sight and the page is shown as it is now, unsent edits
+// ── the peek: alt+A held ────────────────────────────────────────────────────────────────────
+// While alt+A is held the layer is out of sight and the page is shown as it is now, unsent edits
 // included. Nothing else changes: not the mode, not the selection or the note, not the focus
 // (the layer is made transparent, not hidden, so a focused field keeps its caret), and the host
 // is not told. The pointer's hover reaches the page; a press does not, since it would be an
-// alt+click there. By the key's place (KeyW), like the mode keys. Letting go of either key ends
+// alt+click there. By the key's place (KeyA), like the mode keys. (A, not a letter a menu of the
+// app's window starts with: on Linux and Windows the menu bar may take alt+its letter.) Letting go of either key ends
 // it, and so does the window losing focus, since then no keyup comes.
-const isPeekKey = (e) => e.code === "KeyW" && e.altKey && !mod(e) && !e.shiftKey;
+const isPeekKey = (e) => e.code === "KeyA" && e.altKey && !mod(e) && !e.shiftKey;
 
 function startPeek() {
   // Not in the middle of a drag: what the drag draws would go on out of sight.
@@ -148,7 +149,7 @@ export function endPeek() {
 }
 
 export function onKeyUp(e) {
-  if (!S.peek || (e.code !== "KeyW" && e.key !== "Alt")) return;
+  if (!S.peek || (e.code !== "KeyA" && e.key !== "Alt")) return;
   block(e); // (an alt let go alone would otherwise show the window's menu bar on Linux and Windows)
   endPeek();
 }

@@ -592,7 +592,7 @@ function Empty() {
         </dt>
         <dd>Preview the page, or back to reviewing</dd>
         <dt>
-          <Kbd keys={keys("alt", "W")} />
+          <Kbd keys={keys("alt", "A")} />
         </dt>
         <dd>Hold to see the page without the layer</dd>
         <dt>

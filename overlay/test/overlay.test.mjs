@@ -292,7 +292,7 @@ test("mod+U inside the page is Preview, and again goes back; mod+I from Preview 
   await page.close();
 });
 
-test("alt+W held hides the layer and lets hover through; the note, its focus and the mode stay; letting go of either key, or the window's focus, brings it back", async () => {
+test("alt+A held hides the layer and lets hover through; the note, its focus and the mode stay; letting go of either key, or the window's focus, brings it back", async () => {
   const { page, f } = await open();
   await clickAt(page, f, "#cta"); // focus lands in the card
   await page.keyboard.type("bigger");
@@ -308,7 +308,7 @@ test("alt+W held hides the layer and lets hover through; the note, its focus and
   });
 
   await page.keyboard.down("Alt");
-  await page.keyboard.down("KeyW");
+  await page.keyboard.down("KeyA");
   assert.deepEqual(await layer(), { opacity: "0", text: "bigger", focused: true });
   await page.keyboard.press("KeyX"); // typed out of sight: nowhere
   const [x, y] = center(await box(f, "#menu"));
@@ -316,7 +316,7 @@ test("alt+W held hides the layer and lets hover through; the note, its focus and
   assert.ok((await f.evaluate(() => window.peekHovers)) > 0, "the page saw the pointer");
   await page.mouse.click(x, y);
   assert.equal(await f.evaluate(() => window.pageClicks), 0);
-  await page.keyboard.up("KeyW");
+  await page.keyboard.up("KeyA");
   await page.keyboard.up("Alt");
   assert.deepEqual(await layer(), { opacity: "1", text: "bigger", focused: true });
   assert.equal(await page.evaluate(() => window.__harness.enabled && window.__harness.mode), "notes");
@@ -324,15 +324,15 @@ test("alt+W held hides the layer and lets hover through; the note, its focus and
 
   // Alt let go first ends it too, and so does the window losing focus.
   await page.keyboard.down("Alt");
-  await page.keyboard.down("KeyW");
+  await page.keyboard.down("KeyA");
   await page.keyboard.up("Alt");
   assert.equal((await layer()).opacity, "1");
-  await page.keyboard.up("KeyW");
+  await page.keyboard.up("KeyA");
   await page.keyboard.down("Alt");
-  await page.keyboard.down("KeyW");
+  await page.keyboard.down("KeyA");
   await f.evaluate(() => window.dispatchEvent(new Event("blur")));
   assert.equal((await layer()).opacity, "1");
-  await page.keyboard.up("KeyW");
+  await page.keyboard.up("KeyA");
   await page.keyboard.up("Alt");
 
   await page.keyboard.press("Enter");

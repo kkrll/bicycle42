@@ -154,8 +154,9 @@ function Hint() {
 /** Preview | Annotate | Edit | Motion: what a click on the page does (verbs, all of them;
  *  "annotate" is the mode that makes notes, and `notes` in the state). Each shows what it does
  *  and its key, if it has one, when the pointer rests on it. */
-const MODES: { mode: ReviewMode; label: string; icon: IconName; what: string; keys?: () => string }[] = [
-  { mode: "preview", label: "Preview", icon: "eye", what: "Use the page as it is", keys: () => keys("mod", "U") },
+const MODES: { mode: ReviewMode; label: string; icon: IconName; what: string; keys?: () => string; more?: () => string }[] = [
+  // Held, alt+A is Preview for as long as it is held: the layer out of sight, nothing switched.
+  { mode: "preview", label: "Preview", icon: "eye", what: "Use the page as it is", keys: () => keys("mod", "U"), more: () => `hold ${keys("alt", "A")}` },
   { mode: "notes", label: "Annotate", icon: "note", what: "Point at something, say what to change", keys: () => keys("mod", "P") },
   { mode: "edit", label: "Edit", icon: "frame", what: "Change the page itself, then send", keys: () => keys("mod", "O") },
   { mode: "motion", label: "Motion", icon: "motion", what: "See what moves on the page, change an animation, then send", keys: () => keys("mod", "I") },
@@ -178,7 +179,7 @@ function ModeSwitch(props: { disabled: boolean }) {
             aria-keyshortcuts={m.keys?.()}
             disabled={props.disabled}
             onClick={() => act("setMode", m.mode)}
-            {...hinted(() => ({ text: m.what, keys: m.keys ? [m.keys()] : [] }))}
+            {...hinted(() => ({ text: m.what, keys: [m.keys?.(), m.more?.()].filter((k): k is string => !!k) }))}
           >
             <Icon name={m.icon} />
             <span class="mode-label">{m.label}</span>
