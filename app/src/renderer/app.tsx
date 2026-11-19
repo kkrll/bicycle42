@@ -1,4 +1,4 @@
-// The window: top bar, a strip for a failed command, the page's box and the panel.
+// The window: top bar, a strip for a failed command, the panel at the left and the page's box.
 //
 // The page itself is not in this document. Main draws it as a native view exactly over the
 // `.page` box, and that view paints above every element here. So this file's one hard duty is to
@@ -8,7 +8,7 @@
 //   · the settings dialog is open
 //   · the panel is being resized (the native view would swallow the drag)
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
-import type { Device, Rect, ReviewMode, Shortcut } from "../shared/types"
+import { PHONES, phoneOf, type Device, type Rect, type ReviewMode, type Shortcut } from "../shared/types"
 import { DockRegion, dockShown } from "./dock"
 import { ConnectScreen, ModelScreen, ServerButton, SettingsDialog, SetupSteps, firstRunConnecting } from "./connect"
 import { Icon, Kbd, type IconName } from "./icons"
@@ -117,30 +117,41 @@ function UrlField(props: { ref: (el: HTMLInputElement) => void }) {
 
 type HintText = { text: string; keys: string[] }
 const [hint, setHint] = createSignal<HintText | null>(null)
-/** The pointer rests this long before a hint shows; once one is up, the next shows at once. */
-const HINT_DELAY = 600
+/** The pointer rests this long before a hint shows: a pointer on its way to a click never sees
+ *  one. Once one is up, the next shows at once. */
+const HINT_DELAY = 2000
 const HINT_WARM = 400
+/** A hint stays this long after the pointer leaves its control: on the way to the control next
+ *  to it the hint is not taken down and put up again (which blinked), only its words change. */
+const HINT_LINGER = 120
 let hintTimer: ReturnType<typeof setTimeout> | undefined
+let hintLeave: ReturnType<typeof setTimeout> | undefined
 let hintGone = 0
 
 /** Event handlers for a control with a hint. `what` is read when the hint shows, so it follows
- *  state (Show / Hide the panel). */
+ *  state. */
 function hinted(what: () => HintText) {
-  const hide = () => {
-    clearTimeout(hintTimer)
+  const drop = () => {
     if (hint()) hintGone = Date.now()
     setHint(null)
+  }
+  const hide = (atOnce: boolean) => {
+    clearTimeout(hintTimer)
+    clearTimeout(hintLeave)
+    if (atOnce || !hint()) drop()
+    else hintLeave = setTimeout(drop, HINT_LINGER)
   }
   return {
     onPointerEnter: () => {
       clearTimeout(hintTimer)
+      clearTimeout(hintLeave)
       const warm = !!hint() || Date.now() - hintGone < HINT_WARM
       if (warm) setHint(what())
       else hintTimer = setTimeout(() => setHint(what()), HINT_DELAY)
     },
-    onPointerLeave: hide,
+    onPointerLeave: () => hide(false),
     // A click is the answer to the question the hint was for.
-    onPointerDown: hide,
+    onPointerDown: () => hide(true),
   }
 }
 
@@ -197,9 +208,9 @@ function ModeSwitch(props: { disabled: boolean }) {
 }
 
 /** Desktop | Phone, beside the address: how the page is shown (Device in shared/types.ts). */
-const DEVICES: { device: Device; label: string; icon: IconName; what: string }[] = [
-  { device: "desktop", label: "Desktop", icon: "desktop", what: "The page as on a desktop: as wide as its pane" },
-  { device: "phone", label: "Phone", icon: "phone", what: "The page as on a phone: 390 px wide" },
+const DEVICES: { device: Device; label: string; icon: IconName; what: () => string }[] = [
+  { device: "desktop", label: "Desktop", icon: "desktop", what: () => "The page as on a desktop: as wide as its pane" },
+  { device: "phone", label: "Phone", icon: "phone", what: () => `The page as on a phone: ${phoneOf(state.page.phone).width} px wide` },
 ]
 
 function DeviceSwitch(props: { disabled: boolean }) {
@@ -213,16 +224,42 @@ function DeviceSwitch(props: { disabled: boolean }) {
             data-device={d.device}
             aria-label={d.label}
             aria-checked={state.page.device === d.device}
-            aria-description={d.what}
+            aria-description={d.what()}
             disabled={props.disabled}
             onClick={() => act("setDevice", d.device)}
-            {...hinted(() => ({ text: d.what, keys: [] }))}
+            {...hinted(() => ({ text: d.what(), keys: [] }))}
           >
             <Icon name={d.icon} />
           </button>
         )}
       </For>
     </div>
+  )
+}
+
+/** Which phone, beside the switch while the page is a phone's: a native list under words (as the
+ *  composer's model is), because the list opens over the page, where nothing of this document's
+ *  would show. */
+function PhonePick() {
+  const phone = () => phoneOf(state.page.phone)
+  const size = (p: { width: number; height: number }) => `${p.width} × ${p.height}`
+  return (
+    <label class="pick phone-pick" title={`Shown as an ${phone().name}: ${size(phone())} px`.replace(/ an (?=[^AEIOUaeiou])/, " a ")}>
+      <span class="pick-text">
+        <span class="pick-long">{phone().name}</span>
+        <span class="phone-size">{size(phone())}</span>
+      </span>
+      <Icon name="down" />
+      <select class="pick-native" aria-label="Phone" onChange={(e) => act("setPhone", e.currentTarget.value)}>
+        <For each={PHONES}>
+          {(p) => (
+            <option value={p.id} selected={p.id === phone().id}>
+              {p.name} · {size(p)}
+            </option>
+          )}
+        </For>
+      </select>
+    </label>
   )
 }
 
@@ -239,6 +276,19 @@ function TopBar(props: {
   return (
     <header class="topbar" classList={{ mac: mac() }}>
       <Show when={!props.bare} fallback={<span class="wordmark">bicycle 42</span>}>
+        {/* First in the bar, over the panel it shows and hides. (A plain title, as the buttons
+            beside it have: the bar's own hint is at the other end, by the modes.) */}
+        <button
+          class="icon-btn"
+          data-action="panel"
+          aria-label="Notes and conversation"
+          aria-pressed={props.panelOpen}
+          aria-keyshortcuts={keys("mod", "\\")}
+          title={`${props.panelOpen ? "Hide" : "Show"} notes and conversation (${keys("mod", "\\")})`}
+          onClick={props.togglePanel}
+        >
+          <Icon name="panel" />
+        </button>
         <div class="nav">
           <button class="icon-btn" aria-label="Back" title="Back" disabled={!state.page.canGoBack} onClick={() => act("back")}>
             <Icon name="back" />
@@ -264,6 +314,9 @@ function TopBar(props: {
         </div>
         <UrlField ref={props.urlRef} />
         <DeviceSwitch disabled={!state.page.url} />
+        <Show when={state.page.device === "phone" && state.page.url}>
+          <PhonePick />
+        </Show>
         <PageError />
         <div class="tools">
           <Hint />
@@ -288,17 +341,6 @@ function TopBar(props: {
           <Show when={!props.panelOpen}>
             <NotesStatus panelOpen={props.panelOpen} showNotes={props.showNotes} />
           </Show>
-          <button
-            class="icon-btn"
-            data-action="panel"
-            aria-label="Notes and conversation"
-            aria-pressed={props.panelOpen}
-            aria-keyshortcuts={keys("mod", "\\")}
-            onClick={props.togglePanel}
-            {...hinted(() => ({ text: `${props.panelOpen ? "Hide" : "Show"} notes and conversation`, keys: [keys("mod", "\\")] }))}
-          >
-            <Icon name="panel" />
-          </button>
         </div>
       </Show>
     </header>
@@ -371,6 +413,58 @@ function NotesStatus(props: { panelOpen: boolean; showNotes: () => void }) {
         </button>
       </Match>
     </Switch>
+  )
+}
+
+// ── beside a phone's page, in a mode with no dock ───────────────────────────────────────────────
+// The column beside a phone's page is there in every mode, so the page stays where it is when
+// the mode changes. Edit and Motion fill it with their docks; Preview and Annotate have none, and
+// get what the bar's hints say, at rest: the modes and the keys, and which phone this is.
+
+function ModeAside() {
+  const mode = () => (state.review.enabled ? state.review.mode : "preview")
+  const now = () => MODES.find((m) => m.mode === mode())!
+  const phone = () => phoneOf(state.page.phone)
+  const others: { text: string; keys: () => string[] }[] = [
+    { text: "Draw on the page", keys: () => [keys("mod", "shift", "P"), `${keys("alt")} drag`] },
+    { text: "Look under the layer", keys: () => [`hold ${keys("alt", "A")}`] },
+    { text: "Address", keys: () => [keys("mod", "L")] },
+    { text: "Message box", keys: () => [keys("mod", "K")] },
+    { text: "Notes and conversation", keys: () => [keys("mod", "\\")] },
+  ]
+  return (
+    <section class="dock aside" aria-label={`${now().label}: keys`}>
+      <div class="aside-body">
+        <p class="aside-title">
+          <Icon name={now().icon} />
+          {now().label}
+        </p>
+        <p class="aside-lead">{now().what}.</p>
+        <ul class="aside-keys">
+          <For each={MODES}>
+            {(m) => (
+              <li classList={{ on: m.mode === mode() }}>
+                <span>{m.label}</span>
+                <Show when={m.keys?.()}>{(k) => <Kbd keys={k()} />}</Show>
+              </li>
+            )}
+          </For>
+        </ul>
+        <ul class="aside-keys">
+          <For each={others}>
+            {(o) => (
+              <li>
+                <span>{o.text}</span>
+                <For each={o.keys()}>{(k) => <Kbd keys={k} />}</For>
+              </li>
+            )}
+          </For>
+        </ul>
+        <p class="aside-device">
+          {phone().name} · {phone().width} × {phone().height}
+        </p>
+      </div>
+    </section>
   )
 }
 
@@ -521,7 +615,8 @@ export function App() {
     if (!dragFrom) return
     // The page goes away on the first move, not on press, so a plain click does not blink it.
     setResizing(true)
-    setPanelWidth(clampWidth(dragFrom.width + dragFrom.x - e.clientX))
+    // (The panel is at the left: its edge is dragged right to widen it.)
+    setPanelWidth(clampWidth(dragFrom.width + e.clientX - dragFrom.x))
   }
   const dragEnd = () => {
     if (!dragFrom) return
@@ -614,7 +709,15 @@ export function App() {
   })
 
   return (
-    <div class="app" style={{ "--panel-width": `${panelWidth()}px`, "--dock-height": `${dockHeight()}px` }}>
+    <div
+      class="app"
+      style={{
+        "--panel-width": `${panelWidth()}px`,
+        "--dock-height": `${dockHeight()}px`,
+        "--phone-width": `${phoneOf(state.page.phone).width}px`,
+        "--phone-height": `${phoneOf(state.page.phone).height}px`,
+      }}
+    >
       <TopBar
         bare={!ready() || setup()}
         urlRef={(el) => (urlEl = el)}
@@ -627,9 +730,36 @@ export function App() {
         <Strips />
       </Show>
       <main class="work" inert={!ready() || setup()}>
+        {/* Hidden, not unmounted: the conversation keeps its scroll position and rendered text. */}
+        <aside class="panel" ref={panelEl} hidden={!panelOpen()}>
+          <Panel composerRef={(el) => (composerEl = el)} openSettings={() => setSettings(true)} size={panelSize()} />
+        </aside>
+        <Show when={panelOpen()}>
+          <div
+            class="resizer"
+            classList={{ active: resizing() && !dockDragging() }}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize the panel"
+            aria-valuemin={PANEL_MIN}
+            aria-valuemax={maxWidth()}
+            aria-valuenow={panelWidth()}
+            tabindex="0"
+            onPointerDown={dragStart}
+            onPointerMove={dragMove}
+            onPointerUp={dragEnd}
+            onPointerCancel={dragEnd}
+            onLostPointerCapture={dragEnd}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowRight") nudge(16)
+              else if (e.key === "ArrowLeft") nudge(-16)
+            }}
+          />
+        </Show>
         {/* The page and, when the window draws the dock of the mode that is on, that dock: under
-            the page, or beside it when the page is shown as a phone's. */}
-        <div class="stage" ref={stageEl} classList={{ phone: phone(), docked: !!dockShown() }}>
+            the page. A phone's page has a column beside it in every mode (the dock, or the keys),
+            so it stays where it is when the mode changes. */}
+        <div class="stage" ref={stageEl} classList={{ phone: phone() }}>
         {/* While a dialog is open or the panel is resized the page view is away: a quiet surface
             stands in for it, so the window does not go black. */}
         <div class="page" ref={pageEl} classList={{ veiled: settings() || switcherOpen() || runningOpen() || resizing() }}>
@@ -682,7 +812,7 @@ export function App() {
             </div>
           </Show>
         </div>
-        <Show when={dockShown()}>
+        <Show when={dockShown()} fallback={<Show when={phone()}><ModeAside /></Show>}>
           {(dock) => (
             <>
               <Show when={!phone()}>
@@ -711,32 +841,6 @@ export function App() {
           )}
         </Show>
         </div>
-        <Show when={panelOpen()}>
-          <div
-            class="resizer"
-            classList={{ active: resizing() && !dockDragging() }}
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize the panel"
-            aria-valuemin={PANEL_MIN}
-            aria-valuemax={maxWidth()}
-            aria-valuenow={panelWidth()}
-            tabindex="0"
-            onPointerDown={dragStart}
-            onPointerMove={dragMove}
-            onPointerUp={dragEnd}
-            onPointerCancel={dragEnd}
-            onLostPointerCapture={dragEnd}
-            onKeyDown={(e) => {
-              if (e.key === "ArrowLeft") nudge(16)
-              else if (e.key === "ArrowRight") nudge(-16)
-            }}
-          />
-        </Show>
-        {/* Hidden, not unmounted: the conversation keeps its scroll position and rendered text. */}
-        <aside class="panel" ref={panelEl} hidden={!panelOpen()}>
-          <Panel composerRef={(el) => (composerEl = el)} openSettings={() => setSettings(true)} size={panelSize()} />
-        </aside>
       </main>
       <Show when={ready() && connectStep()}>
         <ConnectScreen />

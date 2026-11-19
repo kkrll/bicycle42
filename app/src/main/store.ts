@@ -49,6 +49,8 @@ export type Settings = {
   pageBounds?: Rect
   /** The page shown as a phone's (Device in shared/types.ts). Absent: as a desktop's. */
   device?: "phone"
+  /** Which phone that is (an id in PHONES). Absent: the usual one. */
+  phone?: string
   /** Key: the site's origin. */
   /** `url` and `seen`: the page last open on the site and when, to come back to with its project. */
   sites: Sites

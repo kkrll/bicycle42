@@ -7,7 +7,7 @@ const PATHS = {
   forward: "M9 5l7 7-7 7",
   reload: "M20 12a8 8 0 1 1-2.6-5.9M20 4v5h-5",
   spinner: "M12 3a9 9 0 1 0 9 9",
-  panel: "M4 5h16v14H4zM14.5 5v14",
+  panel: "M4 5h16v14H4zM9.5 5v14",
   // The page as a desktop's, and as a phone's: a screen on its stand, a handset with its home line.
   desktop: "M3 5h18v11H3zM8.5 20h7M12 16v4",
   phone: "M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM10.5 18h3",

@@ -58,7 +58,7 @@ import type {
   SessionSummary,
   SlashCommand,
 } from "../shared/types"
-import { HOSTED_DOCKS } from "../shared/types"
+import { HOSTED_DOCKS, PHONE, phoneOf } from "../shared/types"
 import { noteImages, notePicture, type Frame } from "./images"
 import { readLocal } from "./local"
 import { isPlaceholder, placeholderTitle, titleFrom } from "./naming"
@@ -253,6 +253,7 @@ export function createCore(host: Host): Core {
   const docks = host.docks ?? HOSTED_DOCKS
   const isDock = (name: unknown): name is Dock => docks.includes(name as Dock)
   const device = (): Device => (store.settings().device === "phone" ? "phone" : "desktop")
+  const phone = () => phoneOf(store.settings().phone)
 
   function snapshot(): AppState {
     const p = page?.state()
@@ -262,7 +263,7 @@ export function createCore(host: Host): Core {
     return {
       connection,
       ...(serverName() ? { serverName: serverName() } : {}),
-      page: { ...(p ?? { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }), device: device() },
+      page: { ...(p ?? { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }), device: device(), phone: phone().id },
       review: {
         enabled: review?.enabled ?? true,
         mode: !(review?.enabled ?? true) ? "preview" : pageMode.canvas ? "edit" : pageMode.motion ? "motion" : "notes",
@@ -1772,7 +1773,15 @@ export function createCore(host: Host): Core {
       const to: Device = d === "phone" ? "phone" : "desktop"
       if (to === device()) return
       store.update((s) => void (to === "phone" ? (s.device = to) : delete s.device))
-      page?.setDevice(to)
+      page?.setDevice(to, phone())
+      push()
+    },
+
+    setPhone(id) {
+      const to = phoneOf(id)
+      if (to.id === phone().id) return
+      store.update((s) => void (to.id === PHONE.id ? delete s.phone : (s.phone = to.id)))
+      if (device() === "phone") page?.setDevice("phone", to)
       push()
     },
 
@@ -2319,7 +2328,7 @@ export function createCore(host: Host): Core {
     attach(p) {
       page = p
       // A page is a desktop's until told otherwise: only a phone's is said.
-      if (device() === "phone") p.setDevice("phone")
+      if (device() === "phone") p.setDevice("phone", phone())
     },
     detach: () => void (page = undefined),
     lastUrl: () => store.settings().lastUrl ?? "",

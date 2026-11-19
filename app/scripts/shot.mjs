@@ -95,6 +95,7 @@ const SHOTS = [
   { name: "review-narrow", mock: "review", size: [760, 560] },
   // The page as a phone's; and a dock the window draws (none is, yet: its box with its name), under the page and beside a phone's.
   { name: "phone", mock: "review", query: "&device=phone" },
+  { name: "phone-se", mock: "review", query: "&device=phone&phone=iphone-se&mode=preview" },
   { name: "dock", mock: "review", query: "&docks=motion&mode=motion" },
   { name: "phone-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit" },
   // Motion's dock drawn by the window: beside a phone's page (the list above what is open), and

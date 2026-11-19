@@ -11,7 +11,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { test } from "node:test"
-import { HOSTED_DOCKS, type ChatEvent } from "../src/shared/types"
+import { HOSTED_DOCKS, PHONE, type ChatEvent } from "../src/shared/types"
 import { start, until, type FakeReply, type FakeServer } from "./fake-server"
 import { testShell } from "./stubs/host"
 
@@ -2122,11 +2122,31 @@ test("the page as a phone's: the page is told, the window is told, and the next 
     await h.cmd("setDevice", "tablet") // not a device: a desktop's
     assert.deepEqual(devices(h.shell), ["phone", "desktop"])
     await h.cmd("setDevice", "phone")
+    // Which phone: the usual one until another is chosen; the page is told of a new one at once.
+    const phones = (shell: typeof h.shell) => shell.page.calls.filter((c) => c[0] === "phone").map((c) => c[1])
+    assert.equal(h.snap().page.phone, PHONE.id)
+    assert.equal(phones(h.shell).at(-1), PHONE.id)
+    await h.cmd("setPhone", "iphone-se")
+    assert.equal(h.snap().page.phone, "iphone-se")
+    assert.equal(phones(h.shell).at(-1), "iphone-se")
+    const told = h.shell.page.calls.length
+    await h.cmd("setPhone", "iphone-se") // already so
+    assert.equal(h.shell.page.calls.length, told)
+    await h.cmd("setPhone", "a-brick") // not a phone on the list: the usual one
+    assert.equal(h.snap().page.phone, PHONE.id)
+    // As a desktop's the choice is kept, and the page is not told until it is a phone's again.
+    await h.cmd("setDevice", "desktop")
+    await h.cmd("setPhone", "pixel-8")
+    assert.equal(phones(h.shell).at(-1), PHONE.id)
+    await h.cmd("setDevice", "phone")
+    assert.equal(phones(h.shell).at(-1), "pixel-8")
     // A second start on the same profile, as after a relaunch (once the setting is on disk).
-    await until(() => fs.existsSync(path.join(h.dir, "settings.json")) && /"device":\s*"phone"/.test(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")))
+    await until(() => fs.existsSync(path.join(h.dir, "settings.json")) && /"phone":\s*"pixel-8"/.test(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")) && /"device":\s*"phone"/.test(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")))
     const again = testShell(h.dir)
     assert.equal(again.core.snapshot().page.device, "phone")
+    assert.equal(again.core.snapshot().page.phone, "pixel-8")
     assert.deepEqual(devices(again), ["phone"])
+    assert.deepEqual(phones(again), ["pixel-8"])
     await again.core.dispose()
   } finally {
     await h.close()

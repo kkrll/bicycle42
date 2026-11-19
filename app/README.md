@@ -249,11 +249,24 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
 ## The page as a phone's, and docks the window draws
 
 - **Desktop | Phone, beside the address** (`setDevice`, `page.device`; kept in settings). As a
-  phone's, the window gives the page a box 390 by 844 at most (`PHONE` in `shared/types.ts`, the
-  `.stage.phone` rules) and main asks Chromium for its own phone emulation (`setDevice` in
-  `main/page.ts`): the viewport tag counts and scrollbars lie over the page, so the page is laid
-  out 390 wide, not 375. The pointer stays a mouse: every mode works as on a desktop page. A page
-  with something wider than the window is shown zoomed out to fit, as a phone shows it.
+  phone's, the window gives the page a box the size of the chosen phone's screen at most (one of
+  `PHONES` in `shared/types.ts`, 390 by 844 until another is chosen; the `.stage.phone` rules,
+  from `--phone-width` and `--phone-height`) and main asks Chromium for its own phone emulation
+  (`setDevice` in `main/page.ts`): the viewport tag counts and scrollbars lie over the page, so
+  the page is laid out 390 wide, not 375. The pointer stays a mouse: every mode works as on a
+  desktop page. A page with something wider than the window is shown zoomed out to fit, as a
+  phone shows it.
+- **Which phone** (`setPhone`, `page.phone`; kept in settings, also while the page is a
+  desktop's). The list next to the switch is a native `<select>` under words (`PhonePick` in
+  `renderer/app.tsx`, as the composer's model is): its list opens over the page, where nothing
+  of the window's own document would show.
+- **The panel is at the window's left, and a phone's page next to it, in every mode.** The
+  column on the page's right is the mode's dock, or in a mode with none (Preview, Annotate) the
+  modes and the keys (`ModeAside` in `renderer/app.tsx`): the column is always there, so the
+  page does not move when the mode changes.
+- **The bar's hints wait two seconds** (`HINT_DELAY`), and one that is up stays a moment after
+  the pointer leaves its control (`HINT_LINGER`): on the way to the next control the same
+  element gets new words, and is not taken down and put up again.
 - **A dock the window draws.** Edit mode's inspector and motion mode's dock are the overlay's,
   drawn at the bottom of the page. A dock named in `HOSTED_DOCKS` (`shared/types.ts`) is drawn by
   the window instead: the overlay is told after every "state" ("docks"), shows no dock of its own
@@ -261,7 +274,7 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   in `dockViews` in `renderer/store.ts`) and does what the window's dock asks (the `panel`
   command, `dockAct`). Main carries both and reads neither. The dock's component goes into
   `DOCKS` in `renderer/dock.tsx`; the window puts it under the page (its top edge drags, as the
-  panel's side does) or, beside a phone's page, in the column between the page and the panel.
+  panel's side does) or, beside a phone's page, in the column at the page's right.
   What a view and an act carry is each dock's own file: `overlay/protocol-motion.ts`,
   `overlay/protocol-canvas.ts`.
 - **Motion's dock is the window's** (`renderer/motion-dock.tsx`, its own `motion-dock.css`):

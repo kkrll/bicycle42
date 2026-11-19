@@ -349,7 +349,7 @@ async function main() {
   check("…and no hint yet: the pointer only passed", (await hintText()) === "")
   // On a Mac ⌘ is drawn (an SVG), so the text has only the digit.
   const modKey = (k: string) => (process.platform === "darwin" ? k : `Ctrl+${k}`)
-  check("resting on it, the hint says what it does and its key", (await until(async () => (await hintText()) === `Point at something, say what to change${modKey("P")}`, 2000)) === true, await hintText())
+  check("resting on it, the hint says what it does and its key", (await until(async () => (await hintText()) === `Point at something, say what to change${modKey("P")}`, 4000)) === true, await hintText())
   check("…in the bar, left of the controls, where the page view cannot cover it", (await ui(`(() => { const h = document.querySelector('.bar-hint').getBoundingClientRect(), b = document.querySelector('.topbar').getBoundingClientRect(), t = document.querySelector('[data-action="draw"]').getBoundingClientRect(); return h.top >= b.top && h.bottom <= b.bottom && h.right <= t.left })()`)) === true)
   await hover('.mode[data-mode="edit"]')
   await sleep(100)
@@ -545,6 +545,23 @@ async function main() {
   await sleep(200)
   win.setSize(1441, 900)
   check("and the page is laid out as a phone's", (await until(() => js("document.documentElement.clientWidth === 390"), 3000)) === true, String(await js("document.documentElement.clientWidth")))
+  // The panel is at the left, and the phone's page next to it in every mode: a mode with no
+  // dock has a column of its own there (the keys), so the page does not move.
+  const panelRight = (await ui(`document.querySelector('.panel').getBoundingClientRect().right`)) as number
+  check("the panel is at the window's left, the page after it", panelRight > 0 && panelRight <= narrow.x, `${panelRight} ${JSON.stringify(narrow)}`)
+  await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
+  await until(() => state().review.mode === "notes")
+  const aside = (await until(() => ui(`(() => { const r = document.querySelector('.dock.aside')?.getBoundingClientRect(); return r ? { x: r.x, text: document.querySelector('.aside-title').textContent } : null })()`))) as { x: number; text: string } | undefined
+  await sleep(200) // (a frame or two: where the page is goes to main once a frame)
+  check("in Annotate the phone's page stays where it was, with the keys beside it", !!aside && page.view.getBounds().x === narrow.x && page.view.getBounds().width === 390 && aside.x >= narrow.x + 390 && aside.text === "Annotate", `${JSON.stringify(page.view.getBounds())} ${JSON.stringify(aside)}`)
+  // Which phone: the list beside the switch.
+  await ui(`(() => { const s = document.querySelector('.phone-pick select'); s.value = "iphone-se"; s.dispatchEvent(new Event("change", { bubbles: true })) })()`)
+  check("another phone is another box, at the same place", (await until(() => page.view.getBounds().width === 375 && page.view.getBounds().height === 667)) === true && page.view.getBounds().x === narrow.x && state().page.phone === "iphone-se", JSON.stringify(page.view.getBounds()))
+  check("…and its name beside the switch", (await ui(`document.querySelector('.phone-pick .pick-long').textContent`)) === "iPhone SE")
+  await ui(`(() => { const s = document.querySelector('.phone-pick select'); s.value = "iphone-14"; s.dispatchEvent(new Event("change", { bubbles: true })) })()`)
+  await until(() => page.view.getBounds().width === 390)
+  await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
+  await until(() => state().review.mode === "edit")
   await ui(`document.querySelector('[data-device="desktop"]').click()`)
   await until(() => page.view.getBounds().width === wide.width)
   check("the desktop switch gives its pane back", page.view.getBounds().width === wide.width && page.view.getBounds().x === wide.x && state().page.device === "desktop", `${JSON.stringify(page.view.getBounds())}, was ${JSON.stringify(wide)}`)

@@ -30,6 +30,7 @@ import type {
   Shortcut,
   SlashCommand,
 } from "../shared/types"
+import { PHONE, phoneOf } from "../shared/types"
 import { canvasView } from "./mock-canvas"
 import { setFocusedNote } from "./store"
 import type { MotionView } from "../../../overlay/protocol-motion"
@@ -363,7 +364,7 @@ function base(): AppState {
   const now = Date.now()
   return {
     connection: { status: "online", url: "http://my-box.example:4096", version: "1.4.2" },
-    page: { url: `${ORIGIN}/pricing`, loading: false, canGoBack: true, canGoForward: false, hmr: false, device: "desktop" },
+    page: { url: `${ORIGIN}/pricing`, loading: false, canGoBack: true, canGoForward: false, hmr: false, device: "desktop", phone: PHONE.id },
     review: { enabled: true, mode: "notes", brush: false, autoReload: true, notes: notes(), unplaced: 2, docks: [] },
     site: { origin: ORIGIN, directory: DIRECTORY },
     repo: {
@@ -559,14 +560,14 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     case "repo":
       // Connected, a model chosen, nothing else yet: which repo?
       Object.assign(state, { site: null, session: null, sessions: [] })
-      state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false, device: "desktop" }
+      state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false, device: "desktop", phone: PHONE.id }
       state.review = { enabled: false, mode: "preview", brush: false, autoReload: false, notes: [], unplaced: 0, docks: [] }
       items = []
       break
     case "empty":
       // The repo is open, with its conversation; no page yet.
       Object.assign(state, { site: { origin: "", directory: DIRECTORY } })
-      state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false, device: "desktop" }
+      state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false, device: "desktop", phone: PHONE.id }
       state.review = { enabled: false, mode: "preview", brush: false, autoReload: false, notes: [], unplaced: 0, docks: [] }
       items = []
       break
@@ -578,7 +579,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     case "model-choice":
       // Just connected to a server with a long list: which model should conversations start with?
       Object.assign(state, { site: null, session: null, sessions: [] })
-      state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false, device: "desktop" }
+      state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false, device: "desktop", phone: PHONE.id }
       state.review = { enabled: false, mode: "preview", brush: false, autoReload: false, notes: [], unplaced: 0, docks: [] }
       state.models = [
         { providerID: "anthropic", id: "opus-4-5", name: "Opus 4.5", images: true, variants: ["low", "medium", "high"] },
@@ -746,9 +747,12 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   }
 
   // &device=phone and &docks=motion,canvas: the page as a phone's, and docks the window draws.
+  // (&phone=iphone-se: which phone.)
   if (params.get("device") === "phone") state.page.device = "phone"
+  state.page.phone = phoneOf(params.get("phone")).id
   state.review.docks = (params.get("docks") ?? "").split(",").filter((d): d is "motion" | "canvas" => d === "motion" || d === "canvas")
   if (params.get("mode") === "edit" || params.get("mode") === "motion") state.review.mode = params.get("mode") as "edit" | "motion"
+  if (params.get("mode") === "preview") (state.review.enabled = false), (state.review.mode = "preview")
 
   const page = fakePage(state.review.notes.length > 0)
 
@@ -767,6 +771,10 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     forward() {},
     setDevice(device) {
       state.page.device = device
+      push()
+    },
+    setPhone(id) {
+      state.page.phone = phoneOf(id).id
       push()
     },
     panel(act) {
@@ -861,7 +869,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     },
     openProject(directory) {
       state.site = { origin: "", directory }
-      state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false, device: "desktop" }
+      state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false, device: "desktop", phone: PHONE.id }
       state.review.notes = []
       state.session = { id: SESSION, title: `Review · ${directory.split("/").pop()}`, updated: Date.now(), busy: false, directory }
       state.sessions = [state.session]

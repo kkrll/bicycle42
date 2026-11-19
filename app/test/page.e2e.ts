@@ -14,6 +14,7 @@ import { createPage, WORLD, type PageMessage } from "../src/main/page"
 import { noteImages } from "../src/main/images"
 import { createReview, pageEdits, pageNote } from "../src/main/review"
 import { parseNote } from "../src/main/opencode"
+import { PHONE, PHONES } from "../src/shared/types"
 import { notePrompt, noteWords } from "../../overlay/prompt.js"
 
 // dist/test/ → the repo's overlay/, which the harness page lives in.
@@ -896,7 +897,7 @@ async function main() {
   place({ x: 0, y: 0, width: 390, height: 700 })
   await until(async () => (await laidOut()) < 390, 2000)
   const plain = await laidOut()
-  page.setDevice("phone")
+  page.setDevice("phone", PHONE)
   check("as a phone's the page is laid out at the view's whole width", plain < 390 && (await until(async () => (await laidOut()) === 390, 2000)) === true, `desktop ${plain}, phone ${await laidOut()}`)
   check("the overlay is still there, and review still on", (await inOverlay("!!window.__b42")) === true && (await js("document.documentElement.hasAttribute('data-b42-review')")) === true)
   // Another site is another renderer: it is a phone's page from its first script on.
@@ -904,7 +905,13 @@ async function main() {
   page.load(moved.replace("127.0.0.1", "localhost"))
   await until(() => count("ready") > readies && !page.state().loading)
   check("and stays one on another site", (await until(async () => (await laidOut()) === 390, 2000)) === true && (await js("innerWidth")) === 390, String(await laidOut()))
-  page.setDevice("desktop")
+  // Another phone is another width: the view is given it (the window's box), and the page lays out at it.
+  const small = PHONES.find((p) => p.width < PHONE.width)!
+  place({ x: 0, y: 0, width: small.width, height: 700 })
+  page.setDevice("phone", small)
+  check("a smaller phone is a narrower layout", (await until(async () => (await laidOut()) === small.width, 2000)) === true, `${small.name}: ${await laidOut()}`)
+  place({ x: 0, y: 0, width: 390, height: 700 })
+  page.setDevice("desktop", PHONE)
   check("as a desktop's again, the scrollbar is back", (await until(async () => (await laidOut()) < 390, 2000)) === true, String(await laidOut()))
 
   // ── hide, dispose ──────────────────────────────────────────────────────────────────────────

@@ -12,7 +12,7 @@
 // which the shell that makes the page keeps; every script run in the page is in this file.
 import { WebContentsView, type BrowserWindow, type IpcMainEvent, type NativeImage } from "electron"
 import type { HostMessage, PageMessage } from "../../../overlay/protocol"
-import { PHONE, type Device, type Rect } from "../shared/types"
+import { PHONE, type Device, type Phone, type Rect } from "../shared/types"
 import type { Frame } from "./images"
 
 export type PageState = { url: string; loading: boolean; error?: string; canGoBack: boolean; canGoForward: boolean; hmr: boolean }
@@ -32,7 +32,7 @@ export type Page = {
   setBounds(bounds: Rect | null): void
   /** The page laid out as a phone's browser lays it out, or as it is (Device in shared/types.ts).
    *  How wide the view is stays the window's to say (setBounds). */
-  setDevice(device: Device): void
+  setDevice(device: Device, phone: Phone): void
   /** host → overlay (window.__b42.receive). */
   send(msg: HostMessage): void
   /** The reviewer asked for a note outside this view: Send in a dock the window draws. The next
@@ -168,10 +168,11 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   // a navigation to another site starts a new one: asked for again once each navigation commits,
   // which is before the new document's first script runs.
   let device: Device = "desktop"
+  let phone: Phone = PHONE
   const emulate = () => {
     if (gone()) return
     if (device === "phone")
-      wc.enableDeviceEmulation({ screenPosition: "mobile", screenSize: { ...PHONE }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: { width: 0, height: 0 }, scale: 1 })
+      wc.enableDeviceEmulation({ screenPosition: "mobile", screenSize: { width: phone.width, height: phone.height }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: { width: 0, height: 0 }, scale: 1 })
     else wc.disableDeviceEmulation()
   }
   wc.on("did-navigate", () => void (device === "phone" && emulate()))
@@ -427,9 +428,10 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       view.setBounds({ x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height) })
       view.setVisible(true)
     },
-    setDevice(d) {
-      if (d === device) return
+    setDevice(d, p) {
+      if (d === device && p.id === phone.id) return
       device = d
+      phone = p
       emulate()
     },
     send,

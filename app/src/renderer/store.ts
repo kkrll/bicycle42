@@ -8,11 +8,12 @@
 // Everything else in the renderer reads these and calls act().
 import { batch, createSignal } from "solid-js"
 import { createStore, reconcile, unwrap } from "solid-js/store"
+import { PHONE } from "../shared/types"
 import type { AppState, Bridge, ChatEvent, ChatItem, CommandName, Commands, Dock, PanelAct, PanelMessage } from "../shared/types"
 
 const EMPTY: AppState = {
   connection: { status: "unconfigured" },
-  page: { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false, device: "desktop" },
+  page: { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false, device: "desktop", phone: PHONE.id },
   review: { enabled: false, mode: "preview", brush: false, autoReload: false, notes: [], unplaced: 0, docks: [] },
   site: null,
   session: null,

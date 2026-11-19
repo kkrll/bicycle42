@@ -14,7 +14,7 @@ function state(over: { busy?: boolean; notes?: NoteRow[]; asks?: string[]; quest
   const link = over.link ?? "online"
   return {
     connection: link === "online" ? { status: link, url, version: "2" } : link === "offline" ? { status: link, url, error: "gone" } : link === "connecting" ? { status: link, url } : { status: link },
-    page: { url: "http://localhost:3000/", loading: false, canGoBack: false, canGoForward: false, hmr: false, device: "desktop" },
+    page: { url: "http://localhost:3000/", loading: false, canGoBack: false, canGoForward: false, hmr: false, device: "desktop", phone: "iphone-14" },
     review: { enabled: true, mode: "notes", brush: false, autoReload: false, notes: over.notes ?? [], unplaced: 0, docks: [] },
     site: { origin: "http://localhost:3000", directory: "/code" },
     session: { id: over.session ?? S, directory: "/code", title: "", updated: 0, busy: !!over.busy },

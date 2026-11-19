@@ -59,7 +59,7 @@ export function testShell(dataDir: string, opts: { docks?: ("canvas" | "motion")
     back() {},
     forward() {},
     setBounds: (bounds) => void stub.calls.push(["bounds", bounds]),
-    setDevice: (device) => void stub.calls.push(["device", device]),
+    setDevice: (device, phone) => void stub.calls.push(["device", device], ...(device === "phone" ? [["phone", phone.id] as [string, string]] : [])),
     admitNote: () => void stub.calls.push(["admit", null]),
     send(msg) {
       stub.sent.push(msg)

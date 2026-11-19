@@ -19,11 +19,27 @@ export type PanelMessage = PanelView | { panel: Dock; pong: number }
 /** The docks the window draws. One the overlay still draws itself is not in the list. */
 export const HOSTED_DOCKS: readonly Dock[] = ["canvas", "motion"]
 
-/** What the page is shown as. "phone": 390 CSS px wide and at most 844 tall, laid out as a
- *  phone's browser lays it out (the page's viewport tag counts, scrollbars take no room); the
- *  pointer is still a mouse, so every mode works as on a desktop page. */
+/** What the page is shown as. "phone": as wide as the chosen phone's screen and at most as tall
+ *  (CSS px), laid out as a phone's browser lays it out (the page's viewport tag counts,
+ *  scrollbars take no room); the pointer is still a mouse, so every mode works as on a desktop
+ *  page. */
 export type Device = "desktop" | "phone"
-export const PHONE = { width: 390, height: 844 } as const
+
+/** A phone the page can be shown as: its screen in CSS px, upright. */
+export type Phone = { id: string; name: string; width: number; height: number }
+/** The phones on offer, small to large. Sizes are what the phone's browser reports as its screen. */
+export const PHONES: readonly Phone[] = [
+  { id: "galaxy-s24", name: "Galaxy S24", width: 360, height: 780 },
+  { id: "iphone-se", name: "iPhone SE", width: 375, height: 667 },
+  { id: "iphone-14", name: "iPhone 14", width: 390, height: 844 },
+  { id: "iphone-16", name: "iPhone 16", width: 393, height: 852 },
+  { id: "pixel-8", name: "Pixel 8", width: 412, height: 915 },
+  { id: "iphone-16-pro-max", name: "iPhone 16 Pro Max", width: 440, height: 956 },
+]
+/** The phone a page is shown as until another is chosen. */
+export const PHONE: Phone = PHONES[2]!
+/** The phone of that id, or the usual one for an id that is not on the list. */
+export const phoneOf = (id: unknown): Phone => PHONES.find((p) => p.id === id) ?? PHONE
 
 // ── models ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -300,6 +316,8 @@ export type AppState = {
     hmr: boolean
     /** Kept between starts; the window sizes the page's box by it. */
     device: Device
+    /** Which phone a phone's page is (an id in PHONES); kept while the page is a desktop's. */
+    phone: string
   }
   review: {
     /** Notes, edit or motion mode is on. Off is "preview". */
@@ -368,6 +386,8 @@ export type Commands = {
   setPageBounds(bounds: Rect | null): void
   /** The page as a desktop's or as a phone's: how it is laid out, and how wide its box is. */
   setDevice(device: Device): void
+  /** Which phone a phone's page is: an id in PHONES. */
+  setPhone(id: string): void
   // review
   toggleReview(): void
   /** The top bar's switch. Notes and edit turn review on; the page takes the keyboard. */
