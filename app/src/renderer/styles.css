@@ -891,7 +891,7 @@ details[open] > summary > .caret {
 /* The page as a phone's (the chosen one of PHONES in shared/types.ts: its screen, and the pane's
    hairline around it), as tall as the phone or as the window allows. It keeps to the left, next
    to the panel, in every mode: the column beside it takes the width that is left, and is the
-   mode's dock or, in a mode with none, its keys (ModeAside in app.tsx). */
+   mode's dock or, in a mode with none, the facts pane (PhoneAside in dock.tsx). */
 .stage.phone {
   flex-direction: row;
 }
@@ -981,63 +981,6 @@ details[open] > summary > .caret {
   margin-left: 6px;
   font-variant-numeric: tabular-nums;
 }
-
-/* Beside a phone's page in a mode with no dock: the modes and the keys, at rest. A pane like the
-   dock's, so the column does not change shape with the mode. */
-.aside-body {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 16px;
-  font-size: var(--text-control);
-  color: var(--muted);
-}
-
-.aside-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-  color: var(--foreground);
-}
-
-.aside-lead {
-  margin-top: -10px;
-  max-width: 44ch;
-}
-
-.aside-keys {
-  display: flex;
-  flex-direction: column;
-  max-width: 320px;
-  padding: 4px 0;
-  border-top: 1px solid var(--rule);
-  list-style: none;
-}
-
-.aside-keys li {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-height: 28px;
-}
-
-.aside-keys li > span {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.aside-keys li.on > span {
-  color: var(--foreground);
-  font-weight: 500;
-}
-
 
 /* The page view is away for a moment (a dialog, a resize): a quiet surface holds its place. */
 /* The same paper as the panel, so a dialog's backdrop dims the whole window evenly. */

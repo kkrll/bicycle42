@@ -11,7 +11,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { test } from "node:test"
-import { HOSTED_DOCKS, PHONE, type ChatEvent } from "../src/shared/types"
+import { HOSTED_PANES, PHONE, type ChatEvent, type Pane } from "../src/shared/types"
 import { start, until, type FakeReply, type FakeServer } from "./fake-server"
 import { testShell } from "./stubs/host"
 
@@ -102,7 +102,7 @@ function turn(h: { w: World; agent: { starts(s: string): void; picksUp(s: string
   h.agent.finishes(s)
 }
 
-async function boot(opts: { settings?: unknown; reviews?: Record<string, unknown>; outbox?: Record<string, unknown>; server?: { server: FakeServer; w: World }; docks?: ("canvas" | "motion")[] } = {}) {
+async function boot(opts: { settings?: unknown; reviews?: Record<string, unknown>; outbox?: Record<string, unknown>; server?: { server: FakeServer; w: World }; docks?: Pane[] } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bicycle42-ctl-"))
   // What a note sends, as the app left it on disk (src/main/outbox.ts), by the note's id.
   for (const [id, payload] of Object.entries(opts.outbox ?? {})) {
@@ -2188,13 +2188,43 @@ test("a dock the window draws: the overlay is told after every state, its views 
   }
 })
 
-test("the window draws the docks in HOSTED_DOCKS unless the shell says otherwise; with none, the overlay is told nothing and draws its own", async () => {
+test("the facts pane is relayed as a dock is: its views (null too) reach the window, its acts reach the overlay; Note puts the keys on the page", async () => {
+  const h = await boot({ docks: ["facts"] })
+  const toOverlay = (type: string) => h.page.sent.filter((m) => m.type === type)
+  const toWindow = () => h.shell.sent.filter((x) => x[0] === "panel").map((x) => x[1])
+  try {
+    await h.ready()
+    h.page.message({ type: "ready", url: `${SITE}/`, viewport: { w: 390, h: 844, dpr: 3, scrollX: 0, scrollY: 0 } })
+    assert.deepEqual(toOverlay("docks").at(-1), { type: "docks", hosted: ["facts"] })
+    const view = { viewport: { w: 390, h: 844 }, doc: { w: 520, h: 2000 }, scrollY: 0, meta: true, partial: false, wide: { items: [{ id: 1, label: "<b>Banner</b>", detail: "+130 px" }], total: 1 }, taps: { items: [], total: 0 }, small: { items: [], total: 0 } }
+    h.page.message({ type: "panel", panel: "facts", view: null })
+    h.page.message({ type: "panel", panel: "facts", view })
+    h.page.message({ type: "panel", panel: "facts", pong: 3 })
+    h.page.message({ type: "panel", panel: "motion", view: { open: "spin" } })
+    assert.deepEqual(toWindow(), [{ type: "panel", panel: "facts", view: null }, { type: "panel", panel: "facts", view }, { type: "panel", panel: "facts", pong: 3 }])
+    const focus = () => h.page.calls.filter((c) => c[0] === "focus").length
+    const was = focus()
+    for (const act of [{ type: "view" }, { type: "hover", id: 1 }, { type: "show", id: 1 }, { type: "stop" }]) await h.cmd("panel", { panel: "facts", act })
+    await h.cmd("panel", { panel: "canvas", act: { type: "ping", id: 2 } })
+    assert.deepEqual(toOverlay("panel").map((m) => (m as { act: unknown }).act), [{ type: "view" }, { type: "hover", id: 1 }, { type: "show", id: 1 }, { type: "stop" }])
+    assert.equal(focus(), was)
+    // Note: the card opens on the page, and what is typed next goes there. Nothing for the overlay to admit.
+    await h.cmd("panel", { panel: "facts", act: { type: "note", id: 1 } })
+    await h.cmd("panel", { panel: "facts", act: { type: "send" } })
+    assert.equal(focus(), was + 1)
+    assert.equal(h.page.calls.filter((c) => c[0] === "admit").length, 0)
+  } finally {
+    await h.close()
+  }
+})
+
+test("the window draws the docks in HOSTED_PANES unless the shell says otherwise; with none, the overlay is told nothing and draws its own", async () => {
   const h = await boot()
   try {
     await h.ready()
     h.page.message({ type: "ready", url: `${SITE}/`, viewport: { w: 800, h: 600, dpr: 1, scrollX: 0, scrollY: 0 } })
-    assert.deepEqual(h.snap().review.docks, [...HOSTED_DOCKS])
-    assert.deepEqual(h.page.sent.filter((m) => m.type === "docks"), HOSTED_DOCKS.length ? [{ type: "docks", hosted: [...HOSTED_DOCKS] }] : [])
+    assert.deepEqual(h.snap().review.docks, [...HOSTED_PANES])
+    assert.deepEqual(h.page.sent.filter((m) => m.type === "docks"), HOSTED_PANES.length ? [{ type: "docks", hosted: [...HOSTED_PANES] }] : [])
   } finally {
     await h.close()
   }

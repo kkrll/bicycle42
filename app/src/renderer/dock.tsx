@@ -8,10 +8,15 @@
 //
 // Where it sits is the window's business (app.tsx): under the page, or beside it when the page
 // is shown as a phone's. A dock fills the box it is given and scrolls inside it.
+//
+// Beside a phone's page in a mode with no dock (Preview, Annotate) the column is "This page on
+// this phone" (PhoneAside, facts-pane.tsx): a pane of the window's that is no mode's dock. A
+// desktop's page has no column and no such pane.
 import { Show, type Component } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import type { Dock } from "../shared/types"
 import { CanvasDock } from "./canvas-dock"
+import { FactsPane } from "./facts-pane"
 import { MotionDock } from "./motion-dock"
 import { state } from "./store"
 
@@ -37,5 +42,15 @@ export function DockRegion(props: { dock: Dock }) {
         {(dock) => <Dynamic component={dock()} />}
       </Show>
     </section>
+  )
+}
+
+/** The column beside a phone's page when no dock is shown in it: the facts pane, when the window
+ *  draws it (else an empty pane: the column keeps its place). */
+export function PhoneAside() {
+  return (
+    <Show when={state.review.docks.includes("facts")} fallback={<section class="dock" aria-label="This page on this phone" />}>
+      <FactsPane />
+    </Show>
   )
 }

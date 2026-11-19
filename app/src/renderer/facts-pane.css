@@ -1,0 +1,184 @@
+/* "This page on this phone" (facts-pane.tsx): the column beside a phone's page in Preview and
+   Annotate. A pane like a dock's (.dock in styles.css): a header, a body that scrolls inside
+   itself, a footer. Text sits 12px in from the pane's edge, and the content keeps to a column
+   narrow enough to read across: in a wide window the rows do not stretch. */
+
+.fp {
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+}
+
+/* ── the header: the mode, and what this pane is ─────────────────────────────────────────────── */
+
+.fp-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.fp-title {
+  flex: none;
+  font-weight: 600;
+}
+
+.fp-lead {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+/* ── the body ─────────────────────────────────────────────────────────────────────────────────── */
+
+.fp-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 0 16px;
+}
+
+.fp-col {
+  max-width: 560px;
+  padding: 0 12px;
+}
+
+/* One line of words: as tall as a row. */
+.fp-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+  min-height: 28px;
+  padding: 4px 0;
+}
+
+.fp-sum {
+  font-variant-numeric: tabular-nums;
+}
+
+.fp-quiet {
+  color: var(--muted);
+}
+
+.fp-warn {
+  color: var(--ink-warn);
+}
+
+.fp-ok .icon {
+  color: var(--ink-good);
+}
+
+.fp-sec {
+  margin-top: 12px;
+}
+
+/* A section's name, in sentence case, and how many. */
+.fp-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  font-size: var(--text-control);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.fp-count {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.fp-rows {
+  list-style: none;
+}
+
+/* A row: its label left, its number right. Its hover reaches 6px past the text on either side. */
+.fp-row {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  margin: 0 -6px;
+  border-radius: var(--radius);
+}
+
+.fp-fact:hover {
+  background: var(--surface);
+}
+
+.fp-hit {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 100%;
+  padding: 0 6px;
+  border-radius: var(--radius);
+  text-align: left;
+}
+
+.fp-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fp-detail {
+  flex: none;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Note, in Annotate: quiet until its row is pointed at. */
+.fp-note {
+  flex: none;
+  height: 20px;
+  margin-right: 4px;
+  padding: 0 8px;
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.fp-fact:hover .fp-note {
+  color: var(--foreground);
+  box-shadow: 0 0 0 1px var(--rule);
+}
+
+.fp-note:hover {
+  background: var(--surface-strong);
+}
+
+.fp-file {
+  gap: 12px;
+  padding: 0 6px;
+}
+
+.fp-more {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  color: var(--muted);
+}
+
+/* ── the footer: the two keys worth knowing here ──────────────────────────────────────────────── */
+
+.fp-foot {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+}

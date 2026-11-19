@@ -9,7 +9,7 @@
 //   · the panel is being resized (the native view would swallow the drag)
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { PHONES, phoneOf, type Device, type Rect, type ReviewMode, type Shortcut } from "../shared/types"
-import { DockRegion, dockShown } from "./dock"
+import { DockRegion, PhoneAside, dockShown } from "./dock"
 import { ConnectScreen, ModelScreen, ServerButton, SettingsDialog, SetupSteps, firstRunConnecting } from "./connect"
 import { Icon, Kbd, type IconName } from "./icons"
 import { Switcher } from "./switcher"
@@ -412,54 +412,6 @@ function NotesStatus(props: { panelOpen: boolean; showNotes: () => void }) {
   )
 }
 
-// ── beside a phone's page, in a mode with no dock ───────────────────────────────────────────────
-// The column beside a phone's page is there in every mode, so the page stays where it is when
-// the mode changes. Edit and Motion fill it with their docks; Preview and Annotate have none, and
-// get what the bar's hints say, at rest: the modes and the keys, and which phone this is.
-
-function ModeAside() {
-  const mode = () => (state.review.enabled ? state.review.mode : "preview")
-  const now = () => MODES.find((m) => m.mode === mode())!
-  const others: { text: string; keys: () => string[] }[] = [
-    { text: "Draw on the page", keys: () => [keys("mod", "shift", "P"), `${keys("alt")} drag`] },
-    { text: "Look under the layer", keys: () => [`hold ${keys("alt", "A")}`] },
-    { text: "Address", keys: () => [keys("mod", "L")] },
-    { text: "Message box", keys: () => [keys("mod", "K")] },
-    { text: "Notes and conversation", keys: () => [keys("mod", "\\")] },
-  ]
-  return (
-    <section class="dock aside" aria-label={`${now().label}: keys`}>
-      <div class="aside-body">
-        <p class="aside-title">
-          <Icon name={now().icon} />
-          {now().label}
-        </p>
-        <p class="aside-lead">{now().what}.</p>
-        <ul class="aside-keys">
-          <For each={MODES}>
-            {(m) => (
-              <li classList={{ on: m.mode === mode() }}>
-                <span>{m.label}</span>
-                <Show when={m.keys?.()}>{(k) => <Kbd keys={k()} />}</Show>
-              </li>
-            )}
-          </For>
-        </ul>
-        <ul class="aside-keys">
-          <For each={others}>
-            {(o) => (
-              <li>
-                <span>{o.text}</span>
-                <For each={o.keys()}>{(k) => <Kbd keys={k} />}</For>
-              </li>
-            )}
-          </For>
-        </ul>
-      </div>
-    </section>
-  )
-}
-
 // ── strip ───────────────────────────────────────────────────────────────────────────────────────
 // A command failed and nothing else owns the message. Rare, and dismissed by the reviewer.
 
@@ -814,7 +766,7 @@ export function App() {
           </Show>
         </div>
         </div>
-        <Show when={dockShown()} fallback={<Show when={phone()}><ModeAside /></Show>}>
+        <Show when={dockShown()} fallback={<Show when={phone()}><PhoneAside /></Show>}>
           {(dock) => (
             <>
               <Show when={!phone()}>

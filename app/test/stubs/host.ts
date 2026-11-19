@@ -5,6 +5,7 @@
 import { createCore, type Core } from "../../src/main/core"
 import type { Frame } from "../../src/main/images"
 import type { Page, PageMessage, PageState } from "../../src/main/page"
+import type { Pane } from "../../src/shared/types"
 
 export type TestShell = {
   core: Core
@@ -28,7 +29,7 @@ export type TestShell = {
 
 /** Starts a controller on `dataDir` the way the shell does: the page made, laid out where it was
  *  last and hidden, loaded at the address it was last at, then `start`. */
-export function testShell(dataDir: string, opts: { docks?: ("canvas" | "motion")[] } = {}): TestShell {
+export function testShell(dataDir: string, opts: { docks?: Pane[] } = {}): TestShell {
   const sent: TestShell["sent"] = []
   const dialogs: unknown[] = []
   const core = createCore({
@@ -73,7 +74,7 @@ export function testShell(dataDir: string, opts: { docks?: ("canvas" | "motion")
     // The overlay is never mid-note here.
     busy: async () => false,
     holdFrames: () => () => {},
-    focus() {},
+    focus: () => void stub.calls.push(["focus", null]),
     openDevTools() {},
     dispose() {},
   }

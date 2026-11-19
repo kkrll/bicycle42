@@ -34,6 +34,7 @@ import { PHONE, phoneOf } from "../shared/types"
 import { canvasView } from "./mock-canvas"
 import { setFocusedNote } from "./store"
 import type { MotionView } from "../../../overlay/protocol-motion"
+import type { FactsView } from "../../../overlay/protocol-facts"
 
 const SESSION = "s-main"
 const ORIGIN = "http://localhost:3000"
@@ -750,7 +751,9 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   // (&phone=iphone-se: which phone.)
   if (params.get("device") === "phone") state.page.device = "phone"
   state.page.phone = phoneOf(params.get("phone")).id
-  state.review.docks = (params.get("docks") ?? "").split(",").filter((d): d is "motion" | "canvas" => d === "motion" || d === "canvas")
+  // (The facts pane beside a phone's page in Preview and Annotate is always the window's, as in
+  // HOSTED_PANES; &facts=clear: a page that fits the phone.)
+  state.review.docks = [...(params.get("docks") ?? "").split(",").filter((d): d is "motion" | "canvas" => d === "motion" || d === "canvas"), "facts"]
   if (params.get("mode") === "edit" || params.get("mode") === "motion") state.review.mode = params.get("mode") as "edit" | "motion"
   if (params.get("mode") === "preview") (state.review.enabled = false), (state.review.mode = "preview")
 
@@ -779,6 +782,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     },
     panel(act) {
       motionAct(act as PanelAct, (msg) => panelFns.forEach((fn) => fn(msg)))
+      factsAct(act as PanelAct, (msg) => panelFns.forEach((fn) => fn(msg)))
     },
     setPageBounds(bounds: Rect | null) {
       page.style.display = bounds ? "block" : "none"
@@ -1268,6 +1272,42 @@ const MOTION: MotionView = {
 }
 
 /** A few of the dock's acts, done to the sample view; the rest change nothing. */
+// ── "This page on this phone", as the overlay would work it out for the pricing page ───────────
+const FACTS: FactsView = {
+  viewport: { w: 390, h: 844 },
+  doc: { w: 524, h: 3880 },
+  scrollY: 0,
+  meta: true,
+  partial: false,
+  wide: { items: [{ id: 1, label: "table.compare", detail: "+134 px" }, { id: 2, label: "Trusted by 2,000 teams", detail: "+46 px" }], total: 2 },
+  taps: {
+    items: [
+      { id: 3, label: "Monthly", detail: "64 x 32" },
+      { id: 4, label: "Yearly", detail: "56 x 32" },
+      { id: 5, label: "Close", detail: "24 x 24" },
+      { id: 6, label: "a.footer-link", detail: "38 x 20" },
+      { id: 7, label: "Compare every feature in detail", detail: "212 x 22" },
+    ],
+    total: 5,
+  },
+  small: { items: [{ id: 8, label: "Work email", detail: "14px" }, { id: 9, label: "Team size", detail: "13px" }], total: 2 },
+}
+const FACTS_CLEAR: FactsView = { ...FACTS, doc: { w: 360, h: 3240 }, wide: { items: [], total: 0 }, taps: { items: [], total: 0 }, small: { items: [], total: 0 } }
+/** The sample, at the size of the phone the mock shows. */
+function factsView(): FactsView {
+  const q = new URLSearchParams(location.search)
+  const phone = phoneOf(q.get("phone"))
+  return { ...structuredClone(q.get("facts") === "clear" ? FACTS_CLEAR : FACTS), viewport: { w: phone.width, h: phone.height } }
+}
+
+/** What the facts pane asks: its view when it is shown, nothing once it goes. */
+function factsAct(a: PanelAct, out: (m: PanelMessage) => void): void {
+  if (a.panel !== "facts") return
+  if (a.act.type === "ping") out({ panel: "facts", pong: a.act.id })
+  else if (a.act.type === "view" || a.act.type === "refresh") setTimeout(() => out({ panel: "facts", view: factsView() }))
+  else if (a.act.type === "stop") out({ panel: "facts", view: null })
+}
+
 function motionAct(a: PanelAct, out: (m: PanelMessage) => void): void {
   if (a.panel !== "motion") return
   const act = a.act

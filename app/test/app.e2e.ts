@@ -323,7 +323,7 @@ async function main() {
   const CARD = "#plans article:nth-of-type(2)"
   // The mode switch is the top bar's: Preview | Notes | Edit, and it follows the page's own keys.
   const modeShown = () => ui(`document.querySelector('.mode[aria-checked="true"]')?.dataset.mode`) as Promise<string>
-  // Edit mode's inspector is the window's (HOSTED_DOCKS): the page shows none of its own.
+  // Edit mode's inspector is the window's (HOSTED_PANES): the page shows none of its own.
   const inspector = () => ui(`!!document.querySelector('.dock .cd')?.checkVisibility()`) as Promise<boolean>
   const pageInspector = () => js(`${shadow}.querySelector('.insp')?.checkVisibility() ?? false`) as Promise<boolean>
   check("the top bar shows Annotate, and the page has no mode switch of its own", (await modeShown()) === "notes" && (await ui(`document.querySelector('.mode[aria-checked="true"]').textContent`)) === "Annotate" && state().review.mode === "notes" && (await js(`!${shadow}.querySelector('.seg, .m-brush')`)) === true)

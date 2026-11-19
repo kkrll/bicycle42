@@ -9,7 +9,8 @@
 import { batch, createSignal } from "solid-js"
 import { createStore, reconcile, unwrap } from "solid-js/store"
 import { PHONE } from "../shared/types"
-import type { AppState, Bridge, ChatEvent, ChatItem, CommandName, Commands, Dock, PanelAct, PanelMessage } from "../shared/types"
+import type { AppState, Bridge, ChatEvent, ChatItem, CommandName, Commands, Pane, PanelAct, PanelMessage } from "../shared/types"
+import type { FactsView } from "../../../overlay/protocol-facts"
 
 const EMPTY: AppState = {
   connection: { status: "unconfigured" },
@@ -52,10 +53,11 @@ const openId = () => state.session?.id ?? ""
 let parked: Extract<ChatEvent, { type: "reset" }> | undefined
 
 // ── the page's docks, drawn here ────────────────────────────────────────────────────────────────
-// What the overlay last said each hosted dock shows (shared/types.ts): the whole view each time,
+// What the overlay last said each hosted pane shows (shared/types.ts): the whole view each time,
 // diffed into the store so a dock redraws only what changed. A dock component reads its view
-// from here and asks through dockAct; it keeps nothing of the page's itself.
-export const [dockViews, setDockViews] = createStore<{ motion?: object; canvas?: object }>({})
+// from here and asks through dockAct; it keeps nothing of the page's itself. The facts pane's
+// view is null when the overlay works nothing out for it (a new page, or after "stop").
+export const [dockViews, setDockViews] = createStore<{ motion?: object; canvas?: object; facts?: FactsView | null }>({})
 
 /** From a hosted dock to the overlay: what the reviewer did there. */
 export const dockAct = (act: PanelAct): void => void b42.invoke("panel", act).catch(() => {})
@@ -66,7 +68,7 @@ let pingId = 0
 /** The way to the overlay and back for one message, in ms: what a drag in a dock waits for
  *  before the page shows it. Undefined when nothing answers in a second (no page, no overlay,
  *  a dock that is not hosted). */
-export function dockPing(panel: Dock): Promise<number | undefined> {
+export function dockPing(panel: Pane): Promise<number | undefined> {
   const id = ++pingId, from = performance.now()
   return new Promise((done) => {
     pings.set(id, () => done(performance.now() - from))
@@ -79,7 +81,8 @@ function onPanel(msg: PanelMessage): void {
   if ("pong" in msg) {
     pings.get(msg.pong)?.(0)
     pings.delete(msg.pong)
-  } else setDockViews(msg.panel, reconcile(msg.view as object))
+  } else if (msg.view === null) setDockViews(msg.panel, null)
+  else setDockViews(msg.panel, reconcile(msg.view as object))
 }
 
 export function start(bridge: Bridge): void {
