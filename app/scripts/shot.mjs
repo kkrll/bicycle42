@@ -15,7 +15,10 @@ const page = path.join(root, "dist/renderer/index.html")
 const out = process.env.SHOT_DIR ?? path.join(root, "shots")
 
 /** The phone line's width, and whether anything in it is cut: what it needs over what it has. */
-const PHONE_LINE = `(() => { const l = document.querySelector(".pl"), f = l.querySelector(".pl-facts"), c = l.querySelector(".pl-own .pl-cut"); return Math.round(l.getBoundingClientRect().width) + " wide; facts " + f.scrollWidth + "/" + f.clientWidth + (c ? "; own " + c.scrollWidth + "/" + c.clientWidth : "") })()`
+const PHONE_LINE = `(() => { const l = document.querySelector(".pl"), f = l.querySelector(".pl-facts"); return Math.round(l.getBoundingClientRect().width) + " wide; facts " + f.scrollWidth + "/" + f.clientWidth })()`
+/** The inspector's footer: its width and rows, and whether a part of it is cut (needs/has), or
+ *  reaches past the inspector's box. */
+const FOOTER = `(() => { const f = document.querySelector(".cd-foot"), r = f.getBoundingClientRect(), box = document.querySelector(".cd").getBoundingClientRect(); const cut = [...f.querySelectorAll(".cd-count, .cd-acts, .cd-note, .cd-msg, .cd-send, .cd-help, .cd-reset")].filter((e) => e.scrollWidth > e.clientWidth + 1 || e.getBoundingClientRect().right > box.right + 0.5).map((e) => e.className); const rows = new Set([...f.children].map((e) => Math.round(e.getBoundingClientRect().top))).size; return Math.round(r.width) + " wide, " + rows + " row(s), text at " + Math.round(f.querySelector(".cd-count").getBoundingClientRect().left - box.left) + "px; cut: " + (cut.join(" ") || "nothing") })()`
 const click = (selector) => `document.querySelector(${JSON.stringify(selector)}).click()`
 const type = (selector, text) =>
   `(() => { const el = document.querySelector(${JSON.stringify(selector)}); el.value = ${JSON.stringify(text)}; el.dispatchEvent(new Event("input", { bubbles: true })) })()`
@@ -103,16 +106,18 @@ const SHOTS = [
   { name: "phone-short", mock: "review", query: "&device=phone", size: [1280, 720] },
   // A window with no room for all three: the panel and the page, or (Edit, Motion) the page and its dock.
   { name: "phone-narrow", mock: "review", query: "&device=phone", size: [900, 700] },
-  { name: "phone-narrow-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", size: [900, 700], report: PHONE_LINE },
-  // The column at its least (300px, the panel as wide as it goes): the phone line's counts and
-  // the selection's fact shortened, nothing cut.
-  { name: "phone-least-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", run: [`document.querySelector(".resizer").dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }))`], wait: 300, report: PHONE_LINE },
+  { name: "phone-narrow-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", size: [900, 700], report: FOOTER },
+  // The column at its least (300px, the panel as wide as it goes): the inspector's footer in two
+  // rows, the phone line's counts shortened, nothing cut.
+  { name: "phone-least-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", run: [`document.querySelector(".resizer").dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }))`], wait: 300, report: FOOTER },
   { name: "phone-least", mock: "review", query: "&device=phone&mode=preview", run: [`document.querySelector(".resizer").dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }))`], wait: 300, report: PHONE_LINE },
   { name: "phone-max-collapsed", mock: "review", query: "&device=phone&phone=iphone-16-pro-max&mode=preview", run: [click("[data-action=panel]")] },
   { name: "phone-wide", mock: "review", query: "&device=phone&mode=preview", size: [1984, 1276] },
   { name: "phone-clear", mock: "review", query: "&device=phone&mode=preview&facts=clear" },
   { name: "dock", mock: "review", query: "&docks=motion&mode=motion" },
-  { name: "phone-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", report: PHONE_LINE },
+  { name: "phone-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", report: FOOTER },
+  // The keys list from the footer's "?", inside the inspector's box.
+  { name: "phone-dock-keys", mock: "review", query: "&device=phone&docks=canvas&mode=edit", run: [click(".cd-help")], wait: 300, report: `(() => { const k = document.querySelector(".cd-keys").getBoundingClientRect(), b = document.querySelector(".cd").getBoundingClientRect(); return k.top >= b.top && k.bottom <= b.bottom && k.left >= b.left && k.right <= b.right ? "inside the inspector" : "OUTSIDE " + JSON.stringify([k, b]) })()` },
   // Motion's dock drawn by the window: beside a phone's page (the list above what is open), and
   // under the page with its "more" sheet open (inside the dock's box, never over the page).
   { name: "phone-motion-dock", mock: "review", query: "&device=phone&docks=motion&mode=motion" },
@@ -120,7 +125,8 @@ const SHOTS = [
   // Under a page in a narrow window: what is open, with a way back to the list.
   { name: "dock-narrow", mock: "review", query: "&docks=motion&mode=motion", size: [1000, 720] },
   // Edit mode's inspector, drawn by the window under a desktop's page (mock-canvas.ts: a card selected).
-  { name: "canvas-dock", mock: "review", query: "&docks=canvas&mode=edit" },
+  { name: "canvas-dock", mock: "review", query: "&docks=canvas&mode=edit", report: FOOTER },
+  { name: "canvas-dock-narrow", mock: "review", query: "&docks=canvas&mode=edit", size: [1000, 720], report: FOOTER },
   { name: "collapsed", mock: "review", run: [click("[data-action=panel]")] },
   { name: "busy", mock: "busy", wait: 1500 },
   { name: "permission", mock: "permission" },

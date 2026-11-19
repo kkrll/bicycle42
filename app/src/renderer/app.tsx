@@ -719,7 +719,7 @@ export function App() {
   // listener for all of them, the dock's own handles too; with the pointer captured (a drag) the
   // moves still come to the edge.
   const pillFollows = (e: PointerEvent) => {
-    const edge = e.target instanceof Element ? e.target.closest<HTMLElement>(".resizer, .divider") : null
+    const edge = e.target instanceof Element ? e.target.closest<HTMLElement>(".resizer, .divider, .cd-grip") : null
     if (!edge) return
     const r = edge.getBoundingClientRect()
     edge.style.setProperty("--at", r.height > r.width ? `${Math.round(e.clientY - r.top)}px` : `${Math.round(e.clientX - r.left)}px`)

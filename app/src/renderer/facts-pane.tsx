@@ -1,32 +1,30 @@
 // "This page on this phone": the column beside a phone's page in a mode with no dock (Preview,
-// Annotate), and its top line above the dock in a mode with one (Edit, Motion). What the page is
-// at this phone's size, each row tied to the element it is about, and beside or under that the
-// files the agent changed.
+// Annotate). What the page is at this phone's size, each row tied to the element it is about, and
+// beside or under that the files the agent changed. In Edit and Motion the column is the mode's
+// dock and nothing else.
 //
-// The column's top is one line in every mode, the phone line (PhoneLine): how many of each fact,
-// each count a button (the pointer on it marks that kind on the page, a click goes to the next
-// one), the marks toggle at its right, and in Edit what the inspector's selection is when it is
-// one of the facts. It looks the same in all four modes, so a mode change moves nothing in it.
+// The pane's header is the phone line (PhoneLine): how many of each fact, each count a button
+// (the pointer on it marks that kind on the page, a click goes to the next one), and the marks
+// toggle at its right.
 //
 // The facts are the overlay's (overlay/src/facts/host.js; FactsView in overlay/protocol-facts.ts),
-// worked out only while a line shows them: each line says it wants them (wantFacts), and the
-// window says "view" when the first one appears and "stop" when the last one goes, once the
-// mounts and unmounts of a mode change have settled (so a switch from Preview to Edit is no stop
-// and view). "view" again when a new page says it works nothing out (a view of null). Every listed
-// element is marked on the page while the line's marks are on: in Preview and Annotate unless the
-// reviewer turned them off (factsMarks), in Edit and Motion, fainter, only if they turned them on
-// (factsMarksEdit). Like a dock it keeps nothing of the page's: it draws what it is told, as text.
+// worked out only while the pane shows them: it says it wants them (wantFacts), and the window
+// says "view" when it appears and "stop" when it goes, once the mounts and unmounts of a mode
+// change have settled (Preview to Annotate is no stop and view). "view" again when a new page says
+// it works nothing out (a view of null). Every listed element is marked on the page only while the
+// reviewer has the marks on (factsMarks, off until turned on): the page in Preview is the page.
+// Like a dock it keeps nothing of the page's: it draws what it is told, as text.
 import { For, Match, Show, Switch, createEffect, createMemo, createRoot, createSignal, on, onCleanup, onMount } from "solid-js"
 import type { FactItem, FactKind, FactList, FactsAct, FactsView } from "../../../overlay/protocol-facts"
 import { Counts } from "./chat"
 import { Icon, Kbd } from "./icons"
-import { dockAct, dockViews, factsMarks, factsMarksEdit, keys, setFactsMarks, setFactsMarksEdit, state } from "./store"
+import { dockAct, dockViews, factsMarks, keys, setFactsMarks, state } from "./store"
 import "./facts-pane.css"
 
 const send = (act: FactsAct) => dockAct({ panel: "facts", act })
 
 // ── who wants the facts ──────────────────────────────────────────────────────────────────────────
-/** Each mounted line: whether it wants the marks on the page. */
+/** Each mounted pane: whether it wants the marks on the page. */
 const [wants, setWants] = createSignal<readonly (() => boolean)[]>([])
 /** What the overlay was last told. */
 const told = { want: false, marks: false }
@@ -104,7 +102,7 @@ export function FactsPane() {
 
   return (
     <section class="dock fp" data-dock="facts" aria-label="This page on this phone">
-      <PhoneLine pane onGo={go} />
+      <PhoneLine onGo={go} />
       <div class="fp-body" ref={body}>
         {/* What the page is, across the pane; then the lists, and beside or under them the files. */}
         <Show when={view()} fallback={<p class="fp-line fp-quiet">Looking at the page…</p>}>
@@ -220,20 +218,13 @@ function Row(props: { item: FactItem; annotate: boolean; lit: boolean }) {
   )
 }
 
-// ── the phone line: the column's top in every mode ───────────────────────────────────────────────
+// ── the phone line: the pane's header ────────────────────────────────────────────────────────────
 /** A count's words, and the short ones for a narrow line ("5 taps"); narrower still, only the
  *  number beside its dot (a container query in facts-pane.css shows one of the three). */
 const COUNT: Record<Kind, (k: number) => [long: string, short: string]> = {
   wide: (k) => [`${k} ${k === 1 ? "sticks" : "stick"} out`, `${k} out`],
   taps: (k) => [`${k} small ${k === 1 ? "tap" : "taps"}`, `${k} ${k === 1 ? "tap" : "taps"}`],
   small: (k) => [`${k} ${k === 1 ? "field zooms" : "fields zoom"}`, `${k} zoom`],
-}
-
-/** What the inspector's selection is, when it is one of the facts: after "This element:". */
-const OWN: Record<Kind, (detail: string) => string> = {
-  wide: (d) => `sticks out ${d.replace(/^\+/, "")}`,
-  taps: (d) => `${d}, under 44`,
-  small: (d) => `text ${d}, iOS zooms`,
 }
 
 /** The element a count's click went to last, by kind: the next click goes to the one after it. */
@@ -245,14 +236,10 @@ export function nextOf(items: readonly FactItem[], last: number | undefined): Fa
   return items[(i + 1) % items.length]
 }
 
-/** The top of the column beside a phone's page, the same in every mode: how many of each fact,
- *  and the marks toggle. `pane`: the facts pane's (Preview, Annotate), whose marks choice is
- *  factsMarks; else a dock's (Edit, Motion), factsMarksEdit. `onGo`: a count's click went to
- *  that element (the pane brings its row into view). */
-export function PhoneLine(props: { pane?: boolean; onGo?: (id: number) => void }) {
-  const marks = props.pane ? factsMarks : factsMarksEdit
-  const setMarks = props.pane ? setFactsMarks : setFactsMarksEdit
-  wantFacts(marks)
+/** The facts pane's header: how many of each fact, and the marks toggle. `onGo`: a count's click
+ *  went to that element (the pane brings its row into view). */
+export function PhoneLine(props: { onGo?: (id: number) => void }) {
+  wantFacts(factsMarks)
   // The kind under the pointer or the focus: its elements are marked on the page while it is.
   let hot: Kind | null = null
   const point = (k: Kind | null) => {
@@ -277,22 +264,10 @@ export function PhoneLine(props: { pane?: boolean; onGo?: (id: number) => void }
     return !v ? "looking" : !v.meta ? "no-meta" : total(v) === 0 ? "fits" : "counts"
   }
   const kinds = createMemo(() => KINDS.filter((k) => (view()?.[k].total ?? 0) > 0), undefined, { equals: (a, b) => a.join() === b.join() })
-  const own = () => view()?.own ?? null
 
   return (
     <div class="pl" role="group" aria-label="This page on this phone">
       <div class="pl-facts">
-        <Show when={own()}>
-          {(o) => (
-            <span class="pl-own" data-kind={o().kind} title={`The selected element: ${OWN[o().kind](o().detail)}`}>
-              <Dot kind={o().kind} />
-              <span class="pl-cut">
-                <span class="pl-long">This element: </span>
-                {OWN[o().kind](o().detail)}
-              </span>
-            </span>
-          )}
-        </Show>
         <Switch>
           <Match when={says() === "looking"}>
             <span class="pl-quiet">Looking at the page…</span>
@@ -344,11 +319,11 @@ export function PhoneLine(props: { pane?: boolean; onGo?: (id: number) => void }
       <button
         type="button"
         class="pl-marks"
-        aria-pressed={marks()}
-        title={marks() ? "Take the marks off the page" : "Mark every listed element on the page"}
-        onClick={() => setMarks(!marks())}
+        aria-pressed={factsMarks()}
+        title={factsMarks() ? "Stop outlining them on the page" : "Outline everything listed here on the page"}
+        onClick={() => setFactsMarks(!factsMarks())}
       >
-        {marks() ? "Marks on" : "Marks off"}
+        {factsMarks() ? "Marks on" : "Marks off"}
       </button>
     </div>
   )

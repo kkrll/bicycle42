@@ -1,13 +1,15 @@
-import { line, plainLabel } from "../page.js";
+import { kindName, line, treeName } from "../page.js";
 import { C, clean, COMPUTED, MAX_CLASS, MAX_CSS, MAX_SHEET } from "./state.js";
 import { entry } from "./stamps.js";
 import { problems, setDecl, supports, topProps } from "./css.js";
 import { applyAll } from "./apply.js";
-import { commit, redo, undo } from "./batch.js";
+import { commit, countEdits, redo, reset, undo } from "./batch.js";
 import { submitCanvas } from "./send.js";
 import { hideSel, select } from "./select.js";
 import { draftCopy, dropCopy, duplicateSel } from "./copies.js";
-import { flash, setPop } from "./bar.js";
+import { drawBar, flash, sentStatus, setPop } from "./bar.js";
+import { cnote } from "./mount.js";
+import { draftChanged } from "../draft.js";
 import { buildRows, rowParts, T, toggleRow, treeKey } from "./tree.js";
 import { drawTabs, follow, FULL, pretty, syncFields } from "./inspector.js";
 import { sizeOf, tokenMatch, tokensOf } from "./tokens.js";
@@ -23,6 +25,9 @@ import { domVersion, root } from "../mount.js";
 // (CanvasView in ../../protocol-canvas.ts) and sent when it is not what was sent last; and what
 // the host's inspector asks (CanvasAct) is done here by the functions the layer's own fields,
 // rows and keys call. Nothing of the page's is kept anywhere else: the host draws what it is told.
+// The bar over the page is the inspector's too then: the layer shows none (frame.js), and the
+// view's `batch` is what it would say, the acts what its buttons and its note field do. The
+// note's words stay the layer's (cnote): they go with the batch, and come back with a refused one.
 //
 // What the view costs to make is what the layer's inspector costs to draw: the tree is walked
 // again when the DOM changed (a few times a second at most), the computed values are read when
@@ -75,7 +80,7 @@ export function hostView() {
   computed(el, global);
   const view = {
     force: C.forced,
-    sel: el ? { id: idOf(el), label: line(plainLabel(el, 80)), hidden: !!C.marks.get(el)?.includes("hid") } : null,
+    sel: el ? { id: idOf(el), label: line(kindName(el)), tag: treeName(el), hidden: !!C.marks.get(el)?.includes("hid") } : null,
     global,
     // (The attribute as it is now, as the layer's class line has it; typing too long to apply
     // never reaches the attribute, so then the typed text is what there is to show.)
@@ -85,6 +90,7 @@ export function hostView() {
     computed: H.comp,
     tokens: H.toks,
     tree: tree(el),
+    batch: batchView(),
   };
   // Sent from here, not through sendView: this already runs once a frame at most, inside the
   // frame, and sendView's own frame would make every answer a frame later than the page.
@@ -94,6 +100,20 @@ export function hostView() {
     send(/** @type {any} */ ({ type: "panel", panel: "canvas", view }));
   }
   return true;
+}
+
+/** What the bar would say (drawBar): the edits, undo and redo, the note, a refusal, the state. */
+function batchView() {
+  const B = C.draft.B;
+  const n = countEdits(B) + (B.sheet.trim() ? 1 : 0);
+  return {
+    edits: n,
+    undo: C.past.length > 0,
+    redo: C.future.length > 0,
+    note: cnote ? cnote.value : "",
+    msg: C.msg,
+    status: C.edit ? "Editing text" : C.done || (n ? "" : sentStatus()),
+  };
 }
 
 /** A box's text with what the browser would not take, as inspector.js's mark() says it. */
@@ -293,6 +313,16 @@ function act(a) {
       break;
     case "undo":
       undo();
+      break;
+    case "reset":
+      reset();
+      break;
+    case "note":
+      // The words typed in the host's field: the layer's own field's, as if typed there.
+      if (!cnote) return;
+      cnote.value = clean(String(a.text ?? "")).replace(/[\r\n]+/g, " ").slice(0, 10000);
+      draftChanged();
+      drawBar();
       break;
     case "redo":
       redo();

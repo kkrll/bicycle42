@@ -4,6 +4,9 @@
      narrow (under 520px), or a tall column under 700px: the tree above the styles;
      between: the tree on the left, the styles beside it (fields, then computed values);
      900px and wider: three columns, the tree, the computed values, the fields.
+   A handle between the tree and the styles sizes the tree (--cd-tree-h above them, --cd-tree-w
+   beside them; unset, its share). Under it all the footer: the bar's part, one row from 520px,
+   two under that.
    Tokens only; sizes from the scale (10 · 12 · 14 · 16). The page's words are monospaced. */
 
 .cd {
@@ -29,9 +32,15 @@
   container-type: normal;
 }
 
+/* (The footer stays: the batch can be sent with the inspector folded.) */
 .cd.shut .cd-body,
 .cd.shut .cd-tabs {
   display: none;
+}
+
+/* Where two scrollbars meet: nothing (the default square is the page's white or black). */
+.cd ::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* ── the header: what is selected, Element | Global, fold ─────────────────────────────────────── */
@@ -122,10 +131,12 @@
   display: flex;
 }
 
+/* The tree scrolls up and down only: a row too long for it ends in "…" (its title has it all), and
+   deep rows are indented half the tree's width at most (canvas-dock.tsx). */
 .cd-tree {
-  flex: 0 0 44%;
+  flex: 0 0 clamp(160px, var(--cd-tree-w, 44%), calc(100% - 220px));
   min-width: 0;
-  overflow: auto;
+  overflow: hidden auto;
   outline: none;
   border-right: 1px solid var(--rule);
   font-family: var(--font-mono);
@@ -138,7 +149,6 @@
 
 .cd-tspace {
   position: relative;
-  min-width: max-content;
 }
 
 .cd-trow {
@@ -147,6 +157,19 @@
   height: 22px;
   padding-right: 12px;
   white-space: nowrap;
+  overflow: hidden;
+}
+
+.cd-trow > * {
+  flex: none;
+}
+
+.cd-trow > .cd-tc,
+.cd-trow > .cd-tx {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cd-trow.hov {
@@ -217,6 +240,43 @@
   font-family: var(--font-sans);
   font-style: italic;
   color: var(--muted);
+}
+
+/* ── the handle between the tree and the styles: a pill, as the window's other handles ───────── */
+
+/* In the tree's border (beside the styles: its right edge; above them: its bottom one), taking no
+   room of its own. */
+.cd-grip {
+  flex: none;
+  position: relative;
+  z-index: 1;
+  width: 7px;
+  margin: 0 -3px 0 -4px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+
+/* (As the window's own edges, styles.css: the pill is there only while the edge is pointed at,
+   dragged or focused, and where the pointer is: --at, set by app.tsx.) */
+.cd-grip::after {
+  content: "";
+  position: absolute;
+  top: clamp(20px, var(--at, 50%), calc(100% - 20px));
+  left: 1.5px;
+  width: 4px;
+  height: 40px;
+  margin-top: -20px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--duration-micro) var(--ease-micro);
+}
+
+.cd-grip:hover::after,
+.cd-grip.active::after,
+.cd-grip:focus-visible::after {
+  opacity: 1;
 }
 
 .cd-side {
@@ -519,7 +579,7 @@
 /* Wide: three columns, each scrolling by itself; the styles box takes the height that is left. */
 @container cd (min-width: 900px) {
   .cd-tree {
-    flex-basis: 33.333%;
+    flex-basis: clamp(160px, var(--cd-tree-w, 33.333%), calc(100% - 220px));
   }
 
   .cd-el {
@@ -569,9 +629,24 @@
   }
 
   .cd-tree {
-    flex: 0 0 38%;
+    flex: 0 0 clamp(66px, var(--cd-tree-h, 38%), calc(100% - 120px));
     border-right: 0;
     border-bottom: 1px solid var(--rule);
+  }
+
+  .cd-grip {
+    width: auto;
+    height: 7px;
+    margin: -4px 0 -3px;
+    cursor: row-resize;
+  }
+
+  .cd-grip::after {
+    top: 1.5px;
+    left: clamp(20px, var(--at, 50%), calc(100% - 20px));
+    width: 40px;
+    height: 4px;
+    margin: 0 0 0 -20px;
   }
 
   .cd-title {
@@ -588,4 +663,137 @@
   .cd-css {
     max-height: 320px;
   }
+}
+
+/* ── the footer: the bar's part ─────────────────────────────────────────────────────────────── */
+
+/* Two rows under 520px (how many, undo, redo, Reset and the "?"; then the note and Send), one row
+   wider. The words start 12px in, as everywhere in the dock. */
+.cd-foot {
+  flex: none;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "count acts note send help";
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 8px 8px 8px 12px;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.cd-count {
+  grid-area: count;
+  min-width: 52px;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+
+.cd-acts {
+  grid-area: acts;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.cd-reset {
+  margin-left: 4px;
+}
+
+.cd-note-slot {
+  grid-area: note;
+  min-width: 0;
+  display: flex;
+}
+
+.cd-note {
+  flex: 1;
+  min-width: 0;
+}
+
+.cd-msg {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 32px;
+}
+
+.cd-msg.warn {
+  color: var(--ink-warn);
+}
+
+.cd-send {
+  grid-area: send;
+}
+
+.cd .cd-send {
+  height: 32px;
+  padding: 0 18px;
+}
+
+.cd-help {
+  grid-area: help;
+  color: var(--muted);
+}
+
+.cd-help[aria-expanded="true"] {
+  background: var(--surface-strong);
+  color: var(--foreground);
+}
+
+@container cd (max-width: 519px) {
+  .cd-foot {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "count acts help"
+      "note note send";
+    row-gap: 6px;
+  }
+
+  .cd-acts {
+    justify-self: start;
+  }
+}
+
+/* The keys list, from the "?": over the inspector's body, inside its box, above the footer
+   (its bottom and its height are set where it opens, canvas-dock.tsx). */
+.cd-keys {
+  position: absolute;
+  z-index: 4;
+  right: 8px;
+  width: min(440px, calc(100% - 16px));
+  overflow: hidden auto;
+  padding: 10px 12px;
+  border: 1px solid var(--background-03);
+  border-radius: 8px;
+  background: var(--background);
+  overscroll-behavior: contain;
+}
+
+.cd-krow {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 12px;
+  padding: 3px 0;
+}
+
+.cd-kk kbd {
+  display: inline;
+  height: auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  font-family: var(--font-mono);
+  color: var(--foreground);
+  white-space: normal;
+}
+
+.cd-kk .key-glyph {
+  vertical-align: -1px;
+}
+
+.cd-kv {
+  color: var(--muted);
 }

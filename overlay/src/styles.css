@@ -6,6 +6,8 @@
 .ink path { fill: none; stroke: #ef4444; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .ink rect { fill: color-mix(in srgb, var(--pa) 10%, transparent); stroke: var(--pa); stroke-width: 1.5; stroke-dasharray: 5 4; }
 .box { position: fixed; left: 0; top: 0; box-sizing: border-box; border-radius: 3px; pointer-events: none; }
+/* In the layer that scrolls with the document (b42-marks, mount.js): placed in its coordinates. */
+.boxes.doc > .box { position: absolute; }
 /* An outline is not one bordered box but four strips, each with the border of its side, and a
    fill. A box whose size changes is drawn again whole, at its old size and its new: over a large
    element that is the whole window, on every move of the pointer (measured while hovering: 550 ms
@@ -36,9 +38,7 @@
 .box.fx.k-small { --bc: #3b82f6; --bg: rgba(59, 130, 246, 0.08); }
 .box.fx.mk { --bw: 1.5px; }
 .box.fx.mk > .fill { display: none; }
-/* Beside a dock (canvas, motion) the marks are fainter: the page is being worked on. The kind
-   under the pointer in the host's phone line is marked as strongly as a row's element is. */
-.box.fx.mk.faint { --bw: 1px; opacity: 0.5; }
+/* The kind under the pointer in the host's phone line is marked as strongly as a row's element is. */
 .box.fx.mk.lit { --bw: 2px; }
 .box.fx.flash { animation: fxflash 700ms ease-out 2; }
 @keyframes fxflash { 0% { opacity: 1; } 50% { opacity: 0.25; } 100% { opacity: 1; } }

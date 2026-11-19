@@ -12,8 +12,11 @@ import { dropCopy } from "./copies.js";
 import { dock } from "./cursor.js";
 import { syncFields } from "./inspector.js";
 import { bar, clsEl, cnote, corner, cssEl, freeEl } from "./mount.js";
+import { editKeys, notesKeys } from "./help.js";
 import { tellMode } from "../mode.js";
 import { root } from "../mount.js";
+import { hosted } from "../panel.js";
+import { kick } from "../render.js";
 
 // ── the bar ─────────────────────────────────────────────────────────────────────────────────
 export function flash(text) {
@@ -35,13 +38,14 @@ export function hush() {
 }
 
 /** What the bar says about the batch sent last, while the agent has it. */
-function sentStatus() {
+export function sentStatus() {
   const b = C.sent[C.sent.length - 1];
   return b ? `Sent · preview stays until ${typeof b.n === "number" ? `note ${b.n}` : "the note"} is done` : "";
 }
 
 export function drawBar() {
   if (!bar) return;
+  if (hosted("canvas")) kick(); // the host's footer has the bar's part: the view says what changed
   const B = C.draft.B;
   const n = countEdits(B) + (B.sheet.trim() ? 1 : 0);
   const f = root.activeElement;
@@ -85,43 +89,7 @@ export function drawBar() {
 }
 
 // ── the bar's lists: what is in the batch, and the keys ─────────────────────────────────────
-const HELP = () => {
-  // A Mac writes a chord without "+" (⌘⇧Z), everyone else with it (ctrl+shift+Z).
-  const m = isMac ? "⌘" : "ctrl+", sh = isMac ? "⇧" : "shift+", alt = isMac ? "⌥" : "alt+";
-  if (!C.on)
-    return [
-      ["click", `select · ${isMac ? "⇧ click" : "shift+click"} adds`],
-      ["drag", "select everything in an area"],
-      [`${isMac ? "⌥ drag" : "alt+drag"}, or the pencil`, "draw · a closed loop selects what it encloses"],
-      ["↑ ↓", "parent, child (with the note empty)"],
-      ["↵", `send · ${alt}↵ sends in parallel`],
-      ["/", "templates"],
-      [`${m}Z`, "undo a stroke, or bring back a dropped note"],
-      ["esc", "cancel the note, then leave review mode"],
-      [`hold ${alt}A`, "peek: the page without the layer"],
-      [`${m}U · ${m}P · ${m}O · ${m}I`, "preview · annotate · edit · motion"],
-    ];
-  return [
-    ["click", "select · ↑ ↓ parent, child"],
-    ["drag", "reorder among its siblings"],
-    ["drag an edge or corner", `resize · hold ${isMac ? "⌘" : "ctrl"} for no snapping`],
-    ["drag the space between items", "change the gap"],
-    ["drag a padding or margin band", `change it · ${sh.replace("+", "")} both sides`],
-    ["double-click text", "edit it · ↵ keep, esc revert"],
-    ["Delete", "hide the selection · a copy: take it out"],
-    [`${m}D`, "duplicate the selection: a copy right after it"],
-    ["↑ ↓ in a computed value", `step its number · ${sh.replace("+", "")} 10, ${alt.replace("+", "")} 0.1, ${m.replace("+", "")} 100 · a keyword: the one before, after`],
-    ["double-click a number or keyword in the style boxes, then ↑ ↓", "the same there"],
-    ["drag a computed value's name", "change its number"],
-    ["typing CSS · ctrl Space", "suggestions · ↑ ↓ show on the page, ↵ take, esc put back"],
-    ["-- or var( in a value", "the page's variables · on a selected var(--…), ↑ ↓ go along its scale"],
-    [`${m}Z · ${m}${sh}Z`, "undo · redo"],
-    ["↵", `send · ${m}↵ from the inspector's fields`],
-    ["esc", "leave the field, deselect, back to annotate"],
-    [`hold ${alt}A`, "peek: the page without the layer, edits on"],
-    [`${m}U · ${m}P · ${m}O · ${m}I`, "preview · annotate · edit · motion"],
-  ];
-};
+const HELP = () => (C.on ? editKeys(isMac) : notesKeys(isMac));
 
 /** Computed values of every property an element's styles set, with the draft off and on. */
 function changesFor(entries) {

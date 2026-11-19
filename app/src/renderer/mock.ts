@@ -1294,15 +1294,13 @@ const FACTS: FactsView = {
   small: { items: [{ id: 8, label: "Work email", detail: "14 px" }, { id: 9, label: "Team size", detail: "13 px" }], total: 2 },
 }
 const FACTS_CLEAR: FactsView = { ...FACTS, doc: { w: 360, h: 3240 }, wide: { items: [], total: 0 }, taps: { items: [], total: 0 }, small: { items: [], total: 0 } }
-let factsMarks = true
+let factsMarks = false
 /** The sample, at the size of the phone the mock shows. */
 function factsView(): FactsView {
   const q = new URLSearchParams(location.search)
   const phone = phoneOf(q.get("phone"))
   const sample = structuredClone(q.get("facts") === "clear" ? FACTS_CLEAR : FACTS)
-  // In Edit the inspector's selection (the Pro card, mock-canvas.ts) is the card that sticks out.
-  const own = q.get("mode") === "edit" && sample.wide.total > 0 ? ({ kind: "wide", detail: "+46 px" } as const) : null
-  return { ...sample, viewport: { w: phone.width, h: phone.height }, marks: factsMarks, own }
+  return { ...sample, viewport: { w: phone.width, h: phone.height }, marks: factsMarks }
 }
 
 /** What the facts pane asks: its view when it is shown, nothing once it goes. */

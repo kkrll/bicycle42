@@ -14,10 +14,22 @@
 // a number, show the new value here at once and send it; the page follows within its next frame.
 //
 // The page view paints over everything in its box, so nothing here may reach over it: the
-// suggestion list opens inside the inspector's own box, under or above the caret.
+// suggestion list opens inside the inspector's own box, under or above the caret, and so does the
+// keys list.
+//
+// The footer is the bar the overlay draws over the page when the inspector is its own (the
+// overlay draws none while this one is up): how many edits, undo, redo, Reset, the note's words,
+// Send and what happened to the note sent last (the view's `batch`). The note's words are the
+// overlay's too, sent with every key, as Motion's are: they go with the batch and come back with
+// a refused one. Send is a "send" act, which main lets through to the page (admitNote).
+//
+// The header names what is selected (its component, or tag#id.class), never what it says. The
+// tree and the styles share the body by a handle between them, kept (canvas.tree.h above the
+// styles, canvas.tree.w beside them).
 import { For, Index, Show, batch, createEffect, createMemo, createSignal, on, onCleanup, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { CanvasAct, CanvasComputed, CanvasText, CanvasView } from "../../../overlay/protocol-canvas"
+import { editKeys } from "../../../overlay/src/canvas/help.js"
 import { CSS_PROPS } from "../../../overlay/src/canvas/css-data.js"
 import { numberAt, step as stepNumber, stepSize } from "../../../overlay/src/canvas/number.js"
 import {
@@ -35,14 +47,37 @@ import {
   WIDE,
   withVars,
 } from "../../../overlay/src/canvas/suggest-model.js"
-import { Icon } from "./icons"
-import { dockAct, dockViews, mac, recall, remember, state } from "./store"
+import { Icon, Kbd } from "./icons"
+import { dockAct, dockViews, keys, mac, recall, remember, state } from "./store"
 import "./canvas-dock.css"
 
 /** A tree row's height, px. The overlay is told how many rows show; it sends those and a screenful around. */
 const ROW = 22
 /** Rows of the suggestion list in view (PageUp/PageDown move this far). */
 const LIST_ROWS = 8
+
+/** How long a note just sent stays empty here before the view's words are shown again (ms): a
+ *  refused one brings its words back. */
+const HOLD_MS = 600
+/** The tree's least share of the body, and the styles' (px): a few rows, a field and its label. */
+const TREE_MIN = { h: 66, w: 160 }
+const SIDE_MIN = { h: 120, w: 220 }
+/** A step of the handle's arrows, px. */
+const GRIP_STEP = 16
+
+/** The few icons only the inspector's footer uses, on the 24 grid of icons.tsx. */
+const FPATHS = {
+  undo: "M9 5.25 4.5 9.75l4.5 4.5M4.5 9.75h9.375a4.875 4.875 0 0 1 0 9.75H10.5",
+  redo: "M15 5.25l4.5 4.5-4.5 4.5M19.5 9.75h-9.375a4.875 4.875 0 0 0 0 9.75H13.5",
+  help: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM9.4 9.2a2.7 2.7 0 0 1 5.25.9c0 1.8-2.65 2.25-2.65 4.05M12 17.25v.01",
+} as const
+function FIcon(props: { name: keyof typeof FPATHS }) {
+  return (
+    <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d={FPATHS[props.name]} />
+    </svg>
+  )
+}
 
 const send = (act: CanvasAct) => dockAct({ panel: "canvas", act })
 const supports = (prop: string, value: string) => {
@@ -679,11 +714,148 @@ export function CanvasDock() {
 
   const sheetRules = () => !!view()?.sheet.text.trim()
 
+  // ── the handle between the tree and the styles ─────────────────────────────────────────────
+  // Above the styles (the column, a narrow dock) it sets the tree's height, beside them its width;
+  // which is the shape the inspector's own size asks for (container queries in canvas-dock.css).
+  // Unset, the tree takes its share (38% above, 44% or a third beside); CSS keeps a kept size
+  // inside the body as it changes.
+  let bodyEl!: HTMLDivElement
+  const [stacked, setStacked] = createSignal(false)
+  const [treeH, setTreeH] = createSignal<number | undefined>(Number(recall("canvas.tree.h")) || undefined)
+  const [treeW, setTreeW] = createSignal<number | undefined>(Number(recall("canvas.tree.w")) || undefined)
+  // Which way the body is laid out is asked of the body itself when it matters (a drag, a key,
+  // a double click): the signal is for what is drawn, and is a frame behind in an inspector that
+  // has just come up, where a double click then reset the width and left the height as it was.
+  const stackedNow = () => (bodyEl ? getComputedStyle(bodyEl).flexDirection === "column" : stacked())
+  const axis = () => (stackedNow() ? ("h" as const) : ("w" as const))
+  const limits = () => {
+    const a = axis(), b = bodyEl.getBoundingClientRect()
+    return { min: TREE_MIN[a], max: Math.max(TREE_MIN[a], (a === "h" ? b.height : b.width) - SIDE_MIN[a]) }
+  }
+  const treeSize = () => {
+    const r = treeEl.getBoundingClientRect()
+    return Math.round(axis() === "h" ? r.height : r.width)
+  }
+  const [gripNow, setGripNow] = createSignal(0)
+  const setTree = (px: number | undefined, keep = true) => {
+    const a = axis()
+    const v = px === undefined ? undefined : Math.round(Math.min(limits().max, Math.max(limits().min, px)))
+    ;(a === "h" ? setTreeH : setTreeW)(v)
+    if (keep) remember(a === "h" ? "canvas.tree.h" : "canvas.tree.w", v === undefined ? "" : String(v))
+    requestAnimationFrame(() => treeEl && setGripNow(treeSize()))
+  }
+  let gripFrom: { at: number; size: number; id: number } | undefined
+  const [gripping, setGripping] = createSignal(false)
+  const gripDown = (e: PointerEvent) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    gripFrom = { at: axis() === "h" ? e.clientY : e.clientX, size: treeSize(), id: e.pointerId }
+    setGripping(true)
+  }
+  const gripMove = (e: PointerEvent) => {
+    if (!gripFrom || e.pointerId !== gripFrom.id) return
+    setTree(gripFrom.size + (axis() === "h" ? e.clientY : e.clientX) - gripFrom.at, false)
+  }
+  const gripEnd = () => {
+    if (!gripFrom) return
+    gripFrom = undefined
+    setGripping(false)
+    setTree(treeSize())
+  }
+  const gripKey = (e: KeyboardEvent) => {
+    const fwd = axis() === "h" ? "ArrowDown" : "ArrowRight", back = axis() === "h" ? "ArrowUp" : "ArrowLeft"
+    if (e.key === fwd) setTree(treeSize() + GRIP_STEP)
+    else if (e.key === back) setTree(treeSize() - GRIP_STEP)
+    else if (e.key === "Home") setTree(limits().min)
+    else if (e.key === "End") setTree(limits().max)
+    else return
+    e.preventDefault()
+    e.stopPropagation()
+  }
+  onMount(() => {
+    setStacked(stackedNow())
+    const ro = new ResizeObserver(() => {
+      setStacked(stackedNow())
+      setGripNow(treeSize())
+    })
+    ro.observe(rootEl)
+    onCleanup(() => ro.disconnect())
+  })
+
+  // ── the footer: the bar's part ──────────────────────────────────────────────────────────────
+  const batchV = () => view()?.batch
+  const edits = () => batchV()?.edits ?? 0
+  const [noteFocused, setNoteFocused] = createSignal(false)
+  const [noteLocal, setNoteLocal] = createSignal<string | null>(null)
+  const note = () => noteLocal() ?? batchV()?.note ?? ""
+  createEffect(() => {
+    const l = noteLocal()
+    if (l !== null && !noteFocused() && l === (batchV()?.note ?? "")) setNoteLocal(null)
+  })
+  let noteEl: HTMLInputElement | undefined
+  const sendBatch = (bg: boolean) => {
+    const text = noteEl?.value ?? note()
+    if (text !== (batchV()?.note ?? "")) send({ type: "note", text })
+    send({ type: "send", ...(bg ? { bg: true } : {}) })
+    // Sent, the words are gone; refused, the view brings them back.
+    if (edits()) {
+      setNoteLocal("")
+      setTimeout(() => !noteFocused() && setNoteLocal(null), HOLD_MS)
+      noteEl?.blur()
+    }
+  }
+  /** In place of the note: a refusal (for a moment), or the state when the note is empty. */
+  const line = () => {
+    const b = batchV()
+    if (!b || noteFocused()) return null
+    if (b.msg) return { text: b.msg, warn: true }
+    if (b.status && !note().trim()) return { text: b.status, warn: false }
+    return null
+  }
+  const sendTitle = () => {
+    const n = edits()
+    return n ? `Send ${n === 1 ? "this edit" : `these ${n} edits`} as one note (${keys("enter")} in the note, ${keys("mod", "enter")} in a field)` : "Nothing to send yet"
+  }
+
+  // ── the keys list: from the "?", inside the inspector's box ──
+  const [helpOpen, setHelpOpen] = createSignal(false)
+  let helpBtn: HTMLButtonElement | undefined
+  let helpEl: HTMLDivElement | undefined
+  /** Above the footer, no taller than the inspector's box leaves it. */
+  const helpAt = () => {
+    if (!helpOpen() || !rootEl) return {}
+    const foot = rootEl.querySelector(".cd-foot")?.getBoundingClientRect().height ?? 0
+    return { bottom: `${foot + 4}px`, "max-height": `${Math.max(60, rootEl.getBoundingClientRect().height - foot - 12)}px` }
+  }
+  const outside = (e: PointerEvent) => {
+    const t = e.target as Node
+    if (helpOpen() && !helpEl?.contains(t) && !helpBtn?.contains(t)) setHelpOpen(false)
+  }
+  onMount(() => document.addEventListener("pointerdown", outside, true))
+  onCleanup(() => document.removeEventListener("pointerdown", outside, true))
+  const KEYS = editKeys(mac())
+
   return (
-    <div class="cd" classList={{ shut: folded() }} ref={rootEl} onKeyDown={onKey} onInput={onInput}>
+    <div
+      class="cd"
+      classList={{ shut: folded() }}
+      ref={rootEl}
+      style={{ "--cd-tree-h": treeH() ? `${treeH()}px` : undefined, "--cd-tree-w": treeW() ? `${treeW()}px` : undefined }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && helpOpen()) {
+          e.preventDefault()
+          setHelpOpen(false)
+          helpBtn?.focus()
+          return
+        }
+        onKey(e)
+      }}
+      onInput={onInput}
+    >
       <header class="cd-head">
         <span class="cd-title">Inspector</span>
-        <span class="cd-path" title={sel()?.label ?? ""}>
+        <span class="cd-path" title={sel() ? `${sel()!.label}${sel()!.tag !== sel()!.label ? ` · ${sel()!.tag}` : ""}` : ""}>
           {sel() ? `${sel()!.label}${sel()!.hidden ? " · hidden" : ""}` : "Nothing selected"}
         </span>
         <div class="cd-tabs" role="tablist" aria-label="What the styles are for">
@@ -709,7 +881,7 @@ export function CanvasDock() {
           <Icon name={folded() ? "up" : "down"} />
         </button>
       </header>
-      <div class="cd-body">
+      <div class="cd-body" ref={bodyEl}>
         <div
           class="cd-tree thin-scroll"
           ref={treeEl}
@@ -729,7 +901,8 @@ export function CanvasDock() {
                     aria-selected={row.id === sel()?.id}
                     aria-expanded={row.kids === "none" ? undefined : row.kids === "open"}
                     classList={{ on: row.id === sel()?.id, hov: row.id === view()?.tree.hover, ed: !!row.ed, hid: !!row.hid }}
-                    style={{ "padding-left": `${4 + row.depth * 12}px` }}
+                    style={{ "padding-left": `min(${4 + row.depth * 12}px, 45%)` }}
+                    title={`${row.tag}${row.idName}${row.cls}`}
                     onMouseMove={() => hoverRow(row.id)}
                     onClick={(e) => {
                       if ((e.target as Element).closest(".cd-tw")) send({ type: "open", id: row.id })
@@ -752,6 +925,23 @@ export function CanvasDock() {
             </div>
           </div>
         </div>
+        <div
+          class="cd-grip"
+          classList={{ active: gripping() }}
+          role="separator"
+          aria-orientation={stacked() ? "horizontal" : "vertical"}
+          aria-label={stacked() ? "Resize the tree and the styles" : "Resize the tree"}
+          aria-valuenow={gripNow()}
+          title="Drag to resize · double-click: back to the default"
+          tabindex="0"
+          onPointerDown={gripDown}
+          onPointerMove={gripMove}
+          onPointerUp={gripEnd}
+          onPointerCancel={gripEnd}
+          onLostPointerCapture={gripEnd}
+          onDblClick={() => setTree(undefined)}
+          onKeyDown={gripKey}
+        />
         <div class="cd-side">
           <div class="cd-pane cd-el thin-scroll" role="tabpanel" hidden={global()}>
             <div class="cd-col cd-in thin-scroll">
@@ -872,6 +1062,91 @@ export function CanvasDock() {
           </div>
         </div>
       </div>
+      <footer class="cd-foot" aria-label="This batch">
+        <span class="cd-count" title={edits() ? "Unsent edits in this batch" : "Nothing edited yet"}>
+          {edits() ? `${edits()} edit${edits() === 1 ? "" : "s"}` : "No edits"}
+        </span>
+        <span class="cd-acts">
+          <button type="button" class="icon-btn cd-undo" aria-label="Undo" title={`Undo (${keys("mod", "Z")})`} disabled={!batchV()?.undo} onClick={() => send({ type: "undo" })}>
+            <FIcon name="undo" />
+          </button>
+          <button type="button" class="icon-btn cd-redo" aria-label="Redo" title={`Redo (${keys("mod", "shift", "Z")})`} disabled={!batchV()?.redo} onClick={() => send({ type: "redo" })}>
+            <FIcon name="redo" />
+          </button>
+          <button type="button" class="btn cd-reset" title="Remove every unsent edit (undoable)" disabled={!edits()} onClick={() => send({ type: "reset" })}>
+            Reset
+          </button>
+        </span>
+        <span class="cd-note-slot">
+          <Show
+            when={!line()}
+            fallback={
+              <span class="cd-msg" classList={{ warn: line()!.warn }} role="status" title={line()!.text}>
+                {line()!.text}
+              </span>
+            }
+          >
+            <input
+              ref={noteEl}
+              class="input cd-note"
+              type="text"
+              spellcheck={false}
+              autocomplete="off"
+              aria-label="Note"
+              placeholder="Add a note…"
+              value={note()}
+              onFocus={() => {
+                setNoteFocused(true)
+                setNoteLocal(noteEl!.value)
+              }}
+              onBlur={() => {
+                setNoteFocused(false)
+                setTimeout(() => !noteFocused() && setNoteLocal(null), HOLD_MS)
+              }}
+              onInput={(e) => {
+                e.stopPropagation() // (not the inspector's fields' typing)
+                setNoteLocal(e.currentTarget.value)
+                send({ type: "note", text: e.currentTarget.value })
+              }}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === "Enter" && !e.isComposing && !e.shiftKey) {
+                  e.preventDefault()
+                  sendBatch(e.altKey)
+                } else if (e.key === "Escape") noteEl!.blur()
+              }}
+            />
+          </Show>
+        </span>
+        <button type="button" class="btn primary cd-send" disabled={!edits()} title={sendTitle()} onClick={(e) => sendBatch(e.altKey)}>
+          Send
+        </button>
+        <button
+          type="button"
+          class="icon-btn cd-help"
+          ref={helpBtn}
+          aria-label="Keys and gestures"
+          aria-expanded={helpOpen()}
+          title="Keys and gestures"
+          onClick={() => setHelpOpen(!helpOpen())}
+        >
+          <FIcon name="help" />
+        </button>
+      </footer>
+      <Show when={helpOpen()}>
+        <div class="cd-keys thin-scroll" ref={helpEl} role="dialog" aria-label="Keys and gestures" style={helpAt()}>
+          <For each={KEYS}>
+            {([k, v]) => (
+              <div class="cd-krow">
+                <span class="cd-kk">
+                  <Kbd keys={k} />
+                </span>
+                <span class="cd-kv">{v}</span>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
       <Show when={list()}>
         {(l) => (
           <div

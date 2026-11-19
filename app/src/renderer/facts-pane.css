@@ -1,5 +1,5 @@
 /* "This page on this phone" (facts-pane.tsx): the column beside a phone's page in Preview and
-   Annotate, and its top line above the dock in Edit and Motion. A pane like a dock's (.dock in
+   Annotate. A pane like a dock's (.dock in
    styles.css): the phone line on top, a body that scrolls inside itself, a footer. Text sits 12px in from the
    pane's edge. In a pane 620px or wider the facts and the changed files are two columns, so a
    row never runs much past 480px: its number stays near its words. */
@@ -18,11 +18,9 @@
   container: fp / inline-size;
 }
 
-/* ── the phone line: the column's top in every mode ───────────────────────────────────────────── */
+/* ── the phone line: the pane's header ───────────────────────────────────────────────────────── */
 
-/* As tall as the inspector's header (.cd-head in canvas-dock.css): 36px, the words 12px in, and
-   the same in all four modes (the pane's top in Preview and Annotate, the dock's in Edit and
-   Motion), so a mode change moves nothing in it. Each part is a box with 6px inside it, pulled
+/* As tall as the inspector's header (.cd-head in canvas-dock.css): 36px, the words 12px in. Each part is a box with 6px inside it, pulled
    6px out, so its words start on the 12px line the text under it starts on. */
 .pl {
   flex: none;
@@ -72,8 +70,7 @@
 }
 
 /* (The parts that may be cut, at their end: never the counts.) */
-.pl-facts > .pl-warn,
-.pl-facts > .pl-own {
+.pl-facts > .pl-warn {
   flex: 0 1 auto;
   min-width: 0;
 }
@@ -96,24 +93,8 @@
   color: var(--foreground);
 }
 
-/* In Edit: the inspector's selection is one of the facts. On a wash of its kind's tone; the words
-   stay the foreground's (the tones are not text colours). */
-.pl-own {
-  margin-right: 4px;
-  background: color-mix(in srgb, var(--fact-taps) 16%, transparent);
-}
-
-.pl-own[data-kind="wide"] {
-  background: color-mix(in srgb, var(--fact-wide) 16%, transparent);
-}
-
-.pl-own[data-kind="small"] {
-  background: color-mix(in srgb, var(--fact-small) 16%, transparent);
-}
-
 /* A count's long words, its short ones ("5 taps") or its number alone: the longest that fits,
-   the counts shortened before the selection's fact (which says more), and that before anything
-   is cut. Widths of the line, the toggle's included. */
+   before anything is cut. Widths of the line, the toggle's included. */
 .pl-short,
 .pl-num {
   display: none;
@@ -135,33 +116,6 @@
   }
 
   .pl-count .pl-num {
-    display: inline;
-  }
-}
-
-/* With the selection's fact before them. */
-@container pl (max-width: 600px) {
-  .pl-facts:has(.pl-own) .pl-count .pl-long {
-    display: none;
-  }
-
-  .pl-facts:has(.pl-own) .pl-count .pl-short {
-    display: inline;
-  }
-}
-
-@container pl (max-width: 440px) {
-  .pl-own .pl-long {
-    display: none;
-  }
-}
-
-@container pl (max-width: 410px) {
-  .pl-facts:has(.pl-own) .pl-count .pl-short {
-    display: none;
-  }
-
-  .pl-facts:has(.pl-own) .pl-count .pl-num {
     display: inline;
   }
 }

@@ -224,6 +224,15 @@ const KINDS = { a: "Link", button: "Button", img: "Image", svg: "Icon", input: "
   span: "Text", label: "Label", ul: "List", ol: "List", li: "List item", nav: "Navigation", header: "Header", footer: "Footer",
   section: "Section", article: "Card", form: "Form", table: "Table", video: "Video", h1: "Heading", h2: "Heading", h3: "Heading",
   h4: "Heading", h5: "Heading", h6: "Heading" };
+/** What an element is, as the inspector's tree shows it: tag#id.class (four class names at most). */
+export const treeName = (el) => {
+  const names = (el.getAttribute("class") || "").trim();
+  return `${el.localName}${el.id ? `#${el.id}` : ""}${names ? `.${names.split(/\s+/).slice(0, 4).join(".")}` : ""}`.slice(0, 80);
+};
+/** What an element is for the inspector's header: its component's name when the page says one,
+ *  else treeName. Never its words: the header names the element, the page shows what it says. */
+export const kindName = (el) => component(el)?.name || treeName(el);
+
 export const plainLabel = (el, max = 32) => {
   const tag = el.tagName.toLowerCase();
   const kind = component(el)?.name || KINDS[tag] || (el.getAttribute("role") ? el.getAttribute("role") : "Block");

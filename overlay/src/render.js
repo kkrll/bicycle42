@@ -8,7 +8,7 @@ import { hideTip, makePin } from "./sent.js";
 import * as Canvas from "./canvas/api.js";
 import * as Motion from "./motion/api.js";
 import { boxes as factBoxes } from "./facts/host.js";
-import { boxes, domVersion, pinsEl, root } from "./mount.js";
+import { boxes, docBoxes, docHost, domVersion, pinsEl, root } from "./mount.js";
 import { roomFrame } from "./room.js";
 
 export function pool(container, n, make) {
@@ -103,6 +103,20 @@ function pinAt(p, now) {
   return m.at && (m.fixed ? m.at : [m.at[0] - VP.sx, m.at[1] - VP.sy]);
 }
 
+/** The layer that scrolls with the document: put in it the first time it has outlines to show
+ *  (`want`), emptied when it has none (the facts pane's "stop" takes it out: facts/host.js), so a
+ *  row pointed at and left is no change to the page's tree. Where its origin is in the window
+ *  now, or null when it shows nothing. */
+function docLayer(want) {
+  if (!want) {
+    if (docBoxes.firstChild) pool(docBoxes, 0, makeBox);
+    return null;
+  }
+  if (docHost.parentNode !== document.documentElement) document.documentElement.appendChild(docHost);
+  const o = docHost.getBoundingClientRect();
+  return { x: o.left, y: o.top };
+}
+
 export function render() {
   if (!root) return;
   readView();
@@ -119,12 +133,22 @@ export function render() {
   if (S.enabled || capturing) for (const el of S.sel) if (el.isConnected) items.push([rectOf(el), "sel"]);
   if (canvasBoxes) items.push(...canvasBoxes);
   if (motionBoxes) items.push(...motionBoxes);
+  // The facts pane's outlines of elements that scroll with the document go in the layer that
+  // scrolls with it (they do not trail a scroll by a frame); those in a scroller of their own, or
+  // fixed or sticky, are placed in the window with the rest, every frame they move.
   const facts = factBoxes(capturing);
-  if (facts) items.push(...facts);
+  const onDoc = [];
+  if (facts) for (const f of facts) (f[2] ? onDoc : items).push(f);
+  const origin = docLayer(onDoc.length > 0);
   const dpr = window.devicePixelRatio || 1;
   if (boxes._dpr !== dpr) boxes.style.setProperty("--dp", `${1 / (boxes._dpr = dpr)}px`);
   const divs = pool(boxes, items.length, makeBox);
   items.forEach(([r, cls], i) => placeBox(divs[i], r, cls, dpr));
+  if (origin) {
+    if (docBoxes._dpr !== dpr) docBoxes.style.setProperty("--dp", `${1 / (docBoxes._dpr = dpr)}px`);
+    const docDivs = pool(docBoxes, onDoc.length, makeBox);
+    onDoc.forEach(([r, cls], i) => placeBox(docDivs[i], { x: r.x - origin.x, y: r.y - origin.y, w: r.w, h: r.h }, cls, dpr));
+  }
 
   // notes mode's ink and card: after the boxes are written (notes/frame.js says why)
   Notes.frame(capturing);

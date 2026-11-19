@@ -330,6 +330,7 @@ async function main() {
   await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
   check("Edit in the top bar opens the window's inspector, and the page has none of its own", (await until(inspector)) === true && (await until(async () => (await modeShown()) === "edit")) === true && state().review.mode === "edit" && !(await pageInspector()) && state().review.docks.includes("canvas"))
   check("…and the page makes no room for one", (await js(`getComputedStyle(document.documentElement).paddingBottom`)) === "0px")
+  check("…and draws no bar of its own over the page: the inspector's footer has it", (await until(() => js(`!${shadow}.querySelector('.bar').checkVisibility() && !${shadow}.querySelector('.corner').checkVisibility()`))) === true && (await ui(`document.querySelector('.cd-foot .cd-count')?.textContent`)) === "No edits")
   wc.sendInputEvent({ type: "keyDown", keyCode: "P", modifiers: [mod] })
   check("mod+P on the page goes back to Annotate, and the top bar follows", (await until(async () => !(await inspector()) && (await modeShown()) === "notes")) === true)
   // Resting the pointer on a control shows what it does and its key, in the bar; the chosen
@@ -371,14 +372,19 @@ async function main() {
   windowDbg.attach("1.3")
   await windowDbg.sendCommand("Emulation.setFocusEmulationEnabled", { enabled: true })
   const header = () => ui(`document.querySelector('.cd-path')?.textContent ?? ""`) as Promise<string>
+  const headerAll = () => ui(`(() => { const h = document.querySelector('.cd-path'); return h ? h.textContent + "|" + h.title : "" })()`) as Promise<string>
+  /** The selected row's place among the rows the tree shows. */
+  const selRow = () => ui(`(() => { const r = document.querySelector('.cd-trow.on'); return r ? [...r.parentElement.children].indexOf(r) : -1 })()`) as Promise<number>
   await clickAt(`document.querySelector(${JSON.stringify(CARD)})`)
-  check("a card clicked on the page is the inspector's selection, its row in the tree", (await until(async () => (await header()).startsWith("Card · Pro"))) === true && (await until(() => ui(`document.querySelector('.cd-trow.on .cd-tt')?.textContent === "article"`))) === true, await header())
+  check("a card clicked on the page is the inspector's selection, its row in the tree", (await until(async () => (await header()) === "article.card")) === true && (await until(() => ui(`document.querySelector('.cd-trow.on .cd-tt')?.textContent === "article"`))) === true, await header())
+  check("the inspector's header says what the element is and none of its words, nor does its title", !/Pro|small teams/.test(await headerAll()), await headerAll())
   // (the page's own outline follows the window's choice: the one before it in the tree, then back)
+  const cardRow = await selRow()
   await ui(`[...document.querySelectorAll('.cd-trow')].find((r) => r.classList.contains("on")).previousElementSibling.click()`)
   const firstCard = "#plans article:nth-of-type(1)"
-  check("a row clicked in the tree selects its element on the page", (await until(async () => !(await header()).startsWith("Card · Pro"))) === true && (await until(() => js(`(() => { const o = ${shadow}.querySelector('.box.csel'); const r = document.querySelector(${JSON.stringify(firstCard)}).getBoundingClientRect(); return !!o && Math.abs(o.getBoundingClientRect().width - r.width) < 2 })()`))) === true, await header())
+  check("a row clicked in the tree selects its element on the page", (await until(async () => (await selRow()) === cardRow - 1)) === true && (await until(() => js(`(() => { const o = ${shadow}.querySelector('.box.csel'); const r = document.querySelector(${JSON.stringify(firstCard)}).getBoundingClientRect(); return !!o && Math.abs(o.getBoundingClientRect().width - r.width) < 2 })()`))) === true, `${await selRow()} ${cardRow}`)
   await ui(`[...document.querySelectorAll('.cd-trow')].find((r) => r.classList.contains("on")).nextElementSibling.click()`)
-  await until(async () => (await header()).startsWith("Card · Pro"))
+  await until(async () => (await selRow()) === cardRow)
   check("computed values are the page's", (await until(() => ui(`document.querySelector('.cd-cval[data-prop="padding"]')?.value === "16px"`))) === true)
   // The round trip a drag in the inspector waits for (dockPing's way: an act there, its answer back).
   const pings = (await ui(`(async () => { const out = []; for (let i = 0; i < 20; i++) out.push(await new Promise((done) => { const id = 9000 + i, t0 = performance.now(); const off = window.b42.onPanel((m) => { if (m.pong === id) { off(); done(performance.now() - t0) } }); window.b42.invoke("panel", { panel: "canvas", act: { type: "ping", id } }) })); return out.sort((a, b) => a - b) })()`)) as number[]
@@ -408,7 +414,7 @@ async function main() {
     canvas?.files.map((f) => `${f.name} ${f.uri.length}`).join(", "),
   )
   await until(() => notes()[3]?.status === "queued")
-  check("the edits are back on the page once the pictures are taken", (await until(() => js(`getComputedStyle(document.querySelector(${JSON.stringify(CARD)})).paddingLeft === "32px" && ${shadow}.querySelector('.bar').checkVisibility()`))) === true)
+  check("the edits are back on the page once the pictures are taken, and the inspector's footer says it was sent", (await until(() => js(`getComputedStyle(document.querySelector(${JSON.stringify(CARD)})).paddingLeft === "32px"`))) === true && (await until(() => ui(`/^Sent · preview stays until note 4/.test(document.querySelector('.cd-foot .cd-msg')?.textContent ?? "")`))) === true && (await ui(`document.querySelector('.cd-foot .cd-count').textContent`)) === "No edits")
   const row = notes()[3]
   check("the list names it by its edits and lists them in words", row?.text === NAME && row.edits?.join() === 'Styled "Card · Pro For small teams": padding: 16px → 32px.', JSON.stringify(row))
   check(
@@ -560,7 +566,8 @@ async function main() {
   await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
   await until(() => state().review.mode === "notes")
   const aside = (await until(() => ui(`(() => { const r = document.querySelector('.dock.fp')?.getBoundingClientRect(); return r ? { x: r.x, text: document.querySelector('.dock.fp > .pl').getAttribute('aria-label') } : null })()`))) as { x: number; text: string } | undefined
-  // The phone line, the column's top: one in every mode, the same class, top and height.
+  // The phone line, the facts pane's header: in Preview and Annotate, the same class, top and
+  // height; none in Edit and Motion.
   type Line = { cls: string; top: number; height: number; left: number; width: number; n: number }
   const lineBox = () => ui(`(() => { const l = document.querySelector('.pl'); if (!l) return null; const r = l.getBoundingClientRect(); return { cls: l.className, top: r.top, height: r.height, left: r.left, width: r.width, n: document.querySelectorAll('.pl').length } })()`) as Promise<Line | null>
   const lines: Record<string, Line | null> = { annotate: await lineBox() }
@@ -576,21 +583,25 @@ async function main() {
   const cta = taps.find((r) => r.startsWith("Start free trial|")) ?? ""
   check("in Preview the pane lists the page's own small tap targets", !!cta && /^\d+ × \d+$/.test(cta.split("|")[1] ?? ""), taps.join(", "))
   const hoverRow = (on: boolean) => ui(`(() => { const r = [...document.querySelectorAll('.fp-fact')].find((r) => r.querySelector('.fp-label').textContent === "Start free trial"); r.dispatchEvent(new PointerEvent(${JSON.stringify(on ? "pointerenter" : "pointerleave")})) })()`)
-  const outlined = () => js(`[...(${shadow}?.querySelectorAll('.box.fx:not(.mk)') ?? [])].map((b) => { const r = b.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] })`) as Promise<number[][]>
-  // Marks on (the default): every listed element is marked on the page, as many as the pane has
-  // rows; the toggle in its header takes them away.
-  const marked = () => js(`${shadow}?.querySelectorAll('.box.fx.mk').length ?? 0`) as Promise<number>
+  // (The pane's outlines: in the layer's own, or in the one that scrolls with the document.)
+  const both = (sel: string) => `[...(${shadow}?.querySelectorAll('${sel}') ?? []), ...(document.querySelector('b42-marks')?.shadowRoot.querySelectorAll('${sel}') ?? [])]`
+  const outlined = () => js(`${both(".box.fx:not(.mk)")}.map((b) => { const r = b.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] })`) as Promise<number[][]>
+  // Marks off (the default): the page is the page. The toggle in the pane's header marks every
+  // listed element, as many as the pane has rows, and takes them away again.
+  const marked = () => js(`${both(".box.fx.mk")}.length`) as Promise<number>
   const rowCount = () => ui(`document.querySelectorAll('.fp-fact').length`) as Promise<number>
+  const marksBtn = () => ui(`(() => { const b = document.querySelector('.pl-marks'); return b.getAttribute('aria-pressed') + "|" + b.textContent + "|" + b.title })()`) as Promise<string>
+  await sleep(300) // (the pane's rows are in: a mark would be by now)
+  const clean = [await marked(), await marksBtn()] as const
+  check("in Preview the page is clean: no marks until asked for, and the toggle says what it would do", clean[0] === 0 && clean[1] === "false|Marks off|Outline everything listed here on the page", clean.join(" / "))
+  await ui(`document.querySelector('.pl-marks').click()`)
   const markedAll = await until(async () => {
     const [m, r] = [await marked(), await rowCount()]
     return m > 0 && m === r ? m : null
   }, 3000)
-  const marksBtn = () => ui(`(() => { const b = document.querySelector('.pl-marks'); return b.getAttribute('aria-pressed') + "|" + b.textContent })()`) as Promise<string>
-  check("with marks on, the page has a mark for each of the pane's rows", !!markedAll && (await marksBtn()) === "true|Marks on", `${await marked()} marks, ${await rowCount()} rows, ${await marksBtn()}`)
+  check("with marks on, the page has a mark for each of the pane's rows", !!markedAll && (await marksBtn()) === "true|Marks on|Stop outlining them on the page", `${await marked()} marks, ${await rowCount()} rows, ${await marksBtn()}`)
   await ui(`document.querySelector('.pl-marks').click()`)
-  check("…and the toggle takes them off the page, and says so in words", (await until(async () => (await marked()) === 0, 3000)) === true && (await marksBtn()) === "false|Marks off", `${await marked()} ${await marksBtn()}`)
-  await ui(`document.querySelector('.pl-marks').click()`)
-  await until(async () => (await marked()) === (await rowCount()), 3000)
+  check("…and the toggle takes them off the page, and says so in words", (await until(async () => (await marked()) === 0, 3000)) === true && (await marksBtn()).startsWith("false|Marks off"), `${await marked()} ${await marksBtn()}`)
   await hoverRow(true)
   const boxes = (await until(async () => ((await outlined()).length ? outlined() : null), 3000)) ?? []
   const target = (await js(`(() => { const r = document.getElementById("cta").getBoundingClientRect(); return [r.x, r.y, r.width, r.height] })()`)) as number[]
@@ -617,50 +628,63 @@ async function main() {
   check("…and its name beside the switch", (await ui(`document.querySelector('.phone-pick .pick-long').textContent`)) === "iPhone SE")
   await ui(`(() => { const s = document.querySelector('.phone-pick select'); s.value = "iphone-14"; s.dispatchEvent(new Event("change", { bubbles: true })) })()`)
   await until(() => shaped(page.view.getBounds(), 390, 844) && page.view.getBounds().width === narrow.width)
-  // Edit, beside a phone's page: one line of the facts above the inspector, the real page's
-  // counts (the same the pane's headings say), and no marks on the page.
-  const paneCounts = () => ui(`[...document.querySelectorAll('.fp-sec[aria-label] .fp-count')].map((c) => c.textContent).join(",")`) as Promise<string>
-  await until(async () => (await paneCounts()) !== "", 3000)
-  const counts = await paneCounts()
+  // Edit, beside a phone's page: the column is the inspector and nothing else; the page's facts
+  // are not worked out there, and nothing of the pane is marked on the page.
   await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
-  await until(() => state().review.mode === "edit")
-  const strip = () => ui(`(() => { const s = document.querySelector('.dock[data-dock="canvas"] > .pl'); return s ? { text: s.textContent, counts: [...s.querySelectorAll('.pl-count .pl-num')].map((c) => c.textContent).join(",") } : null })()`) as Promise<{ text: string; counts: string } | null>
-  const stripped = await until(async () => ((await strip())?.counts ? strip() : null), 3000)
-  check("in Edit beside a phone's page, the phone line above the inspector counts the page's facts, no marks on the page", !!stripped && stripped.counts === counts && (await marked()) === 0, `${JSON.stringify(stripped)} / pane ${counts} / ${await marked()} marks`)
-  lines.edit = await lineBox()
-  // The pointer on a count marks that kind on the page, in Edit too, while it is there.
-  const lit = () => js(`${shadow}?.querySelectorAll('.box.fx.mk.lit.k-taps').length ?? 0`) as Promise<number>
-  const pointCount = (on: boolean) => ui(`document.querySelector('.pl-count[data-kind="taps"]').dispatchEvent(new PointerEvent(${JSON.stringify(on ? "pointerenter" : "pointerleave")}))`)
-  await pointCount(true)
-  const litN = await until(async () => ((await lit()) > 0 ? lit() : null), 3000)
-  await pointCount(false)
-  check("in Edit the pointer on a count marks that kind on the page, and only while it is there", !!litN && (await until(async () => (await lit()) === 0, 3000)) === true, `${litN} then ${await lit()}`)
-  // A click on it: the inspector selects the first of them, and the line says what it is.
-  const tapLabels = taps.map((r) => r.split("|")[0]!)
-  await ui(`document.querySelector('.pl-count[data-kind="taps"]').click()`)
-  const inspected = (await until(async () => {
-    const t = (await ui(`document.querySelector('.cd-path')?.textContent ?? ""`)) as string
-    return tapLabels.some((l) => t.includes(l)) ? t : null
-  }, 3000)) as string | undefined
-  const ownText = (await until(() => ui(`document.querySelector('.pl-own')?.textContent ?? null`), 3000)) as string | undefined
-  check("in Edit a click on small taps selects a small tap target in the inspector, and the line says what is wrong with it", !!inspected && !!ownText && /^This element: \d+ × \d+, under 44$/.test(ownText), `${inspected} / ${ownText} / ${tapLabels.join(", ")}`)
-  // Marks in Edit: a choice of their own (off until turned on), fainter.
-  const faint = () => js(`${shadow}?.querySelectorAll('.box.fx.mk.faint').length ?? 0`) as Promise<number>
-  const editMarks = await marksBtn()
-  await ui(`document.querySelector('.pl-marks').click()`)
-  const faintN = await until(async () => ((await faint()) > 0 ? faint() : null), 3000)
-  check("in Edit the marks are off until turned on, then faint; the words flip", editMarks === "false|Marks off" && !!faintN && (await marksBtn()) === "true|Marks on", `${editMarks} → ${await marksBtn()}, ${faintN} faint`)
-  await ui(`document.querySelector('.pl-marks').click()`)
-  await until(async () => (await faint()) === 0, 3000)
+  await until(async () => state().review.mode === "edit" && (await inspector()))
+  await sleep(300)
+  const inEdit = { line: await ui(`document.querySelectorAll('.pl').length`), marks: await marked(), top: await ui(`document.querySelector('.dock[data-dock="canvas"]').firstElementChild?.className`) }
+  check("in Edit beside a phone's page the column is the inspector alone: no phone line, no marks on the page", inEdit.line === 0 && inEdit.marks === 0 && inEdit.top === "cd", JSON.stringify(inEdit))
+  // The handle between the tree and the styles: arrows step 16 px, Home is the tree's least, a
+  // double click its share again; the height is kept for the next inspector.
+  const treeH = () => ui(`Math.round(document.querySelector('.cd-tree').getBoundingClientRect().height)`) as Promise<number>
+  const gripKey = (k: string) => ui(`document.querySelector('.cd-grip').dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(k)}, bubbles: true, cancelable: true }))`)
+  const t0 = await treeH()
+  await gripKey("ArrowDown")
+  await sleep(50)
+  const t1 = await treeH()
+  await gripKey("Home")
+  await sleep(50)
+  const t2 = await treeH()
+  await gripKey("ArrowDown")
+  await sleep(50)
+  const kept = await ui(`localStorage.getItem("b42.canvas.tree.h")`)
+  const gripInfo = await ui(`(() => { const g = document.querySelector('.cd-grip'); const r = g.getBoundingClientRect(), a = getComputedStyle(g, "::after"); return { o: g.getAttribute("aria-orientation"), w: r.width, h: r.height, pill: a.width + "x" + a.height } })()`)
+  check("the handle between the tree and the styles: an arrow steps the tree 16 px, Home is its least, and the height is kept", t1 === t0 + 16 && t2 === 66 && kept === "82" && JSON.stringify(gripInfo).includes('"o":"horizontal"') && JSON.stringify(gripInfo).includes("40px x 4px".replace(" x ", "x")), `${t0} ${t1} ${t2} kept ${kept} ${JSON.stringify(gripInfo)}`)
   await ui(`document.querySelector('.mode[data-mode="motion"]').click()`)
   await until(() => state().review.mode === "motion")
-  lines.motion = (await until(async () => ((await ui(`!!document.querySelector('.dock[data-dock="motion"] > .pl')`)) ? lineBox() : null), 3000)) ?? null
-  const ls = Object.values(lines)
+  // (Both read in one look at the window: read apart, the second could see another moment than the first.)
+  const inMotion = (await until(() => ui(`document.querySelector('.dock[data-dock="motion"]') ? document.querySelectorAll('.pl').length : null`), 3000)) as number | undefined
+  lines.motion = null
+  await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
+  await until(async () => state().review.mode === "edit" && (await inspector()))
+  const t3 = await treeH()
+  await ui(`document.querySelector('.cd-grip').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`)
+  // (Until it is laid out again, not a fixed wait: a busy machine takes longer than 50 ms.)
+  await until(async () => (await treeH()) === t0, 2000)
+  const t4 = await treeH()
+  check("…an inspector opened again has it, and a double click gives the tree its share again", inMotion === 0 && t3 === 82 && t4 === t0 && (await ui(`localStorage.getItem("b42.canvas.tree.h")`)) === "", `motion lines ${inMotion}; ${t3} ${t4} (was ${t0})`)
+  const ls = [lines.preview, lines.annotate]
   check(
-    "the phone line is the column's top in Preview, Annotate, Edit and Motion: one, the same class, top and height",
-    ls.length === 4 && ls.every((l) => !!l && l.n === 1 && l.cls === "pl" && l.height === 36 && l.top === ls[0]!.top && l.left === ls[0]!.left && l.width === ls[0]!.width),
+    "the phone line is the facts pane's header in Preview and Annotate: one, the same class, top and height; none in Edit and Motion",
+    ls.every((l) => !!l && l.n === 1 && l.cls === "pl" && l.height === 36 && l.top === ls[0]!.top && l.left === ls[0]!.left && l.width === ls[0]!.width),
     JSON.stringify(lines),
   )
+  // The footer's Send, in the window: a note with the words typed beside it, though no key or
+  // click of the reviewer's was in the page (main lets it through: the window's dock sent it).
+  await clickAt(`document.querySelector(${JSON.stringify(CARD)})`)
+  await until(async () => (await selRow()) >= 0)
+  await ui(`document.querySelector('.cd-css').focus()`)
+  await windowDbg.sendCommand("Input.insertText", { text: "gap: 4px;" })
+  await until(() => ui(`document.querySelector('.cd-foot .cd-count').textContent === "1 edit" && !document.querySelector('.cd-send').disabled`))
+  await ui(`document.querySelector('.cd-note').focus()`)
+  await windowDbg.sendCommand("Input.insertText", { text: "tighter please" })
+  const footNotes = state().review.notes.length
+  await ui(`document.querySelector('.cd-send').click()`)
+  const footSent = await until(() => state().review.notes.length === footNotes + 1, 4000)
+  const footNote = state().review.notes.at(-1)
+  check("the inspector's footer Send makes the note, with the words typed in its field", footSent === true && footNote?.text === "tighter please" && footNote.edits?.[0]?.startsWith("Styled") === true, `${state().review.notes.length - footNotes} new: ${JSON.stringify(footNote)}`)
+  check("…and the footer is empty again, and says it was sent", (await until(() => ui(`document.querySelector('.cd-foot .cd-count').textContent === "No edits" && /^Sent/.test(document.querySelector('.cd-foot .cd-msg')?.textContent ?? "")`))) === true)
   await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
   await until(() => state().review.mode === "edit")
   await ui(`document.querySelector('[data-device="desktop"]').click()`)
@@ -764,7 +788,7 @@ async function main() {
   check("the conversation is remembered for the site", saved().sites[origin]?.session === SES, JSON.stringify(saved().sites))
   const reviews = fs.readdirSync(path.join(profile, "reviews"))
   const review = reviews[0] ? JSON.parse(fs.readFileSync(path.join(profile, "reviews", reviews[0]), "utf8")) : undefined
-  check("the notes are saved, versioned", reviews.length === 1 && review?.version === 1 && review.notes?.length === 5 && review.notes[3].edits?.[0]?.kind === "style" && review.notes[4].motion?.name === "rise", `${reviews.join()}: ${review?.notes?.length} notes`)
+  check("the notes are saved, versioned", reviews.length === 1 && review?.version === 1 && review.notes?.length === 6 && review.notes[3].edits?.[0]?.kind === "style" && review.notes[4].edits?.[0]?.kind === "style" && review.notes[5].motion?.name === "rise", `${reviews.join()}: ${review?.notes?.length} notes`)
   check("the chosen model is saved for the next launch", saved().defaultModel?.providerID === "anthropic" && saved().defaultModel?.id === "sonnet", JSON.stringify(saved().defaultModel))
   check("the password is not in the window's state", !JSON.stringify(state()).includes(server.password))
 

@@ -41,7 +41,8 @@ const CSS = "padding: 24px;\nborder-radius: var(--radius-lg);\ngap: 12px;\ncolor
 export function canvasView(): CanvasView {
   return {
     force: 1,
-    sel: { id: SELECTED.id, label: "Card · Pro For small teams", hidden: false },
+    // (What it is, never what it says: its component's name, the tree's name in the title.)
+    sel: { id: SELECTED.id, label: "PricingCard", tag: "article.card.card-pro", hidden: false },
     global: false,
     classes: { text: "card card-pro", long: false },
     css: { text: CSS, marks: [{ s: CSS.indexOf("color"), e: CSS.length - 1, why: "invalid value for color" }], error: "Not applied: invalid value for color" },
@@ -81,5 +82,6 @@ export function canvasView(): CanvasView {
       { name: "--text-base", value: "16px", size: 16 },
     ],
     tree: { total: ROWS.length, first: 0, rows: ROWS, sel: 7, hover: ROWS[11]!.id },
+    batch: { edits: 3, undo: true, redo: false, note: "", msg: "", status: "" },
   }
 }

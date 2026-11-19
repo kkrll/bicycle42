@@ -240,19 +240,13 @@ export function setNotesOpen(open: boolean): void {
   remember("notes.open", open ? "1" : "0")
 }
 
-/** The facts pane marks every element it lists on the phone's page (on unless turned off). */
-export const [factsMarks, setFactsMarksSignal] = createSignal(recall("facts.marks") !== "0")
+/** The facts pane marks every element it lists on the phone's page: off unless turned on (the
+ *  page in Preview is the page; an element is outlined while its row or its kind's count is
+ *  pointed at). */
+export const [factsMarks, setFactsMarksSignal] = createSignal(recall("facts.marks") === "1")
 export function setFactsMarks(on: boolean): void {
   setFactsMarksSignal(on)
   remember("facts.marks", on ? "1" : "0")
-}
-
-/** The same in Edit and Motion, where the marks are fainter: a choice of its own, off unless the
- *  reviewer turned it on (`facts.marks.edit`). */
-export const [factsMarksEdit, setFactsMarksEditSignal] = createSignal(recall("facts.marks.edit") === "1")
-export function setFactsMarksEdit(on: boolean): void {
-  setFactsMarksEditSignal(on)
-  remember("facts.marks.edit", on ? "1" : "0")
 }
 
 /** The server is unreachable: nothing moves until it is back. */
