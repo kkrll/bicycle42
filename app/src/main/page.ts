@@ -319,8 +319,16 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     clearTimeout(probeTimer)
     probeTimer = setTimeout(() => void probeHmr(), 1500)
   })
-  wc.on("did-fail-load", (_e, code, desc, failed, isMain) => {
-    if (!isMain || code === -3) return // -3: aborted by a newer navigation
+  // Only the document now in the top frame can fail the page. A failed load leaves Chromium's
+  // error page (chrome-error://chromewebdata/) in a frame of its own, still loading; a good load
+  // started before it finishes replaces that frame, and the frame it left then reports its own
+  // load as failed (-3, no description), as the main frame, after the good page has committed.
+  const current = (processId: number, routingId: number) => {
+    const main = wc.mainFrame
+    return !main || (main.processId === processId && main.routingId === routingId)
+  }
+  wc.on("did-fail-load", (_e, code, desc, failed, isMain, processId, routingId) => {
+    if (!isMain || code === -3 || !current(processId, routingId)) return // -3: aborted by a newer navigation
     error = `${desc} (${code}) ${failed}`
     opts.onChange()
   })
@@ -393,7 +401,10 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     navigate(() => {
       wc.loadURL(to || `data:text/html,${encodeURIComponent(EMPTY)}`).catch((err: unknown) => {
         // did-fail-load has usually said it better already; an aborted load is not a failure.
-        if (error || (err as { code?: string }).code === "ERR_ABORTED" || gone()) return
+        // Electron rejects with Chromium's number in `errno` and its description in `code`, and
+        // the description can be empty: the error page's own aborted load (see did-fail-load)
+        // rejects the good load's promise as `errno: -3, code: ""`. So the number decides.
+        if (error || (err as { errno?: number }).errno === -3 || gone()) return
         error = String(err)
         opts.onChange()
       })
