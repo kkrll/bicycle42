@@ -722,7 +722,9 @@ export function App() {
   }
   // An edge's pill is where the pointer is on it (styles.css, .resizer and .divider: --at). One
   // listener for all of them, the dock's own handles too; with the pointer captured (a drag) the
-  // moves still come to the edge.
+  // moves still come to the edge. On the way down (capture), so before the edge's own handler:
+  // this one measures the edge and then writes, and measuring after a handler that has just
+  // written a size is a layout of the window in the middle of the event.
   const pillFollows = (e: PointerEvent) => {
     const edge = e.target instanceof Element ? e.target.closest<HTMLElement>(".resizer, .divider, .cd-grip") : null
     if (!edge) return
@@ -730,8 +732,8 @@ export function App() {
     edge.style.setProperty("--at", r.height > r.width ? `${Math.round(e.clientY - r.top)}px` : `${Math.round(e.clientX - r.left)}px`)
   }
   onMount(() => {
-    document.addEventListener("pointermove", pillFollows)
-    onCleanup(() => document.removeEventListener("pointermove", pillFollows))
+    document.addEventListener("pointermove", pillFollows, true)
+    onCleanup(() => document.removeEventListener("pointermove", pillFollows, true))
   })
   onMount(() => {
     window.addEventListener("keydown", onKey)

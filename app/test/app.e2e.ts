@@ -1152,6 +1152,8 @@ async function main() {
   // it worked out again (the first move is not counted: it takes the page away, once). A move
   // is the box, the edge and its pill, and what the dock draws anew at its new size: under a
   // tenth of the window's elements, where a length every element inherits was all of them.
+  // And two layouts: the frame's, and one for the size said in the page's place, which follows
+  // the box (the pill's own measuring comes before the edge's handler writes, and adds none).
   const windowWork = async (what: () => Promise<void>) => {
     await contentTracing.startRecording({ included_categories: ["devtools.timeline"] })
     await what()
@@ -1190,12 +1192,12 @@ async function main() {
   const hAfter = await dockH()
   check(
     "the panel's edge dragged restyles the panel's box, not the window: a few elements a move, not all of them",
-    wAfter === wBefore + 3 * (1 + MOVES) && panelDrag.restyled / MOVES < elements / 10,
+    wAfter === wBefore + 3 * (1 + MOVES) && panelDrag.restyled / MOVES < elements / 10 && panelDrag.layouts / MOVES < 3,
     `${wBefore} → ${wAfter}px; ${panelDrag.restyled / MOVES} elements restyled a move of ${elements}, ${panelDrag.layouts / MOVES} layouts a move`,
   )
   check(
     "…and the dock's edge its dock's box, not what is in the dock",
-    hAfter === hBefore + 3 * (1 + MOVES) && dockDrag.restyled / MOVES < elements / 10,
+    hAfter === hBefore + 3 * (1 + MOVES) && dockDrag.restyled / MOVES < elements / 10 && dockDrag.layouts / MOVES < 3,
     `${hBefore} → ${hAfter}px; ${dockDrag.restyled / MOVES} elements restyled a move of ${elements}, ${dockDrag.layouts / MOVES} layouts a move`,
   )
   await ui(`document.querySelector('.resizer').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`)
