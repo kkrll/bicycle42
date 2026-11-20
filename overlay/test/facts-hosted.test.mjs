@@ -196,6 +196,26 @@ test("what animates in is in the facts once it is there: the page is looked at a
   await page.close();
 });
 
+test("a block's text is read once in a look, however many links are in its sentences", async () => {
+  const { page, f, errors } = await open();
+  // 20 paragraphs, 100 links in each one's kilobyte of text: 2,000 links in sentences.
+  await f.evaluate(() => {
+    const words = "before you sign up for a plan, read the ";
+    document.getElementById("more").innerHTML = Array.from({ length: 20 }, (_, b) => `<p class="prose">${Array.from({ length: 100 }, (_, i) => `${words}<a href="#t${b}-${i}">terms</a> `).join("")}</p>`).join("");
+  });
+  await act(page, { type: "view" });
+  await until(page, "(v) => v.taps.total > 0");
+  const before = await view(page);
+  assert.ok(!before.taps.items.some((i) => i.label === "terms"), JSON.stringify(before.taps)); // (links in sentences: not listed)
+  await counting(f);
+  await act(page, { type: "refresh" });
+  await f.waitForFunction(() => window.__reads.scans === 1);
+  const perBlock = await f.evaluate(() => [...document.querySelectorAll("p.prose")].map((p) => window.__reads.text.get(p) || 0));
+  assert.deepEqual(perBlock, Array(20).fill(1));
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("hover outlines a row's element and takes it away, review off too; show brings it into view with a flash", async () => {
   const { page, f, errors } = await open();
   await act(page, { type: "view" });

@@ -96,14 +96,18 @@ const list = (all, max) => ({ items: all.slice(0, max), total: all.length });
 const shown = (el, r) => r.width > 0 && r.height > 0 && (!el.checkVisibility || el.checkVisibility({ opacityProperty: true, visibilityProperty: true }));
 
 /** A link inside a sentence: shown inline, with other words around it in its block. A finger
- *  can not be given 44 px there without breaking the text (WCAG 2.5.8 leaves it out too). */
-function inSentence(el, cs) {
+ *  can not be given 44 px there without breaking the text (WCAG 2.5.8 leaves it out too).
+ *  `lengths` is one look's: how long each block's text is, read once however many links the
+ *  block has (a hundred links in a paragraph each read all of it: the look took a hundred times
+ *  as long as the text is). */
+function inSentence(el, cs, lengths) {
   if (cs.display !== "inline") return false;
   let block = el.parentElement;
   while (block && getComputedStyle(block).display === "inline") block = block.parentElement;
   if (!block) return false;
-  const own = line(el.textContent).length;
-  return line(block.textContent).length > own + 8;
+  let all = lengths.get(block);
+  if (all === undefined) lengths.set(block, (all = line(block.textContent).length));
+  return all > line(el.textContent).length + 8;
 }
 
 /** What sticks out, what is too small to tap, what zooms: one walk of the document. */
@@ -117,6 +121,8 @@ function scan() {
   const wide = [];
   const taps = [], small = [];
   let seen = 0, partial = false;
+  /** @type {Map<Element, number>} */
+  const lengths = new Map();
   // Depth first, with what the boxes above say: an element clipped by a box that fits (its
   // overflow is not visible) widens nothing; one whose parent already sticks out is that
   // parent's overflow, not a new one.
@@ -136,7 +142,7 @@ function scan() {
     const out = !clipped && !fixed && r.width > 0 && r.right + sx > vw + 1;
     if (out && !parentOut) wide.push([el, Math.round(r.right + sx - vw)]);
     if (el.matches(TAPPABLE) && shown(el, r)) {
-      if ((r.width < TAP - 0.5 || r.height < TAP - 0.5) && !((el.tagName === "A" || el.getAttribute("role") === "link") && inSentence(el, cs)))
+      if ((r.width < TAP - 0.5 || r.height < TAP - 0.5) && !((el.tagName === "A" || el.getAttribute("role") === "link") && inSentence(el, cs, lengths)))
         taps.push(item(el, `${Math.round(r.width)} × ${Math.round(r.height)}`));
       const tag = el.tagName;
       if ((tag === "TEXTAREA" || tag === "SELECT" || (tag === "INPUT" && TEXT_TYPES.has((el.getAttribute("type") || "").toLowerCase()))) && parseFloat(cs.fontSize) < ZOOM_PX - 0.01)
