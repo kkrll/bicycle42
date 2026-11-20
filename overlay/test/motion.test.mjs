@@ -393,3 +393,66 @@ test("a host that does not say it draws motion's dock has none: nothing over the
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("nothing of the page is kept that is gone from it: an element a script moved, once it is removed; the elements the list was made from, once the mode is left", async () => {
+  const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto(`${base}/?delay=150&page=motion`);
+  const f = await pageFrame(page);
+  const cdp = await page.context().newCDPSession(page);
+  /** How many of the elements `window[name]` has weak references to are still alive. */
+  const alive = async (name) => {
+    for (let i = 0; i < 3; i++) await cdp.send("HeapProfiler.collectGarbage");
+    return f.evaluate((n) => window[n].filter((r) => r.deref()).length, name);
+  };
+  const perFrame = (v) => v.rows.filter((r) => r.kind === "frames").length;
+  await page.evaluate(() => window.__harness.hostDocks(["motion"]));
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "motion" }));
+  // (The page's own bar, moved by a script frame by frame, is listed once it has been seen to move.)
+  await view(page, "v.on && v.rows.some((r) => r.kind === 'frames')");
+  // Twelve toasts, each moved by a script (its inline style written many times): listed.
+  await f.evaluate(() => {
+    window.__toasts = [];
+    window.__gone = [];
+    for (let n = 0; n < 12; n++) {
+      const d = document.createElement("div");
+      d.className = "toast";
+      d.innerHTML = "<b>Saved</b> <span>just now</span>";
+      document.body.append(d);
+      window.__toasts.push(d);
+      window.__gone.push(new WeakRef(d));
+      for (let i = 0; i < 25; i++) d.style.transform = `translateY(${i}px)`;
+    }
+  });
+  assert.equal(perFrame(await view(page, "v.rows.filter((r) => r.kind === 'frames').length > 1")), 13);
+  // Removed, as a toast is: their rows go, and nothing holds them.
+  await f.evaluate(() => {
+    for (const d of window.__toasts) d.remove();
+    delete window.__toasts;
+  });
+  assert.equal(perFrame(await view(page, "v.rows.filter((r) => r.kind === 'frames').length < 13")), 1);
+  assert.equal(await alive("__gone"), 0, "removed toasts kept while motion mode is on");
+  // The mode left, and then the page takes out what the list was made from (the hero: its
+  // heading and paragraph play rise, its buttons pulse and have transitions; the spinner in the
+  // bar): none of it is kept. (Not the cards: the page's own script holds on to its meter.)
+  await f.evaluate(() => {
+    window.__listed = [...document.querySelectorAll("nav, nav *, .hero, .hero *")].map((el) => new WeakRef(el));
+  });
+  assert.equal(await f.evaluate(() => window.__listed.length), 12);
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "notes" }));
+  await view(page, "!v.on");
+  await f.evaluate(() => {
+    document.querySelector("nav").remove();
+    document.querySelector(".hero").remove();
+  });
+  await frames(f, 3);
+  assert.equal(await alive("__listed"), 0, "elements of the list kept after motion mode was left");
+  // Back in the mode, the list is of the page as it is now.
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "motion" }));
+  const again = await view(page, "v.on && v.rows.length > 0");
+  assert.deepEqual(again.rows.filter((r) => r.kind === "css" && !r.sub).map((r) => r.text), ["card-in"]);
+  assert.deepEqual(again.rows.filter((r) => r.kind === "unused").map((r) => r.text).sort(), ["pulse", "rise", "spin", "wiggle"]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

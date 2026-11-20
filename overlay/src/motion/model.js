@@ -38,6 +38,9 @@ const MAX_ELS = 4000;
 export const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
 export const r1 = (n) => Math.round(n * 10) / 10;
 export const ms = (n) => `${Math.round(n)}ms`;
+/** What a scan finds on a page nothing moves on (and what is known of any page while motion mode
+ *  is off: nothing). */
+const nothing = () => ({ anims: [], unused: [], transitions: [], scripts: [], rules: new Map(), partial: false });
 export const M = {
   on: false,
   sel: null, selRs: "", hover: null,
@@ -50,8 +53,10 @@ export const M = {
   isolate: false, rate: 1, loop: false, loopAt: 0, pos: 0,
   past: [], future: [], snap: "",
   held: null, // the page's Animation object for what is open
-  scan: { anims: [], unused: [], transitions: [], scripts: [], rules: new Map(), partial: false },
-  suspects: new Set(), // elements whose inline style changes many times a second
+  // What moves on the page, as last looked at; it holds the page's elements, so it is kept only
+  // while motion mode is on (forget).
+  scan: nothing(),
+  suspects: new Set(), // elements whose inline style changes many times a second (while they are in the page)
   sheet: null, // the unsent edits, as rules
   // [{ id, sheet, seen, n, undo: [{ x, index, entry }] }]: applied until the pin is done. seen:
   // its pin has been listed; n: the pin's number, null until it has one; undo: the element's
@@ -247,7 +252,15 @@ export function apply() {
 }
 
 // ── what moves on this page ──────────────────────────────────────────────────────────────
+/** Motion mode is off: none of the page's elements are kept for it. A page that goes on
+ *  re-rendering would otherwise have its old elements held here for as long as it lives. */
+export function forget() {
+  M.scan = nothing();
+  M.suspects.clear();
+}
+/** Looks at the page (while motion mode is on: off, there is no one to look for). */
 export function scan() {
+  if (!M.on) return forget();
   const rules = new Map(); // name → the @keyframes rule that wins (the last one)
   const walk = (list) => {
     for (const r of list) {
