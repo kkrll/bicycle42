@@ -30,6 +30,14 @@ export function buildRows() {
   T.at = performance.now();
 }
 
+/** The mode is left: the rows go. They are the page's elements, and one the page throws away
+ *  afterwards (a framework rendering its list again) would be kept here with all that is in it,
+ *  until the mode came back. Which rows are open stays (a set that holds nothing). */
+export function dropRows() {
+  T.rows = [];
+  T.ver = -1; // (walked again in the first frame back)
+}
+
 /** Open the way down to an element. (The host brings its row into view: host.js.) */
 export function reveal(el) {
   for (let a = el.parentElement; a; a = a.parentElement) T.open.add(a);

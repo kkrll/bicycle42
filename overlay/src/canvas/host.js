@@ -11,27 +11,38 @@ import { editRows, removeEdit } from "./edits.js";
 import { elOf } from "./stamps.js";
 import { drawBar, flash, hush, sentStatus } from "./bar.js";
 import { draftChanged } from "../draft.js";
-import { buildRows, rowParts, T, toggleRow, treeKey } from "./tree.js";
+import { buildRows, dropRows, rowParts, T, toggleRow, treeKey } from "./tree.js";
 import { sizeOf, tokenMatch, tokensOf } from "./tokens.js";
 import { setMode } from "../mode.js";
-import { send } from "../state.js";
-import { hosted, onAct } from "../panel.js";
+import { hosted, onAct, putView } from "../panel.js";
 import { active, kick } from "../render.js";
 import { domVersion, root } from "../mount.js";
 
 // ── the inspector the host draws ────────────────────────────────────────────────────────────
 // Canvas mode's inspector is the host's (panel.js): the page has none of its own. In every
-// canvas frame the view is made (CanvasView in ../../protocol-canvas.ts) and sent when it is not
-// what was sent last; and what the host's inspector asks (CanvasAct) is done here. Nothing of the
-// page's is kept anywhere else: the host draws what it is told. Its footer is the batch's bar:
-// the view's `batch` is what it says, the acts what its buttons and its note field do. The note's
-// words are the batch's (C.note): they go with it, and come back with a refused one.
+// canvas frame the view (CanvasView in ../../protocol-canvas.ts) is brought up to date and given
+// to putView, which sends the fields of it that are not the ones that last went; and what the
+// host's inspector asks (CanvasAct) is done here. Nothing of the page's is kept anywhere else:
+// the host draws what it is told. Its footer is the batch's bar: the view's `batch` is what it
+// says, the acts what its buttons and its note field do. The note's words are the batch's
+// (C.note): they go with it, and come back with a refused one.
 // A host that does not say it draws the inspector gets no view: canvas mode then works the page
 // (selecting, the drags, text in place, the keys) with no inspector at all.
 //
-// What the view costs to make: the tree is walked again when the DOM changed (a few times a
-// second at most), the computed values are read when the selection, the batch or its element
-// changed (and once a second), and only the rows the host shows are read, a screenful around them.
+// What a frame costs: nothing is made that did not change. putView tells a field that changed by
+// its identity, so each field of the view is kept as the object that went until what it was made
+// from is something else, and each has its own cheap way to know that:
+//  - the two boxes and the class line by their text; the footer by the few values it says; the
+//    hovered element by its number (so the pointer moving over the page sends one number);
+//  - the tree by the walk it was read from (the DOM changed: a few times a second at most), the
+//    rows the host shows and the selection's row;
+//  - what is read off the page (the computed values, the page's variables, the header's names,
+//    the rows' own words) when the selection, its own attributes or the batch changed, a few
+//    times a second while the DOM changes, and once a second whatever happened: the page changes
+//    an element without telling anyone. What was read is compared with what went (`keep`), and
+//    the object that went is kept when it says the same: a second look at the page sends nothing.
+// So a frame in which nothing changed (the wheel over the page) makes no object and stringifies
+// nothing, and a view that goes is stringified once, where it is sent.
 
 /** How long a step that waits for "commit" may wait: until it comes. */
 const HELD = 3600e3;
@@ -39,14 +50,33 @@ const HELD = 3600e3;
 const H = {
   first: 0, count: 30, // the rows the host's tree shows
   ids: new WeakMap(), els: new Map(), n: 0, // element ↔ the number the host names it by
-  sent: "", // the last view, as JSON
-  selFor: null, // the selection the rows were last placed for (see placeFor)
+  view: null, // the view as it was last given to putView: a field of it is never changed in place
+  next: {}, // the fields as they are in this frame, to tell whether any is another than the view's
+  selFor: null, // the selection the rows were last placed for (see tree)
+  sel: null, selEl: null, // the header's selection, and the element it was made for
+  classes: null, // the class line
   comp: [], compKey: "", compOwn: "", compDom: -1, compAt: 0, // the computed section, and what it was read for
   toks: [], read: [], toksAt: 0, // the variables: as sent, as tokens.js read them off the selection
   sizes: new Map(), // a variable's value → its size (tokens.js keeps 500; a design system has more)
-  texts: new Map(), // a box's text → { marks, error }
+  texts: { css: new Map(), sheet: new Map() }, // each box's texts → { text, marks, error }
+  text: { css: null, sheet: null }, // and the one each box has now
+  tree: null, rows: null, row: -1, rowEl: null, // the tree; the walk it was read from; the selection's row in it, and whose
+  marks: null, // the batch's marks the tree and the header were read with
+  batch: null, // the footer
   listKey: "", list: [], // the list of the unsent edits, and the batch it was made for
 };
+
+/** Plain data that says the same (what a view is made of: arrays, objects, strings, numbers). */
+function same(a, b) {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a)) return Array.isArray(b) && a.length === b.length && a.every((x, i) => same(x, b[i]));
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((k) => same(a[k], b[k]));
+}
+/** What was read again, unless it says what the one that went says: then that one, so putView
+ *  sees a field that did not change. */
+const keep = (was, now) => (same(was, now) ? was : now);
 
 function idOf(el) {
   let id = H.ids.get(el);
@@ -107,38 +137,61 @@ const pretty = (v) =>
 
 const FULL = "This element's styles are full: shorten them first";
 
-/** A canvas frame: the view, sent if it changed. Nothing when the host draws no inspector. */
+const FIELDS = ["force", "sel", "global", "classes", "css", "sheet", "computed", "tokens", "tree", "hover", "batch"];
+
+/** The mode is left: the elements kept here to tell what changed are let go, with the tree's
+ *  rows (as those, they would keep what the page throws away afterwards). The view that went
+ *  stays: it is words and numbers, and what the host has until the mode is back. */
+export function hostOff() {
+  dropRows();
+  H.selFor = H.selEl = H.rowEl = H.rows = H.sel = null;
+  H.row = -1;
+}
+
+/** A canvas frame: the view as it is now, given to putView (which sends what changed of it, and
+ *  the whole of it to a host that has none). Nothing when the host draws no inspector. */
 export function hostView() {
-  if (!hosted("canvas")) {
-    H.sent = "";
-    return;
-  }
+  if (!hosted("canvas")) return;
   const el = C.sel && C.sel.isConnected ? C.sel : null;
   const global = !el || !!C.pin;
   const en = el && C.draft.B.els[C.selRs];
-  const tooLong = !!en?.cls && en.cls.to.length > MAX_CLASS;
-  computed(el, global);
-  const view = {
-    force: C.forced,
-    sel: el ? { id: idOf(el), label: line(kindName(el)), tag: treeName(el), hidden: !!C.marks.get(el)?.includes("hid") } : null,
-    global,
-    // (The attribute as it is now; typing too long to apply never reaches the attribute, so then
-    // the typed text is what there is to show.)
-    classes: { text: tooLong ? en.cls.to : el ? el.getAttribute("class") ?? "" : "", long: tooLong },
-    css: textOf(en ? en.css : "", false),
-    sheet: textOf(C.draft.B.sheet, true),
-    computed: H.comp,
-    tokens: H.toks,
-    tree: tree(el),
-    batch: batchView(),
-  };
-  // Sent from here, not through sendView: this already runs once a frame at most, inside the
-  // frame, and sendView's own frame would make every answer a frame later than the page.
-  const json = JSON.stringify(view);
-  if (json !== H.sent) {
-    H.sent = json;
-    send(/** @type {any} */ ({ type: "panel", panel: "canvas", view }));
+  // (The batch's marks are a new list whenever the batch was applied: the rows' dots and the
+  // header's "hidden" are read with them.)
+  const read = computed(el, global) || C.marks !== H.marks;
+  H.marks = C.marks;
+  if (read || el !== H.selEl) {
+    H.selEl = el;
+    H.sel = keep(H.sel, el ? { id: idOf(el), label: line(kindName(el)), tag: treeName(el), hidden: !!C.marks.get(el)?.includes("hid") } : null);
   }
+  const n = H.next;
+  n.force = C.forced;
+  n.sel = H.sel;
+  n.global = global;
+  n.classes = classes(el, en);
+  n.css = textOf(en ? en.css : "", "css");
+  n.sheet = textOf(C.draft.B.sheet, "sheet");
+  n.computed = H.comp;
+  n.tokens = H.toks;
+  n.tree = tree(el, read);
+  n.hover = C.hover && C.hover.isConnected ? idOf(C.hover) : 0;
+  n.batch = batchView();
+  let v = H.view;
+  for (let i = 0; v && i < FIELDS.length; i++) if (n[FIELDS[i]] !== v[FIELDS[i]]) v = null;
+  if (!v) H.view = { ...n };
+  // Put from here, not through sendView: this already runs once a frame at most, inside the
+  // frame, and sendView's own frame would make every answer a frame later than the page. (Put in
+  // every frame, changed or not: putView is the one that knows what the host has, and a host that
+  // has just taken the pane gets the whole view from it though nothing here changed.)
+  putView("canvas", H.view);
+}
+
+/** The class line. (The attribute as it is now; typing too long to apply never reaches the
+ *  attribute, so then the typed text is what there is to show.) */
+function classes(el, en) {
+  const long = !!en?.cls && en.cls.to.length > MAX_CLASS;
+  const text = long ? en.cls.to : el ? el.getAttribute("class") ?? "" : "";
+  const c = H.classes;
+  return c && c.text === text && c.long === long ? c : (H.classes = { text, long });
 }
 
 /** What the footer says: the edits, undo and redo, the note, a refusal, the state; and while
@@ -147,16 +200,14 @@ function batchView() {
   const B = C.draft.B;
   const n = countEdits(B) + (B.sheet.trim() ? 1 : 0);
   if (!n) C.list = false; // (nothing left to list: it closes, as it opens only with something in it)
-  const out = {
-    edits: n,
-    undo: C.past.length > 0,
-    redo: C.future.length > 0,
-    note: C.note,
-    msg: C.msg,
-    status: C.edit ? "Editing text" : C.done || (n ? "" : sentStatus()),
-  };
-  if (C.list) out.list = list();
-  return out;
+  const undo = C.past.length > 0, redo = C.future.length > 0;
+  const status = C.edit ? "Editing text" : C.done || (n ? "" : sentStatus());
+  const rows = C.list ? list() : undefined;
+  const b = H.batch;
+  if (b && b.edits === n && b.undo === undo && b.redo === redo && b.note === C.note && b.msg === C.msg && b.status === status && b.list === rows) return b;
+  const out = { edits: n, undo, redo, note: C.note, msg: C.msg, status };
+  if (rows) out.list = rows;
+  return (H.batch = out);
 }
 
 /** The unsent edits in words. Each is measured with the batch off and on, so they are made again
@@ -173,18 +224,26 @@ function list() {
   return H.list;
 }
 
-/** A box's text with what the browser would not take: the ranges to underline, and the line under the box. */
-function textOf(text, sheet) {
-  let t = H.texts.get(text);
+/** A box's text ("css": Element styles, "sheet": the stylesheet) with what the browser would not
+ *  take: the ranges to underline, and the line under the box. The same text is not the same in
+ *  the two boxes (a bare declaration is Element styles' whole point and outside a rule in the
+ *  stylesheet), so what was made of one is kept by box. A box whose text is what it was is the
+ *  object it was. */
+function textOf(text, box) {
+  const now = H.text[box];
+  if (now && now.text === text) return now;
+  const known = H.texts[box];
+  let t = known.get(text);
   if (!t) {
+    const sheet = box === "sheet";
     const max = sheet ? MAX_SHEET : MAX_CSS;
     const bad = text.length > max ? [] : problems(text, sheet);
     const error = text.length > max ? `Too long: ${text.length} / ${max} characters. Not applied; shorten it before sending`
       : bad.length ? `Not applied: ${bad.slice(0, 3).map((b) => b.why).join(" · ")}${bad.length > 3 ? ` · and ${bad.length - 3} more` : ""}` : "";
-    if (H.texts.size > 50) H.texts.clear();
-    H.texts.set(text, (t = { marks: bad.map((b) => ({ s: b.s, e: b.e, why: b.why })), error }));
+    if (known.size > 50) known.clear();
+    known.set(text, (t = { text, marks: bad.map((b) => ({ s: b.s, e: b.e, why: b.why })), error }));
   }
-  return { text, ...t };
+  return (H.text[box] = t);
 }
 
 /** The computed values and the page's variables. The page changes an element's look without
@@ -195,25 +254,28 @@ function textOf(text, sheet) {
  *  at once: the host shows what was just written, and the value it shows until the view has it
  *  would otherwise stand for a moment as the old one. (A drag's own property in the style
  *  attribute is not the page's change: the attribute as it was before the drag counts.) The
- *  variables are read again only when the page or the selection changed (or once a second). */
+ *  variables are read again only when the page or the selection changed (or once a second).
+ *  True when the page was read now: the rest of the view that is read off the page (the header's
+ *  names, the rows' words) is read with it. What was read and says what the last one said is the
+ *  last one still. */
 function computed(el, global) {
   const now = performance.now();
   const inline = C.liveEl && C.liveEl.el === el ? C.liveEl.was : el && el.getAttribute("style");
   const own = `${C.selRs}|${global}|${el ? `${el.getAttribute("class")}|${inline}` : ""}`;
   const key = `${own}|${C.rev}`;
-  if (key === H.compKey && (domVersion === H.compDom ? now - H.compAt < 1000 : now - H.compAt < 150)) return;
+  if (key === H.compKey && (domVersion === H.compDom ? now - H.compAt < 1000 : now - H.compAt < 150)) return false;
   const fresh = own !== H.compOwn || domVersion !== H.compDom || now - H.toksAt > 1000;
   H.compKey = key;
   H.compOwn = own;
   H.compDom = domVersion;
   H.compAt = now;
   if (!el) {
-    H.comp = [];
+    H.comp = keep(H.comp, []);
     if (fresh) {
-      H.toks = global ? tokens(document.documentElement) : [];
+      H.toks = keep(H.toks, global ? tokens(document.documentElement) : []);
       H.toksAt = now;
     }
-    return;
+    return true;
   }
   const cs = getComputedStyle(el);
   const flex = cs.display.includes("flex"), grid = cs.display.includes("grid");
@@ -222,10 +284,10 @@ function computed(el, global) {
   const mine = en ? topProps(en.css) : [];
   if (fresh) {
     H.read = tokensOf(el);
-    H.toks = tokens(global ? document.documentElement : el, global ? null : H.read);
+    H.toks = keep(H.toks, tokens(global ? document.documentElement : el, global ? null : H.read));
     H.toksAt = now;
   }
-  H.comp = list.map((p) => {
+  H.comp = keep(H.comp, list.map((p) => {
     const raw = cs.getPropertyValue(p);
     const t = tokenMatch(p, raw, H.read, root);
     const row = { prop: p, value: pretty(raw) };
@@ -235,7 +297,8 @@ function computed(el, global) {
     }
     if (mine.some((m) => m === p || m.startsWith(`${p}-`) || p.startsWith(`${m}-`))) row.mine = true;
     return row;
-  });
+  }));
+  return true;
 }
 
 /** The page's variables for the suggestions, each with its size when it is one (for ↑/↓ along
@@ -251,12 +314,21 @@ function tokens(el, read) {
   });
 }
 
-/** The rows the host shows, a screenful above and below them, from the tree's open rows. */
-function tree(el) {
+/** The rows the host shows, a screenful above and below them, from the tree's open rows. The
+ *  one that went, while it is of the same walk, the same rows and the same selection, and the
+ *  page was not read again (`read`: the rows' words are the page's). */
+function tree(el, read) {
   // After DOM changes the list is walked again, but not more often than a few times a second.
   if (T.ver !== domVersion && (T.ver < 0 || performance.now() - T.at > 200)) buildRows();
   const rows = T.rows;
-  const sel = el ? rows.findIndex((r) => r.el === el) : -1;
+  const walked = rows !== H.rows;
+  // (The selection's row is looked for in a new walk, or for a new selection: not in every frame.)
+  if (walked || el !== H.rowEl) {
+    H.rowEl = el;
+    H.row = el ? rows.findIndex((r) => r.el === el) : -1;
+  }
+  H.rows = rows;
+  const sel = H.row;
   // A new selection out of view: the host brings its row to the middle, and the rows sent are
   // those it will show then (CanvasTree.sel).
   if (el !== H.selFor) {
@@ -265,6 +337,8 @@ function tree(el) {
   }
   const pad = H.count;
   const a = Math.max(0, Math.min(H.first, rows.length) - pad), b = Math.min(rows.length, H.first + H.count + pad);
+  const t = H.tree;
+  if (t && !read && !walked && t.first === a && t.rows.length === b - a && t.sel === sel) return t;
   const out = [];
   for (let i = a; i < b; i++) {
     const { el: e, depth } = rows[i];
@@ -275,7 +349,7 @@ function tree(el) {
     if (mark?.includes("hid")) row.hid = true;
     out.push(row);
   }
-  return { total: rows.length, first: a, rows: out, sel, hover: C.hover && C.hover.isConnected ? idOf(C.hover) : 0 };
+  return (H.tree = keep(t, { total: rows.length, first: a, rows: out, sel }));
 }
 
 // ── what the host's inspector asks ──────────────────────────────────────────────────────────
@@ -327,9 +401,10 @@ function act(a) {
   if (!a || typeof a !== "object" || !C.on) return;
   switch (a.type) {
     case "tree":
+      // (Only the rows: a host that starts, or starts again, and has no view asks for the whole
+      // one, "whole", which panel.js answers for every pane with the view as it last went.)
       H.first = Math.max(0, Math.floor(Number(a.first) || 0));
       H.count = Math.min(200, Math.max(1, Math.floor(Number(a.count) || 1)));
-      H.sent = ""; // a host that starts (or starts again) gets the whole view, changed or not
       break;
     case "open": {
       const el = elOfId(a.id);

@@ -542,6 +542,24 @@
   background: var(--surface);
 }
 
+/* Only the rows in view are drawn (canvas-dock.tsx): this is as tall as all of them, and its
+   padding is the rows above the first one drawn. */
+.cd-sgs {
+  box-sizing: border-box;
+}
+
+/* The widest rows, drawn with no height: the list is as wide as they are, whichever rows show.
+   (A row's own padding, gap and nowrap: what its width is made of.) */
+.cd-sgw > div {
+  display: flex;
+  gap: 6px;
+  height: 0;
+  padding: 0 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  visibility: hidden;
+}
+
 .cd-sg.on {
   background: var(--accent);
   color: var(--background);

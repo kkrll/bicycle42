@@ -11,7 +11,7 @@ import { endEdit, inEdit as inEditedText } from "./text.js";
 import { syncUi } from "./cursor.js";
 import { closePop, drawBar, hush, setPop } from "./bar.js";
 import { cvKey } from "./keys.js";
-import { syncFields } from "./host.js";
+import { hostOff, syncFields } from "./host.js";
 import { cvFrame } from "./frame.js";
 import { bar, HTML, mountCanvas } from "./mount.js";
 import { setMode } from "../mode.js";
@@ -43,6 +43,7 @@ function setOn(on) {
     select(null);
     C.on = false;
     C.hover = null;
+    hostOff(); // (the tree's rows and the last selection: elements, not to be kept past the mode)
   }
   S.hover = null;
   try {
