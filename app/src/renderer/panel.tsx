@@ -24,6 +24,7 @@ import {
   remember,
   setNotesForced,
   setNotesOpen,
+  setSwitcherOpen,
   state,
   tallyNotes,
   type NoteShown,
@@ -484,7 +485,7 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
         <p class="folder-lead">
           <Show when={!props.open && state.missingFolder}>
             <span class="folder-missing">
-              <code>{state.missingFolder}</code> is not a folder on this server; it belongs to another computer.{" "}
+              <code>{state.missingFolder}</code> is not a folder on this server: it was moved, or it is another computer's.{" "}
             </span>
           </Show>
           <Show
@@ -692,7 +693,22 @@ function Place(props: { openSettings: () => void }) {
     <div class="place">
       <ServerButton onClick={props.openSettings} />
       <span class="place-server">{server()}</span>
-      <Show when={state.site?.directory}>{(dir) => <span class="place-folder" title={dir()}>{tail(dir())}</span>}</Show>
+      {/* The project is changed where it is named: the list behind the conversation's "+". */}
+      <Show when={state.site?.directory}>
+        {(dir) => (
+          <button
+            class="place-folder"
+            title={`${dir()}. Click for another project`}
+            aria-haspopup="dialog"
+            data-action="projects"
+            disabled={state.connection.status !== "online"}
+            onClick={() => setSwitcherOpen(true)}
+          >
+            <span class="place-folder-name">{tail(dir())}</span>
+            <Icon name="down" />
+          </button>
+        )}
+      </Show>
     </div>
   )
 }

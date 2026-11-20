@@ -89,6 +89,10 @@ const SHOTS = [
   { name: "empty", mock: "empty" },
   { name: "running", mock: "review", run: [click('[data-action="running"]')], wait: 500 },
   { name: "switcher", mock: "review", run: [click('[data-action="switcher"]')], wait: 500 },
+  // The project's name in the panel under the pointer (made so by hand: a headless window has no
+  // :hover), and what it opens.
+  { name: "place-folder", mock: "review", run: [`(() => { const b = document.querySelector('[data-action="projects"]'); b.style.background = "var(--surface)"; b.querySelector(".icon").style.opacity = 1 })()`], wait: 300 },
+  { name: "place-folder-open", mock: "review", run: [click('[data-action="projects"]')], wait: 500 },
   { name: "switcher-browse", mock: "review", run: [click('[data-action="switcher"]'), pause(300), click(".switcher-rows li:last-child .row")], wait: 600 },
   { name: "folder", mock: "folder" },
   { name: "folder-browse", mock: "folder", run: [click(".folder .folder-actions .btn")], wait: 500 },

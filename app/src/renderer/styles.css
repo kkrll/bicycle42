@@ -1466,11 +1466,43 @@ details[open] > summary > .caret {
   font-weight: 600;
 }
 
+/* The project, and the way to another one. It reads as the text it was; the mark that it opens
+   something comes with the pointer or the keyboard. (4px in at each side, taken back at the
+   left, so the name starts where it did.) */
 .place-folder {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  margin-left: -4px;
+  padding: 0 2px 0 4px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: inherit;
+  transition: background var(--duration-micro) var(--ease-micro);
+}
+
+.place-folder-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--muted);
+}
+
+.place-folder > .icon {
+  flex: none;
+  opacity: 0;
+}
+
+.place-folder:not(:disabled):hover,
+.place-folder:focus-visible {
+  background: var(--surface);
+}
+
+.place-folder:not(:disabled):hover > .icon,
+.place-folder:focus-visible > .icon {
+  opacity: 1;
 }
 
 /* A group of the list: what its notes need. */
