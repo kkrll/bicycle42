@@ -57,6 +57,7 @@ export const M = {
   // while motion mode is on (forget).
   scan: nothing(),
   suspects: new Set(), // elements whose inline style changes many times a second (while they are in the page)
+  list: null, // the list's rows as read from the page, kept until it is looked at again (edit.js: rows)
   sheet: null, // the unsent edits, as rules
   // [{ id, sheet, seen, n, undo: [{ x, index, entry }] }]: applied until the pin is done. seen:
   // its pin has been listed; n: the pin's number, null until it has one; undo: the element's
@@ -69,9 +70,14 @@ export const M = {
   msg: "", msgTimer: 0, done: "", doneTimer: 0,
   note: "", // the words that go with the open animation, as typed in the host's dock
   // The host's dock (host.js): the view without its clock as last built (null: to be built
-  // again), the clock last sent, a view asked for in this task, the rows that view listed (what
-  // "row" and "hover" name), why the keyframes' text is not keyframes.
-  hostBody: null, hostClock: "", hostQueued: false, hostRows: [], cssWhy: "",
+  // again), a view asked for in this task, why the keyframes' text is not keyframes. And the
+  // fields of the view that are objects, as last built, to be the next view's too when they say
+  // the same (a field that is the same object is not sent again): the clock (and what it says,
+  // as text), the list's rows (and the rows read from the page they were made from, by index:
+  // what "row" and "hover" name), what is open (and what it says, as text), the names, the choices (and the properties of what
+  // is open they were made for).
+  hostBody: null, hostQueued: false, cssWhy: "",
+  hostClock: "", hostClockIs: null, hostRows: [], hostBase: [], hostOpen: null, hostOpenIs: "", hostNames: [], hostChoices: null, hostLanes: "",
 };
 
 // ── elements of the page ─────────────────────────────────────────────────────────────────
@@ -257,6 +263,7 @@ export function apply() {
 export function forget() {
   M.scan = nothing();
   M.suspects.clear();
+  M.list = null;
 }
 /** Looks at the page (while motion mode is on: off, there is no one to look for). */
 export function scan() {
@@ -297,6 +304,7 @@ export function scan() {
       if (el && el.isConnected && el.getRootNode() === document && !SKIP.test(el.tagName)) plays(a.animationName, el);
     }
   const running = new Set(live.filter((a) => a.playState === "running" && a.animationName).map((a) => a.animationName));
+  M.list = null; // the list is of the page as it was looked at before
   M.scan = {
     rules,
     partial,

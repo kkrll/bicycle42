@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { serve } from "../scripts/serve.mjs";
+import { build } from "../scripts/build.mjs";
 
 const CANDIDATES = [
   process.env.CHROMIUM,
@@ -282,6 +283,106 @@ test("hosted: a frame that only moved the playhead sends the clock and nothing e
   await act(page, { type: "seek", p: 0.3 });
   const got = await view(page, "Math.abs(v.clock.pos - 0.3) < 0.01");
   assert.deepEqual({ ...got, clock: null }, { ...whole, clock: null });
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted: a keystroke in the note and a step of a keyframe's drag send only what they changed, and read nothing of the page for the list", async () => {
+  const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  // The module is put on the page (two lines more, which run after the overlay's own), so that
+  // the list motion mode keeps can be seen to be the one it kept.
+  const withMotion = build('import * as Motion from "./motion/api.js";\nwindow.__motion = Motion;');
+  await page.route("**/overlay.js", (route) => route.fulfill({ contentType: "text/javascript", body: withMotion }));
+  await page.goto(`${base}/?delay=150&page=motion`);
+  const f = await pageFrame(page);
+  await page.evaluate(() => window.__harness.hostDocks(["motion"]));
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "motion" }));
+  // (The page's bar that a script moves is listed once it has been seen to move: wait for it, so
+  // that the list has nothing new to say while the messages are counted.)
+  const v = await view(page, "v.on && v.rows.some((r) => r.kind === 'frames')", 5000);
+  await act(page, { type: "row", id: v.rows[v.rows.findIndex((r) => r.text === "rise") + 2].id }); // the paragraph's rise
+  await view(page, "v.open && v.open.name === 'rise'");
+  // (An edit first: the row has its dot already, so the drag below changes nothing in the list.)
+  await act(page, { type: "timing", what: "duration", value: "900", done: true });
+  const before = await view(page, "v.open.timing.duration === 900 && v.undo && v.rows.some((r) => r.sub && r.dirty)");
+  // (And the playhead stopped: a playing one is a clock in every frame, counted in the test above.)
+  await act(page, { type: "seek", p: 0.5 });
+  await view(page, "!v.clock.playing && v.clock.pos !== null && Math.abs(v.clock.pos - 0.5) < 0.01");
+  await frames(f, 3);
+  /** Each message since the `n`th: the fields it carried (null: a whole view) and its size. */
+  const since = (n) => page.evaluate((k) => window.__harness.panel.filter((m) => m.panel === "motion" && m.view).slice(k).map((m) => ({ part: m.part ? Object.keys(m.part).sort().join() : null, bytes: JSON.stringify(m.part ?? m.view).length })), n);
+  // What the list costs to make is read from the page: a computed style for a row's timing, a
+  // look at the siblings for its path. Both are counted here, and the list itself is watched.
+  await f.evaluate(() => {
+    const real = window.getComputedStyle;
+    window.getComputedStyle = function (...a) {
+      window.__styles++;
+      return real.apply(this, a);
+    };
+    const kids = Object.getOwnPropertyDescriptor(Element.prototype, "children");
+    // (Of the page's elements: the layer counts its own boxes in its shadow root when it draws.)
+    Object.defineProperty(Element.prototype, "children", { ...kids, get() {
+      if (this.getRootNode() === document) window.__siblings++;
+      return kids.get.call(this);
+    } });
+    window.__styles = window.__siblings = 0;
+    window.__list = window.__motion.debug.M.list;
+  });
+  const read = () => f.evaluate(() => {
+    const out = { styles: window.__styles, siblings: window.__siblings, listKept: !!window.__list && window.__motion.debug.M.list === window.__list };
+    window.__styles = window.__siblings = 0;
+    return out;
+  });
+  // The note, a key at a time: each view is the note's words and nothing else.
+  let n = await views(page);
+  for (const text of ["s", "sl", "slo", "slow", "slowe", "slower"]) {
+    await act(page, { type: "note", text });
+    await view(page, `v.note === ${JSON.stringify(text)}`);
+  }
+  await frames(f, 2);
+  const typed = await since(n), typing = await read();
+  assert.deepEqual(typed.map((m) => m.part), Array(6).fill("note"), `six keystrokes sent ${JSON.stringify(typed)}`);
+  assert.ok(typed.every((m) => m.bytes < 40), `a keystroke is small: ${typed.map((m) => m.bytes)}`);
+  assert.deepEqual(typing, { styles: 0, siblings: 0, listKept: true }, "typing the note reads nothing of the page, and the list is the one kept");
+  // A keyframe grabbed and dragged: each step is what is open (its lanes, its text) and the
+  // playhead, never the list, the choices or anything else.
+  await act(page, { type: "select", key: { at: 100, prop: "opacity" }, grab: true });
+  await view(page, "v.open.key && v.open.key.at === 100");
+  await frames(f, 2);
+  await read();
+  n = await views(page);
+  for (const to of [95, 85, 75, 60]) {
+    await act(page, { type: "drag", to });
+    await view(page, `v.open.key && v.open.key.at === ${to}`);
+  }
+  await frames(f, 2);
+  const dragged = await since(n), dragging = await read();
+  assert.equal(dragged.length, 4);
+  // (The first step makes the keyframes unsent: the dot on the animation's own row, and so the
+  // list, once. The list is still the one read from the page before: see the reads below.)
+  assert.ok(dragged.every((m, i) => m.part === "open" || m.part === "clock,open" || (i === 0 && m.part === "clock,open,rows")), `four steps sent ${JSON.stringify(dragged)}`);
+  assert.deepEqual(dragging, { styles: 0, siblings: 0, listKept: true }, "a step of the drag reads nothing of the page for the list, and the list is the one kept");
+  // Let go, the page is looked at again (one undo step: commit), and the list is made again. A
+  // list that says what it said is not sent again; one that says something new is (the dot of
+  // the keyframes now unsent, an animation that has stopped playing since the last look).
+  const held = (await view(page)).rows;
+  n = await views(page);
+  await act(page, { type: "drop" });
+  await f.waitForFunction(() => window.__motion.debug.M.list !== window.__list);
+  await frames(f, 3);
+  const dropped = await since(n), now = (await view(page)).rows;
+  assert.ok(dropped.every((m) => m.part !== null), `letting go sent ${JSON.stringify(dropped)}`);
+  if (dropped.some((m) => m.part.split(",").includes("rows"))) assert.notDeepEqual(now, held, "a list sent again says something new");
+  else assert.deepEqual(now, held);
+  const plain = (rows) => rows.map(({ dirty: _, running: __, ...r }) => r);
+  assert.deepEqual(plain(now), plain(before.rows));
+  // And what says the same in every view went once: after the first view the choices came again
+  // only for the animation opened (the properties it does not set yet are what they offer).
+  const all = await since(0);
+  assert.equal(all.filter((m) => m.part === null).length, 1, "one whole view");
+  assert.ok(all.filter((m) => m.part && m.part.split(",").includes("choices")).length <= 1, `the choices went ${JSON.stringify(all.map((m) => m.part))}`);
   assert.deepEqual(errors, []);
   await page.close();
 });

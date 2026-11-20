@@ -86,7 +86,10 @@ function watchSuspects(on) {
     }
     // (After the counting: one moved and taken out in the same breath is not left in.)
     if (removed && M.suspects.size) for (const el of M.suspects) if (!el.isConnected) changed = M.suspects.delete(el) || changed;
-    if (changed) drawList();
+    if (changed) {
+      M.list = null;
+      drawList();
+    }
   });
   M.obs.observe(document.body, { attributes: true, attributeFilter: ["style"], childList: true, subtree: true });
 }

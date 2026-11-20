@@ -337,43 +337,79 @@ export function setName(v, done) {
 // A row says `text`, and smaller beside it `aside`: an animation's name and what plays it, or,
 // for what has no name (a transition, a script's frames), the element and what moves. A row
 // under a group of elements says only its element.
+//
+// A row is made in two parts. What is read from the page (`rows`: what moves, its elements,
+// their paths and words, the duration the page's CSS gives) costs a look at every sibling for a
+// path and a computed style for a duration, for each row; so it is read once per look at the
+// page and kept (M.list: scan() drops it, and so does an element a script moves coming or
+// going). What the reviewer's own state says of a row (`rowNow`: it is open, it has unsent
+// edits, its duration as edited) is worked out from M alone, for every view. A view for a
+// keystroke or a step of a drag then reads nothing of the page for its list.
+/** The rows as read from the page, each with an `id` that names the same thing in the next
+ *  list (its kind, the animation it is under, its element, its words), its elements (`els`), the
+ *  one element's path (`path`, "" when it is not of one element) and what opens it (`open`). */
 export function rows() {
-  const found = M.scan, o = M.open, out = /** @type {any[]} */ ([]);
-  const timingOf = (el, nm) => {
-    const u = M.use.get(`${pathOf(el)}|${nm}`);
-    return u ? u.timing : readList(el).find((x) => x.name === nm) || null;
-  };
-  const dirtyUse = (el, nm) => {
-    const u = M.use.get(`${pathOf(el)}|${nm}`);
-    return useDirty(u) || playsDirty(u);
+  if (M.list) return M.list;
+  const found = M.scan, out = /** @type {any[]} */ ([]);
+  /** How the page's CSS has one element play one animation, as far as a row says it. */
+  const played = (el, nm) => {
+    const e = readList(el).find((x) => x.name === nm);
+    return { path: pathOf(el), duration: e ? e.duration : null };
   };
   if (found.anims.length) out.push({ group: "Animations" });
   for (const a of found.anims) {
-    const k = M.kf.get(a.name), one = a.els.length === 1, mine = o && o.kind === "css" && o.name === a.name;
-    const t = one ? timingOf(a.els[0], a.name) : null;
-    out.push({ kind: "css", els: a.els, text: a.name, aside: one ? name(a.els[0], true) : `${a.els.length} elements`, running: a.running,
-      dirty: kfDirty(k) || (one && dirtyUse(a.els[0], a.name)), on: mine && one, duration: t ? t.duration : null, open: () => openCss(a.els[0], a.name) });
+    const one = a.els.length === 1;
+    out.push({ kind: "css", name: a.name, els: a.els, text: a.name, aside: one ? name(a.els[0], true) : `${a.els.length} elements`, running: a.running,
+      ...(one ? played(a.els[0], a.name) : { path: "", duration: null }), open: () => openCss(a.els[0], a.name) });
     if (!one)
       a.els.forEach((el, j) => {
-        const t2 = timingOf(el, a.name);
-        out.push({ kind: "css", els: [el], sub: true, last: j === a.els.length - 1, text: name(el, true), aside: "", dirty: dirtyUse(el, a.name),
-          on: mine && o.rs === pathOf(el), duration: t2 ? t2.duration : null, open: () => openCss(el, a.name) });
+        out.push({ kind: "css", name: a.name, els: [el], sub: true, last: j === a.els.length - 1, text: name(el, true), aside: "", ...played(el, a.name), open: () => openCss(el, a.name) });
       });
   }
   if (found.transitions.length) out.push({ group: "Transitions" });
   for (const el of found.transitions) {
     const cs = getComputedStyle(el);
-    out.push({ kind: "transition", els: [el], text: name(el, true), aside: cs.transitionProperty, on: o && o.kind === "transition" && o.rs === pathOf(el),
+    out.push({ kind: "transition", els: [el], path: pathOf(el), text: name(el, true), aside: cs.transitionProperty,
       duration: Math.max(...splitTop(cs.transitionDuration).map((d) => parseFloat(d) * 1000)), open: () => openTransition(el) });
   }
   if (found.scripts.length || M.suspects.size) out.push({ group: "Scripts" });
   for (const a of found.scripts)
-    out.push({ kind: "script", els: [a.effect.target], text: a.id || "animate()", aside: name(a.effect.target, true), running: a.playState === "running",
-      on: o && o.kind === "script" && M.held === a, duration: +a.effect.getTiming().duration || 0, open: () => openScript(a) });
+    out.push({ kind: "script", anim: a, els: [a.effect.target], path: pathOf(a.effect.target), text: a.id || "animate()", aside: name(a.effect.target, true),
+      duration: +a.effect.getTiming().duration || 0, open: () => openScript(a) });
   for (const el of M.suspects)
-    if (el.isConnected) out.push({ kind: "frames", els: [el], text: name(el, true), aside: "per frame", running: true, off: true, duration: null, open: () => {} });
+    if (el.isConnected) out.push({ kind: "frames", els: [el], path: pathOf(el), text: name(el, true), aside: "per frame", duration: null, open: () => {} });
   // (A page looked at in part: what no element was seen to play may be played further down.)
   if (found.unused.length) out.push({ group: found.partial ? "Not seen playing" : "Unused" });
-  for (const n of found.unused) out.push({ kind: "unused", els: [], text: n, aside: "", off: !M.sel, duration: null, open: () => useKf(n) });
-  return out;
+  for (const n of found.unused) out.push({ kind: "unused", els: [], path: "", text: n, aside: "", duration: null, open: () => useKf(n) });
+  const seen = new Map();
+  let under = "";
+  for (const r of out) {
+    if (r.group) continue;
+    if (!r.sub) under = r.text;
+    const id = `${r.kind}|${r.sub ? under : ""}|${r.path}|${r.text}`, n = seen.get(id) || 0;
+    seen.set(id, n + 1);
+    r.id = n ? `${id}#${n}` : id;
+  }
+  return (M.list = out);
+}
+/** What the reviewer's state says of a row of the list now: it is what is open (`on`), it has
+ *  unsent edits (`dirty`), how long it lasts (as edited here, else as the page has it), there is
+ *  nothing to open (`off`), it plays (`running`). Nothing of the page is read for it, but whether
+ *  a script's animation is running. */
+export function rowNow(r) {
+  const o = M.open, now = { on: false, dirty: false, duration: r.duration, off: false, running: !!r.running };
+  if (r.kind === "css") {
+    // (Keyframes several elements play: the row of the name is no one element's, the rows under it are.)
+    const u = r.path ? M.use.get(`${r.path}|${r.name}`) : undefined, own = useDirty(u) || playsDirty(u);
+    const mine = !!o && o.kind === "css" && o.name === r.name;
+    now.on = mine && (r.sub ? o.rs === r.path : r.els.length === 1);
+    now.dirty = r.sub ? own : kfDirty(M.kf.get(r.name)) || own;
+    if (u) now.duration = u.timing.duration;
+  } else if (r.kind === "transition") now.on = !!o && o.kind === "transition" && o.rs === r.path;
+  else if (r.kind === "script") {
+    now.on = !!o && o.kind === "script" && M.held === r.anim;
+    now.running = r.anim.playState === "running";
+  } else if (r.kind === "frames") now.off = now.running = true;
+  else if (r.kind === "unused") now.off = !M.sel;
+  return now;
 }
