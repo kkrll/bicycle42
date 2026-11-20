@@ -252,6 +252,30 @@ test("steady changes don't push the save back forever", async (t) => {
   store.flush()
 })
 
+test("a change that settles is in memory at once and on disk when its kind has stopped coming; a flush does not wait", async (t) => {
+  const { dir, settingsFile, logs } = setup(t)
+  const log = (level: string, msg: string, data?: unknown) => void logs.push({ level, msg, data })
+  const store = createStore(dir, { debounceMs: 20, settleMs: 80, log })
+  const at = (i: number) => ({ x: 0, y: 0, width: 100 + i, height: 50 })
+  const t0 = Date.now()
+  let i = 0
+  while (Date.now() - t0 < 300) {
+    store.settle((s) => (s.pageBounds = at(++i)))
+    await sleep(10)
+  }
+  assert.deepEqual(store.settings().pageBounds, at(i))
+  assert.equal(fs.existsSync(settingsFile), false, "not written while the changes keep coming")
+  await sleep(200)
+  await store.idle()
+  assert.deepEqual(readJSON(settingsFile).pageBounds, at(i))
+  // Another save takes what is waiting along; a flush writes it at once.
+  const written = fs.statSync(settingsFile).mtimeMs
+  store.settle((s) => (s.pageBounds = at(1000)))
+  assert.equal(fs.statSync(settingsFile).mtimeMs, written)
+  store.flush()
+  assert.deepEqual(readJSON(settingsFile).pageBounds, at(1000))
+})
+
 test("flush writes at once and cancels the pending timer", async (t) => {
   const { open, reviews } = setup(t)
   const store = open(40)

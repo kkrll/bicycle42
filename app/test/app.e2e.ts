@@ -8,7 +8,7 @@
 //   node_modules/.bin/electron --ozone-platform=headless --disable-gpu dist/test/app.e2e.cjs
 //
 // Exits 0 when every check passes.
-import { app, type BrowserWindow } from "electron"
+import { app, contentTracing, type BrowserWindow } from "electron"
 import fs from "node:fs"
 import http from "node:http"
 import os from "node:os"
@@ -1186,6 +1186,104 @@ async function main() {
   await ui(`document.querySelector('.dock-divider').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`)
   const h2 = await dockH()
   check("the dock's edge: Home is its least, a double click its usual height", h1 === 160 && h2 === h0, `${h0} ${h1} ${h2}`)
+  // An edge dragged restyles the boxes it sizes and nothing in them: counted, not timed. What
+  // the window's renderer did is in Chromium's own trace: each style pass says how many elements
+  // it worked out again (the first move is not counted: it takes the page away, once). A move
+  // is the box, the edge and its pill, and what the dock draws anew at its new size: under a
+  // tenth of the window's elements, where a length every element inherits was all of them.
+  // And two layouts: the frame's, and one for the size said in the page's place, which follows
+  // the box (the pill's own measuring comes before the edge's handler writes, and adds none).
+  const windowWork = async (what: () => Promise<void>) => {
+    await contentTracing.startRecording({ included_categories: ["devtools.timeline"] })
+    await what()
+    const file = await contentTracing.stopRecording()
+    const trace = JSON.parse(fs.readFileSync(file, "utf8")) as { traceEvents: { name: string; ph: string; pid: number; args?: { elementCount?: number } }[] }
+    fs.rmSync(file, { force: true })
+    const mine = trace.traceEvents.filter((e) => e.pid === win.webContents.getOSProcessId() && e.ph === "X")
+    return { restyled: mine.reduce((n, e) => n + (e.name === "UpdateLayoutTree" ? (e.args?.elementCount ?? 0) : 0), 0), layouts: mine.filter((e) => e.name === "Layout").length }
+  }
+  const windowFrame = () => ui(`new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)))`)
+  const MOVES = 10
+  const dragged = async (sel: string, dx: number, dy: number) => {
+    const at = (await ui(`(() => { const r = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } })()`)) as { x: number; y: number }
+    const to = (type: "mouseDown" | "mouseMove" | "mouseUp", i: number) => win.webContents.sendInputEvent({ type, x: at.x + dx * i, y: at.y + dy * i, button: "left", clickCount: 1 })
+    to("mouseMove", 0)
+    to("mouseDown", 0)
+    to("mouseMove", 1)
+    await until(() => ui(`!!document.querySelector('.page.veiled')`), 2000)
+    await windowFrame()
+    const work = await windowWork(async () => {
+      for (let i = 2; i < 2 + MOVES; i++) {
+        to("mouseMove", i)
+        await windowFrame()
+      }
+    })
+    to("mouseUp", 1 + MOVES)
+    await until(() => ui(`!document.querySelector('.page.veiled')`), 2000)
+    return work
+  }
+  const elements = (await ui(`document.querySelectorAll("*").length`)) as number
+  const wBefore = await panelW()
+  const panelDrag = await dragged(".resizer", 3, 0)
+  const wAfter = await panelW()
+  const hBefore = await dockH()
+  const dockDrag = await dragged(".dock-divider", 0, -3)
+  const hAfter = await dockH()
+  check(
+    "the panel's edge dragged restyles the panel's box, not the window: a few elements a move, not all of them",
+    wAfter === wBefore + 3 * (1 + MOVES) && panelDrag.restyled / MOVES < elements / 10 && panelDrag.layouts / MOVES < 3,
+    `${wBefore} → ${wAfter}px; ${panelDrag.restyled / MOVES} elements restyled a move of ${elements}, ${panelDrag.layouts / MOVES} layouts a move`,
+  )
+  check(
+    "…and the dock's edge its dock's box, not what is in the dock",
+    hAfter === hBefore + 3 * (1 + MOVES) && dockDrag.restyled / MOVES < elements / 10 && dockDrag.layouts / MOVES < 3,
+    `${hBefore} → ${hAfter}px; ${dockDrag.restyled / MOVES} elements restyled a move of ${elements}, ${dockDrag.layouts / MOVES} layouts a move`,
+  )
+  await ui(`document.querySelector('.resizer').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`)
+  await ui(`document.querySelector('.dock-divider').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`)
+  // A phone's page in a window that grows shorter is drawn smaller at every height: one box a
+  // height (its new size, where it now sits), not two (its old size where it now sits, then the
+  // new one). Each box is a move of the page view in main, and each new size an emulation.
+  {
+    await ui(`document.querySelector('[data-device="phone"]').click()`)
+    await until(() => shaped(page.view.getBounds(), 390, 844))
+    await sleep(300)
+    const boxes: { width: number; height: number }[] = []
+    let emulations = 0
+    const setBounds = page.setBounds
+    const emulate = wc.enableDeviceEmulation
+    page.setBounds = (to) => {
+      if (to) boxes.push(to)
+      setBounds(to)
+    }
+    wc.enableDeviceEmulation = (as) => {
+      emulations++
+      emulate.call(wc, as)
+    }
+    const HEIGHTS = 20
+    const work = await windowWork(async () => {
+      for (let i = 1; i <= HEIGHTS; i++) {
+        win.setSize(1441, 900 - 6 * i)
+        await windowFrame()
+        await windowFrame()
+        await windowFrame()
+      }
+    })
+    await sleep(200)
+    page.setBounds = setBounds
+    wc.enableDeviceEmulation = emulate
+    const sameSize = boxes.filter((box, i) => i > 0 && box.width === boxes[i - 1]!.width && box.height === boxes[i - 1]!.height).length
+    const last = page.view.getBounds()
+    check(
+      "a phone's page in a window that grows shorter gets one box a height, each a new size: none that only moves it on the way",
+      boxes.length > 0 && boxes.length <= HEIGHTS && sameSize === 0 && emulations <= HEIGHTS && shaped(last, 390, 844) && last.width < narrow.width,
+      `${HEIGHTS} heights: ${boxes.length} boxes (${sameSize} of them the size before), ${emulations} emulations, ${work.layouts / HEIGHTS} layouts a height in the window; last ${JSON.stringify(last)}`,
+    )
+    win.setSize(1441, 900)
+    await until(() => page.view.getBounds().width === narrow.width)
+    await ui(`document.querySelector('[data-device="desktop"]').click()`)
+    await until(() => page.view.getBounds().width === wide.width)
+  }
 
   // ── motion mode's dock, drawn by the window: it drives the real page ───────────────────────
   const motionUrl = `${origin}/harness/motion-page.html`
@@ -1382,6 +1480,48 @@ async function main() {
   await js(`document.getElementById("b42-test-many").remove()`)
   await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
   await until(async () => state().review.mode === "notes")
+
+  // ── the page's renderer dies: the window keeps nothing its overlay said ────────────────────
+  // (Killed from outside, as the system does to a renderer out of memory. Last of the checks
+  // that drive the page: the test's debugger does not outlive its renderer.)
+  {
+    const kill = async () => {
+      const died = new Promise<string>((done) => wc.once("render-process-gone", (_e, details) => done(details.reason)))
+      process.kill(wc.getOSProcessId(), "SIGKILL")
+      return Promise.race([died, sleep(8000).then(() => "still there")])
+    }
+    const loadedAgain = async () => {
+      const pid = wc.getOSProcessId()
+      await ui(`document.querySelector('.page-failed .btn.primary').click()`)
+      return until(async () => wc.getOSProcessId() !== pid && !state().page.loading && !state().page.error && (await js(`${shadow}?.querySelector('.pins')?.classList.contains('live') ?? false`).catch(() => false)), 8000)
+    }
+    const factRows = () => ui(`document.querySelectorAll('.fp-fact').length`) as Promise<number>
+    const motionRows = () => ui(`document.querySelectorAll('.mdock-row').length`) as Promise<number>
+    // Motion's dock, with its list: the rows go with the renderer, and the window says why.
+    await ui(`document.querySelector('.mode[data-mode="motion"]').click()`)
+    await until(async () => (await motionRows()) > 0)
+    const listed = await motionRows()
+    const reason = await kill()
+    const emptied = await until(async () => (await motionRows()) === 0 && state().page.crashed === true, 3000)
+    const card = (await ui(`document.querySelector('.page-failed')?.textContent ?? ""`)) as string
+    check("a page whose renderer died leaves the window's dock nothing to show, and the window says the page crashed", listed > 0 && reason === "killed" && emptied === true && /crashed/.test(card), `${listed} rows before, ${await motionRows()} after (${reason}): ${card.slice(0, 90)}`)
+    // Try again loads it: the overlay starts anew, and its first views are whole ones.
+    const back = await loadedAgain()
+    await ui(`document.querySelector('.mode[data-mode="motion"]').click()`)
+    const again = await until(async () => (await motionRows()) > 0, 4000)
+    check("…loaded again, the dock lists the page's animations again", back === true && again === true && state().page.crashed === undefined, `loaded ${back}, ${await motionRows()} rows, ${JSON.stringify(state().page)}`)
+    // The page's facts, beside a phone's page: the same, and the pane asks for them again.
+    await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
+    await ui(`document.querySelector('[data-device="phone"]').click()`)
+    await until(async () => (await factRows()) > 0)
+    const facts = await factRows()
+    await kill()
+    const noFacts = await until(async () => (await factRows()) === 0, 3000)
+    const factsBack = (await loadedAgain()) === true && (await until(async () => (await factRows()) > 0, 4000))
+    check("…and the same for a phone's page and its facts: gone with the renderer, worked out again once it is loaded", facts > 0 && noFacts === true && factsBack === true, `${facts} facts before, ${await factRows()} after`)
+    await ui(`document.querySelector('[data-device="desktop"]').click()`)
+    await until(() => state().page.device === "desktop")
+  }
 
   // ── what is on disk ────────────────────────────────────────────────────────────────────────
   app.emit("before-quit")

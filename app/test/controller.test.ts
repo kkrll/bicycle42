@@ -819,6 +819,43 @@ test("the page is laid out where the window last put it, hidden, before it loads
   }
 })
 
+test("the page's place, said many times a second while the window is resized, is written once it has come to rest, and at quit", async () => {
+  const h = await boot({ settings: savedSite() })
+  const file = path.join(h.dir, "settings.json")
+  const saved = () => JSON.parse(fs.readFileSync(file, "utf8")).pageBounds as unknown
+  // Every write of a file ends in a rename onto it (store.ts): counted, not timed.
+  const rename = fs.renameSync
+  let writes = 0
+  fs.renameSync = ((from: fs.PathLike, to: fs.PathLike) => {
+    if (to === file) writes++
+    rename(from, to)
+  }) as typeof fs.renameSync
+  try {
+    await sleep(600) // (what the start has to write is written)
+    writes = 0
+    // A second of a window being resized: another place every 40 ms.
+    const place = (i: number) => ({ x: 12, y: 60, width: 900 - i, height: 700 })
+    for (let i = 1; i <= 25; i++) {
+      await h.cmd("setPageBounds", place(i))
+      await sleep(40)
+    }
+    assert.equal(writes, 0, "nothing is written while the place keeps changing")
+    // (In memory it is the newest at once: whoever asks the controller gets that.)
+    assert.deepEqual(h.core.lastPageBounds(), place(25))
+    await until(() => writes > 0)
+    await sleep(500)
+    assert.equal(writes, 1, "one write, once it has come to rest")
+    assert.deepEqual(saved(), place(25))
+    // A quit in the middle of a resize: the last place is on disk all the same.
+    await h.cmd("setPageBounds", place(30))
+    await h.core.dispose()
+    assert.deepEqual(saved(), place(30))
+  } finally {
+    fs.renameSync = rename
+    await h.close()
+  }
+})
+
 test("a first start, or a place on disk that is no rectangle: the page still loads hidden, with no place of last time", async () => {
   for (const pageBounds of [undefined, { x: 0, y: 0, width: 0, height: 700 }, { x: 0, y: 0, width: Infinity, height: 700 }, "wide"]) {
     const h = await boot({ settings: { ...savedSite(), ...(pageBounds === undefined ? {} : { pageBounds }) } })

@@ -15,7 +15,17 @@ import type { HostMessage, PageMessage } from "../../../overlay/protocol"
 import { PHONE, type Device, type Phone, type Rect } from "../shared/types"
 import type { Frame } from "./images"
 
-export type PageState = { url: string; loading: boolean; error?: string; canGoBack: boolean; canGoForward: boolean; hmr: boolean }
+export type PageState = {
+  url: string
+  loading: boolean
+  error?: string
+  /** The page's renderer is gone (it crashed, or the system killed it): nothing of the page is
+   *  there, its overlay included, until it is loaded again. */
+  crashed?: true
+  canGoBack: boolean
+  canGoForward: boolean
+  hmr: boolean
+}
 
 /** overlay → host, as the overlay's protocol has it. What arrives is only known to have one of
  *  its types (PAGE_EVENTS below): its fields are the page's to fill, and are checked where used. */
@@ -291,6 +301,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       url,
       loading,
       ...(shown ? { error: shown } : {}),
+      ...(wc.isCrashed() ? { crashed: true as const } : {}),
       canGoBack: before !== undefined && !internal(before),
       canGoForward: history.canGoForward(),
       hmr,
@@ -413,7 +424,9 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   }
 
   function send(msg: HostMessage) {
-    if (gone()) return
+    // A renderer that died has no overlay to hear it, and Electron logs an error for every
+    // message it cannot deliver: nothing goes until the page is loaded again.
+    if (gone() || wc.isCrashed()) return
     // No overlay on the page (placeholder, mid-navigation) is not an error: nothing listens, and
     // the overlay asks for state on "ready".
     try {
@@ -423,7 +436,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
 
   /** Asked in the overlay's world of the top frame. False when there is none, or on an error. */
   async function busy(): Promise<boolean> {
-    if (gone()) return false
+    if (gone() || wc.isCrashed()) return false
     try {
       return (await wc.executeJavaScriptInIsolatedWorld(WORLD, [{ code: BUSY }])) === true
     } catch {

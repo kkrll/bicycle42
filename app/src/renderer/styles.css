@@ -878,6 +878,27 @@ details[open] > summary > .caret {
   display: none;
 }
 
+/* The two lengths an edge is dragged to, sixty times a second, do not inherit: each stays on the
+   box app.tsx sets it on (the panel its width, the stage its dock's height), and a box inside
+   that reads one asks for it by name (`inherit`, on .dock). Inherited, as a variable is unless
+   it says otherwise, each move of the pointer restyled everything in that box: the whole
+   conversation, every row of a dock. (The phone's lengths, on .device-col, change with the
+   phone or the window, not with the pointer, and have only the page's box under them.) */
+@property --panel-width {
+  syntax: "*";
+  inherits: false;
+}
+
+@property --panel-max {
+  syntax: "*";
+  inherits: false;
+}
+
+@property --dock-height {
+  syntax: "*";
+  inherits: false;
+}
+
 /* The page and, when the window draws the dock of the mode that is on (dock.tsx), that dock
    under it. */
 .stage {
@@ -965,6 +986,8 @@ details[open] > summary > .caret {
    dragged to. What is in it is the dock's own (dock.tsx). */
 .dock {
   flex: none;
+  /* (The stage's, which does not inherit: asked for here, and not passed on to what is inside.) */
+  --dock-height: inherit;
   height: var(--dock-height);
   /* (PAGE_MIN in app.tsx, and the two panes' margins.) */
   max-height: calc(100% - 136px);

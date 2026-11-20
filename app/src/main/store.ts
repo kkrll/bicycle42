@@ -6,6 +6,8 @@
 // Writes are collected for a moment and then replace the file whole (write a temp file, fsync,
 // rename), so a crash leaves either the old file or the new one. They happen off the main thread,
 // one at a time per file, the newest state last; at quit, flush() writes what is left at once.
+// A setting that follows a drag (where the window has the page) waits for the drag to end
+// (settle): only its last value is worth a write.
 // A file we can't read is never written over: it is moved aside as <name>.corrupt-<time> for a
 // person to look at. A file written by a newer bicycle 42 is not ours to touch at all: it stays
 // as it is, and what would have gone into it stays in memory for this run.
@@ -61,6 +63,11 @@ export type Store = {
   settings(): Settings
   /** Mutate, and schedule a save. */
   update(change: (s: Settings) => void): void
+  /** Mutate now, and save once no such change has come for a second: for a setting that changes
+   *  with every frame of a drag, which `update` would write (and fsync) four times a second for
+   *  as long as it lasts. In memory it is the newest at once; another save takes it along, and
+   *  a flush or idle does not wait for it. */
+  settle(change: (s: Settings) => void): void
   /** The raw saved JSON, or undefined. */
   loadReview(origin: string): unknown
   /** Debounced per origin: the last one given within the window is what gets written. `data`
@@ -81,8 +88,9 @@ type Log = (level: "info" | "warn" | "error", msg: string, data?: unknown) => vo
 
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x)
 
-export function createStore(dir: string, opts: { debounceMs?: number; log?: Log } = {}): Store {
+export function createStore(dir: string, opts: { debounceMs?: number; settleMs?: number; log?: Log } = {}): Store {
   const debounceMs = opts.debounceMs ?? 250
+  const settleMs = opts.settleMs ?? 1000
   const log: Log = opts.log ?? (() => undefined)
   const settingsFile = path.join(dir, "settings.json")
   // An origin has ":" and "/" in it; percent-encoding keeps the name readable and one-to-one.
@@ -224,6 +232,7 @@ export function createStore(dir: string, opts: { debounceMs?: number; log?: Log 
   function flush() {
     clearTimeout(timer)
     timer = undefined
+    settled()
     // A write under way may not finish before the app is gone: what it holds is written here.
     for (const [file, { text }] of handed) if (!pending.has(file)) pending.set(file, () => text)
     handed.clear()
@@ -243,13 +252,34 @@ export function createStore(dir: string, opts: { debounceMs?: number; log?: Log 
   const saved = read(settingsFile, 1)
   const settings = { ...saved, version: 1, sites: isObj(saved?.sites) ? saved.sites : {} } as Settings
 
+  /** Set while a change that settles waits for its kind to stop coming. */
+  let settling: ReturnType<typeof setTimeout> | undefined
+  /** The settings as they are now are to be written: what waited to settle goes with them. */
+  function saveSettings() {
+    clearTimeout(settling)
+    settling = undefined
+    // Small, and opened by people now and then: indented.
+    pending.set(settingsFile, () => JSON.stringify(settings, null, 2))
+  }
+  /** What waits to settle waits no longer (a flush, an idle): it is pending like any change. */
+  function settled() {
+    if (settling) saveSettings()
+  }
+
   return {
     settings: () => settings,
     update(change) {
       change(settings)
-      // Small, and opened by people now and then: indented.
-      pending.set(settingsFile, () => JSON.stringify(settings, null, 2))
+      saveSettings()
       schedule()
+    },
+    settle(change) {
+      change(settings)
+      clearTimeout(settling)
+      settling = setTimeout(() => {
+        saveSettings()
+        schedule()
+      }, settleMs)
     },
     loadReview(origin) {
       const file = reviewFile(origin)
@@ -267,6 +297,7 @@ export function createStore(dir: string, opts: { debounceMs?: number; log?: Log 
     },
     flush,
     async idle() {
+      settled()
       while (pending.size || chains.size) {
         if (pending.size) due()
         await Promise.all(chains.values())

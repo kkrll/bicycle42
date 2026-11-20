@@ -318,6 +318,9 @@ export type AppState = {
     url: string
     loading: boolean
     error?: string
+    /** The page's renderer is gone (`error` says so): no overlay is there, so nothing it said of
+     *  its panes holds. The window drops those views; loaded again, the overlay sends new ones. */
+    crashed?: true
     canGoBack: boolean
     canGoForward: boolean
     /** The page hot-reloads by itself, so the app leaves reloading to it. */

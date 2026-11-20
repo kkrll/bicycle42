@@ -859,6 +859,32 @@ async function main() {
   check("a page told it is a phone's before its first load is one once it has loaded", (await until(async () => !early.state().loading && (await earlyWidth()) === 390, 5000)) === true, String(await earlyWidth().catch(String)))
   early.dispose()
 
+  // ── the page's renderer dies ───────────────────────────────────────────────────────────────
+  // (Killed from outside, as the system does to a renderer out of memory.) Nothing is sent to a
+  // renderer that is not there: Electron logs an error for every send it cannot deliver.
+  {
+    let undelivered = 0
+    const consoleError = console.error
+    console.error = (...args: unknown[]) => (/Error sending from/.test(String(args[0])) ? void undelivered++ : consoleError(...args))
+    const died = new Promise<string>((done) => wc.once("render-process-gone", (_e, details) => done(details.reason)))
+    process.kill(wc.getOSProcessId(), "SIGKILL")
+    const reason = await Promise.race([died, sleep(8000).then(() => "still there")])
+    const dead = page.state()
+    check("a page whose renderer died says so: an error, and that nothing of the page is there", reason === "killed" && dead.crashed === true && /crashed/.test(dead.error ?? ""), `${reason} ${JSON.stringify(dead)}`)
+    page.send({ type: "pins", pins: [] })
+    page.send({ type: "enabled", enabled: true })
+    page.send({ type: "panel", panel: "motion", act: { type: "ping", id: 9 } })
+    page.setDevice("phone", PHONE)
+    page.setDevice("desktop", PHONE)
+    await sleep(200)
+    check("…and nothing is sent to it", undelivered === 0 && (await page.busy()) === false, `${undelivered} sends Electron could not deliver`)
+    // Loaded again, it is a page like any other: the overlay starts anew and says so.
+    const back = await readyAgain(() => page.reload())
+    const alive = page.state()
+    check("loaded again, it is there, its overlay with it", back && alive.crashed === undefined && alive.error === undefined && (await inOverlay("!!window.__b42")) === true, JSON.stringify(alive))
+    console.error = consoleError
+  }
+
   // ── hide, dispose ──────────────────────────────────────────────────────────────────────────
   page.setBounds(null)
   check("setBounds(null) hides the view", page.view.getVisible() === false)
