@@ -56,7 +56,9 @@ let parked: Extract<ChatEvent, { type: "reset" }> | undefined
 // What the overlay last said each hosted pane shows (shared/types.ts): the whole view each time,
 // diffed into the store so a dock redraws only what changed. A dock component reads its view
 // from here and asks through dockAct; it keeps nothing of the page's itself. The facts pane's
-// view is null when the overlay works nothing out for it (a new page, or after "stop").
+// view is null when the overlay works nothing out for it (a new page, or after "stop"). A pane
+// has no view before its overlay first speaks, and none while the page's renderer is gone
+// (start, below).
 export const [dockViews, setDockViews] = createStore<{ motion?: object; canvas?: object; facts?: FactsView | null }>({})
 
 /** From a hosted dock to the overlay: what the reviewer did there. */
@@ -98,6 +100,10 @@ export function start(bridge: Bridge): void {
   bridge.onPanel(onPanel)
   bridge.onState((next) => {
     const before = openId()
+    // A page whose renderer died has no overlay: what it last said of its panes is of a page
+    // that is not there, and nothing will say otherwise. No view at all, not null: the overlay
+    // of the page loaded again says null itself, which is what the facts pane asks again on.
+    if (next.page.crashed) setDockViews({ motion: undefined, canvas: undefined, facts: undefined })
     setState(reconcile(next))
     setReady(true)
     if (openId() === before) return

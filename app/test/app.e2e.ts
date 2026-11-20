@@ -1283,6 +1283,48 @@ async function main() {
   await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
   await until(async () => state().review.mode === "notes")
 
+  // ── the page's renderer dies: the window keeps nothing its overlay said ────────────────────
+  // (Killed from outside, as the system does to a renderer out of memory. Last of the checks
+  // that drive the page: the test's debugger does not outlive its renderer.)
+  {
+    const kill = async () => {
+      const died = new Promise<string>((done) => wc.once("render-process-gone", (_e, details) => done(details.reason)))
+      process.kill(wc.getOSProcessId(), "SIGKILL")
+      return Promise.race([died, sleep(8000).then(() => "still there")])
+    }
+    const loadedAgain = async () => {
+      const pid = wc.getOSProcessId()
+      await ui(`document.querySelector('.page-failed .btn.primary').click()`)
+      return until(async () => wc.getOSProcessId() !== pid && !state().page.loading && !state().page.error && (await js(`${shadow}?.querySelector('.pins')?.classList.contains('live') ?? false`).catch(() => false)), 8000)
+    }
+    const factRows = () => ui(`document.querySelectorAll('.fp-fact').length`) as Promise<number>
+    const motionRows = () => ui(`document.querySelectorAll('.mdock-row').length`) as Promise<number>
+    // Motion's dock, with its list: the rows go with the renderer, and the window says why.
+    await ui(`document.querySelector('.mode[data-mode="motion"]').click()`)
+    await until(async () => (await motionRows()) > 0)
+    const listed = await motionRows()
+    const reason = await kill()
+    const emptied = await until(async () => (await motionRows()) === 0 && state().page.crashed === true, 3000)
+    const card = (await ui(`document.querySelector('.page-failed')?.textContent ?? ""`)) as string
+    check("a page whose renderer died leaves the window's dock nothing to show, and the window says the page crashed", listed > 0 && reason === "killed" && emptied === true && /crashed/.test(card), `${listed} rows before, ${await motionRows()} after (${reason}): ${card.slice(0, 90)}`)
+    // Try again loads it: the overlay starts anew, and its first views are whole ones.
+    const back = await loadedAgain()
+    await ui(`document.querySelector('.mode[data-mode="motion"]').click()`)
+    const again = await until(async () => (await motionRows()) === listed, 4000)
+    check("…loaded again, the dock lists the page's animations again", back === true && again === true && state().page.crashed === undefined, `${await motionRows()} rows, ${JSON.stringify(state().page)}`)
+    // The page's facts, beside a phone's page: the same, and the pane asks for them again.
+    await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
+    await ui(`document.querySelector('[data-device="phone"]').click()`)
+    await until(async () => (await factRows()) > 0)
+    const facts = await factRows()
+    await kill()
+    const noFacts = await until(async () => (await factRows()) === 0, 3000)
+    const factsBack = (await loadedAgain()) === true && (await until(async () => (await factRows()) === facts, 4000))
+    check("…and the same for a phone's page and its facts: gone with the renderer, worked out again once it is loaded", facts > 0 && noFacts === true && factsBack === true, `${facts} facts before, ${await factRows()} after`)
+    await ui(`document.querySelector('[data-device="desktop"]').click()`)
+    await until(() => state().page.device === "desktop")
+  }
+
   // ── what is on disk ────────────────────────────────────────────────────────────────────────
   app.emit("before-quit")
   check("the conversation is remembered for the site", saved().sites[origin]?.session === SES, JSON.stringify(saved().sites))

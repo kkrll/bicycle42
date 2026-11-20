@@ -314,7 +314,10 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   "state" ("docks"), sends what the dock shows (`PanelMessage`, the "panel" stream: a whole
   view, or the fields of it that changed, which `renderer/store.ts` puts into the view it keeps
   in `dockViews`) and does what the window's dock asks (the `panel`
-  command, `dockAct`). Main carries both and reads neither. The dock's component goes into
+  command, `dockAct`). Main carries both and reads neither. A page whose renderer died
+  (`page.crashed`) has no overlay: main sends it nothing, and the window drops the views it
+  kept, so no pane shows a page that is not there; loaded again, the overlay starts anew and its
+  first views are whole ones. The dock's component goes into
   `DOCKS` in `renderer/dock.tsx`; the window puts it under the page (its top edge drags, as the
   panel's side does) or, beside a phone's page, in the column at the page's right.
   What a view and an act carry is each pane's own file: `overlay/protocol-motion.ts`,
