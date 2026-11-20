@@ -187,10 +187,18 @@ export function reveal(el) {
 }
 
 // ── playing ──────────────────────────────────────────────────────────────────────────────
+/** The element what is open is on. That is the selection, while it is in the page and its path
+ *  is the open one's: then the page is not searched for it. Playing asks this several times a
+ *  frame, and a search by a path of nth-of-type steps reads every sibling on the way down. */
+function openEl() {
+  const o = M.open;
+  if (!o) return null;
+  return M.sel && M.sel.isConnected && M.selRs === o.rs ? M.sel : mq(o.rs);
+}
 /** The page's own Animation object for what is open. One that ended without holding its last
  *  frame is no longer listed by the element, but the object still plays: it is kept. */
 export function animOf() {
-  const o = M.open, el = o && mq(o.rs);
+  const o = M.open, el = openEl();
   if (!el || o.kind === "transition") return null;
   if (o.kind === "script") return M.held;
   const a = el.getAnimations().find((x) => x.animationName === o.name);
@@ -200,7 +208,7 @@ export function animOf() {
 /** Nothing to hold on to (it ended before it was opened): its animations start again, by
  *  switching them off and on in one go. */
 function revive() {
-  const o = M.open, el = o && mq(o.rs);
+  const o = M.open, el = openEl();
   if (!el || o.kind !== "css") return null;
   const off = new CSSStyleSheet();
   try {
@@ -248,14 +256,14 @@ function flip() {
   if (!M.ro || !M.ro.state) return;
   M.ro.on = !M.ro.on;
   apply();
-  const el = mq(M.open.rs);
+  const el = openEl();
   if (!el) return;
   getComputedStyle(el).opacity;
   for (const a of el.getAnimations()) if (a instanceof CSSTransition) a.playbackRate = M.rate;
   kick();
 }
 export function position() {
-  const o = M.open, el = o && mq(o.rs);
+  const o = M.open, el = openEl();
   if (!el) return null;
   if (o.kind === "transition") {
     const ts = el.getAnimations().filter((a) => a instanceof CSSTransition);

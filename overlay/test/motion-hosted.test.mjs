@@ -387,6 +387,35 @@ test("hosted: a keystroke in the note and a step of a keyframe's drag send only 
   await page.close();
 });
 
+test("hosted: while it plays, the open element is not searched for in the page: it is the selection", async () => {
+  const { page, f, errors, v } = await open();
+  await act(page, { type: "row", id: rowId(v, "card-in") });
+  await view(page, "v.open && v.open.name === 'card-in'");
+  await act(page, { type: "rate", rate: 0.25 });
+  await view(page, "v.rate === 0.25");
+  await act(page, { type: "seek", p: 0 });
+  await view(page, "v.clock.pos !== null && v.clock.pos < 0.01");
+  await f.evaluate(() => {
+    const real = Document.prototype.querySelector;
+    window.__finds = 0;
+    Document.prototype.querySelector = function (...a) {
+      window.__finds++;
+      return real.apply(this, a);
+    };
+    window.__frames = 0;
+    const tick = () => (window.__frames++, requestAnimationFrame(tick));
+    requestAnimationFrame(tick);
+  });
+  const n = await views(page);
+  await act(page, { type: "play" });
+  await view(page, "!v.clock.playing && v.clock.pos > 0.99", 4000);
+  const { finds, count } = await f.evaluate(() => ({ finds: window.__finds, count: window.__frames }));
+  assert.ok((await views(page)) - n > 3 && count > 3, `${count} frames`);
+  assert.ok(finds <= 4, `${finds} searches of the page in ${count} frames`);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("hosted: a new animation, named in the dock; Esc steps back to notes mode", async () => {
   const { page, f, errors } = await open();
   const b = await f.locator(".card h3").first().boundingBox();
