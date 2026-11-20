@@ -44,7 +44,7 @@ const H = {
   comp: [], compKey: "", compOwn: "", compDom: -1, compAt: 0, // the computed section, and what it was read for
   toks: [], read: [], toksAt: 0, // the variables: as sent, as tokens.js read them off the selection
   sizes: new Map(), // a variable's value → its size (tokens.js keeps 500; a design system has more)
-  texts: new Map(), // a box's text → { marks, error }
+  texts: new Map(), // a box and its text → { marks, error }
   listKey: "", list: [], // the list of the unsent edits, and the batch it was made for
 };
 
@@ -173,16 +173,19 @@ function list() {
   return H.list;
 }
 
-/** A box's text with what the browser would not take: the ranges to underline, and the line under the box. */
+/** A box's text with what the browser would not take: the ranges to underline, and the line under
+ *  the box. The same text is not the same in the two boxes (a bare declaration is Element styles'
+ *  whole point and outside a rule in the stylesheet), so what was made of one is kept by box. */
 function textOf(text, sheet) {
-  let t = H.texts.get(text);
+  const key = `${sheet ? "sheet" : "css"}|${text}`;
+  let t = H.texts.get(key);
   if (!t) {
     const max = sheet ? MAX_SHEET : MAX_CSS;
     const bad = text.length > max ? [] : problems(text, sheet);
     const error = text.length > max ? `Too long: ${text.length} / ${max} characters. Not applied; shorten it before sending`
       : bad.length ? `Not applied: ${bad.slice(0, 3).map((b) => b.why).join(" · ")}${bad.length > 3 ? ` · and ${bad.length - 3} more` : ""}` : "";
     if (H.texts.size > 50) H.texts.clear();
-    H.texts.set(text, (t = { marks: bad.map((b) => ({ s: b.s, e: b.e, why: b.why })), error }));
+    H.texts.set(key, (t = { marks: bad.map((b) => ({ s: b.s, e: b.e, why: b.why })), error }));
   }
   return { text, ...t };
 }

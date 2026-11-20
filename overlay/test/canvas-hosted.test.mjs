@@ -180,6 +180,26 @@ test("hosted fields: classes and Element styles are typed in the host; the view 
   await page.close();
 });
 
+test("hosted fields: the same text in the two boxes is judged as each box's own: a declaration is fine in Element styles and outside a rule in the stylesheet", async () => {
+  const TEXT = "color: red;";
+  // The stylesheet first, then Element styles; and the other way round.
+  for (const order of [["sheet", "css"], ["css", "sheet"]]) {
+    const { page, f, errors } = await open();
+    await clickAt(page, f, SECOND, 100, 80);
+    const { sel: { id } } = await until(page, "(v) => v.sel").then(() => view(page));
+    for (const field of order) {
+      await act(page, { type: "text", field, text: TEXT, ...(field === "css" ? { id } : {}) });
+      await until(page, `(v) => v.${field}.text === ${JSON.stringify(TEXT)}`); // (the first is judged before the second is typed)
+    }
+    const v = await view(page);
+    assert.deepEqual({ error: v.css.error, marks: v.css.marks }, { error: "", marks: [] }, `Element styles, typed ${order.join(" then ")}`);
+    assert.match(v.sheet.error, /^Not applied: .*outside a rule/, `the stylesheet, typed ${order.join(" then ")}`);
+    assert.equal(v.sheet.marks.length, 1);
+    assert.deepEqual(errors, []);
+    await page.close();
+  }
+});
+
 test("hosted values: a computed value set is one undo step; a scrub is live and one step; Esc during it puts it back; undo and redo", async () => {
   const { page, f, errors } = await open();
   await clickAt(page, f, SECOND, 100, 80);
