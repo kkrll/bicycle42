@@ -372,7 +372,8 @@ export function rows() {
       on: o && o.kind === "script" && M.held === a, duration: +a.effect.getTiming().duration || 0, open: () => openScript(a) });
   for (const el of M.suspects)
     if (el.isConnected) out.push({ kind: "frames", els: [el], text: name(el, true), aside: "per frame", running: true, off: true, duration: null, open: () => {} });
-  if (found.unused.length) out.push({ group: "Unused" });
+  // (A page looked at in part: what no element was seen to play may be played further down.)
+  if (found.unused.length) out.push({ group: found.partial ? "Not seen playing" : "Unused" });
   for (const n of found.unused) out.push({ kind: "unused", els: [], text: n, aside: "", off: !M.sel, duration: null, open: () => useKf(n) });
   return out;
 }

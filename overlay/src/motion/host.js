@@ -87,6 +87,7 @@ function body() {
     rows: list.map((r) => (r.group ? { group: r.group }
       : { id: r.id, kind: r.kind, text: r.text, aside: r.aside || "", duration: typeof r.duration === "number" && Number.isFinite(r.duration) ? Math.round(r.duration) : null,
         on: !!r.on, sub: !!r.sub, last: !!r.last, off: !!r.off, running: !!r.running, dirty: !!r.dirty })),
+    partial: on && M.scan.partial,
     sel: on && M.sel ? name(M.sel) : null,
     open,
     names: on && M.sel && !M.open ? knownNames() : [],

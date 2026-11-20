@@ -33,6 +33,8 @@ export const FILL = { none: ["None", "Before it starts and after it ends, the el
 export const RATES = [1, 0.5, 0.25, 0.1];
 export const RATE_TEXT = { 1: "1×", 0.5: "½×", 0.25: "¼×", 0.1: "⅒×" };
 export const MAX_KF = 4000; // the keyframes' text, as the host takes it
+/** Elements looked at in one scan. A page with more is looked at in part, and says so. */
+const MAX_ELS = 4000;
 export const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
 export const r1 = (n) => Math.round(n * 10) / 10;
 export const ms = (n) => `${Math.round(n)}ms`;
@@ -48,7 +50,7 @@ export const M = {
   isolate: false, rate: 1, loop: false, loopAt: 0, pos: 0,
   past: [], future: [], snap: "",
   held: null, // the page's Animation object for what is open
-  scan: { anims: [], unused: [], transitions: [], scripts: [], rules: new Map() },
+  scan: { anims: [], unused: [], transitions: [], scripts: [], rules: new Map(), partial: false },
   suspects: new Set(), // elements whose inline style changes many times a second
   sheet: null, // the unsent edits, as rules
   // [{ id, sheet, seen, n, undo: [{ x, index, entry }] }]: applied until the pin is done. seen:
@@ -259,20 +261,33 @@ export function scan() {
     } catch {} // another origin's stylesheet: its animations are still read, through the API
   }
   for (const b of M.sent) walk(b.sheet.cssRules); // what was sent is what the page plays now
-  const anims = new Map(), transitions = [];
+  const anims = new Map(), transitions = []; // anims: name → the elements that play it (a Set, in the order found)
+  const plays = (nm, el) => (anims.get(nm) || anims.set(nm, new Set()).get(nm)).add(el);
   const all = document.body ? document.body.getElementsByTagName("*") : [];
-  for (let i = 0; i < all.length && i < 4000; i++) {
+  // A very large page is looked at in part: each element costs a computed style.
+  const partial = all.length > MAX_ELS;
+  for (let i = 0; i < all.length && i < MAX_ELS; i++) {
     const el = all[i];
     if (el === hostEl || SKIP.test(el.tagName)) continue;
     const cs = getComputedStyle(el);
-    if (cs.animationName !== "none") for (const nm of splitTop(cs.animationName)) (anims.get(nm) || anims.set(nm, []).get(nm)).push(el);
+    if (cs.animationName !== "none") for (const nm of splitTop(cs.animationName)) plays(nm, el);
     if (cs.transitionProperty !== "none" && splitTop(cs.transitionDuration).some((d) => parseFloat(d) > 0)) transitions.push(el);
   }
   const live = /** @type {any[]} */ (document.getAnimations());
+  // Past where the look stopped, what plays now (or holds a frame) is still found: the page lists
+  // its animations whatever its size. What is left out there is what has ended and holds
+  // nothing, and transitions; so keyframes no element was seen to play are not known to be
+  // unused (`partial`, which the list and the dock say).
+  if (partial)
+    for (const a of live) {
+      const el = a instanceof CSSAnimation && a.effect && !(/** @type {any} */ (a.effect).pseudoElement) ? /** @type {any} */ (a.effect).target : null;
+      if (el && el.isConnected && el.getRootNode() === document && !SKIP.test(el.tagName)) plays(a.animationName, el);
+    }
   const running = new Set(live.filter((a) => a.playState === "running" && a.animationName).map((a) => a.animationName));
   M.scan = {
     rules,
-    anims: [...anims].map(([nm, els]) => ({ name: nm, els, running: running.has(nm) })),
+    partial,
+    anims: [...anims].map(([nm, els]) => ({ name: nm, els: [...els], running: running.has(nm) })),
     unused: [...rules.keys()].filter((n) => !anims.has(n)),
     transitions,
     scripts: live.filter((a) => !(a instanceof CSSAnimation) && !(a instanceof CSSTransition) && a.effect && a.effect.target && a.effect.target.getRootNode() !== root),

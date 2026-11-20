@@ -14,8 +14,9 @@
  *  ("infinite", "alternate", "both", "cubic-bezier(…)"). */
 export type MotionTiming = { duration: number; delay: number; easing: string; count: string; direction: string; fill: string }
 
-/** What kind of motion a row is: keyframes an element plays, keyframes nothing plays, a
- *  transition, a script's animate(), or an inline style a script rewrites frame by frame. */
+/** What kind of motion a row is: keyframes an element plays, keyframes nothing plays (or, when the
+ *  view is `partial`, nothing was seen to play), a transition, a script's animate(), or an inline
+ *  style a script rewrites frame by frame. */
 export type MotionKind = "css" | "unused" | "transition" | "script" | "frames"
 
 /** One line of the list of what moves: a group's heading, or something that moves. A row under
@@ -110,6 +111,10 @@ export type MotionView = {
   /** Motion mode is on (and review is). Off, the rest is empty. */
   on: boolean
   rows: MotionRow[]
+  /** A very large page was looked at in part: the list has what its first few thousand elements
+   *  play and what plays now anywhere, and its "unused" rows are keyframes not seen to play, which
+   *  an element further down may still play. */
+  partial: boolean
   /** The selected element's plain name ("Heading · Ship calmer interfaces"), or null. */
   sel: string | null
   open: MotionOpen | null

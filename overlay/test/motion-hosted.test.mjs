@@ -56,13 +56,15 @@ async function view(page, fn = "true", timeout = 3000) {
 const act = (page, a) => page.evaluate((x) => window.__harness.act("motion", x), a);
 const rowId = (v, text) => v.rows.find((r) => r.text === text && !r.sub)?.id;
 
-/** The motion page in motion mode, its dock the host's. */
-async function open({ delay = 150 } = {}) {
+/** The motion page in motion mode, its dock the host's. `before` (its source, run in the page)
+ *  changes the page first, while it is still in notes mode. */
+async function open({ delay = 150, before = "" } = {}) {
   const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(`${base}/?delay=${delay}&page=motion`);
   const f = await pageFrame(page);
+  if (before) await f.evaluate(before);
   await page.evaluate(() => window.__harness.hostDocks(["motion"]));
   await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "motion" }));
   const v = await view(page, "v.on && v.rows.length > 0");
@@ -78,6 +80,8 @@ test("hosted: the view lists what moves, and opening a row says everything the d
   assert.equal(v.rows[rise + 1].sub, true);
   assert.notEqual(v.rows[rise + 1].id, v.rows[rise + 2].id);
   assert.equal(v.open, null);
+  // (the whole page was looked at: keyframes nothing plays are unused)
+  assert.equal(v.partial, false);
   // the pointer over a row outlines its elements on the page
   await act(page, { type: "hover", id: rowId(v, "rise") });
   await frames(f, 3);
@@ -102,6 +106,43 @@ test("hosted: the view lists what moves, and opening a row says everything the d
   // the page still shows its outline and the name tag
   await frames(f, 3);
   assert.equal(await f.evaluate(() => !document.querySelector("b42-review").shadowRoot.querySelector(".m-tag").hidden), true);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted: a page too large to look at whole says so, lists what plays past where the look stopped, and calls no keyframes unused", async () => {
+  // 4,100 elements ahead of everything that moves, and keyframes an element at the end played
+  // once and is done with (nothing holds its last frame: the page no longer lists it as playing).
+  const { page, errors, v } = await open({ before: `(async () => {
+    const st = document.createElement("style");
+    st.textContent = "@keyframes blink { to { opacity: 0.5; } } .once { animation: blink 30ms; }";
+    document.head.append(st);
+    const box = document.createElement("div");
+    box.hidden = true;
+    box.innerHTML = "<i></i>".repeat(4100);
+    document.body.prepend(box);
+    const once = document.createElement("p");
+    once.className = "once";
+    once.textContent = "Played once";
+    document.body.append(once);
+    await Promise.all(once.getAnimations().map((a) => a.finished));
+  })()` });
+  assert.equal(v.partial, true);
+  const under = (group) => {
+    const i = v.rows.findIndex((r) => r.group === group);
+    const n = v.rows.slice(i + 1).findIndex((r) => r.group);
+    return i < 0 ? [] : v.rows.slice(i + 1, n < 0 ? undefined : i + 1 + n).filter((r) => !r.sub).map((r) => r.text);
+  };
+  // What plays now is listed with its element, wherever in the page it is.
+  for (const nm of ["spin", "pulse", "rise", "card-in"]) assert.ok(under("Animations").includes(nm), `${nm} in ${under("Animations")}`);
+  assert.equal(v.rows.find((r) => r.text === "spin").running, true);
+  // What was not seen to play may play further down: it is not called unused.
+  assert.equal(v.rows.some((r) => r.group === "Unused"), false, "nothing is called unused");
+  assert.deepEqual(under("Not seen playing").sort(), ["blink", "wiggle"]);
+  // A row past where the look stopped opens as any other.
+  await act(page, { type: "row", id: rowId(v, "spin") });
+  const o = (await view(page, "v.open && v.open.name === 'spin'")).open;
+  assert.equal(o.timing.duration, 900);
   assert.deepEqual(errors, []);
   await page.close();
 });

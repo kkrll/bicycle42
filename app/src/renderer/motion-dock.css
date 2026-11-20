@@ -149,6 +149,13 @@
   color: var(--muted);
 }
 
+/* (The list is not the whole page's: a line under it, as quiet as a group's name.) */
+.mdock-part {
+  margin: 20px 12px 0;
+  color: var(--muted);
+  font-size: var(--text-control);
+}
+
 .mdock-row {
   position: relative;
   display: flex;

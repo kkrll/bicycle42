@@ -661,7 +661,7 @@ export function MotionDock() {
                       data-row={r.id}
                       role="listitem"
                       aria-disabled={r.off}
-                      title={r.sub ? "" : `${KIND_TITLE[r.kind]}${r.running ? ", playing" : ""}`}
+                      title={r.sub ? "" : `${r.kind === "unused" && v()!.partial ? "Keyframes nothing was seen to play" : KIND_TITLE[r.kind]}${r.running ? ", playing" : ""}`}
                       onPointerEnter={() => rowsHover(r.id)}
                       onClick={() => !r.off && send({ type: "row", id: r.id })}
                     >
@@ -680,6 +680,9 @@ export function MotionDock() {
                   )
                 }
               </For>
+              <Show when={v()!.partial}>
+                <p class="mdock-part">A large page: this is what its first few thousand elements play, and what plays now.</p>
+              </Show>
             </div>
 
             <div class="mdock-main">

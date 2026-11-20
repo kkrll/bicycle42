@@ -326,7 +326,8 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   layout asks its own box (container queries, which style what is in the box, never the box):
   wide, the list beside what is open; narrower than 720, one or the other with a way back and
   narrower lane names; narrow and at least 600 tall (beside a phone's page), the list above
-  what is open. A field that comes with a view (a new animation's name, a new lane's or
+  what is open. A list that is not the whole page's (the overlay looked at a part of a very
+  large page: `partial`) says so in a line under it. A field that comes with a view (a new animation's name, a new lane's or
   keyframe's value) gets the caret once the view has drawn it. Typing, a keyframe dragged and the
   playhead scrubbed are drawn from the hand until the view agrees (an act's view comes back on
   the page's next frame, 20 to 35 ms headless; a ping is about 1 ms). Its popovers stay inside

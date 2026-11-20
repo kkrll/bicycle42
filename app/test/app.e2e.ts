@@ -1329,6 +1329,20 @@ async function main() {
   await ui(`window.b42.invoke("panel", { panel: "motion", act: { type: "discard" } })`)
   await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
   await until(async () => state().review.mode === "notes")
+  // A page too large to look at whole (4,100 elements ahead of everything that moves): the dock
+  // says its list is of a part, still lists what plays, and calls no keyframes unused.
+  await js(`(() => { const box = document.createElement("div"); box.id = "b42-test-many"; box.hidden = true; box.innerHTML = "<i></i>".repeat(4100); document.body.prepend(box) })()`)
+  await ui(`document.querySelector('.mode[data-mode="motion"]').click()`)
+  const mlist = () => ui(`[...document.querySelectorAll(".mdock-list > *")].map((r) => (r.matches(".mdock-row") ? (r.matches(".sub") ? "" : r.querySelector(".mdock-nm").textContent + (r.dataset.kind === "unused" ? "?" + r.title : "")) : (r.matches(".mdock-grp") ? "#" : "") + r.textContent)).filter(Boolean).join("|")`) as Promise<string>
+  const partList = (await until(async () => (/A large page/.test(await mlist()) ? mlist() : null), 3000)) ?? ""
+  check(
+    "a page too large to look at whole: the dock says its list is of a part, lists what plays further down, and calls no keyframes unused",
+    /^#Animations\|spin\|rise\|pulse\|card-in\|/.test(partList) && /#Not seen playing\|wiggle\?Keyframes nothing was seen to play\|A large page/.test(partList) && !/Unused/.test(partList),
+    partList || (await mlist()),
+  )
+  await js(`document.getElementById("b42-test-many").remove()`)
+  await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
+  await until(async () => state().review.mode === "notes")
 
   // ── what is on disk ────────────────────────────────────────────────────────────────────────
   app.emit("before-quit")
