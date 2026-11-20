@@ -8,12 +8,14 @@
 //
 // The overlay's code is in this file, put here by scripts/build.mjs ("b42:page-overlay"): a
 // sandboxed preload can't read files, and nothing has to wait for main to send it.
-import { contextBridge, ipcRenderer } from "electron"
+import { contextBridge, ipcRenderer, webFrame } from "electron"
 import { lookup, overlay } from "b42:page-overlay"
 
 /** overlay → main, and main → overlay: the channels main/page.ts listens and sends on. */
 const FROM_OVERLAY = "b42:overlay-says"
 const TO_OVERLAY = "b42:host-says"
+/** Asked at once, before the page's first script: is this document shown as a phone's? */
+const IS_PHONE = "b42:is-phone"
 
 // The placeholder and the blank first page are the app's own: no overlay there.
 if (window === window.top && !/^(data|about):$/.test(location.protocol)) {
@@ -23,6 +25,19 @@ if (window === window.top && !/^(data|about):$/.test(location.protocol)) {
     contextBridge.executeInMainWorld({ func: lookup })
   } catch (err) {
     console.warn("[b42] the component lookup did not start", err)
+  }
+  // A phone's document starts with a scrollbar that takes no room, until it has loaded: main
+  // can only make it a phone's (overlay scrollbars and all) a moment after it began, and a
+  // layout before that with a desktop's scrollbar leaves the page zoomed out too far for good
+  // (main/page.ts says how). Once it is a phone's the rule changes nothing, and it goes, so the
+  // page's own rules for its scrollbar count as they did.
+  try {
+    if (ipcRenderer.sendSync(IS_PHONE) === true) {
+      const rule = webFrame.insertCSS("html::-webkit-scrollbar { width: 0; height: 0 }")
+      window.addEventListener("load", () => setTimeout(() => webFrame.removeInsertedCSS(rule), 200), { once: true })
+    }
+  } catch (err) {
+    console.warn("[b42] the phone's scrollbar was not set", err)
   }
   Object.defineProperty(window, "__review", { value: (json: string) => ipcRenderer.send(FROM_OVERLAY, json) })
   ipcRenderer.on(TO_OVERLAY, (_event, msg: string) => window.__b42?.receive(msg))

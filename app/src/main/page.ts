@@ -105,6 +105,8 @@ export const WORLD = 999
 /** overlay → main, and main → overlay (page-preload.ts has the same two). */
 const FROM_OVERLAY = "b42:overlay-says"
 const TO_OVERLAY = "b42:host-says"
+/** The preload's question at a document's start: is this page shown as a phone's? (Answered at once.) */
+const IS_PHONE = "b42:is-phone"
 
 const EMPTY = `<!doctype html><meta charset=utf-8><style>
 html{height:100%;background:#f1eadf;color:#0a0a0a;font:14px/1.5 system-ui,sans-serif}
@@ -215,6 +217,15 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     committed = true
     if (device === "phone") emulate()
   })
+  // A new document is not a phone's until it is told (emulation goes with the document before
+  // it), and by then the page's own scripts may have had it laid out: as a desktop's, where
+  // scrollbars take room (Linux, Windows, a Mac set to always show them) 15 px narrower. The zoom
+  // a phone gives a page wider than its screen is then worked out from the narrower width, and
+  // stays: a page 900 wide is shown 937 wide, with a strip of nothing at its right. So the
+  // preload asks, before the page's first script, whether the document is a phone's, and starts
+  // one with a scrollbar that takes no room (page-preload.ts). It has to know at once: asked and
+  // answered in one go, the one such question in the app.
+  wc.ipc.on(IS_PHONE, (event) => void (event.returnValue = device === "phone"))
 
   // ── overlay → main: window.__review in the preload's world, over IPC ─────────────────────────
   // The preload runs in the top frame only, and the placeholder gets no overlay (page-preload.ts).

@@ -265,6 +265,16 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   the widest phone, so another phone or another scale moves nothing beside it; the column at
   its right is 300 to 720px wide, and the panel cannot be dragged so wide that it gets less
   (`maxWidth`, `--panel-max`).
+- **A phone's document is one from its first script on, as far as its width goes.** Emulation
+  goes with the document before it, and main can only ask for it again once the new one has
+  begun (`did-navigate`); a script of the page's that measures something before then has it laid
+  out as a desktop's, where scrollbars take room 15 px narrower, and the zoom a phone gives a
+  page wider than its screen stays the one worked out from that (a page 900 wide shown 937 wide,
+  for good). So the preload asks main at once, before the page's first script, whether the
+  document is a phone's (`IS_PHONE`, the app's one question answered in one go), and starts one
+  with a scrollbar that takes no room; the rule goes once the document has loaded
+  (`page-preload.ts`). Asking main for the rule from `did-navigate` instead is too late whenever
+  a script reads a layout while the page loads, which most pages' scripts do.
 - **A length the window's boxes are sized by is set where it is read.** `--panel-width` and
   `--panel-max` on the panel, `--dock-height` on the stage, the phone's three on the phone's
   column (`renderer/app.tsx`). The panel's and the dock's, which follow the pointer while an

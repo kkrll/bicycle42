@@ -38,9 +38,14 @@ async function until<T>(fn: () => T | Promise<T>, ms = 5000): Promise<T> {
   return fn()
 }
 
+/** A page that scrolls, with something 900 px wide in it: wider than any phone. */
+const WIDE_PAGE = `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>wide</title><style>body { margin: 0 } #wide { width: 900px; height: 40px } #tall { height: 3000px }</style><div id="wide"></div><div id="tall"></div>`
+
 function serve(): Promise<http.Server> {
   const server = http.createServer((req, res) => {
-    const file = path.normalize(path.join(overlayDir, decodeURIComponent(new URL(req.url ?? "/", "http://x").pathname)))
+    const asked = decodeURIComponent(new URL(req.url ?? "/", "http://x").pathname)
+    if (asked === "/wide.html") return void res.writeHead(200, { "content-type": "text/html", "cache-control": "no-store" }).end(WIDE_PAGE)
+    const file = path.normalize(path.join(overlayDir, asked))
     if (!file.startsWith(overlayDir)) return void res.writeHead(403).end()
     fs.readFile(file, (err, body) => {
       if (err) return void res.writeHead(404).end("not found")
@@ -837,6 +842,23 @@ async function main() {
   page.load(moved.replace("127.0.0.1", "localhost"))
   await until(() => count("ready") > readies && !page.state().loading)
   check("and stays one on another site", (await until(async () => (await laidOut()) === 390, 2000)) === true && (await js("innerWidth")) === 390, String(await laidOut()))
+  // A page with something wider than the phone is shown zoomed out to fit it, as a phone's browser
+  // does: as wide as that thing, and no wider. (A new document laid out with a desktop's
+  // scrollbar first, 15 px narrower where scrollbars take room, kept the zoom worked out from
+  // that: a page 900 wide was shown 937 wide after any load as a phone's. main/page.ts, IS_PHONE.)
+  const fits = () => js("innerWidth + '/' + document.documentElement.scrollWidth + '/' + Math.round(document.getElementById('wide')?.getBoundingClientRect().right ?? 0)") as Promise<string>
+  const wideOk = async () => {
+    const [inner, scroll, right] = (await fits()).split("/").map(Number)
+    return right! > 390 && inner === right && scroll === right
+  }
+  const phonePage = moved.replace("127.0.0.1", "localhost")
+  for (const [how, go] of [["loaded", () => page.load(phonePage.replace("harness/page.html", "wide.html"))], ["reloaded", () => page.reload()], ["left", () => page.load(phonePage)]] as const) {
+    const n = count("ready")
+    go()
+    await until(() => count("ready") > n && !page.state().loading)
+    if (how !== "left") check(`a page wider than the phone, ${how} as a phone's, is zoomed out to its own width`, (await until(wideOk, 3000)) === true, await fits())
+    if (how === "reloaded") check("…and once it has loaded the document has a scrollbar's rule of ours no longer, as wide as it was", (await until(async () => (await js("getComputedStyle(document.documentElement, '::-webkit-scrollbar').width")) !== "0px", 3000)) === true && (await wideOk()), String(await js("getComputedStyle(document.documentElement, '::-webkit-scrollbar').width")))
+  }
   // Another phone is another width: the view is given it (the window's box), and the page lays out at it.
   const small = PHONES.find((p) => p.width < PHONE.width)!
   place({ x: 0, y: 0, width: small.width, height: 700 })
