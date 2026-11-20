@@ -108,9 +108,24 @@ src/globals.d.ts    what the type check cannot read from the .js files
   right edge, tap targets under 44 px, fields under 16 px, the viewport tag), each fact an
   element the host's rows can outline ("hover"), bring into view ("show") or, in notes mode,
   select for a note ("note"). Nothing is worked out until the host's pane says "view", and
-  nothing after "stop": in between, after load, on resize and after the page changed (400 ms
-  apart at least, in idle time, 4000 elements at most), with review on or off. Scrolling only
-  sends the new `scrollY`. A change canvas mode makes to the page's elements counts too: its
+  nothing after "stop": in between, after load, on resize, after the page changed and when an
+  animation or a transition of the page's ended (what an entry animation still holds at opacity 0
+  is not there to tap, and its end is no change to the tree: a look taken while it ran would
+  stay wrong; a script's animation is waited for by its `finished`, and one that never ends asks
+  for nothing), 400 ms apart at least, in idle time, 4000 elements at most, with review on or off.
+  A look that finds what the last one found sends nothing (each field of the view is compared
+  once and the last object kept when it is the same, so `putView` has nothing to send), and the
+  next look waits twice as long, up to 3.2 s: a page that changes all day without its facts
+  changing (a carousel, a spinner a script turns) is looked at once in 3.2 s, not 2.5 times a
+  second. A look that finds something new, or the reviewer doing something (an act of the
+  pane's, a press, a key or the wheel on the page), makes it 400 ms again. No change is left
+  out, since any can move or resize an element; but a change of words alone (a text node
+  written to, or replaced: a clock, a counter) waits the 3.2 s from the start, unless the words
+  are a tap target's or a field's (its name in the list) or a style sheet's, or the reviewer has
+  just done something. The outlines do not wait for a look: shown, they are placed again in the
+  frame after a change of the page's. A scroll changes no fact:
+  nothing is sent (the view does not say where the page is scrolled to), and no frame of the
+  layer's is asked for while every outline shown is in the document's layer. A change canvas mode makes to the page's elements counts too: its
   edits are adopted rules no observer sees, so `applyAll` says so (`restyled`/`onRestyle` in
   `src/page.js`). "marks" (or `marks` with "view"; off until asked, and the view says which):
   a quiet 1.5 px outline on every listed element, in its kind's tone (`.box.fx.mk.k-wide`,
@@ -121,9 +136,11 @@ src/globals.d.ts    what the type check cannot read from the .js files
   of an element that moves with the document's scroll alone is drawn in a second element of the
   layer's, `b42-marks`: absolute at the document's origin (not fixed, not in the top layer), in
   the document from the first one it shows until "stop", so the compositor scrolls it with the page in the
-  same frame. One in a scroller of its own, or fixed or sticky (`anchored` in
-  `src/facts/host.js`), is placed in the window every frame, as the other outlines are (a
-  scroller's scroll asks for a frame). Like the hover outline they take no pointer, are in no
+  same frame. Being in the document, what it holds counts towards the page's scrollable size: an
+  outline's far edges at the page's end go to the device pixel inside the element, never the
+  nearest one out (`placeBox` in `src/render.js`), so the layer adds nothing to it. One in a scroller of its own, or fixed or sticky (`anchored` in
+  `src/facts/host.js`), is placed in the window, as the other outlines are, in the frame after
+  anything scrolls (only then does a scroll ask for a frame). Like the hover outline they take no pointer, are in no
   note's screenshot, go with the peek and go with "stop". A new document sends the view null, so a host whose
   pane is up asks again. `?page=facts` is its harness page (`test/facts-hosted.test.mjs`).
 

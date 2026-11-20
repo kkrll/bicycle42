@@ -1278,7 +1278,6 @@ const MOTION: MotionView = {
 const FACTS: FactsView = {
   viewport: { w: 390, h: 844 },
   doc: { w: 524, h: 3880 },
-  scrollY: 0,
   meta: true,
   partial: false,
   marks: true,

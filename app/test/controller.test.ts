@@ -2197,7 +2197,7 @@ test("the facts pane is relayed as a dock is: its views (null too) reach the win
     await h.ready()
     h.page.message({ type: "ready", url: `${SITE}/`, viewport: { w: 390, h: 844, dpr: 3, scrollX: 0, scrollY: 0 } })
     assert.deepEqual(toOverlay("docks").at(-1), { type: "docks", hosted: ["facts"] })
-    const view = { viewport: { w: 390, h: 844 }, doc: { w: 520, h: 2000 }, scrollY: 0, meta: true, partial: false, wide: { items: [{ id: 1, label: "<b>Banner</b>", detail: "+130 px" }], total: 1 }, taps: { items: [], total: 0 }, small: { items: [], total: 0 } }
+    const view = { viewport: { w: 390, h: 844 }, doc: { w: 520, h: 2000 }, meta: true, partial: false, wide: { items: [{ id: 1, label: "<b>Banner</b>", detail: "+130 px" }], total: 1 }, taps: { items: [], total: 0 }, small: { items: [], total: 0 } }
     h.page.message({ type: "panel", panel: "facts", view: null })
     h.page.message({ type: "panel", panel: "facts", view })
     h.page.message({ type: "panel", panel: "facts", pong: 3 })

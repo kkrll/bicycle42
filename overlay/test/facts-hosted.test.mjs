@@ -32,8 +32,8 @@ after(async () => {
 });
 
 /** The facts page in a frame 390 wide, with the pane the host's: the overlay says it works nothing out yet. */
-async function open() {
-  const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+async function open(dpr = 1) {
+  const page = await browser.newPage({ viewport: { width: 1200, height: 900 }, deviceScaleFactor: dpr });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(`${base}/?delay=150&page=facts`);
@@ -55,6 +55,8 @@ const view = (page) => page.evaluate(() => window.__harness.view("facts"));
 /** Wait until the last view passes `fn` (a function of the view, as source). */
 const until = (page, fn) => page.waitForFunction(`(() => { const v = window.__harness.view("facts"); return !!v && (${fn})(v); })()`);
 const views = (page) => page.evaluate(() => window.__harness.panel.filter((m) => m.panel === "facts" && "view" in m).length);
+/** Everything the overlay sent for the pane: views and parts. */
+const sent = (page) => page.evaluate(() => window.__harness.panel.filter((m) => m.panel === "facts" && ("view" in m || "part" in m)).length);
 /** The pane's outlines on the page, in the window's layer and in the one that scrolls with the
  *  document: where each is and what it is. */
 const LAYERS = ["b42-review", "b42-marks"];
@@ -102,7 +104,7 @@ test("nothing is worked out before the pane asks; the view says what sticks out,
   await page.close();
 });
 
-test("the view follows the page: a change, a scroll; after stop nothing is worked out, and the pane's view is null", async () => {
+test("the view follows the page: a change (a scroll is none); after stop nothing is worked out, and the pane's view is null", async () => {
   const { page, f, errors } = await open();
   await act(page, { type: "view" });
   await until(page, "(v) => v.taps.total > 0");
@@ -114,11 +116,18 @@ test("the view follows the page: a change, a scroll; after stop nothing is worke
     document.getElementById("more").append(b);
   });
   await until(page, `(v) => v.taps.total === ${before + 1}`);
-  // Scrolling sends where the page is.
+  // Scrolling changes no fact: nothing is sent, and the view does not say where the page is.
   await f.evaluate(() => (document.getElementById("more").style.height = "2000px"));
   await until(page, "(v) => v.doc.h > 2000");
-  await f.evaluate(() => window.scrollTo(0, 120));
-  await until(page, "(v) => v.scrollY > 0");
+  assert.ok(!("scrollY" in (await view(page))));
+  await page.waitForTimeout(600);
+  const quiet = await sent(page);
+  for (const y of [120, 480, 900, 40]) {
+    await f.evaluate((to) => window.scrollTo(0, to), y);
+    await frames(f);
+  }
+  await page.waitForTimeout(600);
+  assert.equal(await sent(page), quiet);
 
   await act(page, { type: "stop" });
   await page.waitForFunction(() => window.__harness.view("facts") === null);
@@ -129,6 +138,193 @@ test("the view follows the page: a change, a scroll; after stop nothing is worke
   });
   await page.waitForTimeout(700);
   assert.equal(await views(page), n);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+/** Count what is read of the page from now on (the layer's reads and the test's own): how many
+ *  times the document is walked (a walk starts at the body's box), boxes and styles read, and
+ *  each element's text. `reads` gives the counts and starts them again. */
+const counting = (f) => f.evaluate(() => {
+  const c = (window.__reads = { scans: 0, rects: 0, styles: 0, text: new Map() });
+  const rect = Element.prototype.getBoundingClientRect;
+  Element.prototype.getBoundingClientRect = function () {
+    c.rects++;
+    if (this === document.body) c.scans++;
+    return rect.call(this);
+  };
+  const style = window.getComputedStyle;
+  window.getComputedStyle = function (...a) {
+    c.styles++;
+    return style.apply(this, a);
+  };
+  const text = Object.getOwnPropertyDescriptor(Node.prototype, "textContent");
+  Object.defineProperty(Node.prototype, "textContent", { ...text, get() {
+    c.text.set(this, (c.text.get(this) || 0) + 1);
+    return text.get.call(this);
+  } });
+});
+const reads = (f) => f.evaluate(() => {
+  const c = window.__reads;
+  const out = { scans: c.scans, rects: c.rects, styles: c.styles };
+  c.scans = c.rects = c.styles = 0;
+  c.text.clear();
+  return out;
+});
+
+test("what animates in is in the facts once it is there: the page is looked at again when an animation or a transition ends, a script's too, with no change to the page; one that never ends asks for nothing", async () => {
+  const { page, f, errors } = await open();
+  // Three small buttons that are not there yet (opacity 0, as an entry animation holds what it
+  // has not brought in), each animation held at its start; and a spinner that turns for ever.
+  await f.evaluate(() => {
+    document.head.append(Object.assign(document.createElement("style"), { textContent: "@keyframes in { from { opacity: 0 } to { opacity: 1 } } @keyframes turn { to { rotate: 360deg } } .in { animation: in 200ms both } .tr { opacity: 0; transition: opacity 200ms 1200ms } .tr.on { opacity: 1 } .spin { display: inline-block; width: 12px; height: 12px; animation: turn 300ms linear infinite }" }));
+    document.getElementById("more").insertAdjacentHTML("beforeend", `<button class="close in" id="by-css">Css</button><button class="close" id="by-script">Script</button><button class="close tr" id="by-transition">Transition</button><i class="spin"></i>`);
+    document.getElementById("by-script").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, fill: "both" });
+    for (const id of ["by-css", "by-script"]) for (const a of document.getElementById(id).getAnimations()) a.pause();
+  });
+  await act(page, { type: "view" });
+  await until(page, "(v) => v.taps.total > 0");
+  const labels = async () => (await view(page)).taps.items.map((i) => i.label);
+  const first = await labels();
+  for (const no of ["Css", "Script", "Transition"]) assert.ok(!first.includes(no), `${no} in ${first.join(", ")}`);
+  // The spinner turns and nothing else happens: the page is not looked at again.
+  await page.waitForTimeout(500); // (a look the first one's own sending may have asked for)
+  await counting(f);
+  await page.waitForTimeout(1200);
+  assert.equal((await reads(f)).scans, 0);
+  // The animations run to their ends. Nothing of the page's tree changes: only their ends say so.
+  await f.evaluate(() => {
+    for (const id of ["by-css", "by-script"]) for (const a of document.getElementById(id).getAnimations()) a.play();
+  });
+  await page.waitForFunction(() => { const v = window.__harness.view("facts"); return ["Css", "Script"].every((l) => v.taps.items.some((i) => i.label === l)); }, null, { timeout: 6000 });
+  // A transition with a long wait before it: the class that starts it is a change, and the look
+  // that follows finds the button still not there; the transition's end brings the next.
+  await f.evaluate(() => document.getElementById("by-transition").classList.add("on"));
+  await page.waitForFunction(() => window.__harness.view("facts").taps.items.some((i) => i.label === "Transition"), null, { timeout: 6000 });
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("a block's text is read once in a look, however many links are in its sentences", async () => {
+  const { page, f, errors } = await open();
+  // 20 paragraphs, 100 links in each one's kilobyte of text: 2,000 links in sentences.
+  await f.evaluate(() => {
+    const words = "before you sign up for a plan, read the ";
+    document.getElementById("more").innerHTML = Array.from({ length: 20 }, (_, b) => `<p class="prose">${Array.from({ length: 100 }, (_, i) => `${words}<a href="#t${b}-${i}">terms</a> `).join("")}</p>`).join("");
+  });
+  await act(page, { type: "view" });
+  await until(page, "(v) => v.taps.total > 0");
+  const before = await view(page);
+  assert.ok(!before.taps.items.some((i) => i.label === "terms"), JSON.stringify(before.taps)); // (links in sentences: not listed)
+  await counting(f);
+  await act(page, { type: "refresh" });
+  await f.waitForFunction(() => window.__reads.scans === 1);
+  const perBlock = await f.evaluate(() => [...document.querySelectorAll("p.prose")].map((p) => window.__reads.text.get(p) || 0));
+  assert.deepEqual(perBlock, Array(20).fill(1));
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("a look that finds what the last one found sends nothing, and the looks come further apart while they do; the reviewer's act brings them close again, and a change is sent as the part that changed", async () => {
+  const { page, f, errors } = await open();
+  await act(page, { type: "view" });
+  await until(page, "(v) => v.taps.total > 0");
+  // The page changes ten times a second, and no fact with it.
+  await f.evaluate(() => {
+    let n = 0;
+    window.__tick = setInterval(() => document.getElementById("more").setAttribute("data-n", String(n++)), 100);
+  });
+  await page.waitForTimeout(600); // (the first of them looked at)
+  const n = await sent(page);
+  await counting(f);
+  await page.waitForTimeout(5000);
+  const quiet = await reads(f);
+  assert.equal(await sent(page), n); // nothing was sent
+  // 400 ms apart they would be 12; 0.8, 1.6, then 3.2 s apart they are 2 or 3.
+  assert.ok(quiet.scans >= 1 && quiet.scans <= 4, JSON.stringify(quiet));
+  // The reviewer does something on the page: the looks are 400 ms apart again (3.2 s apart, two
+  // of them take longer than this waits).
+  await page.mouse.move(600, 400);
+  await page.mouse.wheel(0, 1);
+  await f.waitForFunction(() => window.__reads.scans >= 2, null, { timeout: 3000 });
+  await page.waitForTimeout(3500); // (far apart again)
+  await reads(f);
+  // So does asking the pane for something.
+  await act(page, { type: "hover", id: null });
+  await f.waitForFunction(() => window.__reads.scans >= 2, null, { timeout: 3000 });
+  // A change of the page's: only what changed goes.
+  const m = await sent(page);
+  await f.evaluate(() => {
+    const b = document.createElement("button");
+    b.textContent = "Tiny";
+    b.style.cssText = "width:20px;height:20px;padding:0";
+    document.getElementById("more").append(b);
+  });
+  await until(page, "(v) => v.taps.items.some((i) => i.label === 'Tiny')");
+  const parts = await page.evaluate((k) => window.__harness.panel.filter((x) => x.panel === "facts" && ("view" in x || "part" in x)).slice(k).map((x) => Object.keys(x.part ?? { whole: 1 })), m);
+  assert.deepEqual(parts, [["taps"]]);
+  await f.evaluate(() => clearInterval(window.__tick));
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("a change of words alone waits the long spacing, and is not ignored: what it moves is in the facts then; words in a tap target or a style sheet do not wait", async () => {
+  const { page, f, errors } = await open();
+  await f.evaluate(() => document.getElementById("more").insertAdjacentHTML("beforeend", `<p>Seen <span id="count">0</span> times, <b id="clock">0</b> s ago.</p><p id="grow"></p><button class="close" id="named">One</button><style id="sheet"></style>`));
+  await act(page, { type: "view" });
+  await until(page, "(v) => v.taps.items.some((i) => i.label === 'One')");
+  await page.waitForTimeout(1200); // (the reviewer's asking is over: what changes now is the page's doing)
+  // Two counters, ten times a second: one given new text (its text node replaced), one whose
+  // text node is written to.
+  await f.evaluate(() => {
+    let n = 0;
+    window.__tick = setInterval(() => {
+      document.getElementById("count").textContent = String(n++ % 10);
+      document.getElementById("clock").firstChild.data = String(n % 10);
+    }, 100);
+  });
+  await counting(f);
+  await page.waitForTimeout(2500);
+  const ticking = await reads(f);
+  assert.ok(ticking.scans <= 1, JSON.stringify(ticking)); // (400 ms apart: 6)
+  // Words that make the page taller: no fact but through the layout, and the facts have it.
+  const h = (await view(page)).doc.h;
+  await f.evaluate(() => (document.getElementById("grow").textContent = "word ".repeat(400)));
+  await page.waitForFunction((was) => window.__harness.view("facts").doc.h > was + 100, h, { timeout: 8000 });
+  await f.evaluate(() => clearInterval(window.__tick));
+  // A tap target's words are its name: looked at as soon as any change (3.2 s is longer than this waits).
+  await page.waitForTimeout(3500);
+  await f.evaluate(() => (document.getElementById("named").textContent = "Two"));
+  await page.waitForFunction(() => window.__harness.view("facts").taps.items.some((i) => i.label === "Two"), null, { timeout: 2500 });
+  // A style sheet's words are the page's styles.
+  await page.waitForTimeout(3500);
+  const taps = (await view(page)).taps.total;
+  await f.evaluate(() => (document.getElementById("sheet").textContent = "#big { width: 30px; height: 30px }"));
+  await page.waitForFunction((k) => window.__harness.view("facts").taps.total === k + 1, taps, { timeout: 2500 });
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("with outlines shown and review off, they follow a change of the page in the next frame, whenever the next look is", async () => {
+  const { page, f, errors } = await open();
+  await page.evaluate(() => document.getElementById("toggle").click());
+  await page.waitForFunction(() => !window.__harness.enabled);
+  await act(page, { type: "view", marks: true });
+  await until(page, "(v) => v.small.total > 0 && v.marks");
+  await page.waitForTimeout(700); // (the frames that follow the click that turned review off are over)
+  const at = async () => [(await marks(f)).find((o) => o.cls.endsWith("k-wide"))?.y, (await rect(f, "#wide")).y];
+  const [m0, e0] = await at();
+  assert.equal(m0, e0);
+  // The page has just been looked at: the next look is 400 ms away at the least.
+  await counting(f);
+  await act(page, { type: "refresh" });
+  await f.waitForFunction(() => window.__reads.scans === 1);
+  await f.evaluate(() => (document.getElementById("wide").style.marginTop = "70px"));
+  await frames(f, 3);
+  assert.equal((await reads(f)).scans, 1);
+  const [m1, e1] = await at();
+  assert.ok(e1 > e0 + 40, `${e0} → ${e1}`);
+  assert.equal(m1, e1);
   assert.deepEqual(errors, []);
   await page.close();
 });
@@ -291,6 +487,83 @@ test("marks never trail a scroll: those that scroll with the document are in its
   assert.equal(await f.evaluate(() => !!document.querySelector("b42-marks")), false);
   assert.deepEqual(errors, []);
   await page.close();
+});
+
+test("a scroll asks for no frame while every outline shown is in the document's layer; with one that is not, it does", async () => {
+  const { page, f, errors } = await open();
+  // Preview: review off, so the layer draws for the pane's outlines alone.
+  await page.evaluate(() => document.getElementById("toggle").click());
+  await page.waitForFunction(() => !window.__harness.enabled);
+  await f.evaluate(() => (document.getElementById("more").style.height = "2000px"));
+  await act(page, { type: "view", marks: true });
+  await until(page, "(v) => v.small.total > 0 && v.marks");
+  await page.waitForTimeout(700); // (the frames after the click, and the look after the view went)
+  const all = (await marks(f)).length;
+  assert.ok(all >= 5);
+  assert.equal(await f.evaluate(() => document.querySelector("b42-marks").shadowRoot.querySelectorAll(".box.fx.mk").length), all);
+  // The document scrolls, ten times, a frame apart: its marks go with it and nothing is read.
+  await counting(f);
+  await f.evaluate(async () => {
+    for (let i = 1; i <= 10; i++) {
+      window.scrollTo(0, i * 37);
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+  });
+  await frames(f);
+  assert.deepEqual(await reads(f), { scans: 0, rects: 0, styles: 0 });
+  const banner = await rect(f, "#wide");
+  assert.ok((await marks(f)).some((o) => o.cls.endsWith("k-wide") && o.y === banner.y), JSON.stringify(banner));
+  // A tap target in a box that scrolls on its own: its mark is placed in the window, and has to
+  // be placed again when anything scrolls.
+  await f.evaluate(() => {
+    window.scrollTo(0, 0);
+    document.getElementById("more").insertAdjacentHTML("beforebegin", `<div id="scroller" style="height:60px;overflow:auto"><div style="height:200px;padding-top:80px"><button id="inner" style="width:24px;height:24px">i</button></div></div>`);
+  });
+  await f.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelectorAll(".box.fx.mk").length === 1);
+  await page.waitForTimeout(700);
+  await f.evaluate(() => (document.getElementById("scroller").scrollTop = 50));
+  await frames(f, 3);
+  const inner = await rect(f, "#inner");
+  assert.ok((await marks(f)).some((o) => o.x === inner.x && o.y === inner.y && o.w === inner.w), JSON.stringify(inner));
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("the layer adds nothing to the page's scrollable size: a mark in the document's layer never reaches past its element, at any pixel ratio", async () => {
+  for (const dpr of [1, 1.5, 2]) {
+    const { page, f, errors } = await open(dpr);
+    // A page taller than its frame whose last thing is a small button: its right edge is the
+    // banner's, its bottom edge the button's, each a part of a pixel in.
+    await f.evaluate(() => {
+      document.body.style.paddingBottom = "0";
+      document.getElementById("more").style.height = "1200px";
+      document.body.insertAdjacentHTML("beforeend", `<button id="last" class="close" style="display:block;margin:0"></button>`);
+    });
+    await act(page, { type: "view", marks: true });
+    for (const part of [0, 0.25, 0.375, 0.4375, 0.75]) {
+      await f.evaluate((p) => {
+        document.getElementById("wide").style.width = `${520 + p}px`;
+        document.getElementById("last").style.height = `${24 + p}px`;
+      }, part);
+      await act(page, { type: "refresh" });
+      // (Parts of a pixel that a layout keeps exactly: sixty-fourths.)
+      await f.waitForFunction((w) => document.getElementById("wide").getBoundingClientRect().width === w && [...(document.querySelector("b42-marks")?.shadowRoot.querySelectorAll(".box.fx.mk.k-wide") ?? [])].some((b) => Math.abs(b.getBoundingClientRect().width - w) < 1), 520 + part);
+      await frames(f);
+      const size = await f.evaluate(() => {
+        const de = document.documentElement, layers = [document.querySelector("b42-marks"), document.querySelector("b42-review")];
+        const marks = layers[0].shadowRoot.querySelectorAll(".box.fx.mk").length;
+        const withThem = [de.scrollWidth, de.scrollHeight];
+        for (const l of layers) l.style.display = "none";
+        const without = [de.scrollWidth, de.scrollHeight];
+        for (const l of layers) l.style.display = "block";
+        return { marks, withThem, without };
+      });
+      assert.ok(size.marks >= 3, JSON.stringify(size));
+      assert.deepEqual(size.withThem, size.without, `at ${dpr}x, ${part} of a pixel in`);
+    }
+    assert.deepEqual(errors, []);
+    await page.close();
+  }
 });
 
 test("marks are not in a note's screenshot", async () => {
