@@ -94,8 +94,11 @@ src/globals.d.ts    what the type check cannot read from the .js files
   right edge, tap targets under 44 px, fields under 16 px, the viewport tag), each fact an
   element the host's rows can outline ("hover"), bring into view ("show") or, in notes mode,
   select for a note ("note"). Nothing is worked out until the host's pane says "view", and
-  nothing after "stop": in between, after load, on resize and after the page changed (400 ms
-  apart at least, in idle time, 4000 elements at most), with review on or off. Scrolling only
+  nothing after "stop": in between, after load, on resize, after the page changed and when an
+  animation or a transition of the page's ended (what an entry animation still holds at opacity 0
+  is not there to tap, and its end is no change to the tree: a look taken while it ran would
+  stay wrong; a script's animation is waited for by its `finished`, and one that never ends asks
+  for nothing), 400 ms apart at least, in idle time, 4000 elements at most, with review on or off. Scrolling only
   sends the new `scrollY`. A change canvas mode makes to the page's elements counts too: its
   edits are adopted rules no observer sees, so `applyAll` says so (`restyled`/`onRestyle` in
   `src/page.js`). "marks" (or `marks` with "view"; off until asked, and the view says which):

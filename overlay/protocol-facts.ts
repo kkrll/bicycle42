@@ -4,8 +4,8 @@
 // What the page is at the size it is shown at, each fact tied to the element it is about: what
 // sticks out past the screen's right edge, tap targets smaller than a finger, inputs a phone
 // zooms into. The overlay works it out only while the host's pane asks for it ("view" until
-// "stop"): after the page loads, on resize, and after the page changed (debounced, in idle time,
-// a few thousand elements at most). Scrolling only moves `scrollY`.
+// "stop"): after the page loads, on resize, after the page changed and when something of it
+// stopped animating (debounced, in idle time, a few thousand elements at most). Scrolling only moves `scrollY`.
 //
 // As with a dock, the view is whole each time and its strings are the page's own text: the host
 // draws them as text, never as markup.

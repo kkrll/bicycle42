@@ -8,8 +8,10 @@
 //
 // Nothing is worked out unless the pane asks: between its "view" and its "stop" (or the pane no
 // longer hosted, or a new document) the page is looked at after it loads, when the window
-// resizes, and after it changed, at least SPACING ms apart and in idle time, MAX_ELS elements at
-// most. Scrolling only sends the new `scrollY`, at most once a frame (sendView). Review on or
+// resizes, after it changed, and when something of it stopped animating (what an entry animation
+// has not brought in yet is not there to tap: a look while it runs is of a page half arrived, and
+// the animation's end is no change to the tree), at least SPACING ms apart and in idle time,
+// MAX_ELS elements at most. Scrolling only sends the new `scrollY`, at most once a frame (sendView). Review on or
 // off: the outlines are the layer's (render.js asks `boxes`), the rest is reading the page.
 // An outline of an element that scrolls with the document is drawn in the layer that does too
 // (b42-marks): the compositor moves it with the page, in the same frame. One in a scroller of its
@@ -53,6 +55,7 @@ const F = {
   anchored: new Map(), // a listed element → it scrolls with the document (looked at once a look)
   flash: null, flashKind: "", flashUntil: 0, flashTimer: 0, // the element shown ("show"), and until when
   ids: new WeakMap(), els: new Map(), n: 0, // element ↔ the number the host names it by
+  ending: new WeakSet(), // the ends of scripts' animations already waited for (watchScripted)
 };
 
 function idOf(el) {
@@ -165,6 +168,26 @@ function scan() {
   F.anchored = new Map();
   sendView("facts", F.view);
   if (F.marks) kick(); // (the marks are where the elements are now)
+  watchScripted();
+}
+
+// ── what was still moving ───────────────────────────────────────────────────────────────────
+// A CSS animation or a transition of the page's says when it ends (or is dropped), wherever on
+// the page it is: the page is looked at again then. One that never ends says nothing, so a
+// spinner asks for no look; the layer's own are in its shadow trees, and their ends stay there.
+const ENDS = ["animationend", "animationcancel", "transitionend", "transitioncancel"];
+const onEnd = () => later();
+/** An animation a script started (element.animate) ends with no event on the page: each one
+ *  there when the page is looked at is waited for by its promise, once. One started later, with
+ *  no change to the page, is seen at the next look. */
+function watchScripted() {
+  for (const a of document.getAnimations()) {
+    if ("animationName" in a || "transitionProperty" in a || a.playState === "finished" || a.playState === "idle") continue;
+    const end = a.finished;
+    if (F.ending.has(end)) continue;
+    F.ending.add(end);
+    end.then(onEnd, onEnd); // (cancelled: what it moved is back where it was)
+  }
 }
 
 /** Look again soon: SPACING after the last look at the earliest, when the page is idle. */
@@ -204,6 +227,7 @@ function start() {
   F.obs.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true });
   window.addEventListener("resize", later, { passive: true });
   window.addEventListener("scroll", onScroll, { capture: true, passive: true });
+  for (const t of ENDS) window.addEventListener(t, onEnd, { capture: true, passive: true });
   if (document.readyState !== "complete") window.addEventListener("load", later, { once: true });
   // The first look at once (the pane is waiting for it), the next ones spaced.
   F.last = -Infinity;
@@ -220,6 +244,7 @@ function stop() {
   F.obs = null;
   window.removeEventListener("resize", later);
   window.removeEventListener("scroll", onScroll, { capture: true });
+  for (const t of ENDS) window.removeEventListener(t, onEnd, { capture: true });
   window.removeEventListener("load", later);
   F.kinds = new Map();
   F.anchored = new Map();

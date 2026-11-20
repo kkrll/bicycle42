@@ -133,6 +133,69 @@ test("the view follows the page: a change, a scroll; after stop nothing is worke
   await page.close();
 });
 
+/** Count what is read of the page from now on (the layer's reads and the test's own): how many
+ *  times the document is walked (a walk starts at the body's box), boxes and styles read, and
+ *  each element's text. `reads` gives the counts and starts them again. */
+const counting = (f) => f.evaluate(() => {
+  const c = (window.__reads = { scans: 0, rects: 0, styles: 0, text: new Map() });
+  const rect = Element.prototype.getBoundingClientRect;
+  Element.prototype.getBoundingClientRect = function () {
+    c.rects++;
+    if (this === document.body) c.scans++;
+    return rect.call(this);
+  };
+  const style = window.getComputedStyle;
+  window.getComputedStyle = function (...a) {
+    c.styles++;
+    return style.apply(this, a);
+  };
+  const text = Object.getOwnPropertyDescriptor(Node.prototype, "textContent");
+  Object.defineProperty(Node.prototype, "textContent", { ...text, get() {
+    c.text.set(this, (c.text.get(this) || 0) + 1);
+    return text.get.call(this);
+  } });
+});
+const reads = (f) => f.evaluate(() => {
+  const c = window.__reads;
+  const out = { scans: c.scans, rects: c.rects, styles: c.styles };
+  c.scans = c.rects = c.styles = 0;
+  c.text.clear();
+  return out;
+});
+
+test("what animates in is in the facts once it is there: the page is looked at again when an animation or a transition ends, a script's too, with no change to the page; one that never ends asks for nothing", async () => {
+  const { page, f, errors } = await open();
+  // Three small buttons that are not there yet (opacity 0, as an entry animation holds what it
+  // has not brought in), each animation held at its start; and a spinner that turns for ever.
+  await f.evaluate(() => {
+    document.head.append(Object.assign(document.createElement("style"), { textContent: "@keyframes in { from { opacity: 0 } to { opacity: 1 } } @keyframes turn { to { rotate: 360deg } } .in { animation: in 200ms both } .tr { opacity: 0; transition: opacity 200ms 1200ms } .tr.on { opacity: 1 } .spin { display: inline-block; width: 12px; height: 12px; animation: turn 300ms linear infinite }" }));
+    document.getElementById("more").insertAdjacentHTML("beforeend", `<button class="close in" id="by-css">Css</button><button class="close" id="by-script">Script</button><button class="close tr" id="by-transition">Transition</button><i class="spin"></i>`);
+    document.getElementById("by-script").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, fill: "both" });
+    for (const id of ["by-css", "by-script"]) for (const a of document.getElementById(id).getAnimations()) a.pause();
+  });
+  await act(page, { type: "view" });
+  await until(page, "(v) => v.taps.total > 0");
+  const labels = async () => (await view(page)).taps.items.map((i) => i.label);
+  const first = await labels();
+  for (const no of ["Css", "Script", "Transition"]) assert.ok(!first.includes(no), `${no} in ${first.join(", ")}`);
+  // The spinner turns and nothing else happens: the page is not looked at again.
+  await page.waitForTimeout(500); // (a look the first one's own sending may have asked for)
+  await counting(f);
+  await page.waitForTimeout(1200);
+  assert.equal((await reads(f)).scans, 0);
+  // The animations run to their ends. Nothing of the page's tree changes: only their ends say so.
+  await f.evaluate(() => {
+    for (const id of ["by-css", "by-script"]) for (const a of document.getElementById(id).getAnimations()) a.play();
+  });
+  await page.waitForFunction(() => { const v = window.__harness.view("facts"); return ["Css", "Script"].every((l) => v.taps.items.some((i) => i.label === l)); }, null, { timeout: 6000 });
+  // A transition with a long wait before it: the class that starts it is a change, and the look
+  // that follows finds the button still not there; the transition's end brings the next.
+  await f.evaluate(() => document.getElementById("by-transition").classList.add("on"));
+  await page.waitForFunction(() => window.__harness.view("facts").taps.items.some((i) => i.label === "Transition"), null, { timeout: 6000 });
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("hover outlines a row's element and takes it away, review off too; show brings it into view with a flash", async () => {
   const { page, f, errors } = await open();
   await act(page, { type: "view" });
