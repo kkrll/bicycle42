@@ -11,7 +11,9 @@
 // resizes, after it changed, and when something of it stopped animating (what an entry animation
 // has not brought in yet is not there to tap: a look while it runs is of a page half arrived, and
 // the animation's end is no change to the tree), at least SPACING ms apart and in idle time,
-// MAX_ELS elements at most. Scrolling only sends the new `scrollY`, at most once a frame (sendView). Review on or
+// MAX_ELS elements at most. A look that finds what the last one found sends nothing, and the
+// next one waits twice as long, up to SLOW, until a look finds something new or the reviewer does
+// something; a change of words alone waits SLOW from the start (onMutations says why). Scrolling only sends the new `scrollY`, at most once a frame (sendView). Review on or
 // off: the outlines are the layer's (render.js asks `boxes`), the rest is reading the page.
 // An outline of an element that scrolls with the document is drawn in the layer that does too
 // (b42-marks): the compositor moves it with the page, in the same frame. One in a scroller of its
@@ -29,6 +31,11 @@ import { openCard } from "../notes/card.js";
 
 /** The page is looked at again no sooner than this after the last look (ms). */
 const SPACING = 400;
+/** And no sooner than this while the looks find nothing new (each such look doubles the spacing,
+ *  up to here), or after a change of words alone. */
+const SLOW = 3200;
+/** For this long after the reviewer did something, what changes is taken as its outcome. */
+const ACTED_MS = 1000;
 /** Elements looked at in one scan; a page with more says the scan was partial. */
 const MAX_ELS = 4000;
 /** A finger's size, CSS px (Apple's 44 pt). */
@@ -47,6 +54,8 @@ const F = {
   want: false, // the host's pane is shown
   view: null, // the last view made
   timer: 0, idle: 0, last: -Infinity, // the next look, and when the last one was
+  due: 0, gap: SPACING, // when the next look's timer fires; the spacing now (SPACING to SLOW)
+  acted: -Infinity, // when the reviewer last did something
   obs: null, // the MutationObserver while wanted
   marks: false, // every listed element is marked on the page (the host's pane asks: "marks")
   kinds: new Map(), // the id of each listed element → its kind ("wide" | "taps" | "small")
@@ -162,7 +171,8 @@ function scan() {
   };
   F.kinds = new Map();
   for (const k of /** @type {const} */ (["wide", "taps", "small"])) for (const it of lists[k].items) if (!F.kinds.has(it.id)) F.kinds.set(it.id, k);
-  F.view = {
+  /** @type {Record<string, any>} */
+  const view = {
     viewport: { w: vw, h: window.innerHeight },
     doc: { w: Math.max(de.scrollWidth, document.body.scrollWidth), h: Math.max(de.scrollHeight, document.body.scrollHeight) },
     scrollY: Math.round(window.scrollY),
@@ -171,6 +181,22 @@ function scan() {
     marks: F.marks,
     ...lists,
   };
+  // What the look found the same as the last one is the last one's object: only a field that is
+  // another object goes to the host (putView in ../panel.js), so a look that found nothing new
+  // sends nothing, and one that found a button more sends the list it is in. Each field's
+  // content is compared once, here.
+  const was = /** @type {Record<string, any> | null} */ (F.view);
+  let same = !!was;
+  if (was)
+    for (const k in view) {
+      if (view[k] === was[k]) continue;
+      if (typeof view[k] === "object" && JSON.stringify(view[k]) === JSON.stringify(was[k])) view[k] = was[k];
+      else same = false;
+    }
+  // Nothing new: the page changes without its facts changing (a clock, a carousel, a spinner a
+  // script turns), and the next look can wait twice as long. Something new: close again.
+  F.gap = same ? Math.min(SLOW, F.gap * 2) : SPACING;
+  F.view = same ? was : view;
   F.anchored = new Map();
   sendView("facts", F.view);
   if (F.marks) kick(); // (the marks are where the elements are now)
@@ -196,14 +222,33 @@ function watchScripted() {
   }
 }
 
-/** Look again soon: SPACING after the last look at the earliest, when the page is idle. */
-function later() {
-  if (!F.want || F.timer || F.idle) return;
+/** Look again: the spacing after the last look at the earliest (SLOW after it when `lazy`),
+ *  when the page is idle. A look already waited for is brought forward, never put off. */
+function later(lazy = false) {
+  if (!F.want || F.idle) return;
+  const due = F.last + (lazy ? SLOW : F.gap);
+  if (F.timer) {
+    if (due >= F.due) return;
+    clearTimeout(F.timer);
+  }
+  F.due = due;
   F.timer = setTimeout(() => {
     F.timer = 0;
     F.idle = window.requestIdleCallback ? requestIdleCallback(scan, { timeout: 1000 }) : setTimeout(scan, 0);
-  }, Math.max(50, F.last + SPACING - performance.now()));
+  }, Math.max(50, due - performance.now()));
 }
+const soon = () => later();
+
+/** The reviewer did something: asked the pane for something, or pressed, typed or turned the
+ *  wheel on the page. What changes next is likely its outcome, so the looks are close again, and
+ *  one that is waited for comes as soon as a close one would. */
+function acted() {
+  if (!F.want) return;
+  F.acted = performance.now();
+  F.gap = SPACING;
+  if (F.timer) later();
+}
+const INPUTS = ["pointerdown", "keydown", "wheel"];
 
 function stopLooking() {
   clearTimeout(F.timer);
@@ -214,10 +259,43 @@ function stopLooking() {
 // A change of the layer's own (its element, the attributes it sets on the page's root) is no
 // change of the page's.
 const ours = (r) => r.target === hostEl || (r.type === "childList" && [...r.addedNodes, ...r.removedNodes].every((n) => n === hostEl || n === docHost)) || (r.type === "attributes" && /^data-b42/.test(r.attributeName || ""));
-const onMutations = (records) => records.some((r) => !ours(r)) && later();
+// Which changes can wait. None can be left out: a fact is where an element is and how large, and
+// any change can move one (a counter that goes from 9 to 10 is a character wider, and the button
+// beside it a character narrower). But a change of words alone, a text node written to or text
+// nodes put in and taken out (what `el.textContent = …` does), changes no fact except by that:
+// no element comes or goes, no style, no attribute. It is the change a page makes all day without
+// its layout moving (a clock, a counter, a price), so it waits the long spacing: the facts are at
+// most SLOW behind such words, and a ticking page is looked at once in SLOW, not 2.5 times a
+// second. Not so the words of a tap target or a field (they are its name in the list), of a style
+// sheet (they are the page's styles: a dev server swaps a sheet's text), or any just after the
+// reviewer did something (ACTED_MS: the outcome of a click is wanted now).
+const NAMED = `${TAPPABLE},style`;
+const words = (r) => {
+  if (r.type === "characterData") return !r.target.parentElement?.closest(NAMED);
+  if (r.type !== "childList") return false;
+  for (const n of r.addedNodes) if (n.nodeType === 1) return false;
+  for (const n of r.removedNodes) if (n.nodeType === 1) return false;
+  return !(r.target.nodeType === 1 && /** @type {Element} */ (r.target).closest(NAMED));
+};
+const showing = () => !!(F.hover || F.flash || F.marks || F.kind);
+function onMutations(records) {
+  let page = false, lazy = true;
+  for (const r of records) {
+    if (ours(r)) continue;
+    page = true;
+    if (!words(r)) {
+      lazy = false;
+      break;
+    }
+  }
+  if (!page) return;
+  // The outlines are where the elements are in the next frame, whenever the next look is.
+  if (showing()) kick();
+  later(lazy && performance.now() - F.acted > ACTED_MS);
+}
 const onRestyled = () => F.want && later();
 const onScroll = (/** @type {Event} */ e) => {
-  if (F.hover || F.flash || F.marks || F.kind) kick(); // the outlines in the window follow (a scroller's too)
+  if (showing()) kick(); // the outlines in the window follow (a scroller's too)
   if (e.target !== document) return;
   if (!F.view) return;
   const y = Math.round(window.scrollY);
@@ -229,12 +307,14 @@ const onScroll = (/** @type {Event} */ e) => {
 function start() {
   if (F.want) return later();
   F.want = true;
+  F.gap = SPACING;
   F.obs = new MutationObserver(onMutations);
   F.obs.observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true });
-  window.addEventListener("resize", later, { passive: true });
+  window.addEventListener("resize", soon, { passive: true });
   window.addEventListener("scroll", onScroll, { capture: true, passive: true });
   for (const t of ENDS) window.addEventListener(t, onEnd, { capture: true, passive: true });
-  if (document.readyState !== "complete") window.addEventListener("load", later, { once: true });
+  for (const t of INPUTS) window.addEventListener(t, acted, { capture: true, passive: true });
+  if (document.readyState !== "complete") window.addEventListener("load", soon, { once: true });
   // The first look at once (the pane is waiting for it), the next ones spaced.
   F.last = -Infinity;
   stopLooking();
@@ -248,10 +328,11 @@ function stop() {
   stopLooking();
   F.obs?.disconnect();
   F.obs = null;
-  window.removeEventListener("resize", later);
+  window.removeEventListener("resize", soon);
   window.removeEventListener("scroll", onScroll, { capture: true });
   for (const t of ENDS) window.removeEventListener(t, onEnd, { capture: true });
-  window.removeEventListener("load", later);
+  for (const t of INPUTS) window.removeEventListener(t, acted, { capture: true });
+  window.removeEventListener("load", soon);
   F.kinds = new Map();
   F.anchored = new Map();
   F.kind = "";
@@ -352,6 +433,7 @@ function setMarks(on) {
 // ── what the host's pane asks ───────────────────────────────────────────────────────────────
 function act(a) {
   if (!a || typeof a !== "object") return;
+  acted();
   switch (a.type) {
     case "view":
       if (typeof a.marks === "boolean") setMarks(a.marks);

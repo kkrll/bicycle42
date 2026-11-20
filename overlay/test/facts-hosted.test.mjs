@@ -216,6 +216,113 @@ test("a block's text is read once in a look, however many links are in its sente
   await page.close();
 });
 
+/** Everything the overlay sent for the pane: views and parts. */
+const sent = (page) => page.evaluate(() => window.__harness.panel.filter((m) => m.panel === "facts" && ("view" in m || "part" in m)).length);
+
+test("a look that finds what the last one found sends nothing, and the looks come further apart while they do; the reviewer's act brings them close again, and a change is sent as the part that changed", async () => {
+  const { page, f, errors } = await open();
+  await act(page, { type: "view" });
+  await until(page, "(v) => v.taps.total > 0");
+  // The page changes ten times a second, and no fact with it.
+  await f.evaluate(() => {
+    let n = 0;
+    window.__tick = setInterval(() => document.getElementById("more").setAttribute("data-n", String(n++)), 100);
+  });
+  await page.waitForTimeout(600); // (the first of them looked at)
+  const n = await sent(page);
+  await counting(f);
+  await page.waitForTimeout(5000);
+  const quiet = await reads(f);
+  assert.equal(await sent(page), n); // nothing was sent
+  // 400 ms apart they would be 12; 0.8, 1.6, then 3.2 s apart they are 2 or 3.
+  assert.ok(quiet.scans >= 1 && quiet.scans <= 4, JSON.stringify(quiet));
+  // The reviewer does something on the page: the looks are 400 ms apart again (3.2 s apart, two
+  // of them take longer than this waits).
+  await page.mouse.move(600, 400);
+  await page.mouse.wheel(0, 1);
+  await f.waitForFunction(() => window.__reads.scans >= 2, null, { timeout: 3000 });
+  await page.waitForTimeout(3500); // (far apart again)
+  await reads(f);
+  // So does asking the pane for something.
+  await act(page, { type: "hover", id: null });
+  await f.waitForFunction(() => window.__reads.scans >= 2, null, { timeout: 3000 });
+  // A change of the page's: only what changed goes.
+  const m = await sent(page);
+  await f.evaluate(() => {
+    const b = document.createElement("button");
+    b.textContent = "Tiny";
+    b.style.cssText = "width:20px;height:20px;padding:0";
+    document.getElementById("more").append(b);
+  });
+  await until(page, "(v) => v.taps.items.some((i) => i.label === 'Tiny')");
+  const parts = await page.evaluate((k) => window.__harness.panel.filter((x) => x.panel === "facts" && ("view" in x || "part" in x)).slice(k).map((x) => Object.keys(x.part ?? { whole: 1 })), m);
+  assert.deepEqual(parts, [["taps"]]);
+  await f.evaluate(() => clearInterval(window.__tick));
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("a change of words alone waits the long spacing, and is not ignored: what it moves is in the facts then; words in a tap target or a style sheet do not wait", async () => {
+  const { page, f, errors } = await open();
+  await f.evaluate(() => document.getElementById("more").insertAdjacentHTML("beforeend", `<p>Seen <span id="count">0</span> times, <b id="clock">0</b> s ago.</p><p id="grow"></p><button class="close" id="named">One</button><style id="sheet"></style>`));
+  await act(page, { type: "view" });
+  await until(page, "(v) => v.taps.items.some((i) => i.label === 'One')");
+  await page.waitForTimeout(1200); // (the reviewer's asking is over: what changes now is the page's doing)
+  // Two counters, ten times a second: one given new text (its text node replaced), one whose
+  // text node is written to.
+  await f.evaluate(() => {
+    let n = 0;
+    window.__tick = setInterval(() => {
+      document.getElementById("count").textContent = String(n++ % 10);
+      document.getElementById("clock").firstChild.data = String(n % 10);
+    }, 100);
+  });
+  await counting(f);
+  await page.waitForTimeout(2500);
+  const ticking = await reads(f);
+  assert.ok(ticking.scans <= 1, JSON.stringify(ticking)); // (400 ms apart: 6)
+  // Words that make the page taller: no fact but through the layout, and the facts have it.
+  const h = (await view(page)).doc.h;
+  await f.evaluate(() => (document.getElementById("grow").textContent = "word ".repeat(400)));
+  await page.waitForFunction((was) => window.__harness.view("facts").doc.h > was + 100, h, { timeout: 8000 });
+  await f.evaluate(() => clearInterval(window.__tick));
+  // A tap target's words are its name: looked at as soon as any change (3.2 s is longer than this waits).
+  await page.waitForTimeout(3500);
+  await f.evaluate(() => (document.getElementById("named").textContent = "Two"));
+  await page.waitForFunction(() => window.__harness.view("facts").taps.items.some((i) => i.label === "Two"), null, { timeout: 2500 });
+  // A style sheet's words are the page's styles.
+  await page.waitForTimeout(3500);
+  const taps = (await view(page)).taps.total;
+  await f.evaluate(() => (document.getElementById("sheet").textContent = "#big { width: 30px; height: 30px }"));
+  await page.waitForFunction((k) => window.__harness.view("facts").taps.total === k + 1, taps, { timeout: 2500 });
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("with outlines shown and review off, they follow a change of the page in the next frame, whenever the next look is", async () => {
+  const { page, f, errors } = await open();
+  await page.evaluate(() => document.getElementById("toggle").click());
+  await page.waitForFunction(() => !window.__harness.enabled);
+  await act(page, { type: "view", marks: true });
+  await until(page, "(v) => v.small.total > 0 && v.marks");
+  await page.waitForTimeout(700); // (the frames that follow the click that turned review off are over)
+  const at = async () => [(await marks(f)).find((o) => o.cls.endsWith("k-wide"))?.y, (await rect(f, "#wide")).y];
+  const [m0, e0] = await at();
+  assert.equal(m0, e0);
+  // The page has just been looked at: the next look is 400 ms away at the least.
+  await counting(f);
+  await act(page, { type: "refresh" });
+  await f.waitForFunction(() => window.__reads.scans === 1);
+  await f.evaluate(() => (document.getElementById("wide").style.marginTop = "70px"));
+  await frames(f, 3);
+  assert.equal((await reads(f)).scans, 1);
+  const [m1, e1] = await at();
+  assert.ok(e1 > e0 + 40, `${e0} → ${e1}`);
+  assert.equal(m1, e1);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("hover outlines a row's element and takes it away, review off too; show brings it into view with a flash", async () => {
   const { page, f, errors } = await open();
   await act(page, { type: "view" });

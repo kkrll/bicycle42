@@ -7,8 +7,9 @@
 // "stop"): after the page loads, on resize, after the page changed and when something of it
 // stopped animating (debounced, in idle time, a few thousand elements at most). Scrolling only moves `scrollY`.
 //
-// As with a dock, the view is whole each time and its strings are the page's own text: the host
-// draws them as text, never as markup.
+// As with a dock, the host gets the whole view once and then the fields that changed
+// (PanelPart in protocol.ts): a look at the page that finds nothing new sends nothing. Its
+// strings are the page's own text: the host draws them as text, never as markup.
 
 /** One element a fact is about. */
 export type FactItem = {

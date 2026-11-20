@@ -98,7 +98,18 @@ src/globals.d.ts    what the type check cannot read from the .js files
   animation or a transition of the page's ended (what an entry animation still holds at opacity 0
   is not there to tap, and its end is no change to the tree: a look taken while it ran would
   stay wrong; a script's animation is waited for by its `finished`, and one that never ends asks
-  for nothing), 400 ms apart at least, in idle time, 4000 elements at most, with review on or off. Scrolling only
+  for nothing), 400 ms apart at least, in idle time, 4000 elements at most, with review on or off.
+  A look that finds what the last one found sends nothing (each field of the view is compared
+  once and the last object kept when it is the same, so `putView` has nothing to send), and the
+  next look waits twice as long, up to 3.2 s: a page that changes all day without its facts
+  changing (a carousel, a spinner a script turns) is looked at once in 3.2 s, not 2.5 times a
+  second. A look that finds something new, or the reviewer doing something (an act of the
+  pane's, a press, a key or the wheel on the page), makes it 400 ms again. No change is left
+  out, since any can move or resize an element; but a change of words alone (a text node
+  written to, or replaced: a clock, a counter) waits the 3.2 s from the start, unless the words
+  are a tap target's or a field's (its name in the list) or a style sheet's, or the reviewer has
+  just done something. The outlines do not wait for a look: shown, they are placed again in the
+  frame after a change of the page's. Scrolling only
   sends the new `scrollY`. A change canvas mode makes to the page's elements counts too: its
   edits are adopted rules no observer sees, so `applyAll` says so (`restyled`/`onRestyle` in
   `src/page.js`). "marks" (or `marks` with "view"; off until asked, and the view says which):
