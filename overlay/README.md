@@ -60,8 +60,13 @@ src/globals.d.ts    what the type check cannot read from the .js files
   has none (no views are sent; the mode still works on the page).
   For a hosted dock
   a mode asks `hosted(name)` (`src/panel.js`) wherever it would show its dock or measure it,
-  sends the whole of what the dock shows with `sendView` (once a frame at most) and takes what
-  the host's dock asks with `onAct`. Everything that is the page's stays here: the selection,
+  says the whole of what the dock shows with `sendView` (once a frame at most) and takes what
+  the host's dock asks with `onAct`. What goes to the host is the whole view the first time, and
+  after that only the view's fields that are not the objects that went last (a "part": a
+  playhead's clock without the list, sixty times a second). Fields are compared by identity, so
+  a mode keeps the object it sent for what did not change, and never changes one in place. A
+  host with nothing to put a part into asks for the whole view (`whole`, answered in
+  `src/panel.js` for every pane). Everything that is the page's stays here: the selection,
   the edits and their undo, playing, sending. Motion's side of it is `src/motion/host.js`:
   wherever what the dock shows changed a view is built, and each act calls `open.js`, `edit.js`
   or `send.js`; the note's words are the overlay's too (`M.note`). On the page itself motion

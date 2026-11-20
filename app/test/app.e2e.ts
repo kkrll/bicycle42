@@ -1194,7 +1194,7 @@ async function main() {
     for (let i = 1; i <= 5; i++) {
       const t0 = performance.now()
       await new Promise((done) => {
-        const off = window.b42.onPanel((m) => m.view && (off(), done()))
+        const off = window.b42.onPanel((m) => (m.view || m.part) && (off(), done()))
         window.b42.invoke("panel", { panel: "motion", act: { type: "seek", p: i / 10 } })
       })
       out.push(Math.round((performance.now() - t0) * 10) / 10)

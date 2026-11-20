@@ -311,8 +311,9 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
 - **A dock the window draws.** Edit mode's inspector and motion mode's dock are the window's
   only: the overlay draws neither and the page has none of its own. A dock named in
   `HOSTED_PANES` (`shared/types.ts`) is drawn by the window: the overlay is told after every
-  "state" ("docks"), sends what the dock shows (`PanelMessage`, the "panel" stream, kept
-  in `dockViews` in `renderer/store.ts`) and does what the window's dock asks (the `panel`
+  "state" ("docks"), sends what the dock shows (`PanelMessage`, the "panel" stream: a whole
+  view, or the fields of it that changed, which `renderer/store.ts` puts into the view it keeps
+  in `dockViews`) and does what the window's dock asks (the `panel`
   command, `dockAct`). Main carries both and reads neither. The dock's component goes into
   `DOCKS` in `renderer/dock.tsx`; the window puts it under the page (its top edge drags, as the
   panel's side does) or, beside a phone's page, in the column at the page's right.

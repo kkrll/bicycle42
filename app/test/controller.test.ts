@@ -2167,9 +2167,10 @@ test("a dock the window draws: the overlay is told after every state, its views 
     // overlay → window: as it came, and only for the hosted dock.
     h.page.message({ type: "panel", panel: "motion", view: { open: "spin" } })
     h.page.message({ type: "panel", panel: "motion", pong: 5 })
+    h.page.message({ type: "panel", panel: "motion", part: { clock: { pos: 0.5 } } })
     h.page.message({ type: "panel", panel: "canvas", view: { tree: [] } })
     h.page.message({ type: "panel", panel: "nope", view: {} })
-    assert.deepEqual(toWindow(), [{ type: "panel", panel: "motion", view: { open: "spin" } }, { type: "panel", panel: "motion", pong: 5 }])
+    assert.deepEqual(toWindow(), [{ type: "panel", panel: "motion", view: { open: "spin" } }, { type: "panel", panel: "motion", pong: 5 }, { type: "panel", panel: "motion", part: { clock: { pos: 0.5 } } }])
     // window → overlay: the same.
     await h.cmd("panel", { panel: "motion", act: { type: "ping", id: 1 } })
     await h.cmd("panel", { panel: "canvas", act: { type: "ping", id: 2 } })

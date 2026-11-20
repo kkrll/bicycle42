@@ -5,7 +5,7 @@
 //
 // The UI speaks of sites, notes and changes. Backend words (session, inbox, provider) stop at
 // main: the renderer never sees a raw server payload.
-import type { Dock, PanelAct, PanelView, Pane } from "../../../overlay/protocol"
+import type { Dock, PanelAct, PanelPart, PanelView, Pane } from "../../../overlay/protocol"
 
 // ── the page's docks, drawn by the window ───────────────────────────────────────────────────────
 // Edit mode's inspector and motion mode's dock belong to the overlay, which draws them at the
@@ -15,8 +15,8 @@ import type { Dock, PanelAct, PanelView, Pane } from "../../../overlay/protocol"
 // "facts" (This page on this phone, beside a phone's page in Preview and Annotate) is a pane of
 // the window's that is no mode's dock, and rides the same way (Pane in overlay/protocol.ts).
 export type { Dock, PanelAct, Pane }
-/** overlay → window: a hosted pane's view, or the answer to its "ping". */
-export type PanelMessage = PanelView | { panel: Pane; pong: number }
+/** overlay → window: a hosted pane's view, the fields of it that changed, or the answer to its "ping". */
+export type PanelMessage = PanelView | PanelPart | { panel: Pane; pong: number }
 
 /** The panes the window draws. A dock the overlay still draws itself is not in the list. */
 export const HOSTED_PANES: readonly Pane[] = ["canvas", "motion", "facts"]

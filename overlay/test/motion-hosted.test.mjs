@@ -210,6 +210,41 @@ test("hosted: play moves the playhead in the views; seek and step stop it at a f
   await page.close();
 });
 
+test("hosted: a frame that only moved the playhead sends the clock and nothing else; a host that asks gets the whole view again", async () => {
+  const { page, f, errors, v } = await open();
+  await act(page, { type: "row", id: rowId(v, "card-in") });
+  await view(page, "v.open && v.open.name === 'card-in'");
+  await act(page, { type: "rate", rate: 0.25 });
+  await view(page, "v.rate === 0.25");
+  await act(page, { type: "seek", p: 0 });
+  await view(page, "v.clock.pos !== null && v.clock.pos < 0.01");
+  const raw = () => page.evaluate(() => window.__harness.panel.filter((m) => m.panel === "motion" && m.view).map((m) => ({ part: m.part ? Object.keys(m.part) : null, pos: m.view.clock.pos, bytes: JSON.stringify(m.part ?? m.view).length })));
+  const n = (await raw()).length;
+  await act(page, { type: "play" });
+  await view(page, "!v.clock.playing && v.clock.pos > 0.99", 4000);
+  const played = (await raw()).slice(n);
+  // (The list may have something new once, as in the test above: every other message is the clock's.)
+  const clocks = played.filter((m) => m.part && m.part.join() === "clock");
+  assert.ok(clocks.length > 3 && clocks.length >= played.length - 2, `${clocks.length} of ${played.length} messages were the clock alone: ${JSON.stringify(played.map((m) => m.part))}`);
+  assert.ok(clocks.every((m) => m.bytes < 100), `a clock is small: ${clocks.map((m) => m.bytes)}`);
+  // The view the host has put together from them is the one the overlay has.
+  const whole = await view(page);
+  // A host that lost its view asks: the whole one comes, the same.
+  const before = (await raw()).length;
+  await act(page, { type: "whole" });
+  await page.waitForFunction((k) => window.__harness.panel.filter((m) => m.panel === "motion" && m.view).length > k, before);
+  const again = await page.evaluate(() => window.__harness.panel.filter((m) => m.panel === "motion" && m.view).at(-1));
+  assert.equal(again.part, undefined, "the whole view, not a part of it");
+  assert.deepEqual(again.view, whole);
+  // And a host that has none (as one that just started) asks by itself on the first part.
+  await page.evaluate(() => (window.__harness.panel.length = 0));
+  await act(page, { type: "seek", p: 0.3 });
+  const got = await view(page, "Math.abs(v.clock.pos - 0.3) < 0.01");
+  assert.deepEqual({ ...got, clock: null }, { ...whole, clock: null });
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("hosted: a new animation, named in the dock; Esc steps back to notes mode", async () => {
   const { page, f, errors } = await open();
   const b = await f.locator(".card h3").first().boundingBox();

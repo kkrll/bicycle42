@@ -83,7 +83,14 @@ function onMessage(msg) {
       H.unplaced = msg.unplaced;
       break;
     case "panel":
-      H.panel.push(msg);
+      // As a host does: the fields of a part go into the view it has (the message kept here says
+      // both, the part that came and the view it made). With no view to put a part in, a host
+      // asks for the whole one.
+      if ("part" in msg) {
+        const had = H.view(msg.panel);
+        if (!had) H.act(msg.panel, { type: "whole" });
+        else H.panel.push({ ...msg, view: { ...had, ...msg.part } });
+      } else H.panel.push(msg);
       break;
   }
   render();

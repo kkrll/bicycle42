@@ -32,15 +32,25 @@ export type Dock = Exclude<Mode, "notes">
  *  "stop", sends the view null: nothing is being worked out. */
 export type Pane = Dock | "facts"
 
-/** What a hosted pane shows, as the overlay last knew it: the whole of it each time, never a
- *  change to the one before, so a host that missed one is right again with the next. Its strings
- *  are the page's (a class, a text, a keyframe's name): a host draws them as text, never as markup. */
+/** What a hosted pane shows, as the overlay last knew it: the whole of it. Its strings are the
+ *  page's (a class, a text, a keyframe's name): a host draws them as text, never as markup. */
 export type PanelView = { panel: "motion"; view: MotionView } | { panel: "canvas"; view: CanvasView } | { panel: "facts"; view: FactsView | null }
 
-/** What the reviewer did in a hosted pane. "ping" is every pane's: the overlay answers it at once
- *  with a "panel" message carrying `pong: id` and no view (how long the way there and back takes). */
+/** The fields of a pane's view that are not what they were in the one before (a playhead's clock,
+ *  sixty times a second, without the rest of the dock): each field whole, to put in place of the
+ *  host's own; the fields not named stay. Only the view's own fields, one level: a change inside
+ *  a field sends that field. The first view of a pane, a view with other fields than the last,
+ *  and null always come whole (PanelView). A host that gets a part and has no view to put it in
+ *  asks for the whole one (the "whole" act). */
+export type PanelPart = { panel: Pane; part: Record<string, unknown> }
+
+/** What the reviewer did in a hosted pane. Two are every pane's, and the overlay answers them
+ *  itself: "ping", at once with a "panel" message carrying `pong: id` and no view (how long the
+ *  way there and back takes); and "whole", with the pane's view as it last went, whole (nothing
+ *  when none has gone). */
 export type PanelAct =
   | { panel: Pane; act: { type: "ping"; id: number } }
+  | { panel: Pane; act: { type: "whole" } }
   | { panel: "motion"; act: MotionAct }
   | { panel: "canvas"; act: CanvasAct }
   | { panel: "facts"; act: FactsAct }
@@ -228,6 +238,7 @@ export type PageMessage =
   | { type: "frame-shown"; id: string; viewport: Viewport }
   /** A hosted dock's view (see Dock), whenever what it shows changed, at most once a frame. */
   | ({ type: "panel" } & PanelView)
+  | ({ type: "panel" } & PanelPart)
   /** The answer to a hosted dock's "ping". */
   | { type: "panel"; panel: Pane; pong: number }
 

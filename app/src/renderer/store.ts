@@ -81,6 +81,14 @@ function onPanel(msg: PanelMessage): void {
   if ("pong" in msg) {
     pings.get(msg.pong)?.(0)
     pings.delete(msg.pong)
+  } else if ("part" in msg) {
+    // The fields that changed, each in place of the one here. With no view to put them in (this
+    // window missed it), the whole one is asked for, and this part is in it.
+    if (!dockViews[msg.panel]) return dockAct({ panel: msg.panel, act: { type: "whole" } })
+    const put = setDockViews as unknown as (panel: Pane, key: string, to: unknown) => void
+    batch(() => {
+      for (const [key, to] of Object.entries(msg.part)) put(msg.panel, key, reconcile(to as object))
+    })
   } else if (msg.view === null) setDockViews(msg.panel, null)
   else setDockViews(msg.panel, reconcile(msg.view as object))
 }
