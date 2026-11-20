@@ -11,7 +11,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { test } from "node:test"
-import { HOSTED_PANES, PHONE, type ChatEvent, type Pane } from "../src/shared/types"
+import { HOSTED_PANES, PHONE, type AppState, type ChatEvent, type Pane } from "../src/shared/types"
 import { start, until, type FakeReply, type FakeServer } from "./fake-server"
 import { testShell } from "./stubs/host"
 
@@ -532,21 +532,98 @@ test("the next launch: the address is opened in the project that was open, thoug
   }
 })
 
-test("a project whose folder is gone, at an address another project had first: the folder is asked for, the other project is not opened in its place", async () => {
-  const sites = { [SITE]: { directory: "/repo" }, [`${SITE}#2`]: { directory: "/gone" } }
+test("a project whose folder is gone, at an address another project had first: the folder is asked for, now and at the next launch, and nothing of the project is lost", async () => {
+  const sites = { [SITE]: { directory: "/repo" }, [`${SITE}#2`]: { directory: "/gone", session: "ses_x", pinned: ["ses_x"] } }
   const note = (id: string) => ({ version: 1, enabled: true, draft: null, notes: [savedNote(id, 1, "done", `msg_${id}`, "ses_gone")] })
-  const h = await boot({ settings: { version: 1, folder: "/gone", lastUrl: `${SITE}/about`, sites }, reviews: { [SITE]: note("firsts"), [`${SITE}#2`]: note("seconds") } })
-  try {
+  const reviews = { [SITE]: note("firsts"), [`${SITE}#2`]: note("seconds") }
+  const gone = (h: { server: FakeServer }) =>
     h.server.route("GET", "/api/fs/list", (req) => (req.query.get("path") === "/gone" ? { status: 404, json: { _tag: "FileNotFoundError", message: "Directory not found: /gone" } } : { json: { location: { directory: "/" }, data: [] } }))
+  const shown = (h: { snap(): AppState }) => [h.snap().site, h.snap().missingFolder, h.snap().session, h.snap().review.notes.map((n) => n.text)]
+  let h = await boot({ settings: { version: 1, folder: "/gone", lastUrl: `${SITE}/about`, sites }, reviews })
+  let saved: { folder?: string; lastUrl?: string; sites: Record<string, { directory: string; pinned?: string[] }> }
+  try {
+    gone(h)
     await h.cmd("connect", { url: h.server.url, password: h.server.password })
     await until(() => h.snap().missingFolder === "/gone")
     // The page goes on meanwhile (it finishes loading, a link is followed).
     h.page.load(`${SITE}/pricing`)
     await sleep(30)
-    assert.deepEqual([h.snap().site, h.snap().missingFolder, h.snap().session, h.snap().review.notes.map((n) => n.text)], [{ origin: SITE }, "/gone", null, ["seconds"]])
+    assert.deepEqual(shown(h), [{ origin: SITE }, "/gone", null, ["seconds"]])
+    // Quit before a folder was chosen: what the project had is still on disk.
+    await sleep(400)
+    saved = JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8"))
+    const kept = saved.sites[`${SITE}#2`] as { directory: string; session?: string; pinned?: string[] }
+    assert.deepEqual([saved.folder, kept.directory, kept.session, kept.pinned], ["/gone", "/gone", "ses_x", ["ses_x"]])
+  } finally {
+    await h.close()
+  }
+  // The next launch, with what was saved (the server is another fake: only what the first one's space held is given).
+  h = await boot({ settings: { version: 1, folder: saved.folder, lastUrl: saved.lastUrl, sites: saved.sites }, reviews })
+  try {
+    gone(h)
+    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await until(() => h.snap().missingFolder === "/gone")
+    assert.deepEqual(shown(h), [{ origin: SITE }, "/gone", null, ["seconds"]])
     await h.cmd("setDirectory", "/found")
     await until(() => !!h.snap().session)
     assert.deepEqual([h.snap().site, h.snap().review.notes.map((n) => n.text)], [{ origin: SITE, directory: "/found" }, ["seconds"]])
+  } finally {
+    await h.close()
+  }
+})
+
+test("a project whose folder is gone leaves its notes to no one: another project at its address starts with none", async () => {
+  const note = { version: 1, enabled: true, draft: null, notes: [savedNote("the gone project's", 1, "done", "msg_1", "ses_gone")] }
+  const h = await boot({ settings: { version: 1, folder: "/gone", lastUrl: `${SITE}/`, sites: { [SITE]: { directory: "/gone" } } }, reviews: { [SITE]: note } })
+  try {
+    h.server.route("GET", "/api/fs/list", (req) => (req.query.get("path") === "/gone" ? { status: 404, json: { _tag: "FileNotFoundError", message: "Directory not found: /gone" } } : { json: { location: { directory: "/" }, data: [] } }))
+    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await until(() => h.snap().missingFolder === "/gone")
+    await h.cmd("openProject", "/new")
+    h.page.load(`${SITE}/`)
+    await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
+    assert.deepEqual([h.snap().site, h.snap().review.notes.length], [{ origin: SITE, directory: "/new" }, 0])
+  } finally {
+    await h.close()
+  }
+})
+
+test("a project with no page keeps its conversation while another project is open", async () => {
+  const h = await boot()
+  try {
+    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await h.cmd("setDirectory", "/a")
+    await until(() => !!h.snap().session)
+    const a = h.snap().session!.id
+    await h.cmd("openProject", "/b")
+    await until(() => !!h.snap().session && h.snap().session!.id !== a)
+    const b = h.snap().session!.id
+    await h.cmd("openProject", "/a")
+    await until(() => !!h.snap().session && h.snap().session!.id !== b)
+    assert.deepEqual([h.snap().site, h.snap().session!.id, h.w.creates], [{ origin: "", directory: "/a" }, a, 2])
+    await h.cmd("openProject", "/b")
+    await until(() => h.snap().session?.id === b)
+    assert.equal(h.w.creates, 2)
+  } finally {
+    await h.close()
+  }
+})
+
+test("openProject goes back to the site that was open last, though another one's address changed last", async () => {
+  const h = await boot()
+  try {
+    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await h.cmd("setDirectory", "/repo")
+    for (const url of [`${SITE}/a`, "http://other.test/b", `${SITE}/a`]) {
+      h.page.load(url)
+      await until(() => h.snap().page.url === url && !!h.snap().session)
+      await sleep(5) // the clock moves between visits
+    }
+    await h.cmd("openProject", "/elsewhere")
+    await until(() => h.snap().site?.directory === "/elsewhere")
+    await h.cmd("openProject", "/repo")
+    await until(() => h.snap().site?.directory === "/repo")
+    assert.equal(h.snap().page.url, `${SITE}/a`)
   } finally {
     await h.close()
   }
