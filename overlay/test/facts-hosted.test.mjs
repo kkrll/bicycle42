@@ -55,6 +55,8 @@ const view = (page) => page.evaluate(() => window.__harness.view("facts"));
 /** Wait until the last view passes `fn` (a function of the view, as source). */
 const until = (page, fn) => page.waitForFunction(`(() => { const v = window.__harness.view("facts"); return !!v && (${fn})(v); })()`);
 const views = (page) => page.evaluate(() => window.__harness.panel.filter((m) => m.panel === "facts" && "view" in m).length);
+/** Everything the overlay sent for the pane: views and parts. */
+const sent = (page) => page.evaluate(() => window.__harness.panel.filter((m) => m.panel === "facts" && ("view" in m || "part" in m)).length);
 /** The pane's outlines on the page, in the window's layer and in the one that scrolls with the
  *  document: where each is and what it is. */
 const LAYERS = ["b42-review", "b42-marks"];
@@ -102,7 +104,7 @@ test("nothing is worked out before the pane asks; the view says what sticks out,
   await page.close();
 });
 
-test("the view follows the page: a change, a scroll; after stop nothing is worked out, and the pane's view is null", async () => {
+test("the view follows the page: a change (a scroll is none); after stop nothing is worked out, and the pane's view is null", async () => {
   const { page, f, errors } = await open();
   await act(page, { type: "view" });
   await until(page, "(v) => v.taps.total > 0");
@@ -114,11 +116,18 @@ test("the view follows the page: a change, a scroll; after stop nothing is worke
     document.getElementById("more").append(b);
   });
   await until(page, `(v) => v.taps.total === ${before + 1}`);
-  // Scrolling sends where the page is.
+  // Scrolling changes no fact: nothing is sent, and the view does not say where the page is.
   await f.evaluate(() => (document.getElementById("more").style.height = "2000px"));
   await until(page, "(v) => v.doc.h > 2000");
-  await f.evaluate(() => window.scrollTo(0, 120));
-  await until(page, "(v) => v.scrollY > 0");
+  assert.ok(!("scrollY" in (await view(page))));
+  await page.waitForTimeout(600);
+  const quiet = await sent(page);
+  for (const y of [120, 480, 900, 40]) {
+    await f.evaluate((to) => window.scrollTo(0, to), y);
+    await frames(f);
+  }
+  await page.waitForTimeout(600);
+  assert.equal(await sent(page), quiet);
 
   await act(page, { type: "stop" });
   await page.waitForFunction(() => window.__harness.view("facts") === null);
@@ -215,9 +224,6 @@ test("a block's text is read once in a look, however many links are in its sente
   assert.deepEqual(errors, []);
   await page.close();
 });
-
-/** Everything the overlay sent for the pane: views and parts. */
-const sent = (page) => page.evaluate(() => window.__harness.panel.filter((m) => m.panel === "facts" && ("view" in m || "part" in m)).length);
 
 test("a look that finds what the last one found sends nothing, and the looks come further apart while they do; the reviewer's act brings them close again, and a change is sent as the part that changed", async () => {
   const { page, f, errors } = await open();
@@ -479,6 +485,46 @@ test("marks never trail a scroll: those that scroll with the document are in its
   await act(page, { type: "stop" });
   await page.waitForFunction(() => window.__harness.view("facts") === null);
   assert.equal(await f.evaluate(() => !!document.querySelector("b42-marks")), false);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("a scroll asks for no frame while every outline shown is in the document's layer; with one that is not, it does", async () => {
+  const { page, f, errors } = await open();
+  // Preview: review off, so the layer draws for the pane's outlines alone.
+  await page.evaluate(() => document.getElementById("toggle").click());
+  await page.waitForFunction(() => !window.__harness.enabled);
+  await f.evaluate(() => (document.getElementById("more").style.height = "2000px"));
+  await act(page, { type: "view", marks: true });
+  await until(page, "(v) => v.small.total > 0 && v.marks");
+  await page.waitForTimeout(700); // (the frames after the click, and the look after the view went)
+  const all = (await marks(f)).length;
+  assert.ok(all >= 5);
+  assert.equal(await f.evaluate(() => document.querySelector("b42-marks").shadowRoot.querySelectorAll(".box.fx.mk").length), all);
+  // The document scrolls, ten times, a frame apart: its marks go with it and nothing is read.
+  await counting(f);
+  await f.evaluate(async () => {
+    for (let i = 1; i <= 10; i++) {
+      window.scrollTo(0, i * 37);
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+  });
+  await frames(f);
+  assert.deepEqual(await reads(f), { scans: 0, rects: 0, styles: 0 });
+  const banner = await rect(f, "#wide");
+  assert.ok((await marks(f)).some((o) => o.cls.endsWith("k-wide") && o.y === banner.y), JSON.stringify(banner));
+  // A tap target in a box that scrolls on its own: its mark is placed in the window, and has to
+  // be placed again when anything scrolls.
+  await f.evaluate(() => {
+    window.scrollTo(0, 0);
+    document.getElementById("more").insertAdjacentHTML("beforebegin", `<div id="scroller" style="height:60px;overflow:auto"><div style="height:200px;padding-top:80px"><button id="inner" style="width:24px;height:24px">i</button></div></div>`);
+  });
+  await f.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelectorAll(".box.fx.mk").length === 1);
+  await page.waitForTimeout(700);
+  await f.evaluate(() => (document.getElementById("scroller").scrollTop = 50));
+  await frames(f, 3);
+  const inner = await rect(f, "#inner");
+  assert.ok((await marks(f)).some((o) => o.x === inner.x && o.y === inner.y && o.w === inner.w), JSON.stringify(inner));
   assert.deepEqual(errors, []);
   await page.close();
 });

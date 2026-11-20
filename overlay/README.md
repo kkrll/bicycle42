@@ -109,8 +109,9 @@ src/globals.d.ts    what the type check cannot read from the .js files
   written to, or replaced: a clock, a counter) waits the 3.2 s from the start, unless the words
   are a tap target's or a field's (its name in the list) or a style sheet's, or the reviewer has
   just done something. The outlines do not wait for a look: shown, they are placed again in the
-  frame after a change of the page's. Scrolling only
-  sends the new `scrollY`. A change canvas mode makes to the page's elements counts too: its
+  frame after a change of the page's. A scroll changes no fact:
+  nothing is sent (the view does not say where the page is scrolled to), and no frame of the
+  layer's is asked for while every outline shown is in the document's layer. A change canvas mode makes to the page's elements counts too: its
   edits are adopted rules no observer sees, so `applyAll` says so (`restyled`/`onRestyle` in
   `src/page.js`). "marks" (or `marks` with "view"; off until asked, and the view says which):
   a quiet 1.5 px outline on every listed element, in its kind's tone (`.box.fx.mk.k-wide`,
@@ -124,8 +125,8 @@ src/globals.d.ts    what the type check cannot read from the .js files
   same frame. Being in the document, what it holds counts towards the page's scrollable size: an
   outline's far edges at the page's end go to the device pixel inside the element, never the
   nearest one out (`placeBox` in `src/render.js`), so the layer adds nothing to it. One in a scroller of its own, or fixed or sticky (`anchored` in
-  `src/facts/host.js`), is placed in the window every frame, as the other outlines are (a
-  scroller's scroll asks for a frame). Like the hover outline they take no pointer, are in no
+  `src/facts/host.js`), is placed in the window, as the other outlines are, in the frame after
+  anything scrolls (only then does a scroll ask for a frame). Like the hover outline they take no pointer, are in no
   note's screenshot, go with the peek and go with "stop". A new document sends the view null, so a host whose
   pane is up asks again. `?page=facts` is its harness page (`test/facts-hosted.test.mjs`).
 

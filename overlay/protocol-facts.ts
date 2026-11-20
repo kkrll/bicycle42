@@ -5,7 +5,8 @@
 // sticks out past the screen's right edge, tap targets smaller than a finger, inputs a phone
 // zooms into. The overlay works it out only while the host's pane asks for it ("view" until
 // "stop"): after the page loads, on resize, after the page changed and when something of it
-// stopped animating (debounced, in idle time, a few thousand elements at most). Scrolling only moves `scrollY`.
+// stopped animating (debounced, in idle time, a few thousand elements at most). A scroll changes
+// none of it and sends nothing: the view does not say where the page is scrolled to.
 //
 // As with a dock, the host gets the whole view once and then the fields that changed
 // (PanelPart in protocol.ts): a look at the page that finds nothing new sends nothing. Its
@@ -32,7 +33,6 @@ export type FactsView = {
   viewport: { w: number; h: number }
   /** The document: scrollWidth, scrollHeight. Wider than the viewport: the page scrolls sideways. */
   doc: { w: number; h: number }
-  scrollY: number
   /** The page has a `<meta name=viewport>`. Without one a phone lays it out about 980 wide and
    *  shows it zoomed out. */
   meta: boolean

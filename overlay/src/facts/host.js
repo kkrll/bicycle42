@@ -13,11 +13,13 @@
 // the animation's end is no change to the tree), at least SPACING ms apart and in idle time,
 // MAX_ELS elements at most. A look that finds what the last one found sends nothing, and the
 // next one waits twice as long, up to SLOW, until a look finds something new or the reviewer does
-// something; a change of words alone waits SLOW from the start (onMutations says why). Scrolling only sends the new `scrollY`, at most once a frame (sendView). Review on or
-// off: the outlines are the layer's (render.js asks `boxes`), the rest is reading the page.
+// something; a change of words alone waits SLOW from the start (onMutations says why). A scroll
+// changes no fact: nothing is looked at and nothing sent. Review on or off: the outlines are the
+// layer's (render.js asks `boxes`), the rest is reading the page.
 // An outline of an element that scrolls with the document is drawn in the layer that does too
-// (b42-marks): the compositor moves it with the page, in the same frame. One in a scroller of its
-// own, or fixed or sticky, is placed in the window every frame, as the other outlines are.
+// (b42-marks): the compositor moves it with the page, in the same frame, and a scroll asks for no
+// frame of the layer's. One in a scroller of its own, or fixed or sticky, is placed in the window
+// in the frame after anything scrolls, as the other outlines are.
 // A change the layer makes itself counts too when it is to the page's elements (canvas mode's
 // edits: adopted rules no observer sees, so they say so, onRestyle).
 
@@ -62,6 +64,7 @@ const F = {
   hover: null, hoverKind: "", // the element outlined for the pane's row under the pointer
   kind: "", // the kind whose elements are marked while the pointer is on its count ("kind")
   anchored: new Map(), // a listed element → it scrolls with the document (looked at once a look)
+  loose: false, // an outline drawn last was placed in the window, not in the document's layer
   flash: null, flashKind: "", flashUntil: 0, flashTimer: 0, // the element shown ("show"), and until when
   ids: new WeakMap(), els: new Map(), n: 0, // element ↔ the number the host names it by
   ending: new WeakSet(), // the ends of scripts' animations already waited for (watchScripted)
@@ -175,7 +178,6 @@ function scan() {
   const view = {
     viewport: { w: vw, h: window.innerHeight },
     doc: { w: Math.max(de.scrollWidth, document.body.scrollWidth), h: Math.max(de.scrollHeight, document.body.scrollHeight) },
-    scrollY: Math.round(window.scrollY),
     meta: !!document.querySelector('meta[name="viewport" i]'),
     partial,
     marks: F.marks,
@@ -294,15 +296,10 @@ function onMutations(records) {
   later(lazy && performance.now() - F.acted > ACTED_MS);
 }
 const onRestyled = () => F.want && later();
-const onScroll = (/** @type {Event} */ e) => {
-  if (showing()) kick(); // the outlines in the window follow (a scroller's too)
-  if (e.target !== document) return;
-  if (!F.view) return;
-  const y = Math.round(window.scrollY);
-  if (y === F.view.scrollY) return;
-  F.view = { ...F.view, scrollY: y };
-  sendView("facts", F.view);
-};
+// A scroll changes no fact and sends nothing. An outline in the document's layer goes with the
+// page on the compositor and needs no frame; one placed in the window (its element in a scroller
+// of its own, or fixed or sticky) has to be placed again, whatever scrolled.
+const onScroll = () => F.loose && kick();
 
 function start() {
   if (F.want) return later();
@@ -377,6 +374,7 @@ function outline(el, kind = "") {
  *  window, class, whether it scrolls with the document (`anchored`)]. */
 export function boxes(capturing) {
   const marking = F.marks && F.want && F.view;
+  F.loose = false;
   if (capturing || (!F.hover && !F.flash && !marking && !F.kind)) return null;
   const out = [];
   const flashing = F.flash && F.flash.isConnected && performance.now() < F.flashUntil ? F.flash : null;
@@ -384,7 +382,10 @@ export function boxes(capturing) {
   const put = (el, cls) => {
     if (!el || !el.isConnected) return;
     const r = el.getBoundingClientRect();
-    if (r.width || r.height) out.push([{ x: r.left, y: r.top, w: r.width, h: r.height }, cls, anchored(el)]);
+    if (!r.width && !r.height) return;
+    const a = anchored(el);
+    if (!a) F.loose = true;
+    out.push([{ x: r.left, y: r.top, w: r.width, h: r.height }, cls, a]);
   };
   if (marking || F.kind)
     for (const [id, k] of F.kinds) {
