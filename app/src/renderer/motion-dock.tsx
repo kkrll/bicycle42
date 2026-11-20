@@ -369,10 +369,13 @@ export function MotionDock() {
   const [focusWant, setFocusWant] = createSignal<{ sel: string; until: number } | null>(null)
   const [rtt, setRtt] = createSignal<number[]>([])
 
-  // A window that was reloaded has no view: the overlay is asked for one. And the way there and
-  // back is measured, a few times (what a drag of a keyframe would wait for without `drag`).
+  // A window that was reloaded has no view: the overlay is asked for one, whole (what it would
+  // send by itself is only what changed since the last, and that went to the window before).
+  // And the way there and back is measured, a few times (what a drag of a keyframe would wait
+  // for without `drag`).
   onMount(async () => {
     send({ type: "resend" })
+    if (!view()) dockAct({ panel: "motion", act: { type: "whole" } })
     const times: number[] = []
     for (let i = 0; i < 5; i++) {
       const t = await dockPing("motion")

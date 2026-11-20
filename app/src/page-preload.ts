@@ -34,7 +34,12 @@ if (window === window.top && !/^(data|about):$/.test(location.protocol)) {
   try {
     if (ipcRenderer.sendSync(IS_PHONE) === true) {
       const rule = webFrame.insertCSS("html::-webkit-scrollbar { width: 0; height: 0 }")
-      window.addEventListener("load", () => setTimeout(() => webFrame.removeInsertedCSS(rule), 200), { once: true })
+      // (A page whose load never ends, one request that never answers, is not left without its
+      // scrollbar's rules: by then it has long been a phone's.)
+      let there = true
+      const back = () => there && ((there = false), webFrame.removeInsertedCSS(rule))
+      window.addEventListener("load", () => setTimeout(back, 200), { once: true })
+      setTimeout(back, 4000)
     }
   } catch (err) {
     console.warn("[b42] the phone's scrollbar was not set", err)

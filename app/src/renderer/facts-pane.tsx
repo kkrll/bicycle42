@@ -39,7 +39,12 @@ function sync(): void {
     const all = wants()
     const want = all.length > 0
     const marks = want && all.some((m) => m())
-    if (want && !told.want) send({ type: "view", marks })
+    if (want && !told.want) {
+      send({ type: "view", marks })
+      // A window that has no view (it is new, and what the overlay sent went to the one before
+      // it) asks for it: a page that is as it was is not said again by itself.
+      if (dockViews.facts === undefined) dockAct({ panel: "facts", act: { type: "whole" } })
+    }
     else if (!want && told.want) {
       send({ type: "hover", id: null })
       send({ type: "kind", kind: null })

@@ -53,8 +53,8 @@ const openId = () => state.session?.id ?? ""
 let parked: Extract<ChatEvent, { type: "reset" }> | undefined
 
 // ── the page's docks, drawn here ────────────────────────────────────────────────────────────────
-// What the overlay last said each hosted pane shows (shared/types.ts): the whole view each time,
-// diffed into the store so a dock redraws only what changed. A dock component reads its view
+// What the overlay last said each hosted pane shows (shared/types.ts): the whole view, or the
+// fields of it that changed, diffed into the store so a dock redraws only what changed. A dock component reads its view
 // from here and asks through dockAct; it keeps nothing of the page's itself. The facts pane's
 // view is null when the overlay works nothing out for it (a new page, or after "stop"). A pane
 // has no view before its overlay first speaks, and none while the page's renderer is gone

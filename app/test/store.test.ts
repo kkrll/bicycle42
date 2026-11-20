@@ -268,12 +268,19 @@ test("a change that settles is in memory at once and on disk when its kind has s
   await sleep(200)
   await store.idle()
   assert.deepEqual(readJSON(settingsFile).pageBounds, at(i))
-  // Another save takes what is waiting along; a flush writes it at once.
+  // A flush writes what is waiting at once.
   const written = fs.statSync(settingsFile).mtimeMs
   store.settle((s) => (s.pageBounds = at(1000)))
   assert.equal(fs.statSync(settingsFile).mtimeMs, written)
   store.flush()
   assert.deepEqual(readJSON(settingsFile).pageBounds, at(1000))
+  // And another save takes it along: it does not wait for the place to settle.
+  store.settle((s) => (s.pageBounds = at(2000)))
+  store.update((s) => (s.lastUrl = "http://localhost:3000/"))
+  await sleep(50) // (the save's own 20 ms, well short of the 80 a place waits)
+  await store.idle()
+  assert.deepEqual(readJSON(settingsFile).pageBounds, at(2000))
+  assert.equal(readJSON(settingsFile).lastUrl, "http://localhost:3000/")
 })
 
 test("flush writes at once and cancels the pending timer", async (t) => {
