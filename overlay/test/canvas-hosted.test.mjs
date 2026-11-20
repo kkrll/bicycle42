@@ -563,3 +563,51 @@ test("hosted edits list: opened from the footer, the view lists the unsent edits
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("hosted, left: the mode gone, the tree's rows and the selection are let go: elements the page then throws away are not kept", async () => {
+  const { page, f, errors } = await open();
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("Performance.enable");
+  await cdp.send("HeapProfiler.enable");
+  /** The nodes alive in the page, once what nothing holds has been collected. */
+  const nodes = async () => {
+    for (let i = 0; i < 3; i++) await cdp.send("HeapProfiler.collectGarbage");
+    return (await cdp.send("Performance.getMetrics")).metrics.find((m) => m.name === "Nodes").value;
+  };
+  // A list as a framework renders one: 300 cards of ten elements, all rows of the tree once one is selected.
+  const CARDS = 300;
+  await f.evaluate((n) => {
+    const list = document.createElement("section");
+    list.id = "many";
+    for (let i = 0; i < n; i++) {
+      const card = document.createElement("article");
+      card.className = "card";
+      for (let k = 0; k < 10; k++) card.appendChild(document.createElement("p")).textContent = `line ${i}.${k}`;
+      list.appendChild(card);
+    }
+    document.body.appendChild(list);
+  }, CARDS);
+  await frames(f, 3);
+  const before = await nodes();
+  await f.evaluate(() => document.querySelector("#many article:nth-of-type(7)").scrollIntoView());
+  await clickAt(page, f, "#many article:nth-of-type(7)", 20, 20);
+  const v = await until(page, "(v) => v.sel && v.tree.total > 300").then(() => view(page));
+  assert.ok(v.tree.total > CARDS, `${v.tree.total} rows: the cards are the tree's`);
+  // The mode is left; then the page renders its list again, as it does after an agent's edit.
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "notes" }));
+  await page.waitForFunction(() => window.__harness.mode === "notes");
+  await frames(f, 3);
+  await f.evaluate(() => document.getElementById("many").replaceChildren());
+  await frames(f, 3);
+  await page.mouse.move(5, 5);
+  await frames(f, 3);
+  const after = await nodes();
+  // (Each card was 21 nodes: itself, ten paragraphs and their words.)
+  assert.ok(before - after > CARDS * 21 - 100, `${before - after} of ${CARDS * 21} nodes went with the cards (${before} → ${after})`);
+  // Back in the mode: the tree is read again, without them.
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "canvas" }));
+  const back = await until(page, "(v) => v.sel === null && v.tree.total < 100 && v.tree.rows[0]?.tag === 'body'").then(() => view(page));
+  assert.equal(back.tree.sel, -1);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

@@ -11,7 +11,7 @@ import { editRows, removeEdit } from "./edits.js";
 import { elOf } from "./stamps.js";
 import { drawBar, flash, hush, sentStatus } from "./bar.js";
 import { draftChanged } from "../draft.js";
-import { buildRows, rowParts, T, toggleRow, treeKey } from "./tree.js";
+import { buildRows, dropRows, rowParts, T, toggleRow, treeKey } from "./tree.js";
 import { sizeOf, tokenMatch, tokensOf } from "./tokens.js";
 import { setMode } from "../mode.js";
 import { hosted, onAct, putView } from "../panel.js";
@@ -138,6 +138,15 @@ const pretty = (v) =>
 const FULL = "This element's styles are full: shorten them first";
 
 const FIELDS = ["force", "sel", "global", "classes", "css", "sheet", "computed", "tokens", "tree", "hover", "batch"];
+
+/** The mode is left: the elements kept here to tell what changed are let go, with the tree's
+ *  rows (as those, they would keep what the page throws away afterwards). The view that went
+ *  stays: it is words and numbers, and what the host has until the mode is back. */
+export function hostOff() {
+  dropRows();
+  H.selFor = H.selEl = H.rowEl = H.rows = H.sel = null;
+  H.row = -1;
+}
 
 /** A canvas frame: the view as it is now, given to putView (which sends what changed of it, and
  *  the whole of it to a host that has none). Nothing when the host draws no inspector. */
