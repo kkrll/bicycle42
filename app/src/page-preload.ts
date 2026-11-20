@@ -40,6 +40,8 @@ if (window === window.top && !/^(data|about):$/.test(location.protocol)) {
       const back = () => there && ((there = false), webFrame.removeInsertedCSS(rule))
       window.addEventListener("load", () => setTimeout(back, 200), { once: true })
       setTimeout(back, 4000)
+      // Made a desktop's while it still loads: a desktop's scrollbar at once (main says so).
+      ipcRenderer.on(IS_PHONE, (_event, phone: unknown) => void (phone === false && back()))
     }
   } catch (err) {
     console.warn("[b42] the phone's scrollbar was not set", err)

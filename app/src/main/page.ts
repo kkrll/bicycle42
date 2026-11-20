@@ -223,7 +223,8 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   // a phone gives a page wider than its screen is then worked out from the narrower width, and
   // stays: a page 900 wide is shown 937 wide, with a strip of nothing at its right. So the
   // preload asks, before the page's first script, whether the document is a phone's, and starts
-  // one with a scrollbar that takes no room (page-preload.ts). It has to know at once: asked and
+  // one with a scrollbar that takes no room (page-preload.ts), until it has loaded or is made a
+  // desktop's (setDevice says so on the same channel). It has to know at once: asked and
   // answered in one go, the one such question in the app.
   wc.ipc.on(IS_PHONE, (event) => void (event.returnValue = device === "phone"))
 
@@ -500,6 +501,9 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       device = d
       phone = p
       emulate()
+      // A document that started as a phone's and is still loading has a rule of ours for its
+      // scrollbar (IS_PHONE above): a desktop's page is told, and takes it back at once.
+      if (!gone() && committed && !wc.isCrashed()) wc.send(IS_PHONE, d === "phone")
     },
     send,
     admitNote() {

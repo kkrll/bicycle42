@@ -4,8 +4,9 @@
 // note and Send. It is motion mode's only dock (the overlay draws none of its own), drawn here so
 // it can sit beside a phone-width page; the overlay keeps everything that touches the page.
 //
-// What it shows is the overlay's view (MotionView in overlay/protocol-motion.ts), whole each
-// time; what the reviewer does goes back as acts (MotionAct). It keeps nothing of the page's.
+// What it shows is the overlay's view (MotionView in overlay/protocol-motion.ts: whole the first
+// time, then the fields of it that changed, which the store puts into the one it keeps); what
+// the reviewer does goes back as acts (MotionAct). It keeps nothing of the page's.
 // What it does keep, it keeps only while the reviewer's hand is on it, so the window never waits
 // on the page:
 //  - a field being typed in shows what is typed, not what the view says, until it is left and the

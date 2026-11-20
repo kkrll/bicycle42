@@ -44,6 +44,13 @@ const WIDE_PAGE = `<!doctype html><meta name="viewport" content="width=device-wi
 function serve(): Promise<http.Server> {
   const server = http.createServer((req, res) => {
     const asked = decodeURIComponent(new URL(req.url ?? "/", "http://x").pathname)
+    // A picture that never comes: the page that has it never finishes loading.
+    if (asked === "/never.png") {
+      res.writeHead(200, { "content-type": "image/png", "cache-control": "no-store" })
+      res.flushHeaders() // (and never a byte of it)
+      return void setTimeout(() => res.destroy(), 20000).unref()
+    }
+    if (asked === "/hang.html") return void res.writeHead(200, { "content-type": "text/html", "cache-control": "no-store" }).end(`${WIDE_PAGE}<img src="/never.png" alt="">`)
     if (asked === "/wide.html") return void res.writeHead(200, { "content-type": "text/html", "cache-control": "no-store" }).end(WIDE_PAGE)
     const file = path.normalize(path.join(overlayDir, asked))
     if (!file.startsWith(overlayDir)) return void res.writeHead(403).end()
@@ -859,6 +866,23 @@ async function main() {
     if (how !== "left") check(`a page wider than the phone, ${how} as a phone's, is zoomed out to its own width`, (await until(wideOk, 3000)) === true, await fits())
     if (how === "reloaded") check("…and once it has loaded the document has a scrollbar's rule of ours no longer, as wide as it was", (await until(async () => (await js("getComputedStyle(document.documentElement, '::-webkit-scrollbar').width")) !== "0px", 3000)) === true && (await wideOk()), String(await js("getComputedStyle(document.documentElement, '::-webkit-scrollbar').width")))
   }
+  // A phone's page that is still loading (and may never be done) and is made a desktop's has a
+  // desktop's scrollbar at once: the rule it started with does not wait for a load that may not
+  // come. (Asked of the frame itself: executeJavaScript waits for a page to stop loading.)
+  const jsNow = (code: string) => wc.mainFrame.executeJavaScript(code) as Promise<unknown>
+  const barRule = () => jsNow("getComputedStyle(document.documentElement, '::-webkit-scrollbar').width").catch(() => "") as Promise<string>
+  const hangs = count("ready")
+  page.load(phonePage.replace("harness/page.html", "hang.html"))
+  await until(() => count("ready") > hangs)
+  const started = (await until(async () => (await barRule()) === "0px", 1000)) === true && page.state().loading
+  page.setDevice("desktop", PHONE)
+  const freed = await until(async () => (await barRule()) === "auto" && ((await jsNow("document.documentElement.clientWidth")) as number) < 390, 1500)
+  check("a phone's page made a desktop's while it still loads has its scrollbar back at once", started && freed === true && page.state().loading, `started ${started}, rule ${await barRule()}, width ${await jsNow("document.documentElement.clientWidth")}, loading ${page.state().loading}`)
+  page.setDevice("phone", PHONE)
+  const unhung = count("ready")
+  page.load(phonePage)
+  await until(() => count("ready") > unhung && !page.state().loading)
+  await until(async () => (await laidOut()) === 390, 2000)
   // Another phone is another width: the view is given it (the window's box), and the page lays out at it.
   const small = PHONES.find((p) => p.width < PHONE.width)!
   place({ x: 0, y: 0, width: small.width, height: 700 })

@@ -125,7 +125,9 @@ test("dragging a grip moves the keyframe, live and undoably; a value typed for i
   await act(page, { type: "select", key: { at: 100, prop: "opacity" }, grab: true });
   for (const to of [96, 90, 82, 75]) await act(page, { type: "drag", to });
   await act(page, { type: "drop" });
-  const at = (await view(page, "v.open.key && v.open.key.at < 100")).open.key.at;
+  // (The view of the last step, not of one on the way: on a slow machine the views of the first
+  // steps are still arriving, and where the keyframe is in one of those is not where it stays.)
+  const at = (await view(page, "v.open.key && v.open.key.at <= 75")).open.key.at;
   assert.ok(at < 100 && at > 50, `moved to ${at}`);
   const css = await adopted(f);
   assert.match(css, /@keyframes rise \{[^]*?\d+% \{ opacity: 1; \}/, css);

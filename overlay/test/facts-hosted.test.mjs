@@ -225,6 +225,25 @@ test("a block's text is read once in a look, however many links are in its sente
   await page.close();
 });
 
+test("a host that lost its view (a window that came up again) gets the whole one by asking: a page that is as it was says nothing by itself", async () => {
+  const { page, f, errors } = await open();
+  await act(page, { type: "view" });
+  await until(page, "(v) => v.taps.total > 0");
+  await page.waitForTimeout(600);
+  const had = await view(page);
+  // The host starts again with nothing; the page and its overlay are as they were.
+  await page.evaluate(() => (window.__harness.panel.length = 0));
+  await act(page, { type: "view" }); // what a pane that comes up says first
+  await page.waitForTimeout(900);
+  assert.equal(await view(page), undefined, "asked only to look, the overlay finds nothing new and sends nothing");
+  await act(page, { type: "whole" });
+  await page.waitForFunction(() => !!window.__harness.view("facts"));
+  assert.equal(await page.evaluate(() => window.__harness.panel.findLast((m) => m.panel === "facts").part), undefined, "the whole view, not a part of it");
+  assert.deepEqual(await view(page), had);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("a look that finds what the last one found sends nothing, and the looks come further apart while they do; the reviewer's act brings them close again, and a change is sent as the part that changed", async () => {
   const { page, f, errors } = await open();
   await act(page, { type: "view" });
