@@ -23,7 +23,12 @@ function makeBox() {
   return div;
 }
 
-function placeBox(div, r, cls, dpr) {
+/** `end`: the box is in the document's own layer, and this is where the page ends ({ x, y } in
+ *  the layer's coordinates). What reaches past the page's last element there makes the page
+ *  larger, so an edge at the page's end goes to the device pixel inside the element, not to the
+ *  nearest: half a pixel out, at 1.5x or 2x, was one more pixel of the page to scroll, and a page
+ *  the facts called a pixel wider than it is. */
+function placeBox(div, r, cls, dpr, end = null) {
   // Most frames an outline has not moved: nothing is written then (no restyle for an idle selection).
   const k = `${cls}|${r.x}|${r.y}|${r.w}|${r.h}|${dpr}`;
   if (div._k === k) return;
@@ -31,8 +36,12 @@ function placeBox(div, r, cls, dpr) {
   if (div._cls !== cls) div.className = `box ${(div._cls = cls)}`;
   // Its edges on whole device pixels: a strip that starts part of a pixel in is drawn blurred
   // over two (one bordered box was snapped as a whole).
-  const x = Math.round(r.x * dpr) / dpr, y = Math.round(r.y * dpr) / dpr;
-  const w = Math.round((r.x + r.w) * dpr) / dpr - x, h = Math.round((r.y + r.h) * dpr) / dpr - y;
+  const near = (v) => Math.round(v * dpr) / dpr;
+  // (Within two pixels of the end: the end as read may be a mark's that was a pixel out. A
+  // hundredth of a device pixel is the arithmetic's, not the element's.)
+  const far = (v, last) => (last !== undefined && v > last - 2 && near(v) > v ? Math.floor(v * dpr + 0.01) / dpr : near(v));
+  const x = near(r.x), y = near(r.y);
+  const w = Math.max(0, far(r.x + r.w, end?.x) - x), h = Math.max(0, far(r.y + r.h, end?.y) - y);
   div.style.transform = `translate(${x}px, ${y}px)`;
   div.style.width = `${w}px`;
   div.style.height = `${h}px`;
@@ -145,7 +154,9 @@ export function render() {
   if (origin) {
     if (docBoxes._dpr !== dpr) docBoxes.style.setProperty("--dp", `${1 / (docBoxes._dpr = dpr)}px`);
     const docDivs = pool(docBoxes, onDoc.length, makeBox);
-    onDoc.forEach(([r, cls], i) => placeBox(docDivs[i], { x: r.x - origin.x, y: r.y - origin.y, w: r.w, h: r.h }, cls, dpr));
+    const de = document.documentElement;
+    const end = { x: de.scrollWidth, y: de.scrollHeight };
+    onDoc.forEach(([r, cls], i) => placeBox(docDivs[i], { x: r.x - origin.x, y: r.y - origin.y, w: r.w, h: r.h }, cls, dpr, end));
   }
 
   // notes mode's ink and card: after the boxes are written (notes/frame.js says why)

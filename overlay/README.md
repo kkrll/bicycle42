@@ -110,7 +110,9 @@ src/globals.d.ts    what the type check cannot read from the .js files
   of an element that moves with the document's scroll alone is drawn in a second element of the
   layer's, `b42-marks`: absolute at the document's origin (not fixed, not in the top layer), in
   the document from the first one it shows until "stop", so the compositor scrolls it with the page in the
-  same frame. One in a scroller of its own, or fixed or sticky (`anchored` in
+  same frame. Being in the document, what it holds counts towards the page's scrollable size: an
+  outline's far edges at the page's end go to the device pixel inside the element, never the
+  nearest one out (`placeBox` in `src/render.js`), so the layer adds nothing to it. One in a scroller of its own, or fixed or sticky (`anchored` in
   `src/facts/host.js`), is placed in the window every frame, as the other outlines are (a
   scroller's scroll asks for a frame). Like the hover outline they take no pointer, are in no
   note's screenshot, go with the peek and go with "stop". A new document sends the view null, so a host whose

@@ -32,8 +32,8 @@ after(async () => {
 });
 
 /** The facts page in a frame 390 wide, with the pane the host's: the overlay says it works nothing out yet. */
-async function open() {
-  const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+async function open(dpr = 1) {
+  const page = await browser.newPage({ viewport: { width: 1200, height: 900 }, deviceScaleFactor: dpr });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(`${base}/?delay=150&page=facts`);
@@ -354,6 +354,43 @@ test("marks never trail a scroll: those that scroll with the document are in its
   assert.equal(await f.evaluate(() => !!document.querySelector("b42-marks")), false);
   assert.deepEqual(errors, []);
   await page.close();
+});
+
+test("the layer adds nothing to the page's scrollable size: a mark in the document's layer never reaches past its element, at any pixel ratio", async () => {
+  for (const dpr of [1, 1.5, 2]) {
+    const { page, f, errors } = await open(dpr);
+    // A page taller than its frame whose last thing is a small button: its right edge is the
+    // banner's, its bottom edge the button's, each a part of a pixel in.
+    await f.evaluate(() => {
+      document.body.style.paddingBottom = "0";
+      document.getElementById("more").style.height = "1200px";
+      document.body.insertAdjacentHTML("beforeend", `<button id="last" class="close" style="display:block;margin:0"></button>`);
+    });
+    await act(page, { type: "view", marks: true });
+    for (const part of [0, 0.25, 0.375, 0.4375, 0.75]) {
+      await f.evaluate((p) => {
+        document.getElementById("wide").style.width = `${520 + p}px`;
+        document.getElementById("last").style.height = `${24 + p}px`;
+      }, part);
+      await act(page, { type: "refresh" });
+      // (Parts of a pixel that a layout keeps exactly: sixty-fourths.)
+      await f.waitForFunction((w) => document.getElementById("wide").getBoundingClientRect().width === w && [...(document.querySelector("b42-marks")?.shadowRoot.querySelectorAll(".box.fx.mk.k-wide") ?? [])].some((b) => Math.abs(b.getBoundingClientRect().width - w) < 1), 520 + part);
+      await frames(f);
+      const size = await f.evaluate(() => {
+        const de = document.documentElement, layers = [document.querySelector("b42-marks"), document.querySelector("b42-review")];
+        const marks = layers[0].shadowRoot.querySelectorAll(".box.fx.mk").length;
+        const withThem = [de.scrollWidth, de.scrollHeight];
+        for (const l of layers) l.style.display = "none";
+        const without = [de.scrollWidth, de.scrollHeight];
+        for (const l of layers) l.style.display = "block";
+        return { marks, withThem, without };
+      });
+      assert.ok(size.marks >= 3, JSON.stringify(size));
+      assert.deepEqual(size.withThem, size.without, `at ${dpr}x, ${part} of a pixel in`);
+    }
+    assert.deepEqual(errors, []);
+    await page.close();
+  }
 });
 
 test("marks are not in a note's screenshot", async () => {
