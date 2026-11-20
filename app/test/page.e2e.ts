@@ -59,6 +59,7 @@ async function main() {
   const win = new BrowserWindow({ width: 1200, height: 800, show: false })
   const review = createReview()
   const messages: PageMessage[] = []
+  const paneViews: Partial<Record<Pane, object | null>> = {}
   const shortcuts: string[] = []
   const logs: string[] = []
   let changes = 0
@@ -71,6 +72,14 @@ async function main() {
     partition: "page-e2e", // in memory: nothing kept between runs
     onMessage(msg) {
       messages.push(msg)
+      // As the window does (renderer/store.ts): a pane's view is the whole one that came, with
+      // the fields of each part since put into it; with none to put a part into, it is asked for.
+      if (msg.type === "panel" && "view" in msg) paneViews[msg.panel] = msg.view as object | null
+      else if (msg.type === "panel" && "part" in msg) {
+        const had = paneViews[msg.panel]
+        if (had) paneViews[msg.panel] = { ...had, ...msg.part }
+        else page.send({ type: "panel", panel: msg.panel, act: { type: "whole" } })
+      }
       // The one reply the overlay can't do without.
       if (msg.type === "ready") {
         page.send({ type: "state", enabled: true, draft, pins: review.pins(), templates: [{ name: "variants", hint: "5 options" }, { name: "keep", hint: "keep the one shown" }, { name: "grade", hint: "a score" }] })
@@ -534,7 +543,7 @@ async function main() {
     /** A part of the overlay's own UI on the page: the selection's handles, notes mode's chip, the card. */
     const part = (cls: string) => `${shadow}.querySelector('.${cls}')`
     /** The view the overlay sent the host's inspector last. */
-    const view = () => messages.filter((m) => m.type === "panel" && m.panel === "canvas" && "view" in m).at(-1)?.view as CanvasView | undefined
+    const view = () => (paneViews.canvas ?? undefined) as CanvasView | undefined
     const act = (a: CanvasAct) => page.send({ type: "panel", panel: "canvas", act: a })
     /** Canvas mode is on, as the layer last told the host. */
     const inCanvas = () => messages.filter((m) => m.type === "mode").at(-1)?.mode === "canvas"
