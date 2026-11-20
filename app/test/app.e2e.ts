@@ -497,7 +497,7 @@ async function main() {
   }
   /** A key; Enter and Tab with their character, so a field takes it when nothing else does. */
   const keyW = async (key: string, modifiers = 0) => {
-    const codes: Record<string, number> = { Enter: 13, Tab: 9, Escape: 27, ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39, Backspace: 8, Home: 36, End: 35, " ": 32, a: 65, z: 90 }
+    const codes: Record<string, number> = { Enter: 13, Tab: 9, Escape: 27, ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39, Backspace: 8, Home: 36, End: 35, PageUp: 33, PageDown: 34, " ": 32, a: 65, z: 90 }
     const text = modifiers & ~8 ? undefined : key === "Enter" ? "\r" : key === "Tab" ? "\t" : undefined
     const code = key === " " ? "Space" : key.length === 1 ? `Key${key.toUpperCase()}` : key
     await windowDbg.sendCommand("Input.dispatchKeyEvent", { type: text ? "keyDown" : "rawKeyDown", key, code, windowsVirtualKeyCode: codes[key], modifiers, ...(text ? { text, unmodifiedText: text } : {}) })
@@ -506,8 +506,18 @@ async function main() {
   }
   /** The suggestion list: null when shut; its items (an item's own words), the highlighted one,
    *  a variable's value beside it, the swatches, and where it is. */
+  // (Only the rows in view are drawn: the list is scrolled through for the rest, and put back.)
   const sugW = () =>
-    ui(`(() => { const l = document.querySelector('.cd-sug'); if (!l) return null; const rows = [...l.querySelectorAll('.cd-sg')]; const b = l.getBoundingClientRect(), d = document.querySelector('.dock .cd').getBoundingClientRect(); return { items: rows.map((g) => g.querySelector('.cd-sgn').textContent), on: l.querySelector('.cd-sg.on .cd-sgn')?.textContent ?? null, vals: rows.map((g) => g.querySelector('.cd-sgv')?.textContent ?? null), swatches: rows.map((g) => g.querySelector('.cd-swatch')?.style.background || null), scrolls: l.scrollHeight > l.clientHeight, inside: b.top >= d.top && b.bottom <= d.bottom && b.left >= d.left && b.right <= d.right } })()`) as Promise<{ items: string[]; on: string | null; vals: (string | null)[]; swatches: (string | null)[]; scrolls: boolean; inside: boolean } | null>
+    ui(`(() => { const l = document.querySelector('.cd-sug'); if (!l) return null; const b = l.getBoundingClientRect(), d = document.querySelector('.dock .cd').getBoundingClientRect(); const at = l.scrollTop, got = new Map(); let on = null; const read = () => { for (const g of l.querySelectorAll('.cd-sg')) { got.set(Number(g.dataset.i), { item: g.querySelector('.cd-sgn').textContent, val: g.querySelector('.cd-sgv')?.textContent ?? null, swatch: g.querySelector('.cd-swatch')?.style.background || null }); if (g.classList.contains('on')) on = g.querySelector('.cd-sgn').textContent } }; const to = (y) => { l.scrollTop = y; l.dispatchEvent(new Event('scroll')) }; read(); const n = Number(l.querySelector('.cd-sg')?.getAttribute('aria-setsize') ?? 0); for (let y = 0; got.size < n && y <= l.scrollHeight; y += 176) { to(y); read() } to(at); const rows = [...got.keys()].sort((x, y) => x - y).map((i) => got.get(i)); return { items: rows.map((r) => r.item), on, vals: rows.map((r) => r.val), swatches: rows.map((r) => r.swatch), scrolls: l.scrollHeight > l.clientHeight, inside: b.top >= d.top && b.bottom <= d.bottom && b.left >= d.left && b.right <= d.right } })()`) as Promise<{ items: string[]; on: string | null; vals: (string | null)[]; swatches: (string | null)[]; scrolls: boolean; inside: boolean } | null>
+  /** The list as it is drawn: how many rows, the first one's number, the highlighted one and whether it is in view. */
+  const sugDrawn = () =>
+    ui(`(() => { const l = document.querySelector('.cd-sug'); if (!l) return null; const rows = [...l.querySelectorAll('.cd-sg')], b = l.getBoundingClientRect(), on = l.querySelector('.cd-sg.on'), r = on?.getBoundingClientRect(); return { rows: rows.length, first: Number(rows[0]?.dataset.i ?? -1), on: on?.querySelector('.cd-sgn').textContent ?? null, seen: !!r && r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5, top: l.scrollTop, width: Math.round(b.width), tall: l.scrollHeight } })()`) as Promise<{ rows: number; first: number; on: string | null; seen: boolean; top: number; width: number; tall: number } | null>
+  /** What a key does to the list's own elements: nodes put in or taken out, attributes written. */
+  const sugWrites = async (key: string) => {
+    await ui(`(() => { window.__sugLog = []; window.__sugMo?.disconnect(); window.__sugMo = new MutationObserver((recs) => window.__sugLog.push(...recs)); window.__sugMo.observe(document.querySelector('.cd-sug'), { subtree: true, childList: true, attributes: true }) })()`)
+    await keyW(key)
+    return ui(`(() => { const c = { nodes: 0, attrs: 0 }; for (const r of [...window.__sugLog, ...window.__sugMo.takeRecords()]) { if (r.type === "childList") c.nodes += r.addedNodes.length + r.removedNodes.length; else c.attrs++ } window.__sugMo.disconnect(); return c })()`) as Promise<{ nodes: number; attrs: number }>
+  }
   const pageStyle = (sel: string, prop: string) => js(`getComputedStyle(document.querySelector(${JSON.stringify(sel)})).getPropertyValue(${JSON.stringify(prop)})`) as Promise<string>
   const settleW = (ms = 160) => sleep(ms)
   /** The tree's row of the element with this id. */
@@ -786,6 +796,35 @@ async function main() {
     allNames.length > 450 && ["src", "syntax", "inherits", "unicode-range", "font-display"].every((d) => !allNames.includes(d)) && ["scrollbar-color", "align-items", "font-family"].every((n) => allNames.includes(n)) && (await ui(`${JSON.stringify(allNames)}.filter((n) => !CSS.supports(n, "initial")).length`)) === 0,
     String(allNames.length),
   )
+  // Every name is some 560 rows, and eight show: only those in view are drawn, and the keys, the
+  // wheel and the pointer work the list as when all of it was.
+  let drawn = await sugDrawn()
+  const sugWidth = drawn?.width
+  check("…of which only the rows in view are drawn, a few around them, the list as tall as all of them", !!drawn && drawn.rows <= 20 && drawn.first === 0 && drawn.on === allNames[0] && drawn.tall >= allNames.length * 22, JSON.stringify(drawn))
+  const writes = await sugWrites("ArrowDown")
+  drawn = await sugDrawn()
+  check("…↓ moves the highlight: the row left and the row come to are written, none is drawn again", drawn?.on === allNames[1] && writes.nodes === 0 && writes.attrs === 4, `${drawn?.on} ${JSON.stringify(writes)}`)
+  await keyW("ArrowUp")
+  await keyW("ArrowUp")
+  drawn = await sugDrawn()
+  check("…↑ from the first goes to the last, which is drawn and in view", !!drawn && drawn.on === allNames.at(-1) && drawn.seen && drawn.rows <= 20 && drawn.width === sugWidth, JSON.stringify(drawn))
+  await keyW("ArrowDown")
+  drawn = await sugDrawn()
+  check("…and ↓ from the last back to the first", !!drawn && drawn.on === allNames[0] && drawn.seen && drawn.top === 0 && drawn.first === 0, JSON.stringify(drawn))
+  for (let i = 0; i < 3; i++) await keyW("PageDown")
+  drawn = await sugDrawn()
+  check("…PageDown moves a screenful, the highlighted row in view", !!drawn && drawn.on === allNames[24] && drawn.seen && drawn.rows <= 20, JSON.stringify(drawn))
+  await ui(`document.querySelector('.cd-sug').scrollTop = 22 * 200`)
+  await until(async () => ((await sugDrawn())?.first ?? 0) > 150)
+  drawn = await sugDrawn()
+  check("…the list scrolled by hand draws the rows that came into view, as wide as it was", !!drawn && drawn.rows <= 20 && drawn.first > 150 && drawn.width === sugWidth, JSON.stringify(drawn))
+  const farSg = (await ui(`(() => { const l = document.querySelector('.cd-sug'), b = l.getBoundingClientRect(); const g = [...l.querySelectorAll('.cd-sg')].find((x) => x.getBoundingClientRect().top >= b.top + 30); const r = g.getBoundingClientRect(); return { x: Math.round(r.x + 10), y: Math.round(r.y + r.height / 2), i: Number(g.dataset.i) } })()`)) as { x: number; y: number; i: number }
+  await winMouse("mouseMoved", farSg.x, farSg.y, { button: "none" })
+  const farHover = await until(() => ui(`document.querySelector('.cd-sug .cd-sg[data-i="${farSg.i}"]')?.matches(":hover") ?? false`))
+  await winMouse("mousePressed", farSg.x, farSg.y)
+  await winMouse("mouseReleased", farSg.x, farSg.y)
+  await sleep(50)
+  check("…the pointer on a row there marks it, and a click takes that row's name", farHover === true && farSg.i > 150 && (await valueOf("#cd-css")) === `${allNames[farSg.i]}: `, `${farSg.i} ${allNames[farSg.i]} ${await valueOf("#cd-css")}`)
   await keyW("Escape")
   await paste("#cd-css", "")
   await typeW("color: re")

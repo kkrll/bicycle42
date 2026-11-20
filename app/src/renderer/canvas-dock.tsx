@@ -26,7 +26,7 @@
 // The header names what is selected (its component, or tag#id.class), never what it says. The
 // tree and the styles share the body by a handle between them, kept (canvas.tree.h above the
 // styles, canvas.tree.w beside them).
-import { For, Index, Show, batch, createEffect, createMemo, createSignal, on, onCleanup, onMount, type JSX } from "solid-js"
+import { For, Index, Show, batch, createEffect, createMemo, createSelector, createSignal, on, onCleanup, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { CanvasAct, CanvasComputed, CanvasEdit, CanvasText, CanvasView } from "../../../overlay/protocol-canvas"
 import { editKeys } from "../../../overlay/src/canvas/help.js"
@@ -55,6 +55,11 @@ import "./canvas-dock.css"
 const ROW = 22
 /** Rows of the suggestion list in view (PageUp/PageDown move this far). */
 const LIST_ROWS = 8
+/** A suggestion's height and the list's own padding, px (canvas-dock.css): where a row is, without asking it. */
+const SG_ROW = 22
+const SG_PAD = 4
+/** Rows drawn above and below those in view, so a scroll shows rows at once. */
+const SG_OVER = 4
 
 /** How long a note just sent stays empty here before the view's words are shown again (ms): a
  *  refused one brings its words back. */
@@ -288,6 +293,47 @@ export function CanvasDock() {
   const [list, setList] = createSignal<List | null>(null)
   let rootEl!: HTMLDivElement
   let listEl: HTMLDivElement | undefined
+  // The list can be every property the browser takes (some 560) or a design system's variables,
+  // and eight show: only the rows in view are drawn, and a few around them. The rest is room
+  // (the list is as tall as all of them, so it scrolls as it did), and a row's place is its
+  // number times its height. What a row says is read from the parts of the list that stay as
+  // they are while the arrows move through it (`list` itself is another object with every
+  // step), and which row is highlighted is asked through a selector: an arrow key redraws the
+  // row left and the row come to, not every row.
+  const NONE: string[] = []
+  const sugItems = createMemo(() => list()?.items ?? NONE)
+  const sugVars = createMemo(() => list()?.vars)
+  const sugKind = createMemo(() => list()?.kind)
+  const sugMax = createMemo(() => list()?.at.max ?? 0)
+  const sugOn = createSelector(() => list()?.on ?? -1)
+  const [sugTop, setSugTop] = createSignal(0)
+  /** The rows drawn, by their numbers: the same list while the same rows are. */
+  const sugRows = createMemo<number[]>((was) => {
+    const n = sugItems().length
+    const first = Math.max(0, Math.floor((sugTop() - SG_PAD) / SG_ROW))
+    const a = Math.min(n, Math.max(0, first - SG_OVER)), b = Math.min(n, first + Math.ceil(sugMax() / SG_ROW) + 1 + SG_OVER)
+    if (was.length === b - a && (a === b || was[0] === a)) return was
+    return Array.from({ length: b - a }, (_, i) => a + i)
+  }, [])
+  const sugValue = (it: string) => {
+    const v = sugVars()?.get(it)
+    return v === undefined ? undefined : v.length > 40 ? `${v.slice(0, 39)}…` : v
+  }
+  const sugSwatch = (it: string) => (sugKind() === "value" && isColour(sugVars()?.get(it) ?? it) ? (sugVars()?.get(it) ?? it) : undefined)
+  // The list is as wide as its widest row, drawn or not: the font is one width a letter, so the
+  // widest of each shape (a swatch or none, a value or none) is the one with the most letters,
+  // and those few are drawn with no height, for their width alone.
+  const sugWidest = createMemo(() => {
+    const most = new Map<string, { it: string; n: number }>()
+    for (const it of sugItems()) {
+      const v = sugValue(it)
+      const shape = `${sugSwatch(it) === undefined ? "" : "s"}${v === undefined ? "" : "v"}`
+      const n = it.length + (v?.length ?? 0)
+      const m = most.get(shape)
+      if (!m || n > m.n) most.set(shape, { it, n })
+    }
+    return [...most.values()].map((m) => m.it)
+  })
   const isArea = (f: Element | null): f is HTMLTextAreaElement => f === els.css || f === els.sheet
   const rowProp = (f: Element | null) => (f instanceof HTMLInputElement && f.dataset.prop) || ""
 
@@ -319,9 +365,12 @@ export function CanvasDock() {
     if (!items.length || (!asked && items.length === 1 && items[0] === ctx.word)) return closeList()
     const was = list()
     if (was && was.field !== f) closeList()
-    setList({
-      field: f, row: rowProp(f), kind: ctx.kind as "name" | "value", prop: ctx.prop ?? "", items, on: 0, s: ctx.s!, e: ctx.e!, colon: !!ctx.colon, vars,
-      live: false, typed: "", caret: 0, css: "", was: "", at: placeOf(f, ctx.s!),
+    batch(() => {
+      setList({
+        field: f, row: rowProp(f), kind: ctx.kind as "name" | "value", prop: ctx.prop ?? "", items, on: 0, s: ctx.s!, e: ctx.e!, colon: !!ctx.colon, vars,
+        live: false, typed: "", caret: 0, css: "", was: "", at: placeOf(f, ctx.s!),
+      })
+      setSugTop(0)
     })
     if (listEl) listEl.scrollTop = 0
   }
@@ -390,10 +439,12 @@ export function CanvasDock() {
     const n = l.items.length
     const to = ((i % n) + n) % n
     setList({ ...l, on: to })
-    const row = listEl?.children[to] as HTMLElement | undefined
-    if (row && listEl) {
-      if (row.offsetTop < listEl.scrollTop + 4) listEl.scrollTop = row.offsetTop - 4
-      else if (row.offsetTop + row.offsetHeight > listEl.scrollTop + listEl.clientHeight - 4) listEl.scrollTop = row.offsetTop + row.offsetHeight - listEl.clientHeight + 4
+    if (listEl) {
+      // The row into view (it may not be drawn yet: where it is, is its number).
+      const top = SG_PAD + to * SG_ROW
+      if (top < listEl.scrollTop + 4) listEl.scrollTop = top - 4
+      else if (top + SG_ROW > listEl.scrollTop + listEl.clientHeight - 4) listEl.scrollTop = top + SG_ROW - listEl.clientHeight + 4
+      setSugTop(listEl.scrollTop) // (drawn now, not when the scroll is told)
     }
     if (l.kind === "value") preview(l.items[to]!)
   }
@@ -1246,28 +1297,46 @@ export function CanvasDock() {
             aria-label={l().kind === "name" ? "CSS properties" : `Values of ${l().prop}`}
             ref={listEl}
             style={{ left: `${l().at.x}px`, [l().at.up ? "bottom" : "top"]: `${l().at.y}px`, "max-height": `${l().at.max}px` }}
+            onScroll={(e) => setSugTop(e.currentTarget.scrollTop)}
             onMouseDown={(e) => {
               e.preventDefault() // the field keeps the focus
-              const row = (e.target as Element).closest(".cd-sg")
-              if (row && e.button === 0) accept([...listEl!.children].indexOf(row))
+              const row = (e.target as Element).closest<HTMLElement>(".cd-sg")
+              if (row && e.button === 0) accept(Number(row.dataset.i))
             }}
           >
-            <For each={l().items}>
-              {(it, i) => {
-                const v = l().vars.get(it)
-                return (
-                  <div class="cd-sg" classList={{ on: i() === l().on }} role="option" aria-selected={i() === l().on}>
-                    <Show when={l().kind === "value" && isColour(v ?? it)}>
-                      <i class="cd-swatch" style={{ background: v ?? it }} />
+            <div class="cd-sgw" aria-hidden="true">
+              <For each={sugWidest()}>
+                {(it) => (
+                  <div>
+                    <Show when={sugSwatch(it) !== undefined}>
+                      <i class="cd-swatch" />
                     </Show>
                     <span class="cd-sgn">{it}</span>
-                    <Show when={v !== undefined}>
-                      <span class="cd-sgv">{v!.length > 40 ? `${v!.slice(0, 39)}…` : v}</span>
+                    <Show when={sugValue(it) !== undefined}>
+                      <span class="cd-sgv">{sugValue(it)}</span>
                     </Show>
                   </div>
-                )
-              }}
-            </For>
+                )}
+              </For>
+            </div>
+            <div class="cd-sgs" role="presentation" style={{ height: `${sugItems().length * SG_ROW}px`, "padding-top": `${(sugRows()[0] ?? 0) * SG_ROW}px` }}>
+              <For each={sugRows()}>
+                {(i) => {
+                  const it = () => sugItems()[i] ?? ""
+                  return (
+                    <div class="cd-sg" classList={{ on: sugOn(i) }} role="option" aria-selected={sugOn(i)} aria-posinset={i + 1} aria-setsize={sugItems().length} data-i={i}>
+                      <Show when={sugSwatch(it())}>
+                        {(colour) => <i class="cd-swatch" style={{ background: colour() }} />}
+                      </Show>
+                      <span class="cd-sgn">{it()}</span>
+                      <Show when={sugValue(it()) !== undefined}>
+                        <span class="cd-sgv">{sugValue(it())}</span>
+                      </Show>
+                    </div>
+                  )
+                }}
+              </For>
+            </div>
           </div>
         )}
       </Show>
