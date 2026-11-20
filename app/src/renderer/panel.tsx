@@ -490,7 +490,7 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
           </Show>
           <Show
             when={!props.open && state.site?.origin}
-            fallback={<>Pick the folder on your server that holds the site's code. The agent works there.</>}
+            fallback={props.open ? <>Pick a folder on your server. The agent works there.</> : <>Pick the folder on your server that holds the site's code. The agent works there.</>}
           >
             Pick the folder on your server that holds the code of <strong>{host(state.site?.origin ?? "")}</strong>.
             The agent works there.

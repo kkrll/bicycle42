@@ -1467,17 +1467,17 @@ details[open] > summary > .caret {
 }
 
 /* The project, and the way to another one. It reads as the text it was; the mark that it opens
-   something comes with the pointer or the keyboard. (4px in at each side, taken back at the
-   left, so the name starts where it did.) */
+   something comes with the pointer or the keyboard. As tall as the controls beside it, and its
+   background, when it has one, 4px clear of the server's name. */
 .place-folder {
   flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 2px;
-  height: 24px;
-  margin-left: -4px;
-  padding: 0 2px 0 4px;
+  gap: 4px;
+  height: 28px;
+  margin-left: -2px;
+  padding: 0 4px;
   border-radius: var(--radius);
   color: var(--muted);
   font-size: inherit;
