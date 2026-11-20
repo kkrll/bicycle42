@@ -11,8 +11,9 @@
 // Flow of a note:  overlay → "note" → screenshot → prompt → backend queue → inbox/run events →
 // note status → pins on the page and rows in the window.
 //
-// One site (a page origin) maps to one folder on the server, picked once, and to one open
-// conversation there, plus a second "background" one for alt+Enter notes. A note remembers the
+// One site (a page origin in the repo that is open) maps to one folder on the server and to one
+// open conversation there, plus a second "background" one for alt+Enter notes. The same origin
+// in another repo is another site (`placeOf`). A note remembers the
 // conversation it was sent to, so switching conversations never moves an older note's status.
 //
 // Nothing here is Electron's. `createCore(host)` is given what the shell around it has (`Host`:
@@ -165,6 +166,8 @@ export function createCore(host: Host): Core {
 
   // ── state ───────────────────────────────────────────────────────────────────────────────────────
 
+  /** `origin` is the site's place (placeOf): what its settings, notes and conversations are kept
+   *  under. An address is `addressOf` it. */
   type Site = { origin: string; review: Review }
 
   let page: Page | undefined
@@ -231,9 +234,28 @@ export function createCore(host: Host): Core {
     const last = s.lastUrl ? originOf(s.lastUrl) : undefined
     return last ? s.sites[last]?.directory : undefined
   }
-  /** The site a page address belongs to: its origin, or the repo's own place while there is no page. */
+  /** A place's address: an origin, or none for the repo's own. A place whose address another
+   *  project had first has a mark after the origin (placeOf). */
+  const addressOf = (place: string) => (place === HOME ? "" : place.split("#")[0]!)
+  /** The place `folder` has at an address, if it has been there. */
+  function placeIn(folder: string, origin: string): string | undefined {
+    return Object.entries(store.settings().sites).find(([place, entry]) => entry.directory === folder && addressOf(place) === origin)?.[0]
+  }
+  /** The site a page address belongs to: the address in the repo that is open, or the repo's own
+   *  place while there is no page. One address is one project's site today and another's tomorrow
+   *  (a port is whoever's dev server took it), so each project has a place of its own there, with
+   *  its notes and conversation. The first is kept under the origin alone, as every site was once;
+   *  a later one under the origin and a mark that is not used again, since its notes' file has it
+   *  for a name. A place is found by its folder, never by what the mark says. */
   function placeOf(url: string): string | undefined {
-    return originOf(url) ?? (repoFolder() ? HOME : undefined)
+    const origin = originOf(url)
+    // A place whose repo is being asked for again stays while its address does: with no repo
+    // open, the address would be the place of whichever project had it first.
+    if (origin && missingFolder && site && addressOf(site.origin) === origin) return site.origin
+    const folder = repoFolder()
+    if (!origin) return folder ? HOME : undefined
+    if (!folder) return origin
+    return placeIn(folder, origin) ?? (siteSettings(origin) ? `${origin}#${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}` : origin)
   }
   /** The conversation asked to get the site running. It stays asked while no page works, so an
    *  address given after a question and its answer is opened too; `starting` until it first answers. */
@@ -273,7 +295,7 @@ export function createCore(host: Host): Core {
         unplaced: review?.unplaced ?? 0,
         docks: [...docks],
       },
-      site: site ? { origin: site.origin === HOME ? "" : site.origin, ...(saved ? { directory: saved.directory } : {}) } : null,
+      site: site ? { origin: addressOf(site.origin), ...(saved ? { directory: saved.directory } : {}) } : null,
       ...(starting && siteAsked === session?.id ? { startingSite: true as const } : {}),
       ...(missingFolder && !saved ? { missingFolder } : {}),
       running: runningShown(),
@@ -637,7 +659,7 @@ export function createCore(host: Host): Core {
       if (!current) {
         current = await b.createSession({
           directory: saved.directory,
-          title: placeholderTitle(s.origin === HOME ? folderName(saved.directory) : new URL(s.origin).host),
+          title: placeholderTitle(s.origin === HOME ? folderName(saved.directory) : new URL(addressOf(s.origin)).host),
           ...(defaultModel() ? { model: defaultModel() } : {}),
         })
         store.update((x) => {
@@ -1235,7 +1257,7 @@ export function createCore(host: Host): Core {
     if (url && url !== store.settings().lastUrl) store.update((s) => void (s.lastUrl = url))
     switchSite(placeOf(url))
     // Where a project's site was last open, for coming back to it (openProject).
-    const at = originOf(url)
+    const at = originOf(url) ? site?.origin : undefined
     if (at && siteSettings(at) && siteSettings(at)!.url !== url) store.update((s) => void (s.sites[at] && Object.assign(s.sites[at], { url, seen: Date.now() })))
     push()
   }
@@ -2040,14 +2062,18 @@ export function createCore(host: Host): Core {
     async setDirectory(directory) {
       if (typeof directory !== "string" || !directory.startsWith("/")) throw new Error("Choose a folder.")
       missingFolder = undefined
-      const origin = site?.origin
+      const at = site?.origin
+      // The place on screen goes to the folder, with its notes (the code moved, or the folder was
+      // the wrong one). A folder that has a place of its own at this address opens that instead.
+      const theirs = at && at !== HOME ? placeIn(directory, addressOf(at)) : undefined
       store.update((s) => {
         s.folder = directory
-        if (origin) s.sites[origin] = { directory }
+        if (at && (!theirs || theirs === at)) s.sites[at] = { directory }
       })
       session = null
       // No page and no repo until now: the repo's own place opens, and its conversation with it.
       if (!site) return void (switchSite(placeOf(page?.state().url ?? "")), await openSite())
+      if (theirs && theirs !== at) switchSite(theirs)
       push()
       await openSite()
     },
@@ -2072,7 +2098,7 @@ export function createCore(host: Host): Core {
       siteAsked = undefined
       starting = false
       if (here) return push() // already on one of its sites
-      const to = known ? (known[1].url ?? known[0]) : ""
+      const to = known ? (known[1].url ?? addressOf(known[0])) : ""
       if (page?.state().url === to) switchSite(placeOf(to), true)
       else page?.load(to)
       await openSite()

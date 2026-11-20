@@ -51,8 +51,9 @@ something running, a count with a stop mark shows at the end of the address line
 list of what is still running, in the open repo and in the server's other projects, each with
 its own **Stop**.
 
-After that, the app reopens the last page with its notes and conversation. A site opened for
-the first time works in the repo that is open; the folder can be changed from the panel.
+After that, the app reopens the last page with its notes and conversation. An address works in
+the repo that is open: the same one (`localhost:3000`) in another project is that project's
+site, with notes and a conversation of its own.
 
 **Another project:** the **+** beside the conversation's name lists the server's projects
 (type to narrow, `↑` `↓`, `Enter`; `mod+1`…`9` for the first nine; a path starting with `/`

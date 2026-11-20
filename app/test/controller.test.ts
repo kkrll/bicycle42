@@ -446,6 +446,112 @@ test("openProject: another repo opens with no page and a conversation of its own
   }
 })
 
+test("an address belongs to the project that is open: the same one in another project is another site, and each keeps its notes and conversation", async () => {
+  const h = await boot()
+  try {
+    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await h.cmd("setDirectory", "/repo")
+    h.page.load(`${SITE}/pricing`)
+    await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
+    const first = h.snap().session!.id
+    h.note("the first project's note")
+    await until(() => h.snap().review.notes.length === 1)
+
+    // Another project, and its server now answers at the address the first one's did (a port is
+    // whoever's dev server took it): the address is this project's, not a way back to the first.
+    await h.cmd("openProject", "/other")
+    await until(() => h.snap().site?.directory === "/other" && !!h.snap().session)
+    const second = h.snap().session!.id
+    h.page.load(`${SITE}/`)
+    await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
+    assert.deepEqual([h.snap().site, h.snap().session!.id, h.snap().review.notes.length], [{ origin: SITE, directory: "/other" }, second, 0])
+    h.note("the second project's note")
+    await until(() => h.w.prompts.length === 2)
+    assert.deepEqual([h.w.prompts[1]!.session, h.snap().review.notes.map((n) => n.text)], [second, ["the second project's note"]])
+
+    // Each project opens on its own page at that address, with its own notes and conversation.
+    await h.cmd("openProject", "/repo")
+    await until(() => h.snap().session?.id === first)
+    assert.deepEqual([h.snap().page.url, h.snap().site, h.snap().review.notes.map((n) => n.text)], [`${SITE}/pricing`, { origin: SITE, directory: "/repo" }, ["the first project's note"]])
+    await h.cmd("openProject", "/other")
+    await until(() => h.snap().session?.id === second)
+    assert.deepEqual([h.snap().page.url, h.snap().site, h.snap().review.notes.map((n) => n.text)], [`${SITE}/`, { origin: SITE, directory: "/other" }, ["the second project's note"]])
+
+    // The same page in both: the project changes under it, and what is shown with it.
+    h.page.load(`${SITE}/pricing`)
+    await until(() => h.snap().page.url === `${SITE}/pricing`)
+    await h.cmd("openProject", "/repo")
+    await until(() => h.snap().session?.id === first)
+    assert.deepEqual([h.snap().site!.directory, h.snap().review.notes.map((n) => n.text)], ["/repo", ["the first project's note"]])
+  } finally {
+    await h.close()
+  }
+})
+
+test("setDirectory: the site on screen goes to the folder with its notes, unless the folder has this address already", async () => {
+  const h = await boot()
+  try {
+    await h.ready()
+    const first = h.snap().session!.id
+    h.note("made before the code moved")
+    await until(() => h.snap().review.notes.length === 1)
+    // The code moved (or the folder was the wrong one): the notes stay with the page.
+    await h.cmd("setDirectory", "/moved")
+    await until(() => !!h.snap().session && h.snap().session!.id !== first)
+    const moved = h.snap().session!.id
+    assert.deepEqual([h.snap().site, h.snap().review.notes.length], [{ origin: SITE, directory: "/moved" }, 1])
+
+    // Another project at the address, then the first one's folder chosen from there: its own place opens, and this one is kept.
+    await h.cmd("openProject", "/other")
+    h.page.load(`${SITE}/`)
+    await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
+    const other = h.snap().session!.id
+    assert.deepEqual([h.snap().site!.directory, h.snap().review.notes.length], ["/other", 0])
+    await h.cmd("setDirectory", "/moved")
+    await until(() => h.snap().session?.id === moved)
+    assert.deepEqual([h.snap().site, h.snap().review.notes.length], [{ origin: SITE, directory: "/moved" }, 1])
+    await h.cmd("openProject", "/other")
+    await until(() => h.snap().session?.id === other)
+    assert.deepEqual([h.snap().site, h.snap().review.notes.length], [{ origin: SITE, directory: "/other" }, 0])
+  } finally {
+    await h.close()
+  }
+})
+
+test("the next launch: the address is opened in the project that was open, though another project had it first", async () => {
+  const sites = { [SITE]: { directory: "/repo", session: "ses_repo" }, [`${SITE}#2`]: { directory: "/other", url: `${SITE}/about`, seen: 2 } }
+  const note = (id: string) => ({ version: 1, enabled: true, draft: null, notes: [savedNote(id, 1, "done", `msg_${id}`, "ses_gone")] })
+  const h = await boot({ settings: { version: 1, folder: "/other", lastUrl: `${SITE}/about`, sites }, reviews: { [SITE]: note("firsts"), [`${SITE}#2`]: note("seconds") } })
+  try {
+    // The shell loads the last address by itself (stubs/host.ts).
+    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await until(() => !!h.snap().session)
+    assert.deepEqual([h.snap().page.url, h.snap().site, h.snap().review.notes.map((n) => n.text)], [`${SITE}/about`, { origin: SITE, directory: "/other" }, ["seconds"]])
+  } finally {
+    await h.close()
+  }
+})
+
+test("a project whose folder is gone, at an address another project had first: the folder is asked for, the other project is not opened in its place", async () => {
+  const sites = { [SITE]: { directory: "/repo" }, [`${SITE}#2`]: { directory: "/gone" } }
+  const note = (id: string) => ({ version: 1, enabled: true, draft: null, notes: [savedNote(id, 1, "done", `msg_${id}`, "ses_gone")] })
+  const h = await boot({ settings: { version: 1, folder: "/gone", lastUrl: `${SITE}/about`, sites }, reviews: { [SITE]: note("firsts"), [`${SITE}#2`]: note("seconds") } })
+  try {
+    h.server.route("GET", "/api/fs/list", (req) => (req.query.get("path") === "/gone" ? { status: 404, json: { _tag: "FileNotFoundError", message: "Directory not found: /gone" } } : { json: { location: { directory: "/" }, data: [] } }))
+    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await until(() => h.snap().missingFolder === "/gone")
+    // The page goes on meanwhile (it finishes loading, a link is followed).
+    h.page.load(`${SITE}/pricing`)
+    await sleep(30)
+    assert.deepEqual([h.snap().site, h.snap().missingFolder, h.snap().session, h.snap().review.notes.map((n) => n.text)], [{ origin: SITE }, "/gone", null, ["seconds"]])
+    await h.cmd("setDirectory", "/found")
+    await until(() => !!h.snap().session)
+    assert.deepEqual([h.snap().site, h.snap().review.notes.map((n) => n.text)], [{ origin: SITE, directory: "/found" }, ["seconds"]])
+  } finally {
+    await h.close()
+  }
+})
+
 test("servers are remembered: a second one starts clean, and going back needs no password and brings the first one's repo, page and notes", async () => {
   const h = await boot()
   const second = await fakeOpenCode()

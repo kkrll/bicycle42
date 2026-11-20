@@ -84,8 +84,12 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   each step answered with `frame-shown` two frames later), `show` to bring a note's pin into
   view. The two scripts that are run there (is the page hot-reloading itself, is the reviewer
   mid-note) are `page.ts`'s own.
-- **The repo comes before the site.** `settings.folder` is the repo that is open; a site seen for
-  the first time works in it (`adopt` in `core.ts`). With a repo and no page, the app is at a
+- **The repo comes before the site.** `settings.folder` is the repo that is open; an address
+  seen in it for the first time works in it (`adopt` in `core.ts`). A site is an address in a
+  repo, not an address: a port is whoever's dev server took it, so the same origin in another
+  repo is another place, with its own entry in `settings.sites`, notes file and conversation
+  (`placeOf`: the first repo's under the origin alone, a later one's under the origin and a
+  mark). With a repo and no page, the app is at a
   place of its own (`HOME`) that has a conversation like any site, so the agent can be asked to
   get the site running (`startSite`): the prompt says whether app and server share a computer
   and asks for a last line `SITE: <address>`, which is opened when the run ends and no page
