@@ -1228,6 +1228,7 @@ const MOTION: MotionView = {
     { group: "Unused" },
     { id: "unused|||wiggle", kind: "unused", text: "wiggle", aside: "", duration: null, on: false, sub: false, last: false, off: true, running: false, dirty: false },
   ],
+  partial: false,
   sel: "Heading · Ship calmer interfaces",
   open: {
     kind: "css",

@@ -11,14 +11,22 @@
 // Asks within one task are one view, built once the task is done; panel.js sends at most one a
 // frame.
 //
-// The playhead. A view is whole every time, and the playhead moves every frame while something
-// plays. Its position travels in the view (`clock`), sent from the layer's frame whenever it
-// changed, and the host draws it as it is told: the host does not run a clock of its own between
-// views. A real page's position is not a line in time (a delay, repeats, alternate directions, a
-// script's own easing, Loop's pause between runs, a page that stalls), so a playhead the host
-// moved by itself would disagree with what the page shows. To keep a view cheap to send every
-// frame, everything but the clock is built once per change and kept (M.hostBody); a frame that
-// only moved the playhead sends the kept body with a new clock.
+// The playhead. The playhead moves every frame while something plays. Its position travels in
+// the view (`clock`), sent from the layer's frame whenever it changed, and the host draws it as
+// it is told: the host does not run a clock of its own between views. A real page's position is
+// not a line in time (a delay, repeats, alternate directions, a script's own easing, Loop's pause
+// between runs, a page that stalls), so a playhead the host moved by itself would disagree with
+// what the page shows. Everything but the clock is built once per change and kept (M.hostBody); a
+// frame that only moved the playhead sends the kept body with a new clock.
+//
+// What goes. panel.js sends the fields of a view that are not the objects that went last, so a
+// field that says what it said is to be the object it was. The fields that are words, numbers
+// and yes or no are that by themselves. The others are kept here (the M.host… of model.js) and
+// handed on while they say the same: the clock; the list's rows, each row and then the whole
+// list (a list read from the page again that says the same is not sent again); what is open;
+// the names; and the choices, which are the same while what is open sets the same properties.
+// A keystroke in the note is then the note's words alone, and a step of a keyframe's drag is
+// what is open and the clock. Nothing that went is changed afterwards: a change is a new object.
 
 import { S } from "../state.js";
 import { hosted, onAct, sendView } from "../panel.js";
@@ -27,27 +35,58 @@ import { setMode } from "../mode.js";
 import { kick } from "../render.js";
 import { apply, clamp, COUNT, DIRECTION, EASINGS, FILL, frames, HOW, M, name, openDirty, openKf, openUse, pathOf, PROPS, r1, RATE_TEXT, RATES, readOnly } from "./model.js";
 import { animOf, knownNames, newAnimation, position, reveal, running, seek, selectEl, toggle, useKf } from "./open.js";
-import { addKey, addLane, commit, cssText, detach, discard, keyInfo, laneOrder, moveKey, removeKey, removeLane, rows, segEase, setCss, setKey, setName, setTiming, sharedBy, timing, travel } from "./edit.js";
+import { addKey, addLane, commit, cssText, detach, discard, keyInfo, laneOrder, moveKey, removeKey, removeLane, rowNow, rows, segEase, setCss, setKey, setName, setTiming, sharedBy, timing, travel } from "./edit.js";
 import { submit } from "./send.js";
 import { draw, flash, sentStatus } from "./draw.js";
 
 // ── the view ─────────────────────────────────────────────────────────────────────────────
-/** The rows of the list, each with an id that names the same thing in the next view: its kind,
- *  the animation it is under, its element, its words. */
+const ROW = ["id", "kind", "text", "aside", "duration", "on", "sub", "last", "off", "running", "dirty"];
+/** The rows of the list as the view has them: the rows read from the page (rows in edit.js,
+ *  kept) with what the reviewer's state says of each now. A row that says what it said is the
+ *  object it was, and so is the list when every row is. */
 function listed() {
-  const seen = new Map();
-  let under = "";
-  return rows().map((r) => {
-    if (r.group) return r;
-    if (!r.sub) under = r.text;
-    let id = `${r.kind}|${r.sub ? under : ""}|${r.els && r.els.length === 1 ? pathOf(r.els[0]) : ""}|${r.text}`;
-    const n = seen.get(id) || 0;
-    seen.set(id, n + 1);
-    if (n) id += `#${n}`;
-    return { ...r, id };
+  const base = rows(), was = M.hostRows;
+  let same = was.length === base.length;
+  const list = base.map((b, i) => {
+    const old = was[i];
+    if (b.group) {
+      if (old && old.group === b.group) return old;
+      same = false;
+      return { group: b.group };
+    }
+    const now = rowNow(b), d = now.duration;
+    const r = { id: b.id, kind: b.kind, text: b.text, aside: b.aside, duration: typeof d === "number" && Number.isFinite(d) ? Math.round(d) : null,
+      on: now.on, sub: !!b.sub, last: !!b.last, off: now.off, running: now.running, dirty: now.dirty };
+    if (old && ROW.every((k) => old[k] === r[k])) return old;
+    same = false;
+    return r;
   });
+  M.hostBase = base;
+  return same ? was : (M.hostRows = list);
+}
+/** No list (motion mode is off): the empty one that went last, if one did. */
+function unlisted() {
+  M.hostBase = [];
+  return M.hostRows.length ? (M.hostRows = []) : M.hostRows;
 }
 const pairs = (map) => Object.entries(map).map(([v, [text, what]]) => [v, text, what || v]);
+/** The words of the choices the dock offers: the same in every view, but the properties, which
+ *  are those what is open does not set yet (choices below). */
+const CHOICES = {
+  easings: EASINGS,
+  props: PROPS,
+  starts: Object.entries(HOW),
+  count: pairs(COUNT),
+  direction: pairs(DIRECTION),
+  fill: pairs(FILL),
+  rates: RATES.map((r) => [r, RATE_TEXT[r]]),
+};
+/** The choices for what is open: the object they were while it sets the same properties. */
+function choices(open) {
+  const lanes = open ? open.lanes.map((l) => l.prop) : [], is = lanes.join("|");
+  if (is !== M.hostLanes || !M.hostChoices) (M.hostLanes = is), (M.hostChoices = { ...CHOICES, props: PROPS.filter((p) => !lanes.includes(p)) });
+  return M.hostChoices;
+}
 function openView() {
   const o = M.open;
   if (!o) return null;
@@ -78,18 +117,18 @@ function openView() {
 /** Everything but the clock. */
 function body() {
   const on = M.on && S.enabled;
-  const list = on ? listed() : [];
-  M.hostRows = list;
-  const open = on ? openView() : null;
-  const lanes = open ? open.lanes.map((l) => l.prop) : [];
+  // What is open is built each time (from M alone: it is small) and kept when it says the same.
+  const open = on ? openView() : null, openIs = open ? JSON.stringify(open) : "";
+  if (openIs !== M.hostOpenIs) (M.hostOpen = open), (M.hostOpenIs = openIs);
+  const names = on && M.sel && !M.open ? knownNames() : [];
+  if (names.length !== M.hostNames.length || names.some((n, i) => n !== M.hostNames[i])) M.hostNames = names;
   return {
     on,
-    rows: list.map((r) => (r.group ? { group: r.group }
-      : { id: r.id, kind: r.kind, text: r.text, aside: r.aside || "", duration: typeof r.duration === "number" && Number.isFinite(r.duration) ? Math.round(r.duration) : null,
-        on: !!r.on, sub: !!r.sub, last: !!r.last, off: !!r.off, running: !!r.running, dirty: !!r.dirty })),
+    rows: on ? listed() : unlisted(),
+    partial: on && M.scan.partial,
     sel: on && M.sel ? name(M.sel) : null,
-    open,
-    names: on && M.sel && !M.open ? knownNames() : [],
+    open: M.hostOpen,
+    names: M.hostNames,
     view: M.view,
     rate: M.rate,
     loop: M.loop,
@@ -99,15 +138,7 @@ function body() {
     note: M.note,
     msg: M.msg,
     status: M.done || (M.open && openDirty() ? "" : sentStatus()),
-    choices: {
-      easings: EASINGS,
-      props: PROPS.filter((p) => !lanes.includes(p)),
-      starts: Object.entries(HOW),
-      count: pairs(COUNT),
-      direction: pairs(DIRECTION),
-      fill: pairs(FILL),
-      rates: RATES.map((r) => [r, RATE_TEXT[r]]),
-    },
+    choices: choices(M.hostOpen),
   };
 }
 const clockNow = () => (M.on && S.enabled ? { pos: (() => {
@@ -118,9 +149,9 @@ const clockKey = (c) => `${c.pos}|${c.playing}|${c.on}`;
 function out() {
   if (!hosted("motion")) return;
   if (!M.hostBody) M.hostBody = body();
-  const clock = clockNow();
-  M.hostClock = clockKey(clock);
-  sendView("motion", { ...M.hostBody, clock });
+  const clock = clockNow(), is = clockKey(clock);
+  if (is !== M.hostClock || !M.hostClockIs) (M.hostClock = is), (M.hostClockIs = clock);
+  sendView("motion", { ...M.hostBody, clock: M.hostClockIs });
 }
 /** The dock is to be drawn again: one view, once this task is done. */
 export function wantView() {
@@ -142,15 +173,17 @@ export function hostFrame() {
 export function hostSync() {
   if (hosted("motion")) return wantView();
   M.rowEls = null; // no dock: no row of it under the pointer
+  unlisted(); // and none of the page's elements kept for its list
 }
 
 // ── what is done in the host's dock ──────────────────────────────────────────────────────
-const row = (id) => M.hostRows.find((r) => !r.group && r.id === id);
+/** The row of the last view with this id, as read from the page (its elements, what opens it). */
+const row = (id) => M.hostBase[M.hostRows.findIndex((r) => !r.group && r.id === id)];
 const str = (v) => String(v ?? "");
 const ACTS = {
   row(a) {
     const r = row(a.id);
-    if (!r || r.off) return;
+    if (!r || rowNow(r).off) return;
     r.open();
     reveal(M.sel);
   },

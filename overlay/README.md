@@ -69,7 +69,13 @@ src/globals.d.ts    what the type check cannot read from the .js files
   `src/panel.js` for every pane). Everything that is the page's stays here: the selection,
   the edits and their undo, playing, sending. Motion's side of it is `src/motion/host.js`:
   wherever what the dock shows changed a view is built, and each act calls `open.js`, `edit.js`
-  or `send.js`; the note's words are the overlay's too (`M.note`). On the page itself motion
+  or `send.js`; the note's words are the overlay's too (`M.note`). The list is made by looking
+  at the page's elements (`scan` in `model.js`, a computed style each): 4000 at most. A page with
+  more is looked at in part and the view says so (`partial`); what plays now is still found past
+  that, from the page's own list of animations, and keyframes no element was seen to play are
+  listed as "Not seen playing", never as "Unused". What was found holds the page's elements, so
+  it is kept only while the mode is on (`forget`; off, `scan` looks at nothing), and an element
+  a script moves frame by frame is listed only while it is in the page. On the page itself motion
   mode keeps the tag on the open element, the outlines, a click that opens what was clicked, and
   the keys while the page has the keyboard (space, ←/→, Delete, mod+Z, Enter, Esc). In the harness,
   `__harness.hostDocks(["motion"])` plays such a host, `__harness.act(panel, act)` its dock, and

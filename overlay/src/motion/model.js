@@ -33,9 +33,14 @@ export const FILL = { none: ["None", "Before it starts and after it ends, the el
 export const RATES = [1, 0.5, 0.25, 0.1];
 export const RATE_TEXT = { 1: "1×", 0.5: "½×", 0.25: "¼×", 0.1: "⅒×" };
 export const MAX_KF = 4000; // the keyframes' text, as the host takes it
+/** Elements looked at in one scan. A page with more is looked at in part, and says so. */
+const MAX_ELS = 4000;
 export const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
 export const r1 = (n) => Math.round(n * 10) / 10;
 export const ms = (n) => `${Math.round(n)}ms`;
+/** What a scan finds on a page nothing moves on (and what is known of any page while motion mode
+ *  is off: nothing). */
+const nothing = () => ({ anims: [], unused: [], transitions: [], scripts: [], rules: new Map(), partial: false });
 export const M = {
   on: false,
   sel: null, selRs: "", hover: null,
@@ -48,8 +53,11 @@ export const M = {
   isolate: false, rate: 1, loop: false, loopAt: 0, pos: 0,
   past: [], future: [], snap: "",
   held: null, // the page's Animation object for what is open
-  scan: { anims: [], unused: [], transitions: [], scripts: [], rules: new Map() },
-  suspects: new Set(), // elements whose inline style changes many times a second
+  // What moves on the page, as last looked at; it holds the page's elements, so it is kept only
+  // while motion mode is on (forget).
+  scan: nothing(),
+  suspects: new Set(), // elements whose inline style changes many times a second (while they are in the page)
+  list: null, // the list's rows as read from the page, kept until it is looked at again (edit.js: rows)
   sheet: null, // the unsent edits, as rules
   // [{ id, sheet, seen, n, undo: [{ x, index, entry }] }]: applied until the pin is done. seen:
   // its pin has been listed; n: the pin's number, null until it has one; undo: the element's
@@ -62,9 +70,14 @@ export const M = {
   msg: "", msgTimer: 0, done: "", doneTimer: 0,
   note: "", // the words that go with the open animation, as typed in the host's dock
   // The host's dock (host.js): the view without its clock as last built (null: to be built
-  // again), the clock last sent, a view asked for in this task, the rows that view listed (what
-  // "row" and "hover" name), why the keyframes' text is not keyframes.
-  hostBody: null, hostClock: "", hostQueued: false, hostRows: [], cssWhy: "",
+  // again), a view asked for in this task, why the keyframes' text is not keyframes. And the
+  // fields of the view that are objects, as last built, to be the next view's too when they say
+  // the same (a field that is the same object is not sent again): the clock (and what it says,
+  // as text), the list's rows (and the rows read from the page they were made from, by index:
+  // what "row" and "hover" name), what is open (and what it says, as text), the names, the choices (and the properties of what
+  // is open they were made for).
+  hostBody: null, hostQueued: false, cssWhy: "",
+  hostClock: "", hostClockIs: null, hostRows: [], hostBase: [], hostOpen: null, hostOpenIs: "", hostNames: [], hostChoices: null, hostLanes: "",
 };
 
 // ── elements of the page ─────────────────────────────────────────────────────────────────
@@ -245,7 +258,16 @@ export function apply() {
 }
 
 // ── what moves on this page ──────────────────────────────────────────────────────────────
+/** Motion mode is off: none of the page's elements are kept for it. A page that goes on
+ *  re-rendering would otherwise have its old elements held here for as long as it lives. */
+export function forget() {
+  M.scan = nothing();
+  M.suspects.clear();
+  M.list = null;
+}
+/** Looks at the page (while motion mode is on: off, there is no one to look for). */
 export function scan() {
+  if (!M.on) return forget();
   const rules = new Map(); // name → the @keyframes rule that wins (the last one)
   const walk = (list) => {
     for (const r of list) {
@@ -259,20 +281,34 @@ export function scan() {
     } catch {} // another origin's stylesheet: its animations are still read, through the API
   }
   for (const b of M.sent) walk(b.sheet.cssRules); // what was sent is what the page plays now
-  const anims = new Map(), transitions = [];
+  const anims = new Map(), transitions = []; // anims: name → the elements that play it (a Set, in the order found)
+  const plays = (nm, el) => (anims.get(nm) || anims.set(nm, new Set()).get(nm)).add(el);
   const all = document.body ? document.body.getElementsByTagName("*") : [];
-  for (let i = 0; i < all.length && i < 4000; i++) {
+  // A very large page is looked at in part: each element costs a computed style.
+  const partial = all.length > MAX_ELS;
+  for (let i = 0; i < all.length && i < MAX_ELS; i++) {
     const el = all[i];
     if (el === hostEl || SKIP.test(el.tagName)) continue;
     const cs = getComputedStyle(el);
-    if (cs.animationName !== "none") for (const nm of splitTop(cs.animationName)) (anims.get(nm) || anims.set(nm, []).get(nm)).push(el);
+    if (cs.animationName !== "none") for (const nm of splitTop(cs.animationName)) plays(nm, el);
     if (cs.transitionProperty !== "none" && splitTop(cs.transitionDuration).some((d) => parseFloat(d) > 0)) transitions.push(el);
   }
   const live = /** @type {any[]} */ (document.getAnimations());
+  // Past where the look stopped, what plays now (or holds a frame) is still found: the page lists
+  // its animations whatever its size. What is left out there is what has ended and holds
+  // nothing, and transitions; so keyframes no element was seen to play are not known to be
+  // unused (`partial`, which the list and the dock say).
+  if (partial)
+    for (const a of live) {
+      const el = a instanceof CSSAnimation && a.effect && !(/** @type {any} */ (a.effect).pseudoElement) ? /** @type {any} */ (a.effect).target : null;
+      if (el && el.isConnected && el.getRootNode() === document && !SKIP.test(el.tagName)) plays(a.animationName, el);
+    }
   const running = new Set(live.filter((a) => a.playState === "running" && a.animationName).map((a) => a.animationName));
+  M.list = null; // the list is of the page as it was looked at before
   M.scan = {
     rules,
-    anims: [...anims].map(([nm, els]) => ({ name: nm, els, running: running.has(nm) })),
+    partial,
+    anims: [...anims].map(([nm, els]) => ({ name: nm, els: [...els], running: running.has(nm) })),
     unused: [...rules.keys()].filter((n) => !anims.has(n)),
     transitions,
     scripts: live.filter((a) => !(a instanceof CSSAnimation) && !(a instanceof CSSTransition) && a.effect && a.effect.target && a.effect.target.getRootNode() !== root),

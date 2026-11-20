@@ -6,7 +6,7 @@ import { rectOf } from "../page.js";
 import { hostFrame, hostSync, wantView } from "./host.js";
 import * as Notes from "../notes/api.js";
 import * as Canvas from "../canvas/api.js";
-import { apply, M, mq, name, scan } from "./model.js";
+import { apply, forget, M, mq, name, scan } from "./model.js";
 import { animOf, letGo, running, selectEl, show } from "./open.js";
 import { snapshot } from "./edit.js";
 import { tagEl } from "./input.js";
@@ -39,6 +39,7 @@ export function setOn(on) {
     M.rowEls = null;
     watchSuspects(false);
     M.on = false;
+    forget();
     apply();
   }
   try {
@@ -60,24 +61,37 @@ export function resume() {
  *  dock is the host's, beside the page: the page needs no room for it.) */
 export const syncUi = () => hostSync();
 /** What no stylesheet and no animation object accounts for: an inline style rewritten many
- *  times a second. It cannot be edited here, but the list can say it is there. */
+ *  times a second. It cannot be edited here, but the list can say it is there. Only while it is
+ *  in the page: a toast a script slid in and took out again is no longer listed, and not kept
+ *  (the count per element is the element's own, and goes with it). */
 function watchSuspects(on) {
   if (M.obs) M.obs.disconnect();
   M.obs = null;
   if (!on || !document.body) return;
-  const seen = new Map();
+  const seen = new WeakMap();
   M.obs = new MutationObserver((list) => {
     const now = performance.now();
+    let removed = false, changed = false;
     for (const m of list) {
+      if (m.type === "childList") {
+        if (m.removedNodes.length) removed = true;
+        continue;
+      }
       const c = seen.get(m.target) || seen.set(m.target, { n: 0, t: now }).get(m.target);
       if (now - c.t > 1000) (c.n = 0), (c.t = now);
       if (++c.n === 20 && !M.suspects.has(m.target)) {
         M.suspects.add(m.target);
-        drawList();
+        changed = true;
       }
     }
+    // (After the counting: one moved and taken out in the same breath is not left in.)
+    if (removed && M.suspects.size) for (const el of M.suspects) if (!el.isConnected) changed = M.suspects.delete(el) || changed;
+    if (changed) {
+      M.list = null;
+      drawList();
+    }
   });
-  M.obs.observe(document.body, { attributes: true, attributeFilter: ["style"], subtree: true });
+  M.obs.observe(document.body, { attributes: true, attributeFilter: ["style"], childList: true, subtree: true });
 }
 
 // ── drawing ──────────────────────────────────────────────────────────────────────────────

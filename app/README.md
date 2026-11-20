@@ -326,11 +326,16 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   layout asks its own box (container queries, which style what is in the box, never the box):
   wide, the list beside what is open; narrower than 720, one or the other with a way back and
   narrower lane names; narrow and at least 600 tall (beside a phone's page), the list above
-  what is open. A field that comes with a view (a new animation's name, a new lane's or
+  what is open. A list that is not the whole page's (the overlay looked at a part of a very
+  large page: `partial`) says so in a line under it. A field that comes with a view (a new animation's name, a new lane's or
   keyframe's value) gets the caret once the view has drawn it. Typing, a keyframe dragged and the
   playhead scrubbed are drawn from the hand until the view agrees (an act's view comes back on
   the page's next frame, 20 to 35 ms headless; a ping is about 1 ms). Its popovers stay inside
-  its box: the page view paints over the window wherever it sits.
+  its box: the page view paints over the window wherever it sits. There is one at a time, drawn
+  in one place, and each is a child of the component that opened it (`usePop`): it reads what
+  that component reads, so it goes when the component does (a keyframe deleted with its easings
+  open, what is open closed under the "More" sheet). A field removed with the caret in it hears a
+  blur from Chromium as it goes, and asks nothing then.
 - **Edit's inspector is the window's** (`renderer/canvas-dock.tsx`, its own `canvas-dock.css`; the
   overlay's side is `overlay/src/canvas/host.js`). Its fields are its own while typed in and its
   suggestions are worked out here (the overlay's pure `suggest-model.js`, `number.js`,

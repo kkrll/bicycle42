@@ -1187,6 +1187,53 @@ async function main() {
   // Undo, from the dock's own button: the page's keyframes again.
   await ui(`document.querySelector('.mdock-hd [aria-label="Undo"]').click()`)
   check("undo in the window's dock takes the drag back on the page", (await until(async () => !/@keyframes rise/.test(await sheets()))) === true)
+  // A popover goes with what opened it. The selected keyframe's easings are open when the
+  // keyframe is deleted: the list reads that keyframe, and the dock must outlive it.
+  const werrors: string[] = []
+  const onConsole = (e: { level: string; message: string }) => void (e.level === "error" && werrors.push(e.message))
+  win.webContents.on("console-message", onConsole as never)
+  const drawnKeys = () => ui(`[...document.querySelectorAll('.mdock-kspan[data-lane="opacity"] .mdock-key')].map((k) => k.dataset.at).join()`) as Promise<string>
+  const popped = (sel: string) => ui(`!!document.querySelector(".mdock-pop ${sel}")`) as Promise<boolean>
+  // (The undo's view first: until it comes the dock still draws the keyframe that was dragged.)
+  await until(() => ui(`!document.querySelector(".mdock-kb")`))
+  const grip0 = (await ui(`(() => { const r = document.querySelector('.mdock-kspan[data-lane="opacity"] .mdock-key[data-at="0"]').getBoundingClientRect(); return Math.round(r.x + r.width / 2) })()`)) as number
+  wmouse("mouseMove", grip0)
+  wmouse("mouseDown", grip0)
+  wmouse("mouseUp", grip0)
+  await until(() => ui(`document.querySelector(".mdock-kb [data-kat]")?.value === "0" && !!document.querySelector(".mdock-kb .mdock-cvb")`))
+  await ui(`document.querySelector(".mdock-kb .mdock-cvb").click()`)
+  const easeUp = await until(() => popped(".mdock-ez"))
+  await key(".mdock-tl", "Delete")
+  const deleted = await until(async () => (await drawnKeys()) === "100" && !(await popped("")) && !(await ui(`!!document.querySelector(".mdock-kb")`)), 3000)
+  check(
+    "a keyframe deleted with its easings open: the dock draws it gone, and the list and the keyframe's fields with it",
+    easeUp === true && deleted === true && werrors.length === 0,
+    `list up ${easeUp}; keys ${await drawnKeys()}; popover ${await ui(`!!document.querySelector(".mdock-pop")`)}; fields ${await ui(`!!document.querySelector(".mdock-kb")`)}; ${werrors.join(" / ")}`,
+  )
+  await ui(`document.querySelector('.mdock-hd [aria-label="Undo"]').click()`)
+  const undeleted = await until(async () => (await drawnKeys()) === "0,100" && !/@keyframes rise/.test(await sheets()), 3000)
+  // A field that had the caret when the view took it away hears a blur as it goes (Chromium tells
+  // a removed element so): it is no longer the field of anything, and asks nothing.
+  await ui(`window.b42.invoke("panel", { panel: "motion", act: { type: "select", key: { at: 0, prop: "opacity" } } })`)
+  await until(() => ui(`!!document.querySelector(".mdock-kb [data-kval]")`))
+  await ui(`(window.__kval = document.querySelector(".mdock-kb [data-kval]")).dispatchEvent(new FocusEvent("focus"))`)
+  await ui(`window.b42.invoke("panel", { panel: "motion", act: { type: "select", key: null } })`)
+  const fieldGone = await until(() => ui(`!document.querySelector(".mdock-kb")`), 3000)
+  await ui(`window.__kval.dispatchEvent(new FocusEvent("blur")), delete window.__kval`)
+  await sleep(50)
+  // The "More" sheet is the header's: what is open closed, the header goes and the sheet with it.
+  await ui(`document.querySelector('.mdock-hd [aria-label="More"]').click()`)
+  const moreUp = await until(() => popped(".mdock-more"))
+  await ui(`window.b42.invoke("panel", { panel: "motion", act: { type: "back" } })`)
+  const moreGone = await until(async () => !(await ui(`!!document.querySelector(".mdock-hd")`)) && !(await ui(`!!document.querySelector(".mdock-pop")`)), 3000)
+  check(
+    "the dock goes on working (undo brings the keyframe back); a field taken away while it had the caret asks nothing; the More sheet goes with the header it hangs from",
+    undeleted === true && fieldGone === true && moreUp === true && moreGone === true && werrors.length === 0,
+    `keys ${await drawnKeys()}; sheet up ${moreUp}; header ${await ui(`!!document.querySelector(".mdock-hd")`)}; popover ${await ui(`!!document.querySelector(".mdock-pop")`)}; ${werrors.join(" / ")}`,
+  )
+  win.webContents.off("console-message", onConsole as never)
+  await ui(`(() => { const rows = [...document.querySelectorAll(".mdock-row")]; const i = rows.findIndex((r) => r.querySelector(".mdock-nm").textContent === "rise"); rows[i + 2].click() })()`)
+  await until(async () => (await duration()) === "900")
   const rtt = (await ui(`document.querySelector(".mdock")?.dataset.rtt ?? ""`)) as string
   // And an act to the view it brings back: the ping's way, and the overlay's next frame.
   const trips = (await ui(`(async () => {
@@ -1280,6 +1327,20 @@ async function main() {
   const named = await until(() => ui(`document.activeElement?.matches("[data-mname]") && document.activeElement.value === "new-animation"`), 3000)
   check("New in the window's dock makes a new animation, its name ready to be typed", named === true, (await ui(`document.activeElement?.outerHTML.slice(0, 120)`)) as string)
   await ui(`window.b42.invoke("panel", { panel: "motion", act: { type: "discard" } })`)
+  await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
+  await until(async () => state().review.mode === "notes")
+  // A page too large to look at whole (4,100 elements ahead of everything that moves): the dock
+  // says its list is of a part, still lists what plays, and calls no keyframes unused.
+  await js(`(() => { const box = document.createElement("div"); box.id = "b42-test-many"; box.hidden = true; box.innerHTML = "<i></i>".repeat(4100); document.body.prepend(box) })()`)
+  await ui(`document.querySelector('.mode[data-mode="motion"]').click()`)
+  const mlist = () => ui(`[...document.querySelectorAll(".mdock-list > *")].map((r) => (r.matches(".mdock-row") ? (r.matches(".sub") ? "" : r.querySelector(".mdock-nm").textContent + (r.dataset.kind === "unused" ? "?" + r.title : "")) : (r.matches(".mdock-grp") ? "#" : "") + r.textContent)).filter(Boolean).join("|")`) as Promise<string>
+  const partList = (await until(async () => (/A large page/.test(await mlist()) ? mlist() : null), 3000)) ?? ""
+  check(
+    "a page too large to look at whole: the dock says its list is of a part, lists what plays further down, and calls no keyframes unused",
+    /^#Animations\|spin\|rise\|pulse\|card-in\|/.test(partList) && /#Not seen playing\|wiggle\?Keyframes nothing was seen to play\|A large page/.test(partList) && !/Unused/.test(partList),
+    partList || (await mlist()),
+  )
+  await js(`document.getElementById("b42-test-many").remove()`)
   await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
   await until(async () => state().review.mode === "notes")
 
