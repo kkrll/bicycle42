@@ -416,6 +416,22 @@ test("hosted: while it plays, the open element is not searched for in the page: 
   await page.close();
 });
 
+test("hosted: a row says the reviewer's edits of its element after the page put another element before it", async () => {
+  const { page, f, errors, v } = await open();
+  // The page changes after the list was read: the spinner is no longer its parent's first <i>,
+  // so the path its edits are kept under is another than the one the list was read with.
+  await f.evaluate(() => document.querySelector(".sync").prepend(document.createElement("i")));
+  await frames(f, 3);
+  await act(page, { type: "row", id: rowId(v, "spin") });
+  await view(page, "v.open && v.open.name === 'spin'");
+  await act(page, { type: "timing", what: "duration", value: "2000", done: false });
+  const now = await view(page, "v.open.timing.duration === 2000");
+  const row = now.rows.find((r) => r.text === "spin" && !r.sub);
+  assert.deepEqual({ on: row.on, dirty: row.dirty, duration: row.duration }, { on: true, dirty: true, duration: 2000 });
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
 test("hosted: a new animation, named in the dock; Esc steps back to notes mode", async () => {
   const { page, f, errors } = await open();
   const b = await f.locator(".card h3").first().boundingBox();

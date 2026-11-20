@@ -57,7 +57,7 @@ export const M = {
   // while motion mode is on (forget).
   scan: nothing(),
   suspects: new Set(), // elements whose inline style changes many times a second (while they are in the page)
-  list: null, // the list's rows as read from the page, kept until it is looked at again (edit.js: rows)
+  list: null, listTree: -1, // the list's rows as read from the page, kept until it is looked at again or elements came or went (edit.js: rows)
   sheet: null, // the unsent edits, as rules
   // [{ id, sheet, seen, n, undo: [{ x, index, entry }] }]: applied until the pin is done. seen:
   // its pin has been listed; n: the pin's number, null until it has one; undo: the element's

@@ -2,6 +2,7 @@
 // added, moved or removed, the timing, the keyframes as text; and the list's rows, as data.
 
 import { editSel } from "../page.js";
+import { treeVersion } from "../mount.js";
 import { draftChanged } from "../draft.js";
 import { apply, DIRECTION, FILL, frames, HOW, kfDirty, M, MAX_KF, mq, ms, name, openKf, openUse, parseKf, pathOf, playsDirty, r1, readList, scan, serialize, splitTop, useDirty } from "./model.js";
 import { animOf, openCss, openScript, openTransition, seek, useKf } from "./open.js";
@@ -342,14 +343,17 @@ export function setName(v, done) {
 // their paths and words, the duration the page's CSS gives) costs a look at every sibling for a
 // path and a computed style for a duration, for each row; so it is read once per look at the
 // page and kept (M.list: scan() drops it, and so does an element a script moves coming or
-// going). What the reviewer's own state says of a row (`rowNow`: it is open, it has unsent
+// going, and any element coming into the page or leaving it). What the reviewer's own state says of a row (`rowNow`: it is open, it has unsent
 // edits, its duration as edited) is worked out from M alone, for every view. A view for a
 // keystroke or a step of a drag then reads nothing of the page for its list.
 /** The rows as read from the page, each with an `id` that names the same thing in the next
  *  list (its kind, the animation it is under, its element, its words), its elements (`els`), the
  *  one element's path (`path`, "" when it is not of one element) and what opens it (`open`). */
 export function rows() {
-  if (M.list) return M.list;
+  // (An element put into the page or taken out of it moves the paths of those after it, and a
+  // path is what an element's edits are kept under: the list is read again then.)
+  if (M.list && M.listTree === treeVersion) return M.list;
+  M.listTree = treeVersion;
   const found = M.scan, out = /** @type {any[]} */ ([]);
   /** How the page's CSS has one element play one animation, as far as a row says it. */
   const played = (el, nm) => {
