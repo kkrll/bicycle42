@@ -570,6 +570,11 @@ export function App() {
     observer.observe(stageEl)
     const resized = () => {
       setWinWidth(window.innerWidth)
+      // The stage's new height now, not when the observer says it: the window's size event
+      // comes before the frame's report and the observer after it, so the report measured a
+      // phone's box where it now sits at the size it had, and the next frame's the size it has.
+      // Two boxes a change of height, each a move of the page view in main.
+      setColHeight(stageEl.clientHeight)
       schedule()
     }
     window.addEventListener("resize", resized)
