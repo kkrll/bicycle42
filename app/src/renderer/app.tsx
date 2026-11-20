@@ -749,18 +749,11 @@ export function App() {
   })
 
   return (
-    <div
-      class="app"
-      style={{
-        "--panel-width": `${panelWidth()}px`,
-        "--panel-max": `${maxWidth()}px`,
-        "--dock-height": `${dockHeight()}px`,
-        "--phone-width": `${pageBox().width}px`,
-        "--phone-height": `${pageBox().height}px`,
-        // (The screen's own corners at the size it is drawn, and the hairline around them.)
-        "--phone-radius": `${Math.round(phoneOf(state.page.phone).radius * fit())}px`,
-      }}
-    >
+    // The lengths the window's boxes are sized by are each set on the box that reads it, or on
+    // the nearest one around those that do (styles.css has who reads what): a variable set up
+    // here, on .app, was every element's to inherit, and an edge dragged restyled the whole
+    // window on every move of the pointer.
+    <div class="app">
       <TopBar
         bare={!ready() || setup()}
         urlRef={(el) => (urlEl = el)}
@@ -775,7 +768,12 @@ export function App() {
       </Show>
       <main class="work" inert={!ready() || setup()}>
         {/* Hidden, not unmounted: the conversation keeps its scroll position and rendered text. */}
-        <aside class="panel" ref={panelEl} hidden={!panelShown()}>
+        <aside
+          class="panel"
+          ref={panelEl}
+          hidden={!panelShown()}
+          style={{ "--panel-width": `${panelWidth()}px`, "--panel-max": `${maxWidth()}px` }}
+        >
           <Panel composerRef={(el) => (composerEl = el)} openSettings={() => setSettings(true)} size={panelSize()} />
         </aside>
         <Show when={panelShown()}>
@@ -809,11 +807,19 @@ export function App() {
         {/* The page and, when the window draws the dock of the mode that is on, that dock: under
             the page. A phone's page has a column beside it in every mode (the dock, or the page's facts),
             so it stays where it is when the mode changes. */}
-        <div class="stage" ref={stageEl} classList={{ phone: phone() }}>
+        <div class="stage" ref={stageEl} classList={{ phone: phone() }} style={{ "--dock-height": `${dockHeight()}px` }}>
         {/* A phone's page has a column of its own: in the middle of it, with air around, and
             which phone it is above it. (A desktop's page is the stage's own child: the wrapper
             makes no box then.) */}
-        <div class="device-col">
+        <div
+          class="device-col"
+          style={{
+            "--phone-width": `${pageBox().width}px`,
+            "--phone-height": `${pageBox().height}px`,
+            // (The screen's own corners at the size it is drawn.)
+            "--phone-radius": `${Math.round(phoneOf(state.page.phone).radius * fit())}px`,
+          }}
+        >
         <Show when={phone()}>
           <div class="device-bar">
             <PhonePick fit={fit()} />

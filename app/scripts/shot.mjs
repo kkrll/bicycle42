@@ -42,7 +42,7 @@ const pastePicture = `(async () => {
 })()`
 
 /** The panel at 360px, about the narrowest it is used at. */
-const narrowPanel = `document.querySelector(".app").style.setProperty("--panel-width", "360px")`
+const narrowPanel = `document.querySelector(".panel").style.setProperty("--panel-width", "360px")`
 
 /** name, mock scenario, then optional: extra query, script to run after load, ms to wait, size. */
 const SHOTS = [

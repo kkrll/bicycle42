@@ -265,6 +265,14 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   the widest phone, so another phone or another scale moves nothing beside it; the column at
   its right is 300 to 720px wide, and the panel cannot be dragged so wide that it gets less
   (`maxWidth`, `--panel-max`).
+- **A length the window's boxes are sized by is set where it is read.** `--panel-width` and
+  `--panel-max` on the panel, `--dock-height` on the stage, the phone's three on the phone's
+  column (`renderer/app.tsx`). The panel's and the dock's, which follow the pointer while an
+  edge is dragged, are registered not to inherit (`@property` in `styles.css`; the dock asks for
+  the stage's by name): set on `.app` and inherited, as a variable is by default, each move
+  restyled every element of the window, the whole conversation with it. Counted from Chromium's
+  trace in `app.e2e.ts`: 457 elements restyled a move (all the test window has, its
+  pseudo-elements included), now 17 for the panel's edge and 14 for the dock's.
 - **Which phone** (`setPhone`, `page.phone`; kept in settings, also while the page is a
   desktop's). The list above the page is a native `<select>` under words (`PhonePick` in
   `renderer/app.tsx`, as the composer's model is): its list opens over the page, where nothing

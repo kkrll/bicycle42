@@ -8,7 +8,7 @@
 //   node_modules/.bin/electron --ozone-platform=headless --disable-gpu dist/test/app.e2e.cjs
 //
 // Exits 0 when every check passes.
-import { app, type BrowserWindow } from "electron"
+import { app, contentTracing, type BrowserWindow } from "electron"
 import fs from "node:fs"
 import http from "node:http"
 import os from "node:os"
@@ -1147,6 +1147,59 @@ async function main() {
   await ui(`document.querySelector('.dock-divider').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`)
   const h2 = await dockH()
   check("the dock's edge: Home is its least, a double click its usual height", h1 === 160 && h2 === h0, `${h0} ${h1} ${h2}`)
+  // An edge dragged restyles the boxes it sizes and nothing in them: counted, not timed. What
+  // the window's renderer did is in Chromium's own trace: each style pass says how many elements
+  // it worked out again (the first move is not counted: it takes the page away, once). A move
+  // is the box, the edge and its pill, and what the dock draws anew at its new size: under a
+  // tenth of the window's elements, where a length every element inherits was all of them.
+  const windowWork = async (what: () => Promise<void>) => {
+    await contentTracing.startRecording({ included_categories: ["devtools.timeline"] })
+    await what()
+    const file = await contentTracing.stopRecording()
+    const trace = JSON.parse(fs.readFileSync(file, "utf8")) as { traceEvents: { name: string; ph: string; pid: number; args?: { elementCount?: number } }[] }
+    fs.rmSync(file, { force: true })
+    const mine = trace.traceEvents.filter((e) => e.pid === win.webContents.getOSProcessId() && e.ph === "X")
+    return { restyled: mine.reduce((n, e) => n + (e.name === "UpdateLayoutTree" ? (e.args?.elementCount ?? 0) : 0), 0), layouts: mine.filter((e) => e.name === "Layout").length }
+  }
+  const windowFrame = () => ui(`new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)))`)
+  const MOVES = 10
+  const dragged = async (sel: string, dx: number, dy: number) => {
+    const at = (await ui(`(() => { const r = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } })()`)) as { x: number; y: number }
+    const to = (type: "mouseDown" | "mouseMove" | "mouseUp", i: number) => win.webContents.sendInputEvent({ type, x: at.x + dx * i, y: at.y + dy * i, button: "left", clickCount: 1 })
+    to("mouseMove", 0)
+    to("mouseDown", 0)
+    to("mouseMove", 1)
+    await until(() => ui(`!!document.querySelector('.page.veiled')`), 2000)
+    await windowFrame()
+    const work = await windowWork(async () => {
+      for (let i = 2; i < 2 + MOVES; i++) {
+        to("mouseMove", i)
+        await windowFrame()
+      }
+    })
+    to("mouseUp", 1 + MOVES)
+    await until(() => ui(`!document.querySelector('.page.veiled')`), 2000)
+    return work
+  }
+  const elements = (await ui(`document.querySelectorAll("*").length`)) as number
+  const wBefore = await panelW()
+  const panelDrag = await dragged(".resizer", 3, 0)
+  const wAfter = await panelW()
+  const hBefore = await dockH()
+  const dockDrag = await dragged(".dock-divider", 0, -3)
+  const hAfter = await dockH()
+  check(
+    "the panel's edge dragged restyles the panel's box, not the window: a few elements a move, not all of them",
+    wAfter === wBefore + 3 * (1 + MOVES) && panelDrag.restyled / MOVES < elements / 10,
+    `${wBefore} → ${wAfter}px; ${panelDrag.restyled / MOVES} elements restyled a move of ${elements}, ${panelDrag.layouts / MOVES} layouts a move`,
+  )
+  check(
+    "…and the dock's edge its dock's box, not what is in the dock",
+    hAfter === hBefore + 3 * (1 + MOVES) && dockDrag.restyled / MOVES < elements / 10,
+    `${hBefore} → ${hAfter}px; ${dockDrag.restyled / MOVES} elements restyled a move of ${elements}, ${dockDrag.layouts / MOVES} layouts a move`,
+  )
+  await ui(`document.querySelector('.resizer').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`)
+  await ui(`document.querySelector('.dock-divider').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`)
 
   // ── motion mode's dock, drawn by the window: it drives the real page ───────────────────────
   const motionUrl = `${origin}/harness/motion-page.html`
