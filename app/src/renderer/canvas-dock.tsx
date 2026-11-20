@@ -139,6 +139,11 @@ type List = {
 export function CanvasDock() {
   const view = () => dockViews.canvas as CanvasView | undefined
   const sel = () => view()?.sel ?? null
+  // Which row of the tree is the selection's and which is under the pointer on the page are asked
+  // through selectors: a new one is the row left and the row come to worked out again, not every
+  // row drawn (the pointer crossing the page says a new one many times a second).
+  const isSel = createSelector(() => sel()?.id ?? 0)
+  const isHov = createSelector(() => view()?.hover ?? 0)
   const global = () => view()?.global ?? true
 
   // ── fields: the text being typed is ours until the view has it ──────────────────────────────
@@ -199,8 +204,11 @@ export function CanvasDock() {
     setVal({ prop, text, until })
     setTimeout(() => setVal((v) => (v?.until === until ? null : v)), 650)
   }
+  // (Asked through a selector, as the list's row is below: a value scrubbed or stepped is its
+  // own row's to draw again, not all the rows'.)
+  const isVal = createSelector(() => val()?.prop ?? "")
   const valueShown = (row: CanvasComputed) => {
-    const v = val()
+    const v = isVal(row.prop) ? val() : null
     if (v && v.prop === row.prop && (!v.until || Date.now() < v.until)) return v.text
     return bad[row.prop] ?? row.value
   }
@@ -306,6 +314,7 @@ export function CanvasDock() {
   const sugKind = createMemo(() => list()?.kind)
   const sugMax = createMemo(() => list()?.at.max ?? 0)
   const sugOn = createSelector(() => list()?.on ?? -1)
+  const sugRow = createSelector(() => list()?.row ?? "")
   const [sugTop, setSugTop] = createSignal(0)
   /** The rows drawn, by their numbers: the same list while the same rows are. */
   const sugRows = createMemo<number[]>((was) => {
@@ -1006,9 +1015,9 @@ export function CanvasDock() {
                   <div
                     class="cd-trow"
                     role="treeitem"
-                    aria-selected={row.id === sel()?.id}
+                    aria-selected={isSel(row.id)}
                     aria-expanded={row.kids === "none" ? undefined : row.kids === "open"}
-                    classList={{ on: row.id === sel()?.id, hov: row.id === view()?.hover, ed: !!row.ed, hid: !!row.hid }}
+                    classList={{ on: isSel(row.id), hov: isHov(row.id), ed: !!row.ed, hid: !!row.hid }}
                     style={{ "padding-left": `min(${4 + row.depth * 12}px, 45%)` }}
                     title={`${row.tag}${row.idName}${row.cls}`}
                     onMouseMove={() => hoverRow(row.id)}
@@ -1116,7 +1125,7 @@ export function CanvasDock() {
                       type="text"
                       role="combobox"
                       aria-autocomplete="list"
-                      aria-expanded={list()?.row === row().prop}
+                      aria-expanded={sugRow(row().prop)}
                       aria-controls="cd-sug"
                       aria-label={row().prop}
                       spellcheck={false}
