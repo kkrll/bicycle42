@@ -336,7 +336,9 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   suggestions are worked out here (the overlay's pure `suggest-model.js`, `number.js`,
   `css-data.js`, and this window's `CSS.supports`), so typing never waits for the page. Its
   header names what is selected (its component, else tag#id.class as the tree has it), never
-  what the element says. A handle between the tree and the styles (a pill, as the window's other
+  what the element says. The overlay sends only the fields of the view that changed (the hovered
+  row is one number, `hover`), so an inspector that comes up in a window with no view (a window
+  reloaded while the page stayed) asks for the whole one (`whole`). A handle between the tree and the styles (a pill, as the window's other
   handles) sizes the tree: its height above the styles, its width beside them; arrows step 16
   px, Home and End go to the limits, a double click gives it its share again; kept
   (`canvas.tree.h`, `canvas.tree.w`). The tree scrolls up and down only: a long row ends in "…".

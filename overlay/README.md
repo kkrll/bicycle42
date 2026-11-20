@@ -75,9 +75,17 @@ src/globals.d.ts    what the type check cannot read from the .js files
   `__harness.hostDocks(["motion"])` plays such a host, `__harness.act(panel, act)` its dock, and
   `__harness.panel` holds what the overlay sent.
 - **Canvas's inspector is only ever the host's.** The page has none of its own, and no bar:
-  `src/canvas/host.js` makes the view in every canvas frame and sends it when it changed, and
-  does what the host's inspector asks (its tree's rows, its fields, its computed values, its
-  footer). A host that does not say it draws the inspector gets no view and nothing on the page;
+  `src/canvas/host.js` brings the view up to date in every canvas frame and gives it to
+  `putView` (at once: its answer is in the page's own frame), and does what the host's inspector
+  asks (its tree's rows, its fields, its computed values, its footer). Each field of the view is
+  the object that went until what it was made from changed, so a frame in which nothing changed
+  makes nothing and stringifies nothing, the pointer over the page sends one number (`hover`,
+  a field of its own for that), a scrub sends `css` and `computed`, and the two large fields go
+  seldom: `tokens` when the page's variables or the selection changed, `tree` on a selection, a
+  scroll of the host's tree or a change of the DOM. What is read off the page is read when the
+  selection or the batch changed and once a second whatever happened, and compared with what
+  went: the same content is the same object, and is not sent. A host that starts with no view
+  asks for it (`whole`). A host that does not say it draws the inspector gets no view and nothing on the page;
   canvas mode still edits the page (selecting, the drags, text in place, the keys). The view's
   `batch` is the footer: edits, undo, redo, the note's words (the batch's own, `C.note`: they go
   in its draft and come back with a refused one), a refusal, the state, and while the host's list

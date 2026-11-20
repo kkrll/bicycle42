@@ -89,7 +89,8 @@ export function canvasView(list = false): CanvasView {
       { name: "--surface", value: "#ffffff" },
       { name: "--text-base", value: "16px", size: 16 },
     ],
-    tree: { total: ROWS.length, first: 0, rows: ROWS, sel: 7, hover: ROWS[11]!.id },
+    tree: { total: ROWS.length, first: 0, rows: ROWS, sel: 7 },
+    hover: ROWS[11]!.id,
     batch: { edits: 3, undo: true, redo: false, note: "", msg: "", status: "", ...(list ? { list: EDITS } : {}) },
   }
 }

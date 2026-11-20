@@ -687,7 +687,10 @@ export function CanvasDock() {
   onMount(() => {
     const ro = new ResizeObserver(onTreeScroll)
     ro.observe(treeEl)
-    reportRows(true) // (and the overlay sends the whole view again: this inspector may be new)
+    reportRows(true)
+    // A window that has no view (it is new, and what the overlay sent went to the one before it)
+    // asks for it: the overlay sends only what changed, and nothing may change for a long time.
+    if (!view()) dockAct({ panel: "canvas", act: { type: "whole" } })
     onCleanup(() => {
       ro.disconnect()
       cancelAnimationFrame(treeRaf)
@@ -954,7 +957,7 @@ export function CanvasDock() {
                     role="treeitem"
                     aria-selected={row.id === sel()?.id}
                     aria-expanded={row.kids === "none" ? undefined : row.kids === "open"}
-                    classList={{ on: row.id === sel()?.id, hov: row.id === view()?.tree.hover, ed: !!row.ed, hid: !!row.hid }}
+                    classList={{ on: row.id === sel()?.id, hov: row.id === view()?.hover, ed: !!row.ed, hid: !!row.hid }}
                     style={{ "padding-left": `min(${4 + row.depth * 12}px, 45%)` }}
                     title={`${row.tag}${row.idName}${row.cls}`}
                     onMouseMove={() => hoverRow(row.id)}

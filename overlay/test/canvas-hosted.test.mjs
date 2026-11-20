@@ -127,7 +127,7 @@ test("hosted tree: a row opens and closes, is selected, outlined from the host; 
   assert.equal(v.tree.rows[v.tree.sel - v.tree.first].id, child.id);
   // the pointer on a row outlines its element on the page
   await act(page, { type: "hover", id: main.id });
-  await until(page, `(v) => v.tree.hover === ${main.id}`);
+  await until(page, `(v) => v.hover === ${main.id}`);
   assert.equal(await f.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelectorAll(".box.hover").length > 0), true);
   await act(page, { type: "hover", id: 0 });
   // ↓ the next row, ← back out to the parent, ← again closes it
@@ -339,10 +339,159 @@ test("hosted, after a reload: the host is told again, the view comes back with t
   await clickAt(page, f2, SECOND, 10, 10); // (in its padding: the card grew by it)
   const v = await until(page, `(v) => v.sel && v.css.text === "padding: 40px;"`).then(() => view(page));
   assert.equal(v.tree.rows[v.tree.sel - v.tree.first]?.ed, true, "its row has the edited dot");
-  // a host that starts again asks for the whole view: it is sent even though nothing changed
-  const n = await page.evaluate(() => window.__harness.panel.length);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted: a host that starts again gets the whole view, changed or not: it asks (\"whole\"), or says again that the pane is its own; the rows it shows are only the tree's part", async () => {
+  const { page, f, errors } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  await until(page, "(v) => v.sel && v.computed.length");
+  await frames(f, 4);
+  const since = async (n) => (await page.evaluate((k) => window.__harness.panel.slice(k).filter((m) => m.panel === "canvas" && !("pong" in m)), n));
+  const count = () => page.evaluate(() => window.__harness.panel.length);
+  const last = await view(page);
+
+  // Nothing changed: the host asks, and the view comes whole, the same as the one it had.
+  let n = await count();
+  await act(page, { type: "whole" });
+  await page.waitForFunction((k) => window.__harness.panel.length > k, n);
+  await frames(f, 3);
+  let got = await since(n);
+  assert.equal(got.length, 1, "one message");
+  assert.equal("part" in got[0], false, "whole, not a part");
+  assert.deepEqual(got[0].view, last);
+
+  // The rows the host's tree shows changed (three of them now, and three around): the tree goes,
+  // and nothing else of the view.
+  n = await count();
+  await act(page, { type: "tree", first: 0, count: 3 });
+  await page.waitForFunction((k) => window.__harness.panel.length > k, n);
+  await frames(f, 3);
+  got = await since(n);
+  assert.deepEqual(got.map((m) => Object.keys(m.part ?? { whole: 1 })), [["tree"]]);
+  assert.equal(got[0].part.tree.rows.length, 6);
+  assert.ok(last.tree.rows.length > 6, `${last.tree.rows.length} rows before`);
+  // The same rows said again: nothing.
+  n = await count();
+  await act(page, { type: "tree", first: 0, count: 3 });
+  await frames(f, 4);
+  assert.deepEqual(await since(n), []);
+
+  // A host that lost its view and is sent a part asks for the whole one (the harness does, as the
+  // window does): the part's change is in it.
+  await page.evaluate(() => (window.__harness.panel.length = 0));
   await act(page, { type: "tree", first: 0, count: 20 });
-  await page.waitForFunction((k) => window.__harness.panel.slice(k).some((m) => m.view), n);
+  await page.waitForFunction(() => window.__harness.panel.some((m) => m.panel === "canvas" && m.view));
+  got = await since(0);
+  assert.equal("part" in got[0], false, "the answer to \"whole\"");
+  assert.deepEqual({ ...got[0].view, tree: 0 }, { ...last, tree: 0 });
+  assert.ok(got[0].view.tree.rows.length >= last.tree.rows.length);
+
+  // The pane given back and taken again: the whole view, though nothing changed meanwhile.
+  await page.evaluate(() => window.__harness.hostDocks([]));
+  await frames(f, 3);
+  n = await count();
+  await page.evaluate(() => window.__harness.hostDocks(["canvas"]));
+  await page.waitForFunction((k) => window.__harness.panel.length > k, n);
+  await frames(f, 3);
+  got = await since(n);
+  assert.equal(got.length, 1);
+  assert.equal("part" in got[0], false);
+  assert.equal(got[0].view.sel.id, last.sel.id);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+/** Counts what the overlay stringifies from now on (its own JSON: the page frame's). */
+const countStringify = (f) => f.evaluate(() => {
+  const real = JSON.stringify;
+  window.__str = { n: 0, bytes: 0 };
+  JSON.stringify = (...a) => {
+    const out = real(...a);
+    window.__str.n++;
+    window.__str.bytes += out ? out.length : 0;
+    return out;
+  };
+});
+/** The canvas messages since the `n`th the host got: for each, the fields that came ("*": a whole view). */
+const fieldsSince = (page, n) => page.evaluate((k) => window.__harness.panel.slice(k).filter((m) => m.panel === "canvas" && !("pong" in m)).map((m) => ("part" in m ? Object.keys(m.part).sort() : ["*"])), n);
+
+test("hosted, what a frame costs: the wheel over the page, and a second left alone, send nothing and stringify nothing", async () => {
+  const { page, f, errors } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  await until(page, "(v) => v.sel && v.computed.length");
+  await page.mouse.move(700, 500);
+  await frames(f, 6);
+  await countStringify(f);
+  const n = await page.evaluate(() => window.__harness.panel.length);
+  const y0 = await f.evaluate(() => scrollY);
+  // (More than a second of it: what is read off the page once a second is read, found the same, and not sent.)
+  for (let i = 0; i < 40; i++) {
+    await page.mouse.wheel(0, i < 20 ? 30 : -30);
+    await frames(f, 2);
+    if (i === 19) assert.ok((await f.evaluate(() => scrollY)) > y0 + 300, "the page scrolled");
+  }
+  await page.waitForTimeout(1200);
+  await frames(f, 3);
+  assert.deepEqual(await fieldsSince(page, n), [], "nothing sent");
+  assert.deepEqual(await f.evaluate(() => window.__str), { n: 0, bytes: 0 }, "nothing stringified");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted, what a frame costs: the pointer over the page sends the hovered element's id and nothing else", async () => {
+  const { page, f, errors } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  await until(page, "(v) => v.sel && v.computed.length");
+  await frames(f, 6);
+  await countStringify(f);
+  const n = await page.evaluate(() => window.__harness.panel.length);
+  // Across the cards, the grid's tiles and the stack: many elements, one after another.
+  const box = await page.locator("#page").boundingBox();
+  for (let i = 0; i < 60; i++) {
+    await page.mouse.move(box.x + 40 + ((i * 37) % 600), box.y + 110 + ((i * 11) % 420));
+    await frames(f, 1);
+  }
+  await frames(f, 3);
+  const got = await fieldsSince(page, n);
+  assert.ok(got.length >= 5, `${got.length} messages`);
+  assert.deepEqual([...new Set(got.map((k) => k.join()))], ["hover"], "only the hovered id");
+  // What was stringified is what was sent: once each, a few bytes.
+  const str = await f.evaluate(() => window.__str);
+  assert.equal(str.n, got.length);
+  assert.ok(str.bytes / str.n < 80, `${Math.round(str.bytes / str.n)} bytes a message`);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted, what a frame costs: a scrub sends the styles and the computed values, never the variables or the tree", async () => {
+  const { page, f, errors } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  const { sel: { id } } = await until(page, "(v) => v.sel && v.computed.length").then(() => view(page));
+  await page.mouse.move(900, 700); // (off the cards: the pointer is not what this counts)
+  // The first step makes the edit (its row gets the dot, the footer counts it): the scrub proper is what follows.
+  await act(page, { type: "commit" });
+  await act(page, { type: "value", id, prop: "width", value: "210px", live: true, hold: true });
+  await until(page, `(v) => v.css.text === "width: 210px;" && v.batch.edits === 1 && v.tree.rows.some((r) => r.ed)`);
+  await frames(f, 6);
+  await countStringify(f);
+  const n = await page.evaluate(() => window.__harness.panel.length);
+  // (More than a second of it, so what is read once a second is read during it.)
+  for (let i = 0; i < 45; i++) {
+    const w = 211 + i;
+    await act(page, { type: "value", id, prop: "width", value: `${w}px`, live: true, hold: true });
+    await f.waitForFunction(([s, x]) => Math.round(document.querySelector(s).getBoundingClientRect().width) === x, [SECOND, w]);
+    await frames(f, 2);
+  }
+  await until(page, `(v) => v.css.text === "width: 255px;" && v.computed.find((c) => c.prop === "width").value === "255px"`);
+  const got = await fieldsSince(page, n);
+  const fields = [...new Set(got.flat())].sort();
+  assert.ok(got.length >= 45, `${got.length} messages`);
+  assert.deepEqual(fields, ["computed", "css"], `the fields sent: ${fields.join()}`);
+  const str = await f.evaluate(() => window.__str);
+  assert.equal(str.n, got.length, "each message stringified once, and nothing else");
+  assert.ok(str.bytes / str.n < 2500, `${Math.round(str.bytes / str.n)} bytes a message`);
   assert.deepEqual(errors, []);
   await page.close();
 });

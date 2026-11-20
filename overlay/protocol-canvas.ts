@@ -8,12 +8,17 @@
 // The host's inspector is a drawing of `CanvasView` and a source of `CanvasAct`s; it keeps
 // nothing the overlay does not also have, so a reload of either side loses nothing.
 //
-// One view is the whole inspector, sent whole whenever any of it changed (at most once a frame):
-// the header, the three fields with what the page made of them, the computed values, the page's
-// variables the suggestions offer, and the part of the tree around what the host shows. The tree
-// is the one part that could be large, so it is never all of it: only the rows the host says it
-// shows (the "tree" act), a screenful above and below them, and the selection's row; a view of a
-// selection on a real page is 5 to 20 kB, most of it rows and variables.
+// One view is the whole inspector: the header, the three fields with what the page made of them,
+// the computed values, the page's variables the suggestions offer, and the part of the tree
+// around what the host shows. The tree is the one part that could be large, so it is never all
+// of it: only the rows the host says it shows (the "tree" act), a screenful above and below
+// them, and the selection's row; a view of a selection on a real page is 5 to 20 kB, most of it
+// rows and variables (a design system's thousand variables make it 80).
+// It goes whole once, and after that only the fields of it that changed, at most once a frame
+// (PanelPart in protocol.ts): so what changes often is a field of its own and small (`hover`: one
+// number while the pointer moves over the page), and what is large changes seldom (`tokens`:
+// when the page's styles or the selection do; `tree`: on a selection, a scroll of the host's
+// tree, a change of the DOM). A scrub sends `css` and `computed`, sixty times a second.
 //
 // What is typed is the host's own while it is typed: a field being typed in keeps its text and
 // sends it whole ("text"); the view answers with what the page made of it (the marks, the error
@@ -48,8 +53,6 @@ export type CanvasTree = {
    *  brings it to the middle (first row shown: sel - half the rows it shows), as the overlay
    *  expects when it chooses which rows to send. */
   sel: number
-  /** The element under the pointer (on the page, or a row the host said it is on); 0 for none. */
-  hover: number
 }
 
 /** One of the two CSS boxes: its text as the batch has it, and what the browser would not take. */
@@ -101,6 +104,9 @@ export type CanvasView = {
    *  root's while Global is shown. */
   tokens: CanvasToken[]
   tree: CanvasTree
+  /** The element under the pointer (on the page, or a row the host said it is on), by its row's
+   *  id; 0 for none. Not the tree's: it changes with every move of the pointer, the rows do not. */
+  hover: number
   /** What the footer says: the batch's edits, undo and redo, the note, a refusal, the state. */
   batch: CanvasBatch
 }
@@ -134,7 +140,8 @@ export type CanvasEdit = { key: string; label: string; text: string; id?: number
 /** One thing done in the inspector. `id` is a row's or the selection's (CanvasRow.id). */
 export type CanvasAct =
   /** The rows the host's tree shows: from `first`, `count` of them. Sent when it scrolls or
-   *  changes size, and when it starts: then the whole view is sent again. */
+   *  changes size, and when it starts. (A host that starts with no view asks for it: "whole",
+   *  every pane's, in protocol.ts.) */
   | { type: "tree"; first: number; count: number }
   /** A row's children shown or not; without `open`, the other way. */
   | { type: "open"; id: number; open?: boolean }
