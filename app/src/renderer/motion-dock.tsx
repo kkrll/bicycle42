@@ -16,7 +16,7 @@
 // page is a native view that paints over the window wherever it sits, so anything over it would
 // be hidden.
 import "./motion-dock.css"
-import { For, Show, createContext, createEffect, createMemo, createSignal, onCleanup, onMount, useContext, type JSX } from "solid-js"
+import { For, Show, createContext, createEffect, createMemo, createRoot, createSignal, getOwner, onCleanup, onMount, untrack, useContext, type JSX, type Owner } from "solid-js"
 import type { MotionAct, MotionKind, MotionLane, MotionOpen, MotionView } from "../../../overlay/protocol-motion"
 import { Icon } from "./icons"
 import { dockAct, dockPing, dockViews, keys, mac } from "./store"
@@ -151,8 +151,25 @@ function Curve(props: { easing: string }) {
 
 // ── popovers, inside the dock's box ─────────────────────────────────────────────────────────────
 
+// The dock has one popover at a time, drawn in one place (MotionDock), and a component opens its
+// own through usePop. Its body is made as a child of the component that opened it (`owner`), not
+// of the place it is drawn in: it reads what that component reads (a <Show>'s value, which may be
+// read only by what the <Show> owns), so it has to go when that component goes, and before
+// anything of it is worked out again. The component going closes it.
 type Pop = { anchor: HTMLElement; kind: "more" | "ease" | "list"; body: () => JSX.Element; wide?: boolean }
-const PopContext = createContext<{ open(p: Pop | null): void; current(): Pop | null }>()
+type Opened = Pop & { by: object; owner: Owner | null }
+const PopContext = createContext<{ open(p: Opened | null): void; current(): Opened | null }>()
+/** A component's own popover: opened, closed (when it is the one that is up), pressed again. */
+function usePop() {
+  const ctx = useContext(PopContext)!
+  // (Components drawn by one computation have one owner between them: `by` says which opened it.)
+  const by = {}, owner = getOwner()
+  const mine = () => untrack(ctx.current)?.by === by
+  const open = (p: Pop) => ctx.open({ ...p, by, owner })
+  const close = () => void (mine() && ctx.open(null))
+  onCleanup(close)
+  return { open, close, toggle: (p: Pop) => (mine() ? ctx.open(null) : open(p)) }
+}
 
 // ── a field ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -179,7 +196,7 @@ function Field(props: {
   /** A field that empties itself once done (a new lane's name): no value is held after it. */
   clears?: boolean
 }) {
-  const pop = useContext(PopContext)!
+  const pop = usePop()
   const [local, setLocal] = createSignal<string | null>(null)
   const [focused, setFocused] = createSignal(false)
   const [bad, setBad] = createSignal(false)
@@ -191,6 +208,10 @@ function Field(props: {
    *  anything changed is asked of this, not of the view. */
   let atFocus = ""
   const ok = (v: string) => (props.ok ? props.ok(v) : true)
+  // A field the view took away while it had the caret hears a blur as it is removed. By then it
+  // is the field of nothing: what it would ask about (`ok`, `onDone`) may be gone with it.
+  let gone = false
+  onCleanup(() => (gone = true))
   // Held after it is left: until the view agrees, or the moment is over.
   createEffect(() => {
     const v = local()
@@ -205,10 +226,7 @@ function Field(props: {
   })
   createEffect(() => {
     const list = items()
-    if (!list.length || props.disabled) {
-      if (pop.current()?.anchor === el) pop.open(null)
-      return
-    }
+    if (!list.length || props.disabled) return pop.close()
     pop.open({
       anchor: el,
       kind: "list",
@@ -238,7 +256,6 @@ function Field(props: {
       ),
     })
   })
-  onCleanup(() => pop.current()?.anchor === el && pop.open(null))
   const done = (v: string) => {
     if (ok(v)) {
       if (v !== atFocus || props.clears) props.onDone?.(v)
@@ -291,6 +308,7 @@ function Field(props: {
         if (good) props.onInput?.(v)
       }}
       onBlur={() => {
+        if (gone) return
         setFocused(false)
         const v = local()
         if (v !== null && !props.clears) done(v)
@@ -313,7 +331,7 @@ function Field(props: {
           el.blur()
         } else if (e.key === "Escape") {
           if (list.length) {
-            pop.open(null)
+            pop.close()
             setTyped(false)
             setLocal(local() ?? props.value)
             // the list is closed; the next Esc leaves the field
@@ -321,7 +339,7 @@ function Field(props: {
           }
           el.blur()
           props.onEsc?.()
-        } else if (e.key === "Tab") pop.open(null)
+        } else if (e.key === "Tab") pop.close()
         // Typing: none of it is the dock's keys (space, arrows, Delete).
         e.stopPropagation()
       }}
@@ -341,7 +359,7 @@ type Drag = { prop: string | null; from: number; to: number; lanes: MotionLane[]
 export function MotionDock() {
   let root!: HTMLDivElement
   let tl: HTMLDivElement | undefined
-  const [pop, setPop] = createSignal<Pop | null>(null)
+  const [pop, setShown] = createSignal<(Opened & { drawn: JSX.Element }) | null>(null)
   const [drag, setDrag] = createSignal<Drag | null>(null)
   const [scrub, setScrub] = createSignal<{ p: number; on: boolean } | null>(null)
   const [noteFocused, setNoteFocused] = createSignal(false)
@@ -426,8 +444,17 @@ export function MotionDock() {
       setPopAt({ left: Math.min(Math.max(8, leftWant), box.width - w - 8), top: Math.max(8, top), max })
     })
   })
-  const popCtx = { open: (p: Pop | null) => setPop(p), current: pop }
-  const toggle = (p: Pop) => setPop((cur) => (cur && cur.anchor === p.anchor && cur.kind === p.kind ? null : p))
+  /** The popover that is up goes, and `p` is up in its place. Its body is made here, under the
+   *  component that opened it (see Pop), in a root of its own so that closing it is all it takes
+   *  to undo. */
+  let undraw: (() => void) | undefined
+  const setPop = (p: Opened | null) => {
+    undraw?.()
+    undraw = undefined
+    setShown(p && { ...p, drawn: createRoot((dispose) => ((undraw = dispose), p.body()), p.owner) })
+  }
+  onCleanup(() => undraw?.())
+  const popCtx = { open: setPop, current: pop }
   // A press anywhere else closes the "more" sheet and the easings (a field's list closes itself).
   const outside = (e: PointerEvent) => {
     const p = pop(), t = e.target as Node
@@ -435,13 +462,6 @@ export function MotionDock() {
   }
   onMount(() => document.addEventListener("pointerdown", outside, true))
   onCleanup(() => document.removeEventListener("pointerdown", outside, true))
-  // What it hangs from is gone (the header drawn without it): so is the popover.
-  createEffect(() => {
-    v()
-    const p = pop()
-    if (p && !p.anchor.isConnected) setPop(null)
-  })
-
   // ── the timeline's pointer ──
   // Press a keyframe (the page shows that frame), drag it, press twice on a lane to add one, drag
   // the ruler or an empty lane to scrub: as in the overlay's own dock (tlDown in input.js).
@@ -670,7 +690,7 @@ export function MotionDock() {
                     <Icon name="back" />
                   </button>
                   <Show when={open()}>
-                    {(o) => <Header open={o()} view={v()!} onPop={toggle} />}
+                    {(o) => <Header open={o()} view={v()!} />}
                   </Show>
                 </div>
               </Show>
@@ -712,7 +732,7 @@ export function MotionDock() {
               </Show>
 
               <Show when={v()!.view !== "css" && open()?.key}>
-                {(k) => <KeyEditor k={k()} at={selKey()?.at ?? k().at} readOnly={ro()} easings={v()!.choices.easings} onPop={toggle} />}
+                {(k) => <KeyEditor k={k()} at={selKey()?.at ?? k().at} readOnly={ro()} easings={v()!.choices.easings} />}
               </Show>
 
               {/* the note and Send, or what the line has to say */}
@@ -782,7 +802,7 @@ export function MotionDock() {
                 visibility: popAt() ? "visible" : "hidden",
               }}
             >
-              {p().body()}
+              {p().drawn}
             </div>
           )}
         </Show>
@@ -793,7 +813,8 @@ export function MotionDock() {
 
 // ── the header ──────────────────────────────────────────────────────────────────────────────────
 
-function Header(props: { open: MotionOpen; view: MotionView; onPop: (p: Pop) => void }) {
+function Header(props: { open: MotionOpen; view: MotionView }) {
+  const pop = usePop()
   const t = () => props.open.timing
   const ro = () => props.open.readOnly
   let more!: HTMLButtonElement
@@ -863,7 +884,7 @@ function Header(props: { open: MotionOpen; view: MotionView; onPop: (p: Pop) => 
         ref={more}
         title="More: repeat, direction, fill, what starts it"
         aria-label="More"
-        onClick={() => props.onPop({ anchor: more, kind: "more", body: () => <MoreSheet open={props.open} view={props.view} /> })}
+        onClick={() => pop.toggle({ anchor: more, kind: "more", body: () => <MoreSheet open={props.open} view={props.view} /> })}
       >
         <MIcon name="more" />
       </button>
@@ -1164,7 +1185,8 @@ function Timeline(props: {
 }
 
 /** The selected keyframe: where it is, its value, its easing (to the next one). */
-function KeyEditor(props: { k: NonNullable<MotionOpen["key"]>; at: number; readOnly: boolean; easings: string[]; onPop: (p: Pop) => void }) {
+function KeyEditor(props: { k: NonNullable<MotionOpen["key"]>; at: number; readOnly: boolean; easings: string[] }) {
+  const pop = usePop()
   let curve!: HTMLButtonElement
   const prop = () => props.k.prop
   const ease = () => props.k.ease || props.k.dflt
@@ -1227,7 +1249,7 @@ function KeyEditor(props: { k: NonNullable<MotionOpen["key"]>; at: number; readO
           title="Easing"
           aria-label="Easing"
           onClick={() =>
-            props.onPop({
+            pop.toggle({
               anchor: curve,
               kind: "ease",
               body: () => (
@@ -1262,6 +1284,9 @@ function KeyEditor(props: { k: NonNullable<MotionOpen["key"]>; at: number; readO
 function CssText(props: { open: MotionOpen }) {
   const [local, setLocal] = createSignal<string | null>(null)
   const [focused, setFocused] = createSignal(false)
+  // (As a Field: removed with the caret in it, it hears a blur, and has nothing left to say.)
+  let gone = false
+  onCleanup(() => (gone = true))
   createEffect(() => {
     const l = local()
     if (l !== null && !focused() && l === props.open.css) setLocal(null)
@@ -1284,6 +1309,7 @@ function CssText(props: { open: MotionOpen }) {
           send({ type: "css", text: e.currentTarget.value, done: false })
         }}
         onBlur={(e) => {
+          if (gone) return
           setFocused(false)
           if (!props.open.readOnly) send({ type: "css", text: e.currentTarget.value, done: true })
           setTimeout(() => !focused() && setLocal(null), HOLD_MS)
