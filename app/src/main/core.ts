@@ -1764,9 +1764,11 @@ export function createCore(host: Host): Core {
     setPageBounds(bounds) {
       page?.setBounds(bounds)
       // Kept for the next start, when the page is laid out before the window can say where it is
-      // (lastPageBounds). Hidden (null) is no place to come back to.
+      // (lastPageBounds). Hidden (null) is no place to come back to. A window being resized says
+      // a new place with every frame: written once it has come to rest (and at quit), not four
+      // times a second for as long as the drag lasts.
       const at = bounds && { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
-      if (at && JSON.stringify(at) !== JSON.stringify(store.settings().pageBounds)) store.update((s) => void (s.pageBounds = at))
+      if (at && JSON.stringify(at) !== JSON.stringify(store.settings().pageBounds)) store.settle((s) => void (s.pageBounds = at))
     },
 
     setDevice(d) {
