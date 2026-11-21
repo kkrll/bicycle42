@@ -60,6 +60,9 @@ const entries = [
   { entryPoints: ["src/page-preload.ts"], outfile: "dist/page-preload.cjs", plugins: [pageOverlay], target: "chrome140", sourcemap: false },
 ]
 if (flags.has("--tests")) {
+  // Built afresh: a test whose source is gone must not stay behind and pass on its own old copy
+  // (`npm test` runs every dist/test/*.test.cjs).
+  fs.rmSync(path.join(root, "dist/test"), { recursive: true, force: true })
   const tests = fs.readdirSync(path.join(root, "test")).filter((f) => f.endsWith(".ts"))
   if (tests.length)
     entries.push({ entryPoints: tests.map((f) => `test/${f}`), outdir: "dist/test", outExtension: { ".js": ".cjs" } })
