@@ -378,10 +378,11 @@ function agentOf(): { connection: AppState["connection"]; harness: AppState["har
   const models: AppState["models"] =
     id === "claude"
       ? [
-          { providerID: name, id: "default", name: "Default (recommended)", images: true, variants: [] },
-          { providerID: name, id: "opus", name: "Opus", images: true, variants: [] },
-          { providerID: name, id: "sonnet", name: "Sonnet", images: true, variants: [] },
-          { providerID: name, id: "haiku", name: "Haiku", images: true, variants: [] },
+          // Its "Default (recommended)" names the model it is (acp.ts: models).
+          { providerID: name, id: "default", name: "Default · Opus 5.5", images: true, variants: [] },
+          { providerID: name, id: "opus", name: "Opus 5.5", images: true, variants: [] },
+          { providerID: name, id: "sonnet", name: "Sonnet 5.5", images: true, variants: [] },
+          { providerID: name, id: "haiku", name: "Haiku 5.5", images: true, variants: [] },
         ]
       : [
           { providerID: name, id: "gpt-5.1-codex", name: "gpt-5.1-codex", images: true, variants: ["low", "medium", "high"] },

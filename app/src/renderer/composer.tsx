@@ -59,9 +59,11 @@ function Pickers() {
     void request(el, modelValue, b42.invoke("setModel", model))
   }
   const variant = () => current()?.variant ?? ""
-  /** What the closed picker says. An agent's own model list can name one "Default
-   *  (recommended)": the label is "Default model", the list keeps the agent's words. A model the
-   *  list does not have (the conversation's, from before) goes by the last part of its id. */
+  /** What the closed picker says. An agent's default comes from main as "Default · Opus 5.5"
+   *  when the agent says which model it is (acp.ts: models), so the reviewer sees the model that
+   *  works; one that does not ("Default (recommended)") reads "Default model", the list keeps
+   *  the agent's words. A model the list does not have (the conversation's, from before) goes by
+   *  the last part of its id. */
   const label = () => {
     const name = info()?.name ?? current()?.id.split("/").pop()
     if (!name) return "Model"

@@ -27,6 +27,8 @@ app.setPath("userData", process.env.BICYCLE42_DATA || path.join(app.getPath("app
 protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } }])
 
 let window: BrowserWindow | undefined
+/** The window's web contents, kept while it closes too (its last calls still come). */
+let windowContents: Electron.WebContents | undefined
 let page: PageView | undefined
 
 const core = createCore({
@@ -98,6 +100,7 @@ async function createWindow() {
     if (/^https?:/i.test(url)) void shell.openExternal(url)
     return { action: "deny" }
   })
+  windowContents = win.webContents
   win.once("ready-to-show", () => win.show())
   win.on("closed", () => {
     page?.dispose()
@@ -131,11 +134,16 @@ async function createWindow() {
   await win.loadFile(path.join(__dirname, "renderer/index.html"))
 }
 
-// The window's bridge (preload.ts): its state, the open conversation, its commands.
-ipcMain.handle("b42:state", () => core.snapshot())
-ipcMain.handle("b42:chat", () => core.chat())
+// The window's bridge (preload.ts): its state, the open conversation, its commands. Only the app's
+// own window may ask: a command can start a program (connectAgent), and the page under review
+// is another web contents with its own channels.
+const fromWindow = (event: Electron.IpcMainInvokeEvent) => {
+  if (!windowContents || event.sender !== windowContents || event.senderFrame !== event.sender.mainFrame) throw new Error("Not from the app's window.")
+}
+ipcMain.handle("b42:state", (event) => (fromWindow(event), core.snapshot()))
+ipcMain.handle("b42:chat", (event) => (fromWindow(event), core.chat()))
 // (Electron wraps a thrown Error in "Error invoking remote method …"; preload.ts takes that off.)
-ipcMain.handle("b42:command", (_event, name: string, args: unknown) => core.invoke(name, args))
+ipcMain.handle("b42:command", (event, name: string, args: unknown) => (fromWindow(event), core.invoke(name, args)))
 
 if (!app.requestSingleInstanceLock()) app.quit()
 else {

@@ -579,8 +579,13 @@ export function createCore(host: Host): Core {
     // A custom command is told apart by the command itself: two are two agents.
     const agent = known ? id : `custom-${crypto.createHash("sha1").update(line.join("\0")).digest("hex").slice(0, 8)}`
     const name = known?.name ?? customName(line)
-    // (A variable, not a literal: `turnUntrusted` is new to AcpOptions.)
-    const options: AcpOptions & { turnUntrusted?: (session: string) => void } = {
+    const url = `acp://${agent}`
+    // The same agent again (Retry, or its command changed): the one in use lets go of the agent's
+    // ledger first, saying what it loses, so the new one reads that and is its only writer.
+    const saved = store.settings().server
+    const same = !!backend && !!saved && "agent" in saved && saved.agent === agent
+    if (same) drop()
+    const options: AcpOptions = {
       id: agent,
       name,
       command: line,
@@ -597,9 +602,14 @@ export function createCore(host: Host): Core {
     }
     const next = createAcp(options)
     waitsForBefore.add(next)
-    const info = await next.info()
+    let info: Awaited<ReturnType<typeof next.info>>
+    try {
+      info = await next.info()
+    } catch (err) {
+      if (same && !backend) (connection = { status: "offline", url, error: say(err) }), push()
+      throw err
+    }
     serverComputer = undefined
-    const url = `acp://${agent}`
     await use(next, url, info.version, () => {
       const kept = remember("local", url, "", info.computer, { agent, command: line })
       store.update((s) => void (s.server = { agent, command: line, ...(kept.name ? { name: kept.name } : {}) }))

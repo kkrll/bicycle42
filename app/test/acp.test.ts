@@ -9,7 +9,7 @@ import { execFileSync } from "node:child_process"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { createAcp, timing, toolPart } from "../src/main/acp"
+import { cmdLine, createAcp, needsSignIn, timing, toolPart, type AcpOptions } from "../src/main/acp"
 import { splitCommand } from "../src/main/agents"
 import { unifiedPatch } from "../src/main/patch"
 import type { BackendEvent, ChatEvent, ChatItem } from "../src/shared/types"
@@ -66,8 +66,8 @@ function applyChat(items: ChatItem[], event: ChatEvent) {
   if (part && part.kind !== "tool") part.text += event.text
 }
 
-function setup(fake: FakeAgent = fakeAgent(), stateDir?: string, beforeTurn?: (session: string) => Promise<unknown> | undefined) {
-  const backend = createAcp({ id: "fake", name: "Fake Agent", command: ["fake"], connect: () => fake.connect(), ...(stateDir ? { stateDir } : {}), ...(beforeTurn ? { beforeTurn } : {}) })
+function setup(fake: FakeAgent = fakeAgent(), stateDir?: string, beforeTurn?: (session: string) => Promise<unknown> | undefined, extra: Partial<AcpOptions> = {}) {
+  const backend = createAcp({ id: "fake", name: "Fake Agent", command: ["fake"], connect: () => fake.connect(), ...(stateDir ? { stateDir } : {}), ...(beforeTurn ? { beforeTurn } : {}), ...extra })
   const events: BackendEvent[] = []
   const items: ChatItem[] = []
   const stop = backend.listen((e) => {
@@ -353,6 +353,216 @@ test("quit with work in flight: next time, what was lost is said once, so its no
   assert.deepEqual(again.backend.lost(s.id), ["m1", "m2"])
   assert.deepEqual(again.backend.lost(s.id), [])
   assert.deepEqual(await again.backend.waiting(s.id), [])
+})
+
+test("the app ended without a word (a crash, a kill): next time what was with the agent or waiting is lost, said once, and its turn reads failed", async () => {
+  const dir = tmp()
+  const fake = fakeAgent()
+  fake.onPrompt = () => new Promise(() => {})
+  const first = setup(fake, dir)
+  const s = await first.backend.createSession({ directory: "/repo" })
+  await first.backend.prompt(s.id, { id: "m1", text: "a" })
+  await first.backend.prompt(s.id, { id: "m2", text: "b" })
+  await until(() => of(first.events, "inbox").some((e) => e.id === "m1" && e.status === "working"))
+  await sleep(20)
+  // No stop(): the ledger is read as the app's crash left it.
+  const again = setup(fake, dir)
+  assert.deepEqual(again.backend.lost(s.id), ["m2", "m1"])
+  assert.deepEqual(again.backend.lost(s.id), [])
+  assert.equal((await again.backend.session(s.id))?.busy, false)
+  assert.deepEqual(await again.backend.waiting(s.id), [])
+  const read = await again.backend.transcript(s.id)
+  assert.ok(read.items.some((i) => i.id === "end_m1" && i.kind === "marker" && i.failed), JSON.stringify(read.items))
+})
+
+test("a retry under an id the agent had: one that never finished goes again; one that was answered says so, and is not sent twice", async () => {
+  const dir = tmp()
+  const fake = fakeAgent()
+  fake.onPrompt = () => new Promise(() => {})
+  const first = setup(fake, dir)
+  const s = await first.backend.createSession({ directory: "/repo" })
+  await first.backend.prompt(s.id, { id: "m1", text: "a" })
+  await until(() => fake.calls.some((c) => c.method === "session/prompt"))
+  await sleep(20)
+  // The app crashed with m1 under way; the outbox sends it again under its id.
+  const again = setup(fake, dir)
+  fake.onPrompt = async (turn) => turn.say({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "ok" } })
+  assert.deepEqual(await again.backend.prompt(s.id, { id: "m1", text: "a" }), { id: "m1" })
+  await until(() => of(again.events, "run").some((e) => e.status === "succeeded"))
+  assert.deepEqual(of(again.events, "inbox").map((e) => `${e.id}:${e.status}`), ["m1:queued", "m1:working"])
+  assert.equal(fake.calls.filter((c) => c.method === "session/prompt").length, 2)
+  // It is no longer lost: a settle after this does not call it stopped.
+  assert.deepEqual(again.backend.lost(s.id), [])
+  // The same id again, answered this time: its run is said as it went, and nothing is sent.
+  const before = again.events.length
+  await again.backend.prompt(s.id, { id: "m1", text: "a" })
+  const said = again.events.slice(before).filter((e) => e.type === "run" || e.type === "inbox").map((e) => (e.type === "run" ? `run:${e.status}` : `${e.id}:${e.status}`))
+  assert.deepEqual(said, ["run:started", "m1:working", "run:succeeded"])
+  await sleep(20)
+  assert.equal(fake.calls.filter((c) => c.method === "session/prompt").length, 2)
+  // The re-read has both tries, the first with its failure.
+  const read = await again.backend.transcript(s.id)
+  assert.deepEqual(read.items.filter((i) => i.kind === "user").map((i) => i.id), ["m1~1", "m1"])
+  assert.ok(read.items.some((i) => i.id === "end_m1~1" && i.kind === "marker" && i.failed))
+})
+
+test("the process ends while a conversation is read into it: what waits is cancelled and the run fails, never left working", async () => {
+  const { backend, fake, events } = setup()
+  const s = await backend.createSession({ directory: "/repo" })
+  fake.exit()
+  await until(() => fake.starts === 2 && of(events, "connection").at(-1)?.state.status === "online")
+  let release!: () => void
+  fake.onLoad = () => new Promise<void>((r) => (release = r))
+  // The exit is seen before the process's output closes, and the load's answer still comes.
+  fake.holdStreams = true
+  await backend.prompt(s.id, { id: "m1", text: "a" })
+  await until(() => !!release)
+  fake.exit()
+  await until(() => of(events, "connection").at(-1)?.state.status === "offline")
+  release()
+  await until(() => of(events, "run").some((e) => e.status === "failed"))
+  assert.ok(of(events, "inbox").some((e) => e.id === "m1" && e.status === "cancelled"))
+  assert.ok(!of(events, "inbox").some((e) => e.id === "m1" && e.status === "working"))
+  // The queue is not blocked: the next message goes in the next process.
+  fake.holdStreams = false
+  fake.onLoad = undefined
+  await until(() => of(events, "connection").at(-1)?.state.status === "online")
+  await backend.prompt(s.id, { id: "m2", text: "b" })
+  await until(() => of(events, "run").some((e) => e.status === "succeeded"))
+})
+
+test("a conversation that can't be read into the agent: the message fails with the reason, and the run ends", async () => {
+  const { backend, fake, events, items } = setup()
+  const s = await backend.createSession({ directory: "/repo" })
+  fake.exit()
+  await until(() => fake.starts === 2 && of(events, "connection").at(-1)?.state.status === "online")
+  fake.onLoad = async () => {
+    throw new Error("disk full")
+  }
+  await backend.prompt(s.id, { id: "m1", text: "a" })
+  await until(() => of(events, "run").some((e) => e.status === "failed"))
+  assert.match(of(events, "run").find((e) => e.status === "failed")?.error ?? "", /disk full/)
+  assert.ok(of(events, "inbox").some((e) => e.id === "m1" && e.status === "cancelled"))
+  assert.ok(items.some((i) => i.kind === "marker" && i.failed && /disk full/.test(i.text)))
+})
+
+test("an agent that dies just after it starts: started again with a growing pause, then left offline for Retry", async () => {
+  const fake = fakeAgent()
+  fake.dieAfterInit = true
+  const crashes = timing.crashes
+  timing.crashes = 4
+  try {
+    const { events } = setup(fake)
+    await until(() => fake.starts === 4 && of(events, "connection").at(-1)?.state.status === "offline")
+    await sleep(300)
+    assert.equal(fake.starts, 4)
+    const last = of(events, "connection").at(-1)!.state
+    assert.match(last.status === "offline" ? last.error : "", /stopped 4 times in a row just after it started, so it is not started again by itself/)
+  } finally {
+    timing.crashes = crashes
+  }
+})
+
+test("stop, with an agent that ignores it: the turn ends as stopped after a while, and its process is ended and started again", async () => {
+  const fake = fakeAgent()
+  fake.ignoreCancel = true
+  fake.onPrompt = () => new Promise(() => {})
+  const grace = timing.stopGrace
+  timing.stopGrace = 50
+  try {
+    const { backend, events, items } = setup(fake)
+    const s = await backend.createSession({ directory: "/repo" })
+    await backend.prompt(s.id, { id: "m1", text: "long" })
+    await until(() => fake.calls.some((c) => c.method === "session/prompt"))
+    assert.equal(await backend.stop(s.id), true)
+    await until(() => of(events, "run").some((e) => e.status === "interrupted"))
+    assert.ok(items.some((i) => i.kind === "marker" && i.text === "Stopped"))
+    assert.ok(!of(events, "run").some((e) => e.status === "failed"))
+    await until(() => fake.starts === 2 && of(events, "connection").at(-1)?.state.status === "online")
+    assert.equal((await backend.session(s.id))?.busy, false)
+  } finally {
+    timing.stopGrace = grace
+  }
+})
+
+test("before a turn, too slow or failed: the message goes anyway, and the controller is told the turn's before is not to be trusted", async () => {
+  const untrusted: string[] = []
+  let sent = 0
+  const answers: (() => Promise<unknown>)[] = [() => new Promise(() => {}), () => Promise.reject(new Error("no space")), () => Promise.resolve()]
+  const wait = timing.beforeTurn
+  timing.beforeTurn = 50
+  try {
+    const { backend, fake, events } = setup(fakeAgent(), undefined, () => answers[sent++]!(), {
+      turnUntrusted: (session) => untrusted.push(`${session}@${fake.calls.filter((c) => c.method === "session/prompt").length}`),
+    })
+    const s = await backend.createSession({ directory: "/repo" })
+    for (const [i, id] of ["m1", "m2", "m3"].entries()) {
+      await backend.prompt(s.id, { id, text: id })
+      await until(() => of(events, "run").filter((e) => e.status === "succeeded").length === i + 1)
+    }
+    // Told right before the message went (no prompt of it yet), once each for the late and the failed one.
+    assert.deepEqual(untrusted, [`${s.id}@0`, `${s.id}@1`])
+    assert.equal(fake.calls.filter((c) => c.method === "session/prompt").length, 3)
+  } finally {
+    timing.beforeTurn = wait
+  }
+})
+
+test("an agent process that crashes takes what it started with it (a dev server keeps no port)", async () => {
+  const dir = tmp()
+  const pidFile = path.join(dir, "server.pid")
+  const backend = createAcp({ id: "real", name: "Real Agent", command: [process.execPath, path.join(__dirname, "acp-agent.cjs"), path.join(dir, "state.json")] })
+  const events: BackendEvent[] = []
+  stops.push(backend.listen((e) => events.push(e)))
+  const s = await backend.createSession({ directory: dir })
+  await backend.prompt(s.id, { id: "m1", text: `SPAWN ${pidFile}` })
+  await until(() => fs.existsSync(pidFile) && fs.readFileSync(pidFile, "utf8").length > 0, 10_000)
+  const pid = Number(fs.readFileSync(pidFile, "utf8"))
+  const alive = () => {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+  assert.ok(alive())
+  await until(() => of(events, "run").some((e) => e.status === "failed"), 10_000)
+  await until(() => !alive(), 5000)
+})
+
+test("sign-in: the agent's auth error and its words for it ask for a sign-in; a path or a word with auth in it does not", () => {
+  assert.equal(needsSignIn({ code: -32000, message: "Authentication required" }), true)
+  assert.equal(needsSignIn(new Error("Invalid API key · Please run /login")), true)
+  assert.equal(needsSignIn(new Error("Not logged in")), true)
+  assert.equal(needsSignIn(new Error("ENOENT: no such file, open '/repo/src/auth/session.ts'")), false)
+  assert.equal(needsSignIn(new Error("The author field is required")), false)
+  assert.equal(needsSignIn({ code: -32603, message: "Internal error" }), false)
+})
+
+test("Windows: a .cmd agent's command line is quoted for cmd.exe, and a word cmd.exe would act on is refused", () => {
+  assert.equal(cmdLine(["C:\\Program Files\\nodejs\\npx.cmd", "-y", "@agentclientprotocol/claude-agent-acp"]), '"C:\\Program Files\\nodejs\\npx.cmd" -y @agentclientprotocol/claude-agent-acp')
+  assert.equal(cmdLine(["agent.cmd", "a & b", "x|y"]), 'agent.cmd "a & b" "x|y"')
+  assert.throws(() => cmdLine(["agent.cmd", "%PATH%"]), /cmd\.exe would act on/)
+  assert.throws(() => cmdLine(["agent.cmd", 'a"&calc'], ), /cmd\.exe would act on/)
+})
+
+test("models: the agent's default says which model it is, as the reviewer reads it; asked before any conversation", async () => {
+  const fake = fakeAgent()
+  fake.defaultModel = true
+  fake.capabilities = { ...fake.capabilities, sessionCapabilities: { list: {}, options: {} } }
+  const { backend } = setup(fake)
+  const models = await backend.models()
+  assert.ok(fake.calls.some((c) => c.method === "session/options"))
+  // Only a description that is another model's name is taken: "Quick" is not one.
+  assert.deepEqual(models.map((m) => [m.id, m.name]), [
+    ["default", "Default · Beta"],
+    ["fake/alpha", "Alpha"],
+    ["fake/beta", "Beta"],
+  ])
+  // Nothing of the asking became a conversation.
+  assert.equal(fake.sessions.size, 0)
+  assert.equal(await backend.session("\u0000options"), null)
 })
 
 test("models, modes and commands come from what the agent offers; setModel sets the option and its effort", async () => {

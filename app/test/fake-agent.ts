@@ -38,10 +38,23 @@ export type FakeAgent = {
   /** Answer `_session/steering` with this outcome. */
   steerOutcome: string
   capabilities: Record<string, unknown>
+  /** Awaited by session/load before it answers (a load that hangs, or throws). */
+  onLoad?: (session: string) => Promise<void>
+  /** A turn goes on after session/cancel, as an agent that ignores it does. */
+  ignoreCancel: boolean
+  /** Each "process" ends a moment after it answered `initialize`: a crash at start. */
+  dieAfterInit: boolean
+  /** The "process" is seen to exit while its pipes still carry what it wrote (the exit event
+   *  comes before its output closes). */
+  holdStreams: boolean
+  /** The models begin with a "Default (recommended)" that names its model. */
+  defaultModel: boolean
 }
 
-const OPTIONS = (s: Session) => [
-  { id: "model", name: "Model", category: "model", type: "select", currentValue: s.model, options: [{ value: "fake/alpha", name: "fake/Alpha" }, { value: "fake/beta", name: "fake/Beta" }] },
+/** `byDefault`: the models begin with the agent's default, which names the model it is in its
+ *  description, as Claude Code's adapter says "Default (recommended)", "Opus 5.5". */
+const OPTIONS = (s: Session, byDefault = false) => [
+  { id: "model", name: "Model", category: "model", type: "select", currentValue: s.model, options: [...(byDefault ? [{ value: "default", name: "Default (recommended)", description: "fake/Beta" }] : []), { value: "fake/alpha", name: "fake/Alpha", description: "Quick" }, { value: "fake/beta", name: "fake/Beta" }] },
   { id: "effort", name: "Effort", category: "thought_level", type: "select", currentValue: s.effort, options: [{ value: "default", name: "Default" }, { value: "high", name: "High" }] },
   { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: s.mode, options: [{ value: "build", name: "Build" }, { value: "plan", name: "Plan" }] },
 ]
@@ -70,6 +83,10 @@ export function fakeAgent(opts: { file?: string } = {}): FakeAgent {
     starts: 0,
     steered: [],
     steerOutcome: "injected",
+    ignoreCancel: false,
+    dieAfterInit: false,
+    holdStreams: false,
+    defaultModel: false,
     capabilities: { loadSession: true, promptCapabilities: { image: true }, sessionCapabilities: { list: {}, fork: {}, delete: {} } },
     onPrompt: async (turn) => {
       await turn.say({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "ok" }, messageId: "m1" })
@@ -98,6 +115,7 @@ export function fakeAgent(opts: { file?: string } = {}): FakeAgent {
       const app = agent({ name: "fake" })
         .onRequest("initialize", ({ params }) => {
           record("initialize")(params)
+          if (fake.dieAfterInit) setTimeout(() => exit("it exited with code 1"), 5)
           return { protocolVersion: 1, agentCapabilities: fake.capabilities as never, agentInfo: { name: "fake", version: "9.9" }, _meta: { steering: { supported: true } } }
         })
         .onRequest("session/new", ({ params, client }) => {
@@ -105,14 +123,19 @@ export function fakeAgent(opts: { file?: string } = {}): FakeAgent {
           const s: Session = { id: `s${++n}`, cwd: params.cwd, history: [], model: "fake/alpha", effort: "default", mode: "build" }
           fake.sessions.set(s.id, s)
           setTimeout(() => void client.notify("session/update", { sessionId: s.id, update: { sessionUpdate: "available_commands_update", availableCommands: [{ name: "compact", description: "Summarise" }, { name: "review", description: "Review" }] } }))
-          return { sessionId: s.id, configOptions: OPTIONS(s) as never }
+          return { sessionId: s.id, configOptions: OPTIONS(s, fake.defaultModel) as never }
         })
         .onRequest("session/load", async ({ params, client }) => {
           record("session/load")(params)
+          await fake.onLoad?.(params.sessionId)
           const s = fake.sessions.get(params.sessionId)
           if (!s) throw Object.assign(new Error("Session not found"), { code: -32002 })
           for (const update of coalesce(s.history)) await client.notify("session/update", { sessionId: s.id, update: update as never })
-          return { configOptions: OPTIONS(s) as never }
+          return { configOptions: OPTIONS(s, fake.defaultModel) as never }
+        })
+        .onRequest("session/options", ({ params }) => {
+          record("session/options")(params)
+          return { configOptions: OPTIONS({ id: "", cwd: "", history: [], model: "default", effort: "default", mode: "build" }, fake.defaultModel) as never }
         })
         .onRequest("session/list", ({ params }) => {
           record("session/list")(params)
@@ -125,14 +148,14 @@ export function fakeAgent(opts: { file?: string } = {}): FakeAgent {
           if (params.configId === "model") s.model = value
           if (params.configId === "effort") s.effort = value
           if (params.configId === "mode") s.mode = value
-          return { configOptions: OPTIONS(s) as never }
+          return { configOptions: OPTIONS(s, fake.defaultModel) as never }
         })
         .onRequest("session/fork", ({ params }) => {
           record("session/fork")(params)
           const from = fake.sessions.get(params.sessionId)!
           const s: Session = { ...from, id: `s${++n}`, history: [...from.history] }
           fake.sessions.set(s.id, s)
-          return { sessionId: s.id, configOptions: OPTIONS(s) as never }
+          return { sessionId: s.id, configOptions: OPTIONS(s, fake.defaultModel) as never }
         })
         .onRequest("session/delete", ({ params }) => {
           record("session/delete")(params)
@@ -168,7 +191,7 @@ export function fakeAgent(opts: { file?: string } = {}): FakeAgent {
             ask: (p) => client.request("session/request_permission", { sessionId: s.id, ...(p as object) } as never),
             cancelled,
           }
-          const stop = await Promise.race([fake.onPrompt(turn), cancelled.then(() => "cancelled")])
+          const stop = await (fake.ignoreCancel ? fake.onPrompt(turn) : Promise.race([fake.onPrompt(turn), cancelled.then(() => "cancelled")]))
           s.cancel = undefined
           return { stopReason: (stop || "end_turn") as never }
         })
@@ -182,6 +205,7 @@ export function fakeAgent(opts: { file?: string } = {}): FakeAgent {
       app.connect(agentSide)
       const exit = (reason: string) => {
         exited(reason)
+        if (fake.holdStreams) return
         void toClient.writable.abort(new Error(reason)).catch(() => {})
         void toAgent.writable.abort(new Error(reason)).catch(() => {})
       }
