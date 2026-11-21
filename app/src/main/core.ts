@@ -23,6 +23,7 @@
 // (test/stubs/host.ts). All of the controller's state is inside one call of createCore.
 import path from "node:path"
 import { notePrompt, noteWords, TEMPLATES } from "../../../overlay/prompt.js"
+import { commitPrompt, startPrompt, takeBackPrompt } from "./asks"
 import type {
   AgentInfo,
   AppState,
@@ -826,7 +827,7 @@ export function createCore(host: Host): Core {
       toChat({ type: "reset", session: id, items: withCheckpoints(id, t.items) })
       // A conversation from before conversations were named, or named nowhere else: by what was
       // first said in it. (Asking for the site to be started is the app's words, not a subject.)
-      const first = t.items.find((i) => i.kind === "user" && !i.text.startsWith(START_PROMPT))
+      const first = t.items.find((i) => i.kind === "user" && !i.ask)
       if (first?.kind === "user") void autoName(id, first.note?.text || first.text)
       // Events that arrived during the read. Upserts repeat harmlessly; a text delta already in the
       // transcript shows twice until its block ends, which replaces the text.
@@ -1040,24 +1041,7 @@ export function createCore(host: Host): Core {
     }
   }
 
-  /** What the agent is asked when the reviewer has a repo and no running site. It says only what
-   *  the agent cannot know: that the app stops what runs through the server's shell (a detached
-   *  process is not there, see `refreshRunning`), that localhost does not open on another
-   *  computer, and the line the app reads the address from (SITE_LINE). `failed` is an address
-   *  that did not answer. */
-  const START_PROMPT = "Get this project's site running so I can review it in bicycle 42."
-  function startPrompt(failed: string) {
-    return [
-      [START_PROMPT, ...(failed ? [`I expected it at ${failed}, which did not answer.`] : [])].join(" "),
-      "",
-      [
-        "Run it as a background command of your shell tool (not nohup, & or tmux), so I can stop it from here.",
-        ...(sameComputer() ? [] : ["I am on another computer, so localhost will not open: bind it to the network, and ask before a tunnel makes it public."]),
-      ].join(" "),
-      "",
-      "When it answers, end your reply with one line: SITE: <address>",
-    ].join("\n")
-  }
+  /** The line the agent ends its answer to `startPrompt` (asks.ts) with: the site's address. */
   const SITE_LINE = /^\s*`?SITE:\s*<?(https?:\/\/[^\s<>`"']{1,2000})>?`?\s*$/gim
 
   /** The agent has answered the request to start the site: the address it ended with is opened,
@@ -1175,44 +1159,6 @@ export function createCore(host: Host): Core {
       log("warn", "can't read the repo's state", say(err))
     }
     push()
-  }
-
-  /** What the agent is asked for a commit. The message is the reviewer's, word for word. */
-  function commitPrompt(message: string) {
-    return [
-      "Commit the work in this folder with git.",
-      "",
-      "- Stage every change in the working tree, new files included (git add -A).",
-      "- Use exactly this commit message, as it is written between the lines:",
-      "----",
-      message,
-      "----",
-      "- Do not push, and do not change any file.",
-      "",
-      "Reply with the commit's short hash and its subject, or with what stopped you.",
-    ].join("\n")
-  }
-
-  const DIFF_IN_PROMPT_MAX = 20_000
-
-  /** What the agent is asked when a note that is not the newest message is taken back. */
-  function takeBackPrompt(n: number, text: string, diff: FileChange[]) {
-    const patch = diff.map((f) => f.patch).join("\n")
-    return [
-      `Take back what you changed for UI review note ${n}: ${JSON.stringify(text)}.`,
-      "",
-      "- Put the code back to how it was before that note, and only that: leave every other change, earlier or later, as it is.",
-      "- If something done since depends on it, say so instead of breaking it.",
-      ...(patch
-        ? [
-            "",
-            "For reference, the diff of the turn that note was part of. Notes that waited together share a turn, so it may hold other notes' changes too:",
-            "```diff",
-            patch.length > DIFF_IN_PROMPT_MAX ? `${patch.slice(0, DIFF_IN_PROMPT_MAX)}\n… (cut)` : patch,
-            "```",
-          ]
-        : []),
-    ].join("\n")
   }
 
   // ── checkpoints ─────────────────────────────────────────────────────────────────────────────────
@@ -2132,7 +2078,7 @@ export function createCore(host: Host): Core {
       starting = true
       push()
       try {
-        await startsRun(current.id, () => b.prompt(current.id, { text: startPrompt(p?.error ? p.url : "") }))
+        await startsRun(current.id, () => b.prompt(current.id, { text: startPrompt(p?.error ? p.url : "", !sameComputer()) }))
       } catch (err) {
         siteAsked = undefined
         starting = false

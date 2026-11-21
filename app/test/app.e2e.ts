@@ -14,6 +14,7 @@ import http from "node:http"
 import os from "node:os"
 import path from "node:path"
 import type { AppState } from "../src/shared/types"
+import { commitPrompt } from "../src/main/asks"
 import type { PageView } from "../src/main/page"
 import { start, type FakeRequest } from "./fake-server"
 
@@ -1004,6 +1005,19 @@ async function main() {
   emit("session.compaction.started", { reason: "manual", inputID: "msg_compact2" })
   emit("session.compaction.ended", { reason: "manual", text: "A bigger button, a tighter heading." })
   check("once the conversation is summarised the meter is gone", (await until(async () => (await meterText()) === "")) === true, String(await meterText()))
+
+  // ── what the app asks in the reviewer's name is a line in the chat, the rest folded ──────────
+  emit("session.inbox.enqueued", { inboxID: "msg_ask", item: { type: "user", payload: { text: commitPrompt("Tidy the hero\n\n- more air") }, delivery: "queue" } })
+  emit("session.inbox.delivered", { inboxID: "msg_ask" })
+  const ask = `document.querySelector('[data-item="msg_ask"]')`
+  check(
+    "a commit asked from the app is one line in the chat: the message's first, and none of the instructions",
+    (await until(() => ui(`${ask}?.querySelector('.user-ask summary')?.textContent === "Commit: Tidy the hero"`))) === true && (await ui(`!${ask}.innerText.includes("git add") && !${ask}.querySelector('.user-ask-body')`)) === true,
+    await ui(`${ask}?.innerText`),
+  )
+  await ui(`${ask}.querySelector('.user-ask summary').click()`)
+  check("…and opened, every word the agent was sent", (await until(() => ui(`(${ask}.querySelector('.user-ask-body')?.textContent ?? "").includes("git add -A") && ${ask}.querySelector('.user-ask-body').textContent.includes("- more air")`))) === true)
+  await ui(`${ask}.querySelector('.user-ask summary').click()`)
 
   // ── commands answer with plain sentences ───────────────────────────────────────────────────
   const refused = (await ui(`window.b42.invoke("connect", { url: "", password: "x" }).then(() => "", (e) => e.message)`)) as string

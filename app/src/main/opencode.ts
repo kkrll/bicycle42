@@ -13,6 +13,7 @@
 // Server payloads are untrusted: every field is read through rec/str/num/list, and anything
 // unknown is skipped and logged once.
 import { posix } from "node:path"
+import { parseAsk } from "./asks"
 import type { PictureSource, Wire } from "./pictures"
 import type {
   ContextUse,
@@ -189,7 +190,7 @@ function userItem(id: string, time: number, payload: Raw, pending: boolean, name
     const src = named ? named(i, mime, data === DROPPED ? undefined : data) : `data:${mime};base64,${data}`
     images.push({ name: str(file.name) ?? "image", src })
   }
-  return defined({ kind: "user", id, time, text, images, note: parseNote(text), pending: pending || undefined })
+  return defined({ kind: "user", id, time, text, images, note: parseNote(text), ask: parseAsk(text), pending: pending || undefined })
 }
 
 function fileChanges(metadata: unknown): FileChange[] | undefined {

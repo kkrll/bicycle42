@@ -86,6 +86,10 @@ export type ChatUser = {
   images: ChatImage[]
   /** Set when this message is a review note: the note's number and the reviewer's own words. */
   note?: { n: number; text: string }
+  /** Set when the app wrote this message in the reviewer's name (get the site running, commit,
+   *  take a note back; main/asks.ts): what it asks, in a line. The chat shows the line, and
+   *  `text` folded under it. */
+  ask?: { title: string }
   /** Sent but not yet picked up by the agent (it is busy with earlier work). */
   pending?: boolean
 }

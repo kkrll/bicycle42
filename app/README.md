@@ -59,6 +59,7 @@ src/main/outbox.ts      what each unfinished note sends (prompt, pictures), on d
 src/main/images.ts      a captured Frame → area crop + viewport thumbnail, each frame scaled once, yielding between steps
 src/main/queue.ts       one file operation at a time per key (outbox, shots)
 src/main/opencode.ts    the backend: fetch + one SSE stream → BackendEvents (no Electron)
+src/main/asks.ts        what the app itself asks the agent (site, commit, take back), and the line the chat shows for it
 src/main/pictures.ts    the conversation's pictures by address (b42-img:), served to the window by main
 src/main/local.ts       finds the OpenCode server running on this computer
 src/main/store.ts       settings and notes on disk, versioned, atomic writes off the main thread (flushed at quit)
@@ -97,6 +98,11 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   get the site running (`startSite`): the prompt is short, and says that the app is on another computer
   when it is, and asks for a last line `SITE: <address>`, which is opened when the run ends and no page
   works yet. The first site opened takes that conversation over.
+- **What the app asks in the reviewer's name is one line in the chat.** Getting the site
+  running, a commit and a note taken back are messages the app writes (`main/asks.ts`); each
+  says only what the agent cannot know by itself. `parseAsk` reads back what one asks
+  (`ChatUser.ask`), and the chat shows that line with the whole text folded under it, as a
+  note's message shows the note's words and not its prompt.
 - **What is left running is the server's to say.** `Backend.running` lists the shell commands
   still running in a folder (`GET /api/shell`), `kill` ends one. Main reads the open repo's
   every 20 s and after each run, and every project's on connecting and when the list is opened

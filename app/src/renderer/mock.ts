@@ -532,6 +532,8 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       time: Date.now(),
       text,
       images: images.map((f) => ({ name: f.name, src: f.uri })),
+      // (What main reads back from its own requests, asks.ts: here there is the one.)
+      ...(text.startsWith("Get this project's site running") ? { ask: { title: "Get the site running" } } : {}),
     }
     if (state.session?.busy && options.delivery === "steer") {
       stop("Redirected", false)
@@ -884,7 +886,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     startSite() {
       state.startingSite = true
       push()
-      deliver("Get this project's site running so I can review it in bicycle 42.", undefined, undefined, REPLY)
+      deliver("Get this project's site running so I can review it in bicycle 42.\n\nRun it as a background command of your shell tool (not nohup, & or tmux), so I can stop it from here.\n\nWhen it answers, end your reply with one line: SITE: <address>", undefined, undefined, REPLY)
     },
     setDirectory(directory) {
       state.site = { origin: state.page.url ? ORIGIN : "", directory }

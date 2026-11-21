@@ -283,22 +283,48 @@ const noteByNumber = createRoot(() =>
   }),
 )
 
+/** What the reviewer said, or a note's words with its number (a note no longer on the list). */
+function UserLine(props: { item: ChatUser }) {
+  return (
+    <div class="user-line">
+      <Show when={props.item.note}>
+        {(note) => (
+          <span class="badge" data-status="gone">
+            {note().n}
+          </span>
+        )}
+      </Show>
+      <div class="user-text">{props.item.note?.text ?? props.item.text}</div>
+    </div>
+  )
+}
+
+/** A message the app wrote in the reviewer's name (to get the site running, to commit, to take a
+ *  note back): what it asks in a line, and under it, when opened, every word the agent was sent. */
+function Asked(props: { title: string; text: string }) {
+  const [open, setOpen] = createSignal(false)
+  return (
+    <details class="user-ask" onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary title="Show what the agent was sent">
+        <span class="user-text">{props.title}</span>
+        <Icon name="right" class="caret" />
+      </summary>
+      <Show when={open()}>
+        <div class="user-ask-body">{props.text}</div>
+      </Show>
+    </details>
+  )
+}
+
 function User(props: { item: ChatUser }) {
   return (
     <div class="msg user" classList={{ pending: props.item.pending }} data-item={props.item.id}>
       <Show
         when={props.item.note && noteByNumber().get(props.item.note.n)}
         fallback={
-          <div class="user-line">
-            <Show when={props.item.note}>
-              {(note) => (
-                <span class="badge" data-status="gone">
-                  {note().n}
-                </span>
-              )}
-            </Show>
-            <div class="user-text">{props.item.note?.text ?? props.item.text}</div>
-          </div>
+          <Show when={props.item.ask} fallback={<UserLine item={props.item} />}>
+            {(ask) => <Asked title={ask().title} text={props.item.text} />}
+          </Show>
         }
       >
         {/* A note still on the list opens from its message as it does from its row. */}

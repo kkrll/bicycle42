@@ -45,6 +45,9 @@ const pastePicture = `(async () => {
 const narrowPanel = `document.querySelector(".panel").style.setProperty("--panel-width", "360px")`
 
 /** name, mock scenario, then optional: extra query, script to run after load, ms to wait, size. */
+/** Presses the suggestion that asks the agent to get the site running. */
+const START_SITE = `document.querySelector('.suggestion[title^="The agent starts it"]').click()`
+
 const SHOTS = [
   { name: "connect", mock: "connect" },
   {
@@ -86,6 +89,9 @@ const SHOTS = [
   { name: "conversations-rename", mock: "review", run: [click(".convo-current"), pause(200), click(".menu-row:nth-of-type(2) [data-do=rename]")], wait: 300 },
   { name: "conversations-delete", mock: "review", run: [click(".convo-current"), pause(200), click(".menu-row:nth-of-type(3) [data-do=ask-delete]"), pause(100), click(".menu-archived")], wait: 400 },
   { name: "repo", mock: "repo" },
+  // What the app asks in the reviewer's name: a line in the chat, and every word of it when opened.
+  { name: "ask", mock: "empty", run: [START_SITE], wait: 600 },
+  { name: "ask-open", mock: "empty", run: [START_SITE, pause(400), click(".user-ask summary")], wait: 400 },
   { name: "empty", mock: "empty" },
   { name: "running", mock: "review", run: [click('[data-action="running"]')], wait: 500 },
   { name: "switcher", mock: "review", run: [click('[data-action="switcher"]')], wait: 500 },
