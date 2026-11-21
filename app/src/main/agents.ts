@@ -9,9 +9,42 @@
 // What is on the PATH of an app started from the desktop is often not what a terminal has
 // (mise, nvm, npm's global folder are set up by the shell's profile), so a command is looked
 // for on both: this process's PATH, then the one the person's login shell has.
+//
+// An adapter fetched with npx is pinned (agent-pins.json): the version that was tested, the same
+// on every computer, never whatever npm has newest at that start. The reviewer can ask for the
+// newest per agent instead ("Always the newest" on the connect screen: `latest` below), and
+// `npm run agents:check` (scripts/agents-check.mjs) says when there is a newer one and tests it.
 import path from "node:path"
 import type { LocalAgent } from "../shared/types"
+import pins from "./agent-pins.json"
 import { thisMachine, type Machine } from "./machine"
+
+/** An adapter from npm, as agent-pins.json keeps it: its package, the program it installs, the
+ *  version the app starts, and when that version passed test/acp.real.ts in full (absent: it was
+ *  not, `checks` says how far it was). */
+export type Pin = { package: string; bin: string; version: string; tested?: string; checks?: string }
+export const PINS: Readonly<Record<string, Pin>> = pins
+
+/** The variable that runs another version of an agent's adapter than its pin (B42_PIN_CLAUDE=0.110.0):
+ *  how `npm run agents:check --test` tries the newest before it is pinned. */
+export const pinEnv = (id: string) => `B42_PIN_${id.toUpperCase()}`
+
+/** What decides how an agent is started beyond what is installed: the agents whose adapter is
+ *  the newest on npm (the reviewer's choice, kept in the settings), and the environment the pin
+ *  override is read from (this process's). */
+export type StartPrefs = { latest?: (id: string) => boolean; env?: Record<string, string | undefined> }
+
+/** Which version of a known agent's adapter npx is to start, and why. Undefined for an agent with
+ *  no adapter (Gemini CLI, OpenCode: the person's own CLI). */
+export function adapterOf(id: string, prefs: StartPrefs = {}): { pin: Pin; version: string; tested: boolean; latest: boolean; env?: string } | undefined {
+  const pin = PINS[id]
+  if (!pin) return undefined
+  const name = pinEnv(id)
+  const forced = (prefs.env ?? process.env)[name]?.trim()
+  if (forced) return { pin, version: forced, tested: false, latest: false, env: name }
+  if (prefs.latest?.(id)) return { pin, version: "latest", tested: false, latest: true }
+  return { pin, version: pin.version, tested: !!pin.tested, latest: false }
+}
 
 /** What a check of a sign-in looks at, on the computer the agent is on. */
 type Probe = {
@@ -26,8 +59,9 @@ type Probe = {
 type Known = {
   id: string
   name: string
-  /** How to start it: an adapter installed on its own wins over fetching it with npx. */
-  commands: string[][]
+  /** How to start it when it speaks ACP itself. One with an adapter (PINS) has none here: its
+   *  adapter installed on its own, else npx with the adapter's version (`commandsOf`). */
+  commands?: string[][]
   /** The program it needs to be of any use (the CLI whose login the adapter uses). */
   needs: string
   /** What to tell the person who does not have it. */
@@ -61,7 +95,6 @@ export const KNOWN_AGENTS: readonly Known[] = [
   {
     id: "claude",
     name: "Claude Code",
-    commands: [["claude-agent-acp"], ["npx", "-y", "@agentclientprotocol/claude-agent-acp"]],
     needs: "claude",
     install: "Install Claude Code and sign in: npm install -g @anthropic-ai/claude-code, then claude",
     installCommand: "npm install -g @anthropic-ai/claude-code",
@@ -76,7 +109,6 @@ export const KNOWN_AGENTS: readonly Known[] = [
   {
     id: "codex",
     name: "Codex",
-    commands: [["codex-acp"], ["npx", "-y", "@agentclientprotocol/codex-acp"]],
     needs: "codex",
     install: "Install Codex and sign in: npm install -g @openai/codex, then codex login",
     installCommand: "npm install -g @openai/codex",
@@ -121,29 +153,55 @@ export const agentEnv = () => thisMachine().agentEnv()
 /** Where `program` is on that PATH, or undefined. */
 export const which = (program: string, env?: Record<string, string | undefined>) => thisMachine().which(program, env)
 
+/** The ways to start a known agent, the one to use first first: its adapter installed on its
+ *  own (the person's: no pin applies to it), then npx with the adapter's version. A version
+ *  forced with B42_PIN_<ID> is npx's only: it is what is asked for, whatever is installed. */
+function commandsOf(known: Known, prefs: StartPrefs): string[][] {
+  const adapter = adapterOf(known.id, prefs)
+  if (!adapter) return known.commands ?? []
+  const npx = ["npx", "-y", `${adapter.pin.package}@${adapter.version}`]
+  return adapter.env ? [npx] : [[adapter.pin.bin], npx]
+}
+
 /** How to start a known agent on a computer (this one unless said): its own adapter if one is
  *  installed, else the first way whose program is there. Undefined when what it needs is not
- *  installed. */
-export async function commandOf(id: string, m: Machine = thisMachine()): Promise<string[] | undefined> {
+ *  installed. The same line on another computer as here: its adapter's version is decided here. */
+export async function commandOf(id: string, m: Machine = thisMachine(), prefs: StartPrefs = {}): Promise<string[] | undefined> {
   const known = KNOWN_AGENTS.find((a) => a.id === id)
   if (!known) return undefined
   const env = await m.agentEnv()
   if (!(await m.which(known.needs, env))) return undefined
-  for (const command of known.commands) if (await m.which(command[0]!, env)) return command
+  for (const command of commandsOf(known, prefs)) if (await m.which(command[0]!, env)) return command
   return undefined
 }
 
 /** The known agents, each with whether it can run on that computer, for the connect screen. */
-export async function localAgents(m: Machine = thisMachine()): Promise<LocalAgent[]> {
-  const env = await m.agentEnv()
-  const p = probe(m, env)
-  return Promise.all(
-    KNOWN_AGENTS.map(async (a) => {
-      const command = await commandOf(a.id, m)
-      const signIn = command && a.login && (await a.signedIn?.(p)) === false ? { signIn: a.login } : {}
-      return { id: a.id, name: a.name, command: (command ?? a.commands.at(-1)!).join(" "), installed: !!command, ...(command ? signIn : { needs: a.install, install: a.installCommand }) }
-    }),
-  )
+export async function localAgents(m: Machine = thisMachine(), prefs: StartPrefs = {}): Promise<LocalAgent[]> {
+  const p = probe(m, await m.agentEnv())
+  return Promise.all(KNOWN_AGENTS.map((a) => describeAgent(a, m, p, prefs)))
+}
+
+/** One known agent as `localAgents` says it (the connect screen's row after its toggle). */
+export async function localAgent(id: string, m: Machine = thisMachine(), prefs: StartPrefs = {}): Promise<LocalAgent | undefined> {
+  const known = KNOWN_AGENTS.find((a) => a.id === id)
+  return known && describeAgent(known, m, probe(m, await m.agentEnv()), prefs)
+}
+
+async function describeAgent(a: Known, m: Machine, p: Probe, prefs: StartPrefs): Promise<LocalAgent> {
+  const command = await commandOf(a.id, m, prefs)
+  const signIn = command && a.login && (await a.signedIn?.(p)) === false ? { signIn: a.login } : {}
+  const adapter = adapterOf(a.id, prefs)
+  const version = adapter && {
+    adapter: { version: adapter.version, tested: adapter.tested, latest: adapter.latest, own: !!command && command[0] === adapter.pin.bin, ...(adapter.env ? { env: adapter.env } : {}) },
+  }
+  return {
+    id: a.id,
+    name: a.name,
+    command: (command ?? commandsOf(a, prefs).at(-1)!).join(" "),
+    installed: !!command,
+    ...version,
+    ...(command ? signIn : { needs: a.install, install: a.installCommand }),
+  }
 }
 
 /** A command line split into words, as a shell would for the simple cases: spaces separate,

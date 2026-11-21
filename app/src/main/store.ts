@@ -64,6 +64,9 @@ export type Settings = {
    *  opens (http://127.0.0.1:<it>) and the port and address there it is forwarded from, so after
    *  a restart the same port there is forwarded to the same one here again. */
   forwards?: Record<string, Record<string, { port: number; host: string }>>
+  /** The known agents whose adapter npx starts at its newest instead of the app's pin, by id
+   *  (agents.ts: adapterOf). Absent: all pinned. */
+  agentLatest?: string[]
 }
 
 export type Store = {

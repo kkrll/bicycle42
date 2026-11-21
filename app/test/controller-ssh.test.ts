@@ -14,6 +14,9 @@ import type net from "node:net"
 import path from "node:path"
 import { test } from "node:test"
 import { timing } from "../src/main/acp"
+import { localAgents, PINS } from "../src/main/agents"
+import { thisMachine } from "../src/main/machine"
+import type { LocalAgent, RemoteInfo } from "../src/shared/types"
 import { sshTiming } from "../src/main/ssh"
 import { testShell, type TestShell } from "./stubs/host"
 import { fakeHost, sleep, until, type FakeHost } from "./ssh-fixture"
@@ -127,6 +130,50 @@ test("an agent on another computer: the agents there are listed, it is started t
     assert.deepEqual(fs.readdirSync(path.join(t.h.home, ".bicycle42", "snapshots")), [fs.readFileSync(path.join(t.h.data, "ssh", "owner"), "utf8")])
     assert.equal(fs.existsSync(path.join(t.h.data, "snapshots")), false)
   } finally {
+    await t.close()
+  }
+})
+
+test("Claude Code there is started with the same pinned adapter as here, @latest once asked for, and as it is now after a restart, not by the line saved before", async () => {
+  const t = boot()
+  // That computer has Claude Code and an npx that says what it was asked for, then runs the fake
+  // agent; no adapter of its own (claude-agent-acp) anywhere on its PATH.
+  const bin = path.join(t.h.root, "there-bin")
+  const asked = path.join(t.h.root, "npx-asked")
+  fs.mkdirSync(bin)
+  fs.writeFileSync(path.join(bin, "claude"), "#!/bin/sh\n", { mode: 0o755 })
+  fs.writeFileSync(path.join(bin, "npx"), `#!/bin/sh\necho "$*" >> "${asked}"\nexec "${process.execPath}" "${path.join(__dirname, "acp-agent.cjs")}" "${path.join(t.h.root, "fake-agent.json")}"\n`, { mode: 0o755 })
+  process.env.B42_FAKE_SSH_PATH = `${bin}${path.delimiter}${process.env.PATH}`
+  const kept = process.env.B42_PIN_CLAUDE
+  delete process.env.B42_PIN_CLAUDE
+  const lines = () => (fs.existsSync(asked) ? fs.readFileSync(asked, "utf8").trim().split("\n") : [])
+  const pinned = `-y @agentclientprotocol/claude-agent-acp@${PINS.claude!.version}`
+  try {
+    const there = (await t.cmd("connectSsh", "dev-box")) as RemoteInfo
+    const claude = there.agents.find((a) => a.id === "claude")!
+    assert.equal(claude.command, `npx ${pinned}`)
+    assert.deepEqual(claude.adapter, { version: PINS.claude!.version, tested: !!PINS.claude!.tested, latest: false, own: false })
+    // The same line as this computer's row says.
+    assert.equal((await localAgents(thisMachine(), { env: {} })).find((a) => a.id === "claude")!.command.replace(/^.*npx /, "npx "), `npx ${pinned}`)
+    await t.cmd("connectAgent", { id: "claude", host: "dev-box" })
+    await until(() => t.snap().connection.status === "online")
+    assert.deepEqual(lines(), [pinned])
+    // Always the newest: kept in the settings, said for that computer's row, used from the next start.
+    const toggled = (await t.cmd("setAgentLatest", { id: "claude", latest: true, host: "dev-box" })) as LocalAgent
+    assert.equal(toggled.command, "npx -y @agentclientprotocol/claude-agent-acp@latest")
+    assert.equal(toggled.adapter?.latest, true)
+    // After a restart the saved agent starts again as it is now (the saved line was the pinned one).
+    await t.restart()
+    await until(() => lines().length === 2)
+    assert.deepEqual(lines(), [pinned, "-y @agentclientprotocol/claude-agent-acp@latest"])
+    await until(() => t.snap().connection.status === "online")
+    // Turned off: the pin again, and the setting gone.
+    const back = (await t.cmd("setAgentLatest", { id: "claude", latest: false, host: "dev-box" })) as LocalAgent
+    assert.equal(back.command, `npx ${pinned}`)
+    await until(() => JSON.parse(fs.readFileSync(path.join(t.h.data, "settings.json"), "utf8")).agentLatest === undefined)
+  } finally {
+    delete process.env.B42_FAKE_SSH_PATH
+    if (kept !== undefined) process.env.B42_PIN_CLAUDE = kept
     await t.close()
   }
 })

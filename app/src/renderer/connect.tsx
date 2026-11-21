@@ -138,7 +138,14 @@ type AgentState = "using" | "missing" | "signin" | "ready"
  *  there on request. */
 function AgentRow(props: { agent: LocalAgent; using: boolean; busy: boolean; error?: string; onStart: () => void; where?: string }) {
   const [how, setHow] = createSignal(false)
-  const a = () => props.agent
+  // The row as main says it after its toggle (the command and version change with it).
+  const [toggled, setToggled] = createSignal<LocalAgent>()
+  const a = () => toggled() ?? props.agent
+  const setLatest = (latest: boolean) =>
+    b42
+      .invoke("setAgentLatest", { id: a().id, latest, ...(props.where ? { host: props.where } : {}) })
+      .then(setToggled)
+      .catch((err) => setNotice(`Could not change ${a().name}'s version. ${message(err)}`))
   const st = (): AgentState => (props.using ? "using" : !a().installed ? "missing" : a().signIn || /sign in/i.test(props.error ?? "") ? "signin" : "ready")
   const login = () => a().signIn ?? (a().id === "codex" ? "codex login" : a().id === "opencode" ? "opencode auth login" : a().id)
   return (
@@ -167,6 +174,7 @@ function AgentRow(props: { agent: LocalAgent; using: boolean; busy: boolean; err
         </Show>
         <Show when={how()}>
           <code class="agent-command">{a().command}</code>
+          <AdapterVersion agent={a()} using={props.using} onLatest={setLatest} />
         </Show>
       </div>
       <div class="agent-acts">
@@ -187,6 +195,34 @@ function AgentRow(props: { agent: LocalAgent; using: boolean; busy: boolean; err
         </Switch>
       </div>
     </li>
+  )
+}
+
+/** Which version of its adapter from npm an agent runs, under its command: the app's pin ("0.109.1,
+ *  tested"), the newest ("latest"), or the reviewer's own install, which wins over both. */
+function AdapterVersion(props: { agent: LocalAgent; using: boolean; onLatest: (latest: boolean) => void }) {
+  const v = () => props.agent.adapter
+  const said = () => {
+    const x = v()!
+    if (x.own) return "Adapter: your own install, found on the PATH (it wins over the app's version)"
+    if (x.env) return `Adapter ${x.version}, set by ${x.env}`
+    if (x.latest) return "Adapter: latest"
+    return `Adapter ${x.version}${x.tested ? ", tested" : ""}`
+  }
+  return (
+    <Show when={v()}>
+      <span class="agent-version">
+        {said()}
+        <Show when={!v()!.own && !v()!.env}>
+          <Toggle
+            on={v()!.latest}
+            label="Always the newest"
+            title={`Start the newest version on npm instead of the one the app was tested with${props.using ? ", from its next start" : ""}`}
+            onClick={() => props.onLatest(!v()!.latest)}
+          />
+        </Show>
+      </span>
+    </Show>
   )
 }
 
@@ -741,7 +777,7 @@ export function ServerButton(props: { onClick: () => void }) {
 
 function Toggle(props: { on: boolean; label: string; title: string; disabled?: boolean; onClick: () => void }) {
   return (
-    <button class="toggle" role="switch" aria-checked={props.on} disabled={props.disabled} title={props.title} onClick={props.onClick}>
+    <button class="toggle" type="button" role="switch" aria-checked={props.on} disabled={props.disabled} title={props.title} onClick={props.onClick}>
       <span class="toggle-track" />
       {props.label}
     </button>

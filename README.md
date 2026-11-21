@@ -18,8 +18,8 @@ It is for designers who work with a coding agent, and it is open source.
 
 - An agent: one of Claude Code, Codex, Gemini CLI or OpenCode installed and signed in on this
   computer (Claude Code and Codex are reached through their ACP adapters, which `npx` fetches the
-  first time), or on another computer you reach with `ssh` (it needs Node 18 or newer there), or
-  an OpenCode server on this computer or another one.
+  first time, at the version the app pins), or on another computer you reach with `ssh` (it
+  needs Node 18 or newer there), or an OpenCode server on this computer or another one.
 - Node 22 or newer with npm, or Bun.
 - git, for the repo's branch and changes when the agent runs on this computer.
 

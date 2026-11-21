@@ -336,14 +336,44 @@ main). The connect screen lists the agents `main/agents.ts` knows, each said ins
 (looked for on this process's PATH and on the one the login shell sets up, since an app started
 from the desktop has less), and takes any other command (`connectAgent`). A saved agent is a
 server like the others (`{ agent, command }` in `settings.servers`), with its own repo, pages and
-conversations; its address is `acp://<id>`.
+conversations; its address is `acp://<id>`. A known agent's command is worked out again at each
+start (the saved one is a record): a pin moved on, or "Always the newest" turned on, applies to it
+at once.
 
 | Agent | Command |
 |---|---|
-| Claude Code | `claude-agent-acp` if installed, else `npx -y @agentclientprotocol/claude-agent-acp` (needs `claude`, signed in) |
-| Codex | `codex-acp` if installed, else `npx -y @agentclientprotocol/codex-acp` (needs `codex`, signed in) |
+| Claude Code | `claude-agent-acp` if installed, else `npx -y @agentclientprotocol/claude-agent-acp@<pin>` (needs `claude`, signed in) |
+| Codex | `codex-acp` if installed, else `npx -y @agentclientprotocol/codex-acp@<pin>` (needs `codex`, signed in) |
 | Gemini CLI | `gemini --experimental-acp` |
 | OpenCode | `opencode acp` |
+
+The two adapters are pinned to an exact version in `src/main/agent-pins.json`, the same on this
+computer and on another one over ssh (the line is built here): each start runs what was tested,
+never what npm has newest that minute, with the reviewer's login, keys and repos. The Claude
+adapter bundles its own Claude Code (it pins `@anthropic-ai/claude-agent-sdk`), so a new model
+arrives with a new adapter. Gemini CLI and OpenCode are the person's own CLIs: nothing to pin.
+On the connect screen, an agent's "Command" shows the version it runs ("Adapter 0.109.1, tested")
+and an "Always the newest" switch, kept per agent in `settings.agentLatest`, which starts
+`<package>@latest` from its next start. An adapter installed on its own still wins over both
+(the row says "your own install"), and `B42_PIN_CLAUDE` / `B42_PIN_CODEX` win over everything
+(how the check below tries a version before it is pinned).
+
+### Updating the agents' adapters
+
+Bump a pin when a new model you want arrives (a new Claude adapter), when a fix you need is out,
+or after the weekly check says there is a newer one:
+
+```sh
+npm run agents:check                                  # each pin against npm's newest, with dates
+npm run agents:check -- --test claude --model haiku   # the real check against the newest
+npm run agents:check -- --test claude --bump          # …and pin it, only if every check passed
+```
+
+The first only asks npm. `--test` builds the tests and runs `test/acp.real.ts` with
+`B42_PIN_<ID>=<newest>`: it starts the agent with your login in a throwaway folder and spends your
+tokens on a few tiny prompts (it says so before it starts). `--bump` writes the new version, the
+date and the count into `agent-pins.json` only when all checks passed; commit that file. A pin
+can also be moved by hand (the date `tested` then goes, unless you ran the check).
 
 - **One process for all of an agent's conversations.** Started on the first call, in its own
   process group, and started again with a growing pause (1 s to 30 s) when it dies; the app

@@ -1,0 +1,15 @@
+{
+  "claude": {
+    "package": "@agentclientprotocol/claude-agent-acp",
+    "bin": "claude-agent-acp",
+    "version": "0.109.1",
+    "tested": "2026-11-21",
+    "checks": "21/21"
+  },
+  "codex": {
+    "package": "@agentclientprotocol/codex-acp",
+    "bin": "codex-acp",
+    "version": "2.9.0",
+    "checks": "initialize only"
+  }
+}

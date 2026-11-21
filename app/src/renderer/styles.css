@@ -3414,6 +3414,27 @@ details[open] > summary > .caret {
   user-select: text;
 }
 
+.agent-version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 4px;
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+/* Lined up with the words above it when it wraps under them. */
+.agent-version > .toggle {
+  height: 22px;
+  padding: 0;
+}
+
+.agent-version > .toggle:not(:disabled):hover {
+  background: none;
+  color: var(--foreground);
+}
+
 .agent-error {
   font-size: var(--text-control);
   color: var(--ink-bad);

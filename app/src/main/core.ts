@@ -28,7 +28,7 @@ import os from "node:os"
 import path from "node:path"
 import { notePrompt, noteWords, TEMPLATES } from "../../../overlay/prompt.js"
 import { createAcp, type AcpOptions } from "./acp"
-import { commandOf, customName, KNOWN_AGENTS, localAgents, splitCommand } from "./agents"
+import { commandOf, customName, KNOWN_AGENTS, localAgent, localAgents, splitCommand, type StartPrefs } from "./agents"
 import { commitPrompt, parseAsk, splitTold, startPrompt, takeBackPrompt, toldLine } from "./asks"
 import type {
   AgentInfo,
@@ -678,7 +678,9 @@ export function createCore(host: Host): Core {
     const known = KNOWN_AGENTS.find((a) => a.id === id)
     // On another computer: its connection first (made once, kept while one of its agents is in use).
     const m: Machine = where ? await remoteOf(where) : thisMachine()
-    const line = command?.length ? command : await commandOf(id, m)
+    // A known agent is started as it is now, never by the line saved when it last was: a pin
+    // moved on, "Always the newest" turned on or off, an adapter installed meanwhile.
+    const line = known ? await commandOf(id, m, startPrefs()) : command?.length ? command : undefined
     if (!line) throw new Error(known ? `${known.name} is not installed on ${m.where}. ${known.install}.` : "Type the command that starts the agent.")
     // A custom command is told apart by the command itself: two are two agents.
     const agent = known ? id : `custom-${crypto.createHash("sha1").update(line.join("\0")).digest("hex").slice(0, 8)}`
@@ -986,6 +988,9 @@ export function createCore(host: Host): Core {
       return !((err as { status?: number }).status === 404 && /FileNotFound|Directory not found/i.test(say(err)))
     }
   }
+
+  /** How the known agents are started beyond what is installed: which adapters at their newest. */
+  const startPrefs = (): StartPrefs => ({ latest: (id) => !!store.settings().agentLatest?.includes(id) })
 
   /** Which agent a saved server is, what it is called and where it runs. An ACP agent is called
    *  by the reviewer's name for it, else its own ("Claude Code"; a custom command's program),
@@ -2720,7 +2725,20 @@ export function createCore(host: Host): Core {
       if (!found) throw new Error(NO_LOCAL)
       await connect(found.url, found.password, { save: "local" })
     },
-    localAgents: () => localAgents(),
+    localAgents: () => localAgents(thisMachine(), startPrefs()),
+    async setAgentLatest(input) {
+      const id = typeof input?.id === "string" ? input.id : ""
+      if (!KNOWN_AGENTS.some((a) => a.id === id)) throw new Error("That agent is not one the app knows.")
+      const latest = input?.latest === true
+      store.update((s) => {
+        const rest = (s.agentLatest ?? []).filter((x) => x !== id)
+        if (latest) s.agentLatest = [...rest, id]
+        else if (rest.length) s.agentLatest = rest
+        else delete s.agentLatest
+      })
+      const where = typeof input?.host === "string" && input.host.trim() ? checkHost(input.host) : undefined
+      return (await localAgent(id, where ? await remoteOf(where) : thisMachine(), startPrefs()))!
+    },
     async connectAgent(input) {
       const id = typeof input?.id === "string" ? input.id : ""
       const where = typeof input?.host === "string" && input.host.trim() ? checkHost(input.host) : undefined
@@ -2746,7 +2764,7 @@ export function createCore(host: Host): Core {
         while (m.reach().status !== "up" && Date.now() < end && m === machine) await sleep(100)
         if (m.reach().status !== "up") throw new Error(error())
       }
-      const agents = await localAgents(m)
+      const agents = await localAgents(m, startPrefs())
       return { host: where, computer: m.hostname(), home: m.home, agents }
     },
     leaveSsh() {

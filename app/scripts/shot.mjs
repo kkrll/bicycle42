@@ -57,6 +57,8 @@ const PLACE = `(() => { const p = document.querySelector(".place"), r = p.getBou
 
 const SHOTS = [
   { name: "connect", mock: "connect" },
+  // The adapter's version under the command: Claude Code at its tested pin, Codex switched to the newest.
+  { name: "connect-adapter", mock: "connect", run: [click('[data-agent="claude"] .agent-how'), click('[data-agent="codex"] .agent-how'), pause(100), click('[data-agent="codex"] .agent-version .toggle')], wait: 300 },
   // Someone who disconnected: the agents, then the ones connected to before, each with its mark.
   { name: "connect-returning", mock: "connect", query: "&returning", run: [`document.querySelector(".connect-saved").scrollIntoView({ block: "end" })`], wait: 300 },
   // The form inside the settings while Claude Code is in use: one agent in use, one to sign in

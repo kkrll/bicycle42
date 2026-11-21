@@ -22,6 +22,7 @@ import type {
   CommandName,
   Commands,
   FileChange,
+  LocalAgent,
   MentionOption,
   NoteRow,
   PanelAct,
@@ -158,6 +159,14 @@ const AGENTS: MentionOption[] = [
 ]
 
 /** Letters of `query` in order inside `text`, like a file finder. */
+// The known agents' adapters as main pins them (agents.ts); "Always the newest" turned on here.
+const mockLatest = new Set<string>()
+function mockAgent(id: string, latest: boolean): LocalAgent {
+  const [name, pkg, version, tested] = id === "codex" ? ["Codex", "@agentclientprotocol/codex-acp", "2.9.0", false] : ["Claude Code", "@agentclientprotocol/claude-agent-acp", "0.109.1", true]
+  const v = latest ? "latest" : version
+  return { id, name, command: `npx -y ${pkg}@${v}`, installed: true, adapter: { version: v, tested: !latest && tested, latest, own: false } }
+}
+
 const fuzzy = (text: string, query: string) => {
   let at = 0
   for (const ch of text.toLowerCase()) if (ch === query[at]) at++
@@ -887,11 +896,16 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     },
     // One of each: ready, not signed in, not installed, ready (and in use with `&agent=opencode`).
     localAgents: () => [
-      { id: "claude", name: "Claude Code", command: "npx -y @agentclientprotocol/claude-agent-acp", installed: true },
-      { id: "codex", name: "Codex", command: "npx -y @agentclientprotocol/codex-acp", installed: true, signIn: "codex login" },
+      mockAgent("claude", mockLatest.has("claude")),
+      { ...mockAgent("codex", mockLatest.has("codex")), signIn: "codex login" },
       { id: "gemini", name: "Gemini CLI", command: "gemini --experimental-acp", installed: false, needs: "Install Gemini CLI and sign in: npm install -g @google/gemini-cli, then gemini", install: "npm install -g @google/gemini-cli" },
       { id: "opencode", name: "OpenCode", command: "opencode acp", installed: true },
     ],
+    setAgentLatest({ id, latest }) {
+      if (latest) mockLatest.add(id)
+      else mockLatest.delete(id)
+      return mockAgent(id, latest)
+    },
     async connectAgent(agent) {
       await new Promise((r) => setTimeout(r, 600))
       const known = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", opencode: "OpenCode" }[agent.id]

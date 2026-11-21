@@ -321,8 +321,21 @@ export type RemoteInfo = { host: string; computer: string; home: string; agents:
  *  connect screen offers it. `installed`: what it needs was found on this computer's PATH;
  *  `needs` says what to install when it was not, `install` is the one command that does.
  *  `signIn`: it is installed and no sign-in of it was found on this computer: the command to run
- *  in a terminal (it may still work: an API key in its own settings is not looked for). */
-export type LocalAgent = { id: string; name: string; command: string; installed: boolean; needs?: string; install?: string; signIn?: string }
+ *  in a terminal (it may still work: an API key in its own settings is not looked for).
+ *  `adapter`: one that runs through an adapter from npm (Claude Code, Codex): the version npx
+ *  starts (pinned, or "latest" when the reviewer asked for the newest), whether that version
+ *  passed the app's real check, and `own` when an adapter installed on its own is what starts
+ *  instead (no pin applies). `env`: the version was forced with that variable (B42_PIN_CLAUDE). */
+export type LocalAgent = {
+  id: string
+  name: string
+  command: string
+  installed: boolean
+  needs?: string
+  install?: string
+  signIn?: string
+  adapter?: { version: string; tested: boolean; latest: boolean; own: boolean; env?: string }
+}
 
 export type SessionSummary = {
   id: string
@@ -513,6 +526,10 @@ export type Commands = {
   /** The ACP agents this computer can run (Claude Code, Codex, Gemini CLI, OpenCode), and
    *  whether each is installed. */
   localAgents(): LocalAgent[]
+  /** Whether a known agent's adapter is the newest on npm from its next start (`latest`) or the
+   *  version the app pins. Kept in the settings, for every computer; answered with the agent as
+   *  `localAgents` says it on this computer, or with `host` on that one (connected already). */
+  setAgentLatest(input: { id: string; latest: boolean; host?: string }): LocalAgent
   /** Runs one of them (or `command`, for "custom") and uses it as the server: its folders are
    *  this computer's, or with `host` that computer's (connected with `connectSsh`), where it runs.
    *  Remembered like a server. */
