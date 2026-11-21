@@ -286,6 +286,12 @@ test("another version of the app connects to the same computer: each has its own
   const stale = path.join(helperDir(h), "helper-0123456789ab.js")
   fs.writeFileSync(stale, "// old")
   fs.utimesSync(stale, new Date(Date.now() - 3 * 3600_000), new Date(Date.now() - 3 * 3600_000))
+  // An upload cut short long ago left its temp file; one under way now is left alone.
+  const cut = path.join(helperDir(h), "helper-0123456789ab.js.4242.tmp")
+  const now = path.join(helperDir(h), "helper-0123456789ab.js.4243.tmp")
+  fs.writeFileSync(cut, "// half")
+  fs.writeFileSync(now, "// half")
+  fs.utimesSync(cut, new Date(Date.now() - 3 * 3600_000), new Date(Date.now() - 3 * 3600_000))
   try {
     const a = await connectSsh({ host: "dev-box", dataDir: path.join(h.root, "dataA") })
     const b = await connectSsh({ host: "dev-box", dataDir: path.join(h.root, "dataB"), helper: other })
@@ -310,6 +316,7 @@ test("another version of the app connects to the same computer: each has its own
       const files = fs.readdirSync(helperDir(h))
       assert.equal(files.filter((f) => /^helper-.*\.sock$/.test(f)).length, 2, files.join(" "))
       assert.ok(!files.includes("helper-0123456789ab.js"), "the long-unused version's file went")
+      assert.ok(!files.includes(path.basename(cut)) && files.includes(path.basename(now)), files.join(" "))
       void d.kill()
     } finally {
       await a.close()

@@ -150,6 +150,13 @@ async function daemon() {
   // Another version's files go only when its socket is dead and it has not been started for a
   // while: a helper that runs, or an app of that version on its way to start one, is left alone.
   for (const name of fs.readdirSync(DIR)) {
+    // An upload whose connection dropped halfway leaves its temp file (ssh.ts upload).
+    if (/^helper-.+\.js\.\d+\.tmp$/.test(name)) {
+      try {
+        if (Date.now() - fs.statSync(path.join(DIR, name)).mtimeMs > STALE_MS) fs.rmSync(path.join(DIR, name), { force: true })
+      } catch {}
+      continue
+    }
     const m = /^helper-(.+)\.js$/.exec(name)
     if (!m || m[1] === VERSION) continue
     const base = path.join(DIR, `helper-${m[1]}`)
