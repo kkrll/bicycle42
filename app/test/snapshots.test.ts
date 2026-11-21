@@ -4,7 +4,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { test } from "node:test"
-import { createSnapshots, parseDiff } from "../src/main/snapshots"
+import { createSnapshots, EMPTY_TREE, parseDiff, Refused } from "../src/main/snapshots"
 
 const tmp = (name: string) => fs.mkdtempSync(path.join(os.tmpdir(), `b42-snap-${name}-`))
 const lines = (n: number, tag = "") => Array.from({ length: n }, (_, i) => `line ${i + 1}${tag}`).join("\n") + "\n"
@@ -181,6 +181,93 @@ test("snapshots: the log and its trees outlive a restart", async () => {
   assert.ok(await again.reverse(dir, [t]))
   assert.equal(read(dir, "a.css").split("\n")[1], "line 2")
   await again.idle()
+})
+
+test("snapshots: a git add that is killed (a timeout, a signal) is no snapshot, whatever it printed first", async () => {
+  // A first snapshot of a big folder with a nested repository: git warns about it, then the
+  // timeout kills it. Its write-tree would be the empty tree, and a turn from there "every file
+  // added", taken back by deleting them all.
+  const dir = tmp("killed")
+  for (let i = 0; i < 30; i++) write(dir, `f${i}.css`, `file ${i}\n`)
+  const snaps = createSnapshots(tmp("data"))
+  const real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim()
+  const bin = tmp("bin")
+  fs.writeFileSync(path.join(bin, "git"), `#!/bin/sh\nif [ "$1" = add ]; then echo "warning: adding embedded git repository: vendor/x" >&2; kill -9 $$; fi\nexec "${real}" "$@"\n`, { mode: 0o755 })
+  const was = process.env.PATH
+  process.env.PATH = `${bin}${path.delimiter}${was}`
+  try {
+    assert.equal(await snaps.snapshot(dir), undefined)
+  } finally {
+    process.env.PATH = was
+  }
+  const tree = await snaps.snapshot(dir)
+  assert.ok(tree && tree !== EMPTY_TREE)
+  await snaps.idle()
+})
+
+test("snapshots: a change that would delete much of the folder is refused, and nothing is touched", async () => {
+  const dir = tmp("gone")
+  for (let i = 0; i < 30; i++) write(dir, `f${i}.css`, `file ${i}\n`)
+  const snaps = createSnapshots(tmp("data"))
+  const all = (await snaps.snapshot(dir))!
+  // A turn whose "before" is the empty tree reads as "every file added".
+  await assert.rejects(snaps.reverse(dir, [{ before: EMPTY_TREE, after: all }], true), Refused)
+  await assert.rejects(snaps.reverse(dir, [{ before: EMPTY_TREE, after: all }]), /would delete 30 of the folder's 30 files/)
+  await assert.rejects(snaps.apply(dir, all, EMPTY_TREE), Refused)
+  assert.equal(fs.readdirSync(dir).length, 30)
+  // A few files are not "much of the folder".
+  write(dir, "x.css", "x\n")
+  write(dir, "y.css", "y\n")
+  const more = (await snaps.snapshot(dir))!
+  const back = await snaps.reverse(dir, [{ before: all, after: more }])
+  assert.deepEqual(back?.files, ["x.css", "y.css"])
+  assert.equal(fs.existsSync(path.join(dir, "x.css")), false)
+  await snaps.idle()
+})
+
+test("snapshots: a file the turn's .gitignore edit let in, on disk before the turn, is not deleted by taking it back", async () => {
+  const dir = tmp("unignored")
+  const snaps = createSnapshots(tmp("data"))
+  write(dir, ".gitignore", "secret.env\ndist/\n")
+  write(dir, "secret.env", "KEY=1\n")
+  write(dir, "dist/out.js", "built\n")
+  write(dir, "a.css", lines(3))
+  const before = (await snaps.snapshot(dir))!
+  await new Promise((r) => setTimeout(r, 20))
+  const start = Date.now()
+  // (The file system's clock is coarser than Date.now(): a file written at once may read older.)
+  await new Promise((r) => setTimeout(r, 20))
+  // The agent's turn: takes the patterns out, changes a.css, adds a file.
+  write(dir, ".gitignore", "")
+  edit(dir, "a.css", 1, "changed")
+  write(dir, "new.css", "new\n")
+  const after = (await snaps.snapshot(dir))!
+  assert.deepEqual((await snaps.diff(dir, before, after)).map((f) => f.file).sort(), [".gitignore", "a.css", "dist/out.js", "new.css", "secret.env"])
+  assert.ok(await snaps.reverse(dir, [{ before, after, start }]))
+  assert.deepEqual(
+    [read(dir, ".gitignore"), read(dir, "a.css"), read(dir, "secret.env"), read(dir, "dist/out.js"), fs.existsSync(path.join(dir, "new.css"))],
+    ["secret.env\ndist/\n", lines(3), "KEY=1\n", "built\n", false],
+  )
+  await snaps.idle()
+})
+
+test("snapshots: a take-back the agent was not told of outlives the 30-day cut with its turns; a told one goes", async () => {
+  const { dir, data, snaps, note1, note2 } = await twoTurns()
+  const old = Date.now() - 40 * 86_400_000
+  const t1 = await snaps.addTurn(dir, { session: "s", start: old, ...note1, messages: ["m1"] })
+  const t2 = await snaps.addTurn(dir, { session: "s", start: old, ...note2, messages: ["m2"] })
+  await snaps.addTurn(dir, { session: "s", start: old, ...note2, messages: ["m3"] })
+  const untold = await snaps.addRestore(dir, { session: "s", time: old, turns: [t1.id], from: note1.after, to: note1.before, notes: ["n1"] })
+  await snaps.addRestore(dir, { session: "s", time: old, turns: [t2.id], from: note2.after, to: note2.before, notes: ["n2"], told: true })
+  await snaps.idle()
+  // The next run's first snapshot prunes (it was not pruned today).
+  const log = path.join(data, "snapshots", fs.readdirSync(path.join(data, "snapshots"))[0]!, "b42.json")
+  fs.writeFileSync(log, JSON.stringify({ ...JSON.parse(fs.readFileSync(log, "utf8")), pruned: 0 }))
+  const again = createSnapshots(data)
+  await again.snapshot(dir)
+  await again.idle()
+  const h = await again.history(dir)
+  assert.deepEqual([h.restores.map((r) => r.id), h.turns.map((t) => t.id)], [[untold.id], [t1.id]])
 })
 
 test("snapshots: a folder that is not there has no snapshot", async () => {

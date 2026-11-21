@@ -19,6 +19,14 @@
 // outlive a restart. Trees are kept alive by the log: git's own gc is off, and once a day, on a
 // folder's first use, what the log no longer names (older than KEEP_DAYS) is let go.
 //
+// Two guards against taking back more than a turn changed. A snapshot whose `git add` did not
+// finish (a timeout, a signal) is no snapshot at all: its `write-tree` would be the index as it
+// was before, or the empty tree, and a turn from there would read as "every file added". And a
+// change that would delete much of the folder (a share of it, not a handful of files) is never
+// made by the app itself: it is refused with a sentence for the reviewer (`Refused`). A file a
+// turn "added" that was on disk before the turn began (it was ignored then, and a .gitignore
+// edit let it in) is not deleted by taking the turn back.
+//
 // Only for a folder on this computer: the caller says when the files are elsewhere.
 import { spawn } from "node:child_process"
 import { createHash, randomBytes } from "node:crypto"
@@ -39,6 +47,9 @@ export type Turn = {
   after: string
   /** Another conversation ran in the same folder during it: the diff may hold its changes too. */
   shared?: true
+  /** Its "before" may hold some of its own changes (the snapshot came late, after the agent had
+   *  the message): it is not taken back by the app. */
+  untrusted?: true
   /** The messages (review notes) that ran in it. Notes that waited together share a turn. */
   messages: string[]
 }
@@ -57,6 +68,13 @@ export type Restore = {
   told?: true
 }
 
+/** A change the app will not make by itself; the message is for the reviewer. */
+export class Refused extends Error {}
+
+/** git's empty tree: what a folder with no file in it is. */
+export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+
 type History = { turns: Turn[]; restores: Restore[]; pruned?: number }
 
 export type Snapshots = {
@@ -66,10 +84,12 @@ export type Snapshots = {
   diff(dir: string, from: string, to: string): Promise<FileChange[]>
   /** Takes the turns back (oldest first in the list; reversed newest first) on the files as they
    *  are now. Undefined, and nothing touched, when that does not apply cleanly. With `dry`, only
-   *  says whether it would. */
-  reverse(dir: string, turns: Array<Pick<Turn, "before" | "after">>, dry?: boolean): Promise<{ from: string; to: string } | undefined>
+   *  says whether it would. `files`: the paths it changes. A turn's `start`, when given, keeps
+   *  the files it added that were on disk before it began. Throws `Refused` (nothing touched)
+   *  when it would delete much of the folder. */
+  reverse(dir: string, turns: Array<Pick<Turn, "before" | "after"> & { start?: number }>, dry?: boolean): Promise<{ from: string; to: string; files: string[] } | undefined>
   /** Changes the files by the difference between two trees (a redo is a restore's `to` → `from`).
-   *  False, and nothing touched, when it does not apply. */
+   *  False, and nothing touched, when it does not apply; throws `Refused` as `reverse` does. */
   apply(dir: string, from: string, to: string): Promise<boolean>
   /** The folder's log, read from disk the first time. Change it with the calls below. */
   history(dir: string): Promise<Readonly<History>>
@@ -88,6 +108,9 @@ const KEEP_TURNS = 2000
 const DAY = 86_400_000
 /** A snapshot of a large folder with nothing ignored should not hang a turn. */
 const GIT_TIMEOUT = 60_000
+/** A change that deletes at least this many files, and this share of the folder's, is refused. */
+const GONE_MIN = 20
+const GONE_SHARE = 0.5
 /** Always left out, whatever the folder ignores: a folder that is not a repository has no .gitignore. */
 const EXCLUDE = ["node_modules/", ".DS_Store"]
 
@@ -122,7 +145,7 @@ export function createSnapshots(dataDir: string, opts: { log?: Log } = {}): Snap
 
   /** git, in the folder, on the shadow: none of the person's own git settings or environment
    *  (a pager, colour, an external diff, a hook's index) gets in the way. */
-  function git(dir: string, args: string[], o: { input?: string; index?: string } = {}): Promise<{ code: number; out: string; err: string }> {
+  function git(dir: string, args: string[], o: { input?: string; index?: string } = {}): Promise<{ code: number | null; signal: string | null; out: string; err: string }> {
     const env: NodeJS.ProcessEnv = {}
     for (const [k, v] of Object.entries(process.env)) if (!k.startsWith("GIT_")) env[k] = v
     Object.assign(env, {
@@ -142,16 +165,15 @@ export function createSnapshots(dataDir: string, opts: { log?: Log } = {}): Snap
       child.stdout.on("data", (b: Buffer) => out.push(b))
       child.stderr.on("data", (b: Buffer) => err.push(b))
       child.on("error", reject)
-      child.on("close", (code, signal) =>
-        resolve({ code: code ?? (signal ? 128 : 1), out: Buffer.concat(out).toString("utf8"), err: Buffer.concat(err).toString("utf8") }),
-      )
+      // A timeout or a signal is `code: null`: never read as one of git's own exit codes.
+      child.on("close", (code, signal) => resolve({ code, signal, out: Buffer.concat(out).toString("utf8"), err: Buffer.concat(err).toString("utf8") }))
       child.stdin.on("error", () => undefined)
       child.stdin.end(o.input ?? "")
     })
   }
   async function must(dir: string, args: string[], o?: { input?: string; index?: string }) {
     const r = await git(dir, args, o)
-    if (r.code !== 0) throw new Error(`git ${args[0]}: ${r.err.trim() || `exit ${r.code}`}`)
+    if (r.code !== 0) throw new Error(`git ${args[0]}: ${r.signal ? `killed (${r.signal})` : r.err.trim() || `exit ${r.code}`}`)
     return r.out
   }
 
@@ -236,9 +258,13 @@ export function createSnapshots(dataDir: string, opts: { log?: Log } = {}): Snap
       if (h.pruned && Date.now() - h.pruned < DAY) return
       const cut = Date.now() - KEEP_DAYS * DAY
       await write(dir, (x) => {
-        x.turns = x.turns.filter((t) => t.start >= cut).slice(-KEEP_TURNS)
+        // A take-back the agent has not been told of stays, old or not, with its turns: /redo can
+        // still bring it back, and the next message must still say it.
+        const untold = new Set(x.restores.filter((r) => !r.told).flatMap((r) => r.turns))
+        const recent = new Set(x.turns.filter((t) => t.start >= cut).slice(-KEEP_TURNS).map((t) => t.id))
+        x.turns = x.turns.filter((t) => recent.has(t.id) || untold.has(t.id))
         const kept = new Set(x.turns.map((t) => t.id))
-        x.restores = x.restores.filter((r) => r.time >= cut && r.turns.some((t) => kept.has(t)))
+        x.restores = x.restores.filter((r) => !r.told || (r.time >= cut && r.turns.some((t) => kept.has(t))))
         x.pruned = Date.now()
       })
       const now = await history(dir)
@@ -259,22 +285,56 @@ export function createSnapshots(dataDir: string, opts: { log?: Log } = {}): Snap
   }
 
   async function snap(dir: string): Promise<string> {
-    await must(dir, ["add", "--all", "--ignore-errors", "--", "."]).catch(async (err) => {
-      // --ignore-errors still exits 1 when a file could not be read; the rest is in the index.
-      if (!/unable to|error:|warning:/i.test(String(err))) throw err
-    })
+    const r = await git(dir, ["add", "--all", "--ignore-errors", "--", "."])
+    // --ignore-errors exits 1 when a file could not be read; the rest is in the index. Anything
+    // else (a timeout, a signal, a fatal error) left the index as it was: no snapshot, since its
+    // tree would be an older one, or the empty tree.
+    if (r.code !== 0 && r.code !== 1) throw new Error(`git add: ${r.signal ? `killed (${r.signal}), maybe after ${GIT_TIMEOUT / 1000} s` : r.err.trim() || `exit ${r.code}`}`)
     return (await must(dir, ["write-tree"])).trim()
   }
 
   const patchOf = (dir: string, from: string, to: string) => must(dir, ["diff", "--binary", "--full-index", "--no-color", "--no-ext-diff", "--no-renames", from, to])
+  /** The paths that differ between two trees; with a filter, only those added (A), deleted (D)... */
+  const namesOf = async (dir: string, from: string, to: string, filter?: string) =>
+    (await must(dir, ["diff", "--name-only", "-z", "--no-renames", ...(filter ? [`--diff-filter=${filter}`] : []), from, to])).split("\0").filter(Boolean)
+
+  /** Throws `Refused` when going from one tree to the other deletes much of the folder. */
+  async function guard(dir: string, from: string, to: string) {
+    const gone = (await namesOf(dir, from, to, "D")).length
+    if (gone < GONE_MIN) return
+    const all = (await must(dir, ["ls-tree", "-r", "-z", "--name-only", from])).split("\0").filter(Boolean).length
+    if (gone >= all * GONE_SHARE)
+      throw new Refused(`That would delete ${gone} of the folder's ${all} files, which the app does not do by itself. Ask the agent to reverse it instead.`)
+  }
 
   /** The difference between two trees, applied to the files: all of it or none. */
   async function move(dir: string, from: string, to: string): Promise<boolean> {
     if (from === to) return true
+    await guard(dir, from, to)
     const patch = await patchOf(dir, from, to)
     if (!patch.trim()) return true
     const r = await git(dir, ["apply", "--whitespace=nowarn", "-"], { input: patch })
     return r.code === 0
+  }
+
+  /** Of the files a reversal would delete, those a turn "added" that were on disk before it began:
+   *  they were ignored then (a .gitignore the turn changed let them in), not made by the agent. */
+  async function onDiskBefore(dir: string, turns: Array<{ before: string; after: string; start?: number }>, deleted: string[]) {
+    if (!deleted.length) return []
+    const since = new Map<string, number>()
+    for (const t of turns) {
+      if (t.start === undefined) continue
+      for (const p of await namesOf(dir, t.before, t.after, "A")) since.set(p, Math.max(since.get(p) ?? 0, t.start))
+    }
+    return deleted.filter((p) => {
+      const start = since.get(p)
+      if (start === undefined) return false
+      try {
+        return fs.lstatSync(path.join(dir, p)).mtimeMs < start
+      } catch {
+        return false
+      }
+    })
   }
 
   return {
@@ -314,9 +374,18 @@ export function createSnapshots(dataDir: string, opts: { log?: Log } = {}): Snap
             const r = await git(dir, ["apply", "--cached", "--reverse", "--whitespace=nowarn", "-"], { input: patch, index })
             if (r.code !== 0) return undefined
           }
-          const to = (await must(dir, ["write-tree"], { index })).trim()
-          if (dry) return { from: now, to }
-          return (await move(dir, now, to)) ? { from: now, to } : undefined
+          let to = (await must(dir, ["write-tree"], { index })).trim()
+          // What was on disk before the turn stays, as it is now.
+          const keep = new Set(await onDiskBefore(dir, turns, await namesOf(dir, now, to, "D")))
+          if (keep.size) {
+            const entries = (await must(dir, ["ls-tree", "-r", "-z", "--full-tree", now])).split("\0").filter((e) => keep.has(e.slice(e.indexOf("\t") + 1)))
+            await must(dir, ["update-index", "-z", "--index-info"], { input: entries.map((e) => `${e}\0`).join(""), index })
+            to = (await must(dir, ["write-tree"], { index })).trim()
+          }
+          await guard(dir, now, to)
+          const done = { from: now, to, files: now === to ? [] : await namesOf(dir, now, to) }
+          if (dry) return done
+          return (await move(dir, now, to)) ? done : undefined
         } finally {
           fs.rmSync(index, { force: true })
         }
