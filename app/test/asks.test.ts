@@ -71,5 +71,8 @@ test("the line about notes the app took back names them, and the message after i
   assert.equal(parseAsk(`${line}\n\nUI review note 5 on http://x/, window 800×600 @1x.\nNote: hi`), undefined)
   // Without the blank line after it, or anywhere but first, it is the reviewer's text.
   assert.deepEqual(splitTold(`${line}\nmore`), { rest: `${line}\nmore` })
+  // Alone (before a summary or an agent's command), it is a message of its own.
+  assert.deepEqual(splitTold(line), { told: line, rest: "" })
+  assert.deepEqual(parseAsk(line), { title: "Told the agent what was taken back" })
   assert.equal(parseAsk(`hello\n\n${line}`), undefined)
 })

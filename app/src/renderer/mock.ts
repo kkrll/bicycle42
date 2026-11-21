@@ -1048,6 +1048,10 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       { file: "src/styles/buttons.css", additions: 4, deletions: 0, patch: "@@ -40,3 +40,7 @@\n .btn:hover {\n   filter: brightness(1.05);\n }\n+.btn-lg {\n+  height: 48px;\n+  padding: 0 20px;\n+}" },
     ],
     takeBackWay: (id) => takeBackWay(id),
+    takeBackPlan(id) {
+      const how = takeBackWay(id)
+      return how === "restored" ? { how, files: ["src/components/pricing/PlanCard.tsx", "src/styles/buttons.css"] } : { how }
+    },
     takeBackNote(id) {
       const how = takeBackWay(id)
       state.review.notes = state.review.notes.map((n) => (n.id === id ? { ...n, takenBack: how } : n))

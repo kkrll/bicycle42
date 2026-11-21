@@ -98,9 +98,11 @@ export function toldLine(notes: Array<{ n: number; text: string }>, others: numb
   return `(bicycle 42: I took back ${list} myself, before this message: those files are as they were before it, though the conversation above still shows the changes. Do not make them again unless I ask.)`
 }
 
-/** A message with the line in front, and without it. */
+/** A message with the line in front, and without it. The line alone is a message too: sent
+ *  before a summary or an agent's own command, which can't carry it. */
 export function splitTold(text: string): { told?: string; rest: string } {
   const lines = text.split("\n")
+  if (lines.length === 1 && TOLD.test(text)) return { told: text, rest: "" }
   if (!TOLD.test(lines[0] ?? "") || lines[1] !== "") return { rest: text }
   return { told: lines[0]!, rest: lines.slice(2).join("\n") }
 }
@@ -115,6 +117,7 @@ export function parseAsk(text: string): { title: string } | undefined {
   // The line about a note the app took back: what follows is what this message is. A note shows
   // as the note; a typed message by its first line, with the line folded under it.
   const told = splitTold(text)
+  if (told.told && !told.rest) return { title: "Told the agent what was taken back" }
   if (told.told) return NOTE_START.test(told.rest) ? undefined : (parseAsk(told.rest) ?? { title: head(told.rest) || "Note taken back" })
   const lines = text.split("\n")
   const first = lines[0] ?? ""

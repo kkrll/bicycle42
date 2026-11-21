@@ -463,8 +463,9 @@ export type Commands = {
    *  then: JPEG data URIs of the ones there are. */
   notePictures(id: string): { before?: string; after?: string }
   /** What the agent changed in the code for the note: the files of the turn the note was part
-   *  of. Notes that waited together for the agent share a turn, and so a diff. */
-  noteDiff(id: string): FileChange[]
+   *  of. Notes that waited together for the agent share a turn, and so a diff. null when it is not
+   *  known (no record of the turn was kept), which is not "no file changed" ([]). */
+  noteDiff(id: string): FileChange[] | null
   /** The result is right (or, with false, not looked at after all). */
   /** Takes back what the agent did for a finished note. The newest message of an idle
    *  conversation is undone by the backend, conversation and files ("undone"); else, on this
@@ -475,6 +476,9 @@ export type Commands = {
   /** Which way `takeBackNote` would go now, so the question before it can say. With `expect`,
    *  `takeBackNote` does nothing and throws when it would by now go another. */
   takeBackWay(id: string): TakeBackWay
+  /** `takeBackWay` and, when the app would put files back ("restored"), which ones: changes
+   *  made to them during that turn, by anyone, go back too. */
+  takeBackPlan(id: string): { how: TakeBackWay; files?: string[] }
   /** Marks this point of the open conversation, to come back to. */
   addCheckpoint(name: string): void
   removeCheckpoint(id: string): void

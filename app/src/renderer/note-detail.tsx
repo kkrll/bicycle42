@@ -81,12 +81,15 @@ function NoteDetail(props: { note: NoteRow }) {
     () => (n().pictures ? `${n().id}:${n().pictures}` : undefined),
     () => b42.invoke("notePictures", n().id),
   )
-  const [diff, setDiff] = createSignal<FileChange[] | undefined>()
+  /** null: main kept no record of what the note changed, which is not "no file changed". */
+  const [diff, setDiff] = createSignal<FileChange[] | null | undefined>()
   const [loading, setLoading] = createSignal(false)
   const [error, setError] = createSignal("")
   /** "Take back" was pressed once, and main said which way it would go: the second press does
    *  that. */
   const [sure, setSure] = createSignal<TakeBackWay | false>(false)
+  /** The files the app would put back ("restored"), as main's dry run said. */
+  const [files, setFiles] = createSignal<string[]>([])
   const [busy, setBusy] = createSignal(false)
 
   // One array for as long as the pictures are the same: <For> keeps each <img> (and the picture
@@ -106,14 +109,14 @@ function NoteDetail(props: { note: NoteRow }) {
       .then(setDiff, (err) => setError(message(err)))
       .finally(() => setLoading(false))
   }
-  const toggleDiff = () => (diff() ? setDiff(undefined) : loadDiff())
+  const toggleDiff = () => (diff() !== undefined ? setDiff(undefined) : loadDiff())
   // An open diff read while the agent was working is read again when it finishes.
   createEffect(
     on(
       () => n().status,
       () => {
         setSure(false)
-        if (diff()) loadDiff()
+        if (diff() !== undefined) loadDiff()
       },
       { defer: true },
     ),
@@ -123,8 +126,11 @@ function NoteDetail(props: { note: NoteRow }) {
     setBusy(true)
     setError("")
     b42
-      .invoke("takeBackWay", n().id)
-      .then(setSure, (err) => setError(message(err)))
+      .invoke("takeBackPlan", n().id)
+      .then(
+        (plan) => (setFiles(plan.files ?? []), setSure(plan.how)),
+        (err) => setError(message(err)),
+      )
       .finally(() => setBusy(false))
   }
   const takeBack = () => {
@@ -136,6 +142,14 @@ function NoteDetail(props: { note: NoteRow }) {
       .invoke("takeBackNote", n().id, way)
       .catch((err) => setError(message(err)))
       .finally(() => (setBusy(false), setSure(false)))
+  }
+  /** The files a take-back from the app's history puts back, a few by name, and what else goes
+   *  with them: the turn's diff is the folder's, whoever made it. */
+  const filesSaid = () => {
+    const all = files()
+    if (!all.length) return ""
+    const named = all.length > 3 ? `${all.slice(0, 3).join(", ")} and ${all.length - 3} more` : all.join(", ")
+    return ` It changes ${named}; what anyone changed in ${all.length === 1 ? "it" : "them"} during that turn goes back too.`
   }
   // A note stays with the conversation it was sent in. When that is not the open one, the view
   // names it, since Follow up and Take back act there.
@@ -216,11 +230,11 @@ function NoteDetail(props: { note: NoteRow }) {
           </Show>
         </Show>
         <Show when={n().sent && (n().status === "done" || n().status === "working")}>
-          <button class="more-btn note-diff-btn" aria-expanded={!!diff()} disabled={loading()} onClick={toggleDiff}>
+          <button class="more-btn note-diff-btn" aria-expanded={diff() !== undefined} disabled={loading()} onClick={toggleDiff}>
             <Show when={loading()} fallback={<Icon name="right" class="caret" />}>
               <Icon name="spinner" />
             </Show>
-            <Show when={diff()} fallback="What changed in the code">
+            <Show when={diff()} fallback={diff() === null ? "No record of what changed" : "What changed in the code"}>
               {(files) => (
                 <>
                   {files().length === 0 ? "No file changed" : files().length === 1 ? "1 file changed" : `${files().length} files changed`}
@@ -281,8 +295,8 @@ function NoteDetail(props: { note: NoteRow }) {
                     {sure() === "undone"
                       ? `Note ${n().n} is the newest message in its conversation, so it can be undone exactly, files included (/redo there brings it back). Undo it?`
                       : sure() === "restored"
-                        ? `The app can put note ${n().n}'s files back exactly as they were before it, keeping what changed since. The conversation keeps it, and the agent is told with the next message there (/redo brings it back until then). Take it back?`
-                        : `Note ${n().n} can't be taken back exactly: the app has no record of what it changed, another conversation changed this folder at the same time, or later changes touched the same lines. Ask the agent to reverse it?`}
+                        ? `The app can put note ${n().n}'s files back exactly as they were before it, keeping what changed since. The conversation keeps it, and the agent is told with the next message there (/redo brings it back until then).${filesSaid()} Take it back?`
+                        : `Note ${n().n} can't be taken back exactly: the app has no exact record of what it changed, another conversation changed this folder at the same time, or later changes touched the same lines. Ask the agent to reverse it?`}
                   </span>
                   <button class="btn danger" disabled={busy()} onClick={takeBack}>
                     {sure() === "undone" ? `Undo note ${n().n}` : sure() === "restored" ? `Take back note ${n().n}` : "Ask to reverse"}

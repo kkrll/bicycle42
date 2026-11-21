@@ -152,14 +152,26 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   and files), "restored" (the app reverses the note's turn from its own file history, below) or
   "asked" (the agent is asked to reverse it); the view puts that in its question and hands it to
   `takeBackNote`, which does nothing when things have moved to another way meanwhile.
+  `takeBackPlan` is the same with, for "restored", the files the reversal would change (from a dry
+  run): the question names them and says that what anyone changed in them during that turn (the
+  reviewer in their editor too) goes back with it, since the turn's diff is the folder's.
 - **The app keeps its own file history** (`snapshots.ts`), so a note is taken back exactly when it
   is not the newest message, and a backend with no undo (`Backend.can.undo` unset) still has
-  `/undo`, `/redo` and checkpoints. Only where the files are on this computer (`sameComputer` and
-  the folder exists here); with a server on another computer nothing changes. Each folder has a
+  `/undo`, `/redo` and checkpoints. Only where the files are on this computer (`filesHere`: an ACP
+  agent the app runs, the OpenCode server saved as this computer's, or one on localhost whose
+  `info.computer` is this computer's name, since a server elsewhere reached through `ssh -L` is
+  on localhost too; and the folder exists here); with a server on another computer nothing
+  changes. Each folder has a
   shadow git repository under the data folder (`snapshots/<name>-<hash>.git`), used with
   `GIT_DIR` and `GIT_WORK_TREE` and none of the person's git configuration; the folder's own `.git`
   is never touched, and it need not be a repository. A snapshot is `git add -A` + `git write-tree`
-  (the folder's `.gitignore` counts; `node_modules` never goes in). Core snapshots a site's
+  (the folder's `.gitignore` counts; `node_modules` never goes in). A `git add` that was killed
+  (the 60 s timeout, a signal) is no snapshot; only its own exit 1 under `--ignore-errors` (a file
+  it could not read) counts. A turn that begins with the empty tree in a folder with files is not
+  kept, a change that would delete at least 20 files and half of the folder's is refused
+  (`Refused`, with a sentence), and a file a turn "added" that was on disk before the turn began
+  (a `.gitignore` edit let it in) is kept when the turn is reversed. The folder's shadow index is
+  warmed when its site opens, so boundary snapshots read only what changed. Core snapshots a site's
   conversation's folder at each turn boundary (`turnEdge`: a run starts, the server hands the agent
   the next message, the run ends); the notes that finished at a boundary ran in the turn it ends,
   and the turn's two trees, with those notes' message ids, go into the folder's log (`b42.json` in
@@ -169,13 +181,24 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   reversed, and when a later change touched the same lines nothing is touched and the agent is
   asked instead (with the diff from the snapshots). Several turns (a checkpoint) are reversed in
   a scratch index, newest first, and the files change once or not at all. What was taken back is
-  a restore in the log: `/redo` applies it forward again until the next message, and the next
+  a restore in the log: `/redo` applies it forward again until the agent is told, and the next
   message to that conversation, whatever it is, starts with one line saying which notes were
   taken back (`toldLine` in `asks.ts`; `readTold` in core shows the message as it would be
-  without it, the line folded under a typed message). A turn during which another conversation
-  ran in the same folder (a background one, another client of the server: run events come for
-  every folder, and a conversation of no site's is asked for its folder) is `shared`: its diff
-  may hold the other's changes, so it is never reversed by itself. OpenCode's own undo puts every
+  without it, the line folded under a typed message). The restore is `told` only when that
+  message reaches the agent (its inbox "working", by the message id it was sent with: `carrying`
+  in core); cancelled, stopped or lost first, it stays untold for /redo and the next message, and
+  untold restores outlive the log's 30-day cut. Before `/compact` or an agent's own command the
+  line goes alone, as a message of its own ("Told the agent what was taken back"). A turn during
+  which another conversation ran in the same folder, or one inside it or around it (by real path;
+  a background one, another client of the server: run events come for every folder, and a
+  conversation of no site's is asked for its folder) is `shared`: its diff may hold the other's
+  changes, so it is never reversed by itself. A turn whose "before" may hold its own first
+  changes is `untrusted` and goes to the agent too: where the backend does not wait for the
+  snapshot (OpenCode) one that took over a second, and with ACP one the adapter sent without
+  (`AcpOptions.turnUntrusted`). So is a turn that changed nothing the app sees (the agent worked in
+  a nested repository, an ignored file, outside the folder), and a reversal that throws (a stale
+  `index.lock`). A note whose turn was never kept has no diff to show (`noteDiff` is null, "No
+  record of what changed"), which is not "No file changed". OpenCode's own undo puts every
   file it touched back whole, as it was before the turn, which would bring back a note the app took
   back since; then the app's way is used for that take-back, `/undo` or checkpoint
   (`undoClobbers`). Turns older than 30 days leave the log once a day, and git's gc (off

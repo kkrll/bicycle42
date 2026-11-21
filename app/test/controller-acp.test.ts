@@ -156,6 +156,16 @@ test("take back with an agent that has no undo: an older note's files are put ba
     assert.equal(await h.cmd("takeBackNote", first, "restored"), "restored")
     assert.equal(fs.readFileSync(a, "utf8"), "a { color: black }\n\n\n\n\nb { pad: 8px }\n")
     assert.equal(h.snap().review.notes[0]?.takenBack, "restored")
+    // The next message tells the agent; once the agent has it ("working"), it is final.
+    const told = () => {
+      const root = path.join(h.dir, "snapshots")
+      const log = JSON.parse(fs.readFileSync(path.join(root, fs.readdirSync(root)[0]!, "b42.json"), "utf8")) as { restores: Array<{ told?: true }> }
+      return log.restores.length === 1 && log.restores[0]!.told === true
+    }
+    assert.equal(told(), false)
+    await h.cmd("send", "thanks", [])
+    await until(told)
+    await assert.rejects(h.cmd("runCommand", "redo", ""), /^Error: Nothing to redo\.$/)
   } finally {
     await h.close()
   }

@@ -105,7 +105,9 @@ keeps its own snapshots of the folder at every turn of the agent's, and puts bac
 note changed, keeping everything changed since (by the agent or by hand); the conversation keeps
 the note, and the agent is told in a line at the start of your next message. When later work
 changed the same lines, another conversation worked in the folder at the same time, or the server
-is on another computer, the agent is asked to reverse it.
+is on another computer, the agent is asked to reverse it. The question names the files the app
+would put back: anything changed in them during that turn, by you in your editor too, goes back
+with it.
 A note stays with the conversation it was sent in. When that is not the open one, the note says
 which ("In Pricing page review"), Follow up opens it before starting the message, and Take back
 acts there.

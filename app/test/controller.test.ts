@@ -6,13 +6,14 @@
 // conversation, a new conversation with work in flight, a relaunch, a server that is down at
 // launch. Each asserts what the reviewer at the screen must see.
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
 import crypto from "node:crypto"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { test } from "node:test"
 import { HOSTED_PANES, PHONE, type AppState, type ChatEvent, type Pane } from "../src/shared/types"
-import { start, until, type FakeReply, type FakeServer } from "./fake-server"
+import { start, until, VERSION, type FakeReply, type FakeServer } from "./fake-server"
 import { testShell } from "./stubs/host"
 
 const SITE = "http://site.test"
@@ -2470,6 +2471,242 @@ test("the window draws the docks in HOSTED_PANES unless the shell says otherwise
 
 // ── the app's own file history (snapshots.ts), where the folder is on this computer ─────────────
 
+/** The fake server on localhost says it runs on this computer, by its name. */
+const thisComputer = (h: { server: FakeServer }, name = os.hostname()) => h.server.route("GET", "/api/info", { json: { version: VERSION, hostname: name } })
+
+/** A site whose folder (20 lines of a.css) is on this computer, its conversation open, the
+ *  server's newest message whatever was prompted last; `agentTurn` is the agent's turn on the
+ *  newest prompt, changing the files while it works. */
+async function historyOf(opts: { computer?: string; work?: string } = {}) {
+  const work = opts.work ?? fs.mkdtempSync(path.join(os.tmpdir(), "b42-work-"))
+  const css = path.join(work, "a.css")
+  fs.writeFileSync(css, Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n") + "\n")
+  const h = await boot()
+  thisComputer(h, opts.computer)
+  const root = path.join(h.dir, "snapshots")
+  const log = () => {
+    const shadow = fs.existsSync(root) ? fs.readdirSync(root)[0] : undefined
+    try {
+      return JSON.parse(fs.readFileSync(path.join(root, shadow ?? "-", "b42.json"), "utf8")) as { turns: Array<{ untrusted?: true }>; restores: Array<{ told?: true }> }
+    } catch {
+      return { turns: [], restores: [] }
+    }
+  }
+  await h.cmd("connect", { url: h.server.url, password: h.server.password })
+  h.page.load(`${SITE}/`)
+  await h.cmd("setDirectory", work)
+  await until(() => !!h.snap().session && h.server.streams() === 1)
+  await sleep(30)
+  const s = h.snap().session!.id
+  h.server.route("GET", /^\/api\/session\/[^/]+\/message$/, (req) => {
+    const list = [...h.w.prompts].reverse().map((p) => ({ id: p.id, type: "user", text: `UI review note 1 on x\nNote: ${p.text}` }))
+    return { json: { data: req.query.get("order") === "desc" ? list : [...list].reverse(), cursor: { previous: null, next: null } } }
+  })
+  return {
+    h,
+    s,
+    work,
+    root,
+    log,
+    line: (n: number) => fs.readFileSync(css, "utf8").split("\n")[n - 1],
+    edit(n: number, to: string) {
+      const all = fs.readFileSync(css, "utf8").split("\n")
+      all[n - 1] = to
+      fs.writeFileSync(css, all.join("\n"))
+    },
+    /** The agent takes the newest prompt and changes the files; resolves once `done` notes are. */
+    async agentTurn(change: () => void, done: string, kept?: number) {
+      h.agent.starts(s)
+      h.agent.picksUp(s, h.w.prompts.at(-1)!.id)
+      await sleep(300)
+      change()
+      h.agent.finishes(s)
+      await until(() => h.notes() === done && (kept === undefined || log().turns.length === kept), 8000)
+    },
+    async close() {
+      await h.close()
+      fs.rmSync(work, { recursive: true, force: true })
+    },
+  }
+}
+
+/** Two notes, each one turn: note 1 changes line 2, note 2 line 18. */
+async function twoNotes(t: Awaited<ReturnType<typeof historyOf>>, kept = true) {
+  const a = t.h.note("a")
+  await until(() => t.h.w.prompts.length === 1)
+  await t.agentTurn(() => t.edit(2, "line 2 NOTE ONE"), "1:done", kept ? 1 : undefined)
+  const b = t.h.note("b")
+  await until(() => t.h.w.prompts.length === 2)
+  await t.agentTurn(() => t.edit(18, "line 18 NOTE TWO"), "1:done 2:done", kept ? 2 : undefined)
+  return { a, b }
+}
+
+test("file history: a server on localhost that is another computer's (ssh -L) keeps no history, and the files here are never changed by it", async () => {
+  const t = await historyOf({ computer: "far-away-box" })
+  try {
+    const { a } = await twoNotes(t, false)
+    await sleep(200)
+    assert.equal(fs.existsSync(t.root), false, "no snapshot of the folder here")
+    assert.equal(await t.h.cmd("takeBackWay", a), "asked")
+    assert.equal(t.line(2), "line 2 NOTE ONE")
+  } finally {
+    await t.close()
+  }
+})
+
+test("file history: a turn that changed no file the app sees is asked of the agent, its diff is known to be empty; one the app kept no record of is not", async () => {
+  const t = await historyOf()
+  try {
+    // Note 1: the agent works where the app does not look (nothing changes in the folder).
+    const a = t.h.note("a")
+    await until(() => t.h.w.prompts.length === 1)
+    await t.agentTurn(() => undefined, "1:done", 1)
+    const b = t.h.note("b")
+    await until(() => t.h.w.prompts.length === 2)
+    await t.agentTurn(() => t.edit(18, "line 18 NOTE TWO"), "1:done 2:done", 2)
+    assert.equal(await t.h.cmd("takeBackWay", a), "asked")
+    assert.deepEqual(await t.h.cmd("takeBackPlan", a), { how: "asked" })
+    assert.deepEqual(await t.h.cmd("noteDiff", a), [])
+    // The other is the server's to undo; its plan names no files.
+    assert.deepEqual(await t.h.cmd("takeBackPlan", b), { how: "undone" })
+  } finally {
+    await t.close()
+  }
+})
+
+test("file history: the take-back question lists the files it puts back; a stale index.lock asks the agent instead of failing", async () => {
+  const t = await historyOf()
+  try {
+    const { a } = await twoNotes(t)
+    assert.deepEqual(await t.h.cmd("takeBackPlan", a), { how: "restored", files: ["a.css"] })
+    // The app was killed during a snapshot: git's lock is left in the shadow.
+    const lock = path.join(t.root, fs.readdirSync(t.root)[0]!, "index.lock")
+    fs.writeFileSync(lock, "")
+    assert.equal(await t.h.cmd("takeBackWay", a), "asked")
+    fs.rmSync(lock)
+    assert.equal(await t.h.cmd("takeBackWay", a), "restored")
+  } finally {
+    await t.close()
+  }
+})
+
+test("file history: a take-back is told only once the agent has the message; cancelled before, /redo still has it and the next message says it; /redo waits while the agent works", async () => {
+  const t = await historyOf()
+  const { h, s } = t
+  const lastSent = () => requestsTo(h, "/prompt").at(-1)!.body as { id?: string; text: string }
+  try {
+    const { a } = await twoNotes(t)
+    assert.equal(await h.cmd("takeBackNote", a, "restored"), "restored")
+    // /redo while the agent works in the folder would land in its turn.
+    h.agent.starts(s)
+    await until(() => h.snap().session?.busy === true)
+    await assert.rejects(h.cmd("runCommand", "redo", ""), /working in this folder/)
+    h.agent.finishes(s)
+    await until(() => h.snap().session?.busy === false)
+
+    await h.cmd("send", "and the footer", [])
+    const first = lastSent()
+    assert.match(first.text, /^\(bicycle 42: I took back note 1 .*\)\n\nand the footer$/)
+    assert.ok(first.id, "it goes with an id, to know when the agent has it")
+    // On its way: /redo would make what it says untrue.
+    await assert.rejects(h.cmd("runCommand", "redo", ""), /Nothing to redo: your last message tells the agent/)
+    // It never reaches the agent (taken out of the queue, a Stop).
+    h.emit("session.inbox.cancelled", s, { inboxID: first.id })
+    await sleep(100)
+    assert.equal(t.log().restores[0]?.told, undefined)
+    assert.deepEqual(await h.cmd("runCommand", "redo", ""), { say: "Brought back what was taken back." })
+    assert.equal(t.line(2), "line 2 NOTE ONE")
+
+    // Taken back again: this time the agent gets the message, and it is final.
+    assert.equal(await h.cmd("takeBackNote", a, "restored"), "restored")
+    await h.cmd("send", "and the header", [])
+    const second = lastSent()
+    assert.match(second.text, /^\(bicycle 42: I took back note 1 /)
+    h.agent.starts(s)
+    h.agent.picksUp(s, second.id!)
+    h.agent.finishes(s)
+    await until(() => t.log().restores.at(-1)?.told === true)
+    await assert.rejects(h.cmd("runCommand", "redo", ""), /^Error: Nothing to redo\.$/)
+    await h.cmd("send", "and the nav", [])
+    assert.equal(lastSent().text, "and the nav")
+  } finally {
+    await t.close()
+  }
+})
+
+test("file history: before a summary or an agent's own command, the line about what was taken back goes alone, first", async () => {
+  const t = await historyOf()
+  const { h, s } = t
+  try {
+    const { a } = await twoNotes(t)
+    assert.equal(await h.cmd("takeBackNote", a, "restored"), "restored")
+    h.server.route("POST", /\/compact$/, { json: { data: { id: "msg_c", type: "compaction", payload: {}, delivery: "steer" } } })
+    h.server.route("POST", /\/command$/, {})
+    const before = h.server.requests.length
+    await h.cmd("runCommand", "compact", "")
+    const after = h.server.requests.slice(before).filter((r) => r.method === "POST")
+    assert.deepEqual(after.map((r) => r.path.split("/").at(-1)), ["prompt", "compact"])
+    assert.match((after[0]!.body as { text: string }).text, /^\(bicycle 42: I took back note 1 \("a"\) myself, before this message: [^\n]*\)$/)
+    // Once the agent has it, the agent's own command goes alone.
+    h.agent.starts(s)
+    h.agent.picksUp(s, (after[0]!.body as { id: string }).id)
+    h.agent.finishes(s)
+    await until(() => t.log().restores[0]?.told === true)
+    const mark = h.server.requests.length
+    await h.cmd("runCommand", "review", "")
+    assert.deepEqual(h.server.requests.slice(mark).filter((r) => r.method === "POST").map((r) => r.path.split("/").at(-1)), ["command"])
+  } finally {
+    await t.close()
+  }
+})
+
+test("file history: a snapshot that comes late, where the server does not wait for it, leaves its turn to the agent", async () => {
+  // Every git add takes 1.2 s: longer than the agent may take to make its first change.
+  const real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim()
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), "b42-bin-"))
+  fs.writeFileSync(path.join(bin, "git"), `#!/bin/sh\nif [ "$1" = add ]; then sleep 1.2; fi\nexec "${real}" "$@"\n`, { mode: 0o755 })
+  const was = process.env.PATH
+  process.env.PATH = `${bin}${path.delimiter}${was}`
+  const t = await historyOf()
+  try {
+    const { a } = await twoNotes(t)
+    assert.ok(t.log().turns.every((x) => x.untrusted))
+    assert.equal(await t.h.cmd("takeBackWay", a), "asked")
+  } finally {
+    process.env.PATH = was
+    await t.close()
+    fs.rmSync(bin, { recursive: true, force: true })
+  }
+})
+
+test("file history: a conversation in a parent folder of the site's shares its turns", async () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "b42-parent-"))
+  const work = path.join(parent, "site")
+  fs.mkdirSync(work)
+  const t = await historyOf({ work })
+  const { h, s } = t
+  try {
+    h.w.sessions.set("ses_other", { id: "ses_other", location: { directory: parent }, title: "t", time: { created: 1, updated: 1 } })
+    const a = h.note("a")
+    await until(() => h.w.prompts.length === 1)
+    h.agent.starts(s)
+    h.agent.picksUp(s, h.w.prompts[0]!.id)
+    h.agent.starts("ses_other")
+    await sleep(300)
+    t.edit(2, "line 2 NOTE ONE")
+    h.agent.finishes("ses_other")
+    h.agent.finishes(s)
+    await until(() => h.notes() === "1:done" && t.log().turns.length === 1)
+    h.note("b")
+    await until(() => h.w.prompts.length === 2)
+    await t.agentTurn(() => t.edit(18, "line 18 NOTE TWO"), "1:done 2:done", 2)
+    assert.equal(await h.cmd("takeBackWay", a), "asked")
+  } finally {
+    await t.close()
+    fs.rmSync(parent, { recursive: true, force: true })
+  }
+})
+
 test("file history: an older note is taken back exactly from the app's snapshots, later work and the reviewer's own edits kept; /redo brings it back; the agent is told with the next message", async () => {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "b42-work-"))
   const css = path.join(work, "a.css")
@@ -2492,6 +2729,7 @@ test("file history: an older note is taken back exactly from the app's snapshots
       return 0
     }
   }
+  thisComputer(h)
   try {
     await h.cmd("connect", { url: h.server.url, password: h.server.password })
     h.page.load(`${SITE}/`)
@@ -2569,6 +2807,7 @@ test("file history: a turn another conversation shared the folder with is not re
   const css = path.join(work, "a.css")
   fs.writeFileSync(css, "a\nb\nc\n")
   const h = await boot()
+  thisComputer(h)
   try {
     await h.cmd("connect", { url: h.server.url, password: h.server.password })
     h.page.load(`${SITE}/`)
