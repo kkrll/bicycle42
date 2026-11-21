@@ -279,7 +279,10 @@ export type ConnectionState =
   | { status: "unconfigured" }
   | { status: "connecting"; url: string }
   | { status: "online"; url: string; version: string }
-  | { status: "offline"; url: string; error: string }
+  /** `away`: the agent's computer can't be reached (an agent on another computer over ssh), and
+   *  the agent works on there: nothing it was doing is lost, the app connects again by itself, and
+   *  notes wait meanwhile. */
+  | { status: "offline"; url: string; error: string; away?: true }
 
 /** A server the app remembers. `url` is empty for this computer's while none is running here. */
 /** A shell command the server is still running in a project's folder. `started` is a time in ms. */

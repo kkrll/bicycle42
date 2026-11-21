@@ -5,6 +5,8 @@
 //                 shared in-page review layer built into it (../overlay/src: the overlay's own
 //                 build does that part, see ../../overlay/scripts/build.mjs)
 //   renderer/     the app window's UI                 (vite + solid, src/renderer)
+//   helper.cjs    the app's helper on another computer reached over ssh (esbuild, src/helper/helper.ts):
+//                 one file, for node 18 or newer there, put at ~/.bicycle42/helper-<version>.js
 //   icon.png      the app icon, when there is one     (copied from ../assets)
 //   test/         with --tests: every test/*.ts bundled to .cjs
 //
@@ -51,6 +53,8 @@ const pageOverlay = {
 const entries = [
   { entryPoints: ["src/main/index.ts"], outfile: "dist/main.cjs" },
   { entryPoints: ["src/preload.ts"], outfile: "dist/preload.cjs" },
+  // Runs on another computer with its own node: no source map (it would be most of the file).
+  { entryPoints: ["src/helper/helper.ts"], outfile: "dist/helper.cjs", target: "node18", sourcemap: false },
   // Runs in the page's renderer, which is Chromium, not Node. Main reads it again for every
   // document the page loads, so it goes without the inline source map.
   { entryPoints: ["src/page-preload.ts"], outfile: "dist/page-preload.cjs", plugins: [pageOverlay], target: "chrome140", sourcemap: false },

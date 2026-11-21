@@ -197,6 +197,9 @@ type Conv = {
   modes?: Raw
   commands: SlashCommand[]
   context?: ContextUse
+  /** Some of the agent's output was lost while its computer could not be reached, during the run
+   *  under way: the conversation is read again once that run ends. */
+  stale?: true
   /** During a replay: the user message being read, and where in the ledger the match is. */
   replay?: { cursor: number; group?: { message?: string; text: string; images: { mime: string; data: string }[] }; count: number }
 }
@@ -356,6 +359,8 @@ export function createAcp(opts: AcpOptions): Acp {
   let promptCaps: Raw = {}
 
   async function spawnAgent(): Promise<Transport> {
+    // The generation this process will be (start() counts it once the transport is there).
+    const mine = gen + 1
     const env = await machine.agentEnv()
     const [program, ...args] = opts.command
     if (!program) throw new Error(`No command to start ${name} with.`)
@@ -366,10 +371,22 @@ export function createAcp(opts: AcpOptions): Acp {
       for (const line of String(d).split("\n")) if (line.trim()) stderrTail.push(line.trim().slice(0, 300))
       if (stderrTail.length > 20) stderrTail = stderrTail.slice(-20)
     })
+    child.onGap?.(() => gapped(mine))
     const exited = child.exited.then((e) =>
       e.error ? (e.error.code === "ENOENT" ? `${program} was not found on ${machine.where}` : said(e.error)) : e.signal ? `it was ended (${e.signal})` : `it exited with code ${e.code}`,
     )
     return { stream: ndJsonStream(Writable.toWeb(child.stdin) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>), exited, kill: child.kill }
+  }
+
+  /** Some of what the agent said was lost on its way here (its computer could not be reached for
+   *  long, and its helper kept only so much): what the conversations loaded in it show is read
+   *  again from the agent, at once for one at rest, after its run for one at work. */
+  function gapped(g: number) {
+    for (const c of convs.values()) {
+      if (c.attached !== g) continue
+      if (c.running) c.stale = true
+      else (c.attached = 0), emit({ type: "resync", session: c.id })
+    }
   }
 
   /** The agent's process, started if it is not running. One start at a time. */
@@ -997,6 +1014,11 @@ export function createAcp(opts: AcpOptions): Acp {
   function finish(c: Conv, id: string, how: { failed?: string; interrupted?: true }): void {
     if (c.running?.id !== id) return
     c.running = undefined
+    if (c.stale) {
+      delete c.stale
+      c.attached = 0
+      queueMicrotask(() => emit({ type: "resync", session: c.id }))
+    }
     const now = Date.now()
     const item = c.turn && c.items.find((i) => i.id === c.turn!.assistant)
     if (item?.kind === "assistant") upsert(c, { ...item, done: true, ended: now }, true)
@@ -1498,6 +1520,13 @@ export function createAcp(opts: AcpOptions): Acp {
     listen(on) {
       listener = on
       closed = false
+      // Another computer that can't be reached: the agent works on there, and nothing of it is
+      // lost; the window says so, and notes wait.
+      const unreach = machine.onReach?.((r) => {
+        if (listener !== on) return
+        if (r.status === "down") emit({ type: "connection", state: { status: "offline", url: url(), error: r.error, away: true } })
+        else if (proc) emit({ type: "connection", state: { status: "online", url: url(), version: version() } })
+      })
       emit({ type: "connection", state: { status: "connecting", url: url() } })
       void ensure().then(
         () => emit({ type: "connection", state: { status: "online", url: url(), version: version() } }),
@@ -1510,6 +1539,7 @@ export function createAcp(opts: AcpOptions): Acp {
         if (listener !== on) return
         listener = undefined
         closed = true
+        unreach?.()
         clearTimeout(retryTimer)
         // What was with the agent, or waiting for it, will not finish: said once, next time.
         for (const c of convs.values()) {
