@@ -3,6 +3,7 @@
 // settings dialog afterwards.
 import { For, Match, Show, Switch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js"
 import type { ConnectionState, LocalAgent, ModelInfo, ModelRef, RemoteInfo } from "../shared/types"
+import { modelLabel, tagLine } from "../shared/models"
 import { harnessNow, kindOfAgent } from "./agents"
 import { CopyButton } from "./copy"
 import { AgentMark, Icon } from "./icons"
@@ -489,6 +490,13 @@ export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void;
     for (const m of shown()) by.set(m.providerID, [...(by.get(m.providerID) ?? []), m])
     return [...by]
   })
+  /** What a row says after the name, quietly: its labels, and that it sees no pictures. */
+  const note = (m: ModelInfo) => [tagLine(m.tags), m.images ? "" : "no images"].filter(Boolean).join(" · ")
+  /** The name with its provider when another provider has a model of that name. */
+  const named = (m: ModelInfo) => {
+    const l = modelLabel(m, state.models)
+    return l.provider ? `${l.name} · ${l.provider}` : l.name
+  }
   /** The rows in the order they are drawn, which is by provider, not the agent's order. */
   const ordered = createMemo(() => groups().flatMap(([, models]) => models))
   // Narrowing the list keeps the choice when it is still there, else takes the first left.
@@ -564,8 +572,8 @@ export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void;
                       <Icon name="check" />
                     </Show>
                     <span class="row-main">{m.name}</span>
-                    <Show when={!m.images}>
-                      <span class="model-note">no screenshots</span>
+                    <Show when={note(m)}>
+                      <span class="model-note">{note(m)}</span>
                     </Show>
                   </button>
                 )}
@@ -575,7 +583,7 @@ export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void;
         </For>
       </div>
       <Show when={state.models.some((m) => !m.images)}>
-        <p class="form-help">A model marked “no screenshots” cannot see pictures: your notes reach it as text only.</p>
+        <p class="form-help">A model marked “no images” cannot see pictures: your notes reach it as words only.</p>
       </Show>
       <Show when={picked()?.variants.length}>
         <label class="form-row">
@@ -596,7 +604,7 @@ export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void;
           <Show when={saving()}>
             <Icon name="spinner" />
           </Show>
-          {picked() ? `Use ${picked()!.name}` : "Choose a model"}
+          {picked() ? `Use ${named(picked()!)}` : "Choose a model"}
         </button>
       </div>
     </form>

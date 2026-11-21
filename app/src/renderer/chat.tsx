@@ -15,9 +15,10 @@ import type {
   PermissionDecision,
   Question,
   QuestionField,
+  Refused,
   SessionSummary,
 } from "../shared/types"
-import { Composer } from "./composer"
+import { Composer, openModelPicker } from "./composer"
 import { CopyButton } from "./copy"
 import { Icon, Kbd, toolIcon } from "./icons"
 import { openLightbox } from "./lightbox"
@@ -330,6 +331,14 @@ function User(props: { item: ChatUser }) {
           </For>
         </div>
       </Show>
+      {/* The way to another model is under the message box while the model in use sees none. */}
+      <Show when={props.item.unseen}>
+        {(u) => (
+          <div class="user-unseen" title="The words went; the model could not look at the pictures">
+            Pictures not seen by {u().by ?? "this model"}
+          </div>
+        )}
+      </Show>
       <Show when={props.item.pending}>
         <div class="user-wait">
           <span>Waiting for its turn</span>
@@ -466,6 +475,9 @@ function Turn(props: { items: ChatAssistant[]; last: boolean }) {
       .filter(Boolean)
       .join("\n\n")
   const lastPart = () => parts()[parts().length - 1]
+  /** The model that answered, once the turn is done: what the agent reported for it, else the
+   *  conversation's model when it began (main says which, on the turn's items). */
+  const model = () => (live() ? undefined : props.items.findLast((it) => it.model)?.model)
   return (
     <div class="msg assistant turn" data-item={props.items[0]!.id}>
       <Show when={steps().length}>
@@ -481,6 +493,11 @@ function Turn(props: { items: ChatAssistant[]; last: boolean }) {
         >
           {/* No spinner of its own: the line under the transcript already says it works, and on what. */}
           <span class="turn-took">{live() ? `Working for ${took(elapsed())}` : elapsed() >= 1000 ? `Worked for ${took(elapsed())}` : "Worked"}</span>
+          <Show when={model()}>
+            <span class="turn-model" title={`Answered by ${model()}`}>
+              · {model()}
+            </span>
+          </Show>
           <Show when={counts()}>
             <span class="turn-counts">{counts()}</span>
           </Show>
@@ -510,11 +527,44 @@ function Turn(props: { items: ChatAssistant[]; last: boolean }) {
           </div>
         )}
       </For>
+      {/* A reply with no steps has no line above it: which model answered goes under it. */}
+      <Show when={!steps().length && model()}>
+        <div class="turn-foot" title={`Answered by ${model()}`}>
+          {model()}
+        </div>
+      </Show>
       <Show when={!live() && words()}>
         <div class="msg-tools">
           <CopyButton text={words} label="Copy this reply" />
         </div>
       </Show>
+    </div>
+  )
+}
+
+/** A run that failed because the model's provider refused the agent's key: the agent is signed
+ *  in, so signing in again would not help. What would: another model, or a key for that
+ *  provider, with the agent's own command for it to copy. */
+function RefusedLine(props: { text: string; refused: Refused }) {
+  return (
+    <div class="marker bad refused" role="note" title={props.text}>
+      <span>
+        {props.refused.model} could not answer: {props.refused.provider} refused the key {props.refused.agent} has for it. {props.refused.agent} itself is signed in.
+      </span>
+      <div class="refused-acts">
+        <button class="text-btn" onClick={openModelPicker}>
+          Choose another model
+        </button>
+        <Show when={props.refused.fix}>
+          {(fix) => (
+            <span class="refused-fix">
+              <span class="refused-or">or add a key:</span>
+              <code>{fix()}</code>
+              <CopyButton text={fix} label={`Copy ${fix()}`} />
+            </span>
+          )}
+        </Show>
+      </div>
     </div>
   )
 }
@@ -1501,9 +1551,16 @@ export function Chat(props: {
                       <Show
                         when={i().checkpoint}
                         fallback={
-                          <div class="marker" classList={{ bad: i().tone === "error" }}>
-                            <span>{i().text}</span>
-                          </div>
+                          <Show
+                            when={i().refused}
+                            fallback={
+                              <div class="marker" classList={{ bad: i().tone === "error" }}>
+                                <span>{i().text}</span>
+                              </div>
+                            }
+                          >
+                            {(r) => <RefusedLine text={i().text} refused={r()} />}
+                          </Show>
                         }
                       >
                         {(id) => <CheckpointLine id={id()} name={i().text} />}

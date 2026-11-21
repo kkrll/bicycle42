@@ -1445,3 +1445,99 @@
   font-weight: 500;
   color: var(--foreground);
 }
+
+/* ── which model, said honestly ───────────────────────────────────────────────────────────── */
+
+/* After the model's name in its picker, quieter: its provider when another provider has a model
+   of that name, its labels (free, alpha), "no images". Gone when the box is narrow; the tooltip
+   says it all. */
+.pick-extra {
+  margin-left: 6px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+@container composer (width < 370px) {
+  .pick-extra {
+    display: none;
+  }
+}
+
+/* The model that answered, after how long the turn took. It gives way before the time does. */
+.turn-model {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: -4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A reply with no steps: the model under it, where the line above would have said it. */
+.turn-foot {
+  margin-top: -6px;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  color: var(--muted);
+  user-select: none;
+}
+
+/* A message whose pictures the model did not see: said under them. */
+.user-unseen {
+  margin-top: 2px;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  color: var(--ink-warn);
+}
+
+/* The provider refused the agent's key: a sentence, then what would help. */
+.marker.refused {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  user-select: text;
+}
+
+.refused-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: var(--foreground);
+}
+
+.refused-acts > .text-btn {
+  margin-left: -6px;
+}
+
+/* "or add a key: <command> Copy" wraps as one. */
+.refused-fix {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.refused-fix > code {
+  font-size: var(--text-control);
+}
+
+.refused-fix > .copy-btn {
+  margin-left: -4px;
+}
+
+/* Under the box: the model sees no pictures, and the way to another one beside it. */
+.blind-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.blind-hint > .text-btn {
+  margin-left: auto;
+  color: var(--foreground);
+}
+
+.refused-or {
+  color: var(--muted);
+}

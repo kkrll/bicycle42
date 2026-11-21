@@ -14,6 +14,7 @@ import { splitCommand } from "../src/main/agents"
 import { thisMachine, type Machine, type Reach } from "../src/main/machine"
 import { unifiedPatch } from "../src/main/patch"
 import type { BackendEvent, ChatEvent, ChatItem } from "../src/shared/types"
+import { RequestError } from "@agentclientprotocol/sdk/unstable"
 import { fakeAgent, type FakeAgent } from "./fake-agent"
 
 timing.retryMin = 20
@@ -756,4 +757,198 @@ test("patch: an edit as a unified diff, with context and counts", () => {
 test("a custom command line is split as a shell would, without running one", () => {
   assert.deepEqual(splitCommand(`my-agent --acp "a b" 'c d' e\\ f`), ["my-agent", "--acp", "a b", "c d", "e f"])
   assert.throws(() => splitCommand(`x "open`), /not closed/)
+})
+
+// ── the model, honestly ─────────────────────────────────────────────────────────────────────────
+
+/** What `opencode acp` offered in the incident: two providers with a "Kimi K3.1 Pro" each, its
+ *  free alpha default (text only), and what its CLI says of them (model-facts.ts). */
+const OPENCODE = [
+  { value: "opencode/tidepool-alpha-free", name: "opencode/Tidepool Alpha Free" },
+  { value: "kimi-code-plan-global/k3.1-pro", name: "kimi-code-plan-global/Kimi K3.1 Pro" },
+  { value: "moonshotai/kimi-k3.1-pro", name: "moonshotai/Kimi K3.1 Pro" },
+]
+const OPENCODE_FACTS = async () =>
+  new Map([
+    ["opencode/tidepool-alpha-free", { images: false, tags: ["free" as const] }],
+    ["kimi-code-plan-global/k3.1-pro", { images: true }],
+    ["moonshotai/kimi-k3.1-pro", { images: true }],
+  ])
+const PICTURE = { uri: "data:image/png;base64,iVBORw0KGgo=", name: "note.png" }
+
+function openCode(extra: Partial<AcpOptions> = {}) {
+  const fake = fakeAgent()
+  fake.models = OPENCODE
+  fake.authMethods = [{ id: "opencode-login", name: "Login with opencode", description: "Run `opencode auth login` in the terminal" }]
+  return setup(fake, undefined, undefined, { modelFacts: OPENCODE_FACTS, ...extra })
+}
+
+test("models: two providers' models of one name keep their providers apart; the free alpha is labelled and marked as seeing no pictures", async () => {
+  const { backend } = openCode()
+  await backend.createSession({ directory: "/repo" })
+  const models = await backend.models()
+  assert.deepEqual(
+    models.map((m) => [m.providerID, m.id, m.name, m.images, m.tags]),
+    [
+      ["opencode", "opencode/tidepool-alpha-free", "Tidepool Alpha", false, ["free", "alpha"]],
+      ["kimi-code-plan-global", "kimi-code-plan-global/k3.1-pro", "Kimi K3.1 Pro", true, undefined],
+      ["moonshotai", "moonshotai/kimi-k3.1-pro", "Kimi K3.1 Pro", true, undefined],
+    ],
+  )
+})
+
+test("models: what the agent says of them that comes late is read again (an agent event), not waited for", async () => {
+  timing.facts = 10
+  let release!: () => void
+  const later = new Promise<void>((r) => (release = r))
+  const { backend, events } = openCode({ modelFacts: () => later.then(OPENCODE_FACTS) })
+  try {
+    await backend.createSession({ directory: "/repo" })
+    const first = await backend.models()
+    // Without the CLI's word, the name alone says it is free and an alpha; pictures are the agent's.
+    assert.deepEqual(first.map((m) => [m.name, m.images, m.tags]).at(0), ["Tidepool Alpha", true, ["free", "alpha"]])
+    const before = of(events, "agent").length
+    release()
+    await until(() => of(events, "agent").length > before)
+    assert.equal((await backend.models())[0]!.images, false)
+  } finally {
+    timing.facts = 4_000
+  }
+})
+
+test("provider refused: an auth error on a prompt of a signed-in multi-provider agent names the model and provider, and offers another model and the agent's way to add a key", async () => {
+  const { backend, fake, events, items } = openCode()
+  fake.onPrompt = async () => {
+    throw RequestError.authRequired({}, "provider authentication required")
+  }
+  const s = await backend.createSession({ directory: "/repo", model: { providerID: "kimi-code-plan-global", id: "kimi-code-plan-global/k3.1-pro" } })
+  await backend.prompt(s.id, { id: "m1", text: "less space above the plans" })
+  await until(() => of(events, "run").some((e) => e.status === "failed"))
+  const failed = of(events, "run").find((e) => e.status === "failed")!
+  assert.match(failed.error!, /^kimi-code-plan-global refused the key Fake Agent has for it, so Kimi K3\.1 Pro could not answer\. Fake Agent itself is signed in\. Choose another model, or add a key in a terminal: opencode auth login\.$/)
+  assert.doesNotMatch(failed.error!, /sign in first/)
+  const line = items.at(-1)
+  assert.equal(line?.kind, "marker")
+  assert.deepEqual(line?.kind === "marker" && line.refused, { model: "Kimi K3.1 Pro", provider: "kimi-code-plan-global", agent: "Fake Agent", fix: "opencode auth login" })
+})
+
+test("sign-in: the agent's own auth error at the start of a conversation, or on a prompt of a one-provider agent, still asks for its sign-in", async () => {
+  const one = setup()
+  one.fake.onPrompt = async () => {
+    throw RequestError.authRequired({}, "Authentication required")
+  }
+  const s = await one.backend.createSession({ directory: "/repo" })
+  await one.backend.prompt(s.id, { id: "m1", text: "hi" })
+  await until(() => of(one.events, "run").some((e) => e.status === "failed"))
+  assert.match(of(one.events, "run").find((e) => e.status === "failed")!.error!, /Fake Agent needs you to sign in first/)
+  const marker = one.items.at(-1)
+  assert.ok(marker?.kind === "marker" && !marker.refused)
+
+  // OpenCode's words name a provider, but at a new conversation it is OpenCode's own sign-in.
+  const fake = fakeAgent()
+  fake.models = OPENCODE
+  // The fake keeps the conversation it makes in session/new: refusing there refuses the request.
+  fake.sessions.set = () => {
+    throw RequestError.authRequired({}, "provider authentication required")
+  }
+  const { backend } = setup(fake)
+  await assert.rejects(backend.createSession({ directory: "/repo" }), /Fake Agent needs you to sign in first/)
+})
+
+test("the chip follows the agent: a model it changes by itself, and one it answers a change with, are what the conversation shows", async () => {
+  const { backend, fake, events, items } = openCode()
+  const s = await backend.createSession({ directory: "/repo" })
+  assert.equal(s.model?.id, "opencode/tidepool-alpha-free")
+  // Asked for one Kimi, the agent puts the conversation on the other: the summary says the other.
+  fake.swap["moonshotai/kimi-k3.1-pro"] = "kimi-code-plan-global/k3.1-pro"
+  await backend.setModel(s.id, { providerID: "moonshotai", id: "moonshotai/kimi-k3.1-pro" })
+  assert.equal((await backend.session(s.id))?.model?.id, "kimi-code-plan-global/k3.1-pro")
+  // During a turn the agent changes the model by itself, and says so.
+  fake.onPrompt = async (turn) => {
+    fake.sessions.get(turn.session)!.model = "opencode/tidepool-alpha-free"
+    await turn.say({ sessionUpdate: "config_option_update", configOptions: fake.options(turn.session) as never })
+    await turn.say({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "ok" }, messageId: "m" })
+  }
+  await backend.prompt(s.id, { id: "m1", text: "hi" })
+  await until(() => of(events, "run").some((e) => e.status === "succeeded"))
+  assert.equal(of(events, "session").at(-1)?.session.model?.id, "opencode/tidepool-alpha-free")
+  assert.ok(items.some((i) => i.kind === "marker" && i.text === "Fake Agent changed the model to Tidepool Alpha"))
+})
+
+test("a model the conversation could not start on: it says so, and which model it is on instead", async () => {
+  const { backend } = openCode()
+  const s = await backend.createSession({ directory: "/repo", model: { providerID: "x", id: "x/gone" } })
+  assert.equal(s.model?.id, "opencode/tidepool-alpha-free")
+  const line = (await backend.transcript(s.id)).items.find((i) => i.kind === "marker")
+  assert.match(line?.kind === "marker" ? line.text : "", /^Could not start on gone: Fake Agent does not offer "x\/gone" here\. This conversation is on Tidepool Alpha\.$/)
+})
+
+test("each reply says its model: the conversation's when the turn began, or the one the agent reported (Claude Code's _claude/model); again after a re-read", async () => {
+  const dir = tmp()
+  const fake = fakeAgent()
+  fake.models = [
+    { value: "default", name: "Default (recommended)", description: "Opus 5.5" },
+    { value: "opus", name: "Opus 5.5" },
+    { value: "sonnet", name: "Sonnet 5.5" },
+  ]
+  fake.onPrompt = async (turn) => {
+    await turn.say({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "ok" }, messageId: `m-${turn.text}` })
+    if (turn.text === "reported") await turn.say({ sessionUpdate: "usage_update", used: 10, size: 100, _meta: { "_claude/model": "claude-sonnet-5-5" } })
+  }
+  const first = setup(fake, dir)
+  const s = await first.backend.createSession({ directory: "/repo", model: { providerID: "Fake Agent", id: "opus" } })
+  await first.backend.prompt(s.id, { id: "m1", text: "plain" })
+  await until(() => of(first.events, "run").filter((e) => e.status === "succeeded").length === 1)
+  await first.backend.prompt(s.id, { id: "m2", text: "reported" })
+  await until(() => of(first.events, "run").filter((e) => e.status === "succeeded").length === 2)
+  const said = first.items.flatMap((i) => (i.kind === "assistant" ? [i.model] : []))
+  assert.deepEqual(said, ["Opus 5.5", "Sonnet 5.5"])
+  first.stop()
+  const again = setup(fake, dir)
+  const read = await again.backend.transcript(s.id)
+  assert.deepEqual(read.items.flatMap((i) => (i.kind === "assistant" ? [i.model] : [])), ["Opus 5.5", "Sonnet 5.5"])
+})
+
+test("pictures not seen: a note's pictures to a model that takes text only are marked on it, and still go; also after a re-read", async () => {
+  const dir = tmp()
+  const fake = fakeAgent()
+  fake.models = OPENCODE
+  const first = setup(fake, dir, undefined, { modelFacts: OPENCODE_FACTS })
+  const s = await first.backend.createSession({ directory: "/repo" })
+  await first.backend.models()
+  await first.backend.prompt(s.id, { id: "m1", text: "UI review note 3 on http://x/\nNote: round it", files: [PICTURE] })
+  await until(() => of(first.events, "run").some((e) => e.status === "succeeded"))
+  const note = first.items.find((i) => i.id === "m1")
+  assert.deepEqual(note?.kind === "user" && note.unseen, { by: "Tidepool Alpha" })
+  // Nothing was held back: the picture went with the words.
+  const sent = fake.calls.find((c) => c.method === "session/prompt")!.params.prompt as { type: string }[]
+  assert.deepEqual(sent.map((b) => b.type), ["text", "image"])
+  first.stop()
+  const again = setup(fake, dir, undefined, { modelFacts: OPENCODE_FACTS })
+  const read = (await again.backend.transcript(s.id)).items.find((i) => i.id === "m1")
+  assert.deepEqual(read?.kind === "user" && read.unseen, { by: "Tidepool Alpha" })
+})
+
+test("pictures not seen: an agent that takes no pictures at all, and a model that says it could not read them, mark the message; a model that sees them does not", async () => {
+  const none = fakeAgent()
+  none.capabilities = { ...none.capabilities, promptCapabilities: { image: false } }
+  const a = setup(none)
+  const s1 = await a.backend.createSession({ directory: "/repo" })
+  await a.backend.prompt(s1.id, { id: "m1", text: "look", files: [PICTURE] })
+  await until(() => of(a.events, "run").some((e) => e.status === "succeeded"))
+  assert.deepEqual(a.items.find((i) => i.id === "m1")?.kind === "user" && (a.items.find((i) => i.id === "m1") as { unseen?: unknown }).unseen, { by: "Alpha" })
+
+  const { backend, fake, events, items } = setup()
+  fake.onPrompt = async (turn) => {
+    const text = turn.text === "blind" ? "The images attached to this note could not be read by the model (it does not support image input)." : "I see a red button."
+    await turn.say({ sessionUpdate: "agent_message_chunk", content: { type: "text", text }, messageId: `m-${turn.text}` })
+  }
+  const s = await backend.createSession({ directory: "/repo" })
+  await backend.prompt(s.id, { id: "m1", text: "seeing", files: [PICTURE] })
+  await until(() => of(events, "run").filter((e) => e.status === "succeeded").length === 1)
+  await backend.prompt(s.id, { id: "m2", text: "blind", files: [PICTURE] })
+  await until(() => of(events, "run").filter((e) => e.status === "succeeded").length === 2)
+  const user = (id: string) => items.find((i) => i.id === id) as { unseen?: unknown }
+  assert.equal(user("m1").unseen, undefined)
+  assert.deepEqual(user("m2").unseen, { by: "Alpha" })
 })

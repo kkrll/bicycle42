@@ -4,7 +4,7 @@
 //
 // Payloads are untrusted: every field is read through rec/str/num/list.
 import { parseAsk } from "./asks"
-import type { ChatImage, ChatMarker, ChatUser } from "../shared/types"
+import type { ChatImage, ChatMarker, ChatUser, Refused } from "../shared/types"
 
 export type Warn = (msg: string, data?: unknown) => void
 
@@ -62,10 +62,11 @@ export function userItem(id: string, time: number, payload: Raw, pending: boolea
   return defined({ kind: "user", id, time, text, images, note: parseNote(text), ask: parseAsk(text), pending: pending || undefined })
 }
 
-/** The end of a run. A run that succeeded leaves no line. */
-export function endMarker(id: string, time: number, outcome: unknown, error: unknown): ChatMarker | undefined {
+/** The end of a run. A run that succeeded leaves no line. `refused`: it failed because the
+ *  model's provider refused the agent's key; the line then offers another model and the fix. */
+export function endMarker(id: string, time: number, outcome: unknown, error: unknown, refused?: Refused): ChatMarker | undefined {
   if (outcome === "interrupted") return { kind: "marker", id, time, text: "Stopped", tone: "error" }
   if (outcome === "failed")
-    return { kind: "marker", id, time, text: `Failed: ${str(rec(error).message) ?? "unknown error"}`, tone: "error", failed: true }
+    return defined({ kind: "marker", id, time, text: `Failed: ${str(rec(error).message) ?? "unknown error"}`, tone: "error", failed: true, refused: refused && { ...refused } }) as ChatMarker
   return undefined
 }

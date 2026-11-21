@@ -369,6 +369,22 @@ const NOTE_REPLY: Record<number, string> = {
   10: "Tightened the gap between the cards from `gap-6` to `gap-4`.",
 }
 
+/** What `opencode acp` offered in the incident this was made for (Nov 2026): two providers with
+ *  a model of one name (one of them with a key that no longer works), and OpenCode's own free
+ *  models, some of them text only and one an alpha, its default. As main names them (acp.ts:
+ *  modelList): no provider before the name, no "Free" after it, the labels apart. */
+const OPENCODE_MODELS: AppState["models"] = [
+  { providerID: "claude-agent", id: "claude-agent/opus", name: "Opus 5.5", images: true, variants: ["low", "medium", "high"] },
+  { providerID: "claude-agent", id: "claude-agent/sonnet", name: "Sonnet 5.5", images: true, variants: ["low", "medium", "high"] },
+  { providerID: "kimi-code-plan-global", id: "kimi-code-plan-global/k3.1-pro", name: "Kimi K3.1 Pro", images: true, variants: ["low", "medium", "high"] },
+  { providerID: "kimi-code-plan-global", id: "kimi-code-plan-global/k3", name: "Kimi K3", images: true, variants: [] },
+  { providerID: "moonshotai", id: "moonshotai/kimi-k3.1-pro", name: "Kimi K3.1 Pro", images: true, variants: ["low", "medium", "high"] },
+  { providerID: "moonshotai", id: "moonshotai/kimi-k3", name: "Kimi K3", images: true, variants: [] },
+  { providerID: "opencode", id: "opencode/big-pickle", name: "Big Pickle", images: false, variants: [], tags: ["free"] },
+  { providerID: "opencode", id: "opencode/deepseek-v4.1-flash-free", name: "DeepSeek V4.1 Flash", images: true, variants: [], tags: ["free"] },
+  { providerID: "opencode", id: "opencode/tidepool-alpha-free", name: "Tidepool Alpha", images: false, variants: ["low", "medium", "high"], tags: ["free", "alpha"] },
+]
+
 /** `&agent=claude` (or codex, gemini, opencode, custom) in the address: that agent on this
  *  computer, over ACP, with the models it says; `&agent` alone is Claude Code. Without it, Claude
  *  Code on dev-box, over ssh. */
@@ -381,7 +397,9 @@ function agentOf(): { connection: AppState["connection"]; harness: AppState["har
   // What each says in its session's options: Claude Code's ids are plain words, grouped under
   // the agent's name; Codex's carry the effort after a "/".
   const models: AppState["models"] =
-    id === "claude"
+    id === "opencode"
+      ? OPENCODE_MODELS
+      : id === "claude"
       ? [
           // Its "Default (recommended)" names the model it is (acp.ts: models).
           { providerID: name, id: "default", name: "Default · Opus 5.5", images: true, variants: [] },
@@ -397,7 +415,12 @@ function agentOf(): { connection: AppState["connection"]; harness: AppState["har
     connection: { status: "online", url: `acp://${id}`, version: "0.12.0" },
     harness: { kind: id as AgentKind, name, here: true },
     models,
-    model: { providerID: name, id: models[0]!.id, ...(id === "claude" ? {} : { variant: "medium" }) },
+    // &model=moonshotai/kimi-k3.1-pro: the conversation is on that one. OpenCode's starts on its
+    // own default, as it did in the incident.
+    model: (() => {
+      const m = models.find((x) => x.id === (q.get("model") ?? (id === "opencode" ? "opencode/tidepool-alpha-free" : models[0]!.id))) ?? models[0]!
+      return { providerID: m.providerID, id: m.id, ...(id === "claude" ? {} : { variant: "medium" }) }
+    })(),
   }
 }
 
@@ -646,8 +669,57 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       ]
       state.defaultModel = { providerID: "anthropic", id: "opus-4-5" }
       state.modelChoice = { suggested: { providerID: "anthropic", id: "opus-4-5" }, ...(params.has("previous") ? { previous: { providerID: "anthropic", id: "sonnet-4" } } : {}) }
+      // &opencode: OpenCode's list, two providers with a "Kimi K3.1 Pro" each, its free ones.
+      if (params.has("opencode")) {
+        state.models = OPENCODE_MODELS
+        state.defaultModel = state.modelChoice.suggested = { providerID: "moonshotai", id: "moonshotai/kimi-k3.1-pro" }
+      }
       items = []
       break
+    case "honest": {
+      // What the conversation says of its models (use with &agent=opencode): a note whose
+      // screenshots the free alpha did not see, its turn with the model that answered, a reply
+      // with no steps, and a turn its provider refused.
+      const t = Date.now() - 9 * 60_000
+      const pics = [
+        { name: "element.png", src: thumb(260) },
+        { name: "page.png", src: thumb(30) },
+      ]
+      items = [
+        { kind: "user", id: "h-u1", time: t, text: "Review note 3\n\nmatch the card radius to the button", images: pics, note: { n: 3, text: "match the card radius to the button" }, unseen: { by: "Tidepool Alpha" } },
+        {
+          kind: "assistant",
+          id: "h-a1",
+          time: t,
+          ended: t + 128_000,
+          done: true,
+          model: "Tidepool Alpha",
+          parts: [
+            { kind: "tool", key: "t1", name: "read", status: "done", title: "read src/components/pricing/PlanCard.tsx", detail: "64 lines" },
+            { kind: "tool", key: "t2", name: "edit", status: "done", title: "edit src/components/pricing/PlanCard.tsx", changes: [change("src/components/pricing/PlanCard.tsx", PATCH_HERO)] },
+            { kind: "text", key: "x1", text: "The images attached to this note could not be read by the model (it does not support image input), so I went by the note's words: the cards now use `rounded-lg`, the button's radius." },
+          ],
+        },
+        { kind: "user", id: "h-u2", time: t + 200_000, text: "Which file sets the button radius?", images: [] },
+        { kind: "assistant", id: "h-a2", time: t + 200_000, ended: t + 209_000, done: true, model: "Kimi K3.1 Pro · moonshotai", parts: [{ kind: "text", key: "x1", text: "`src/styles/buttons.css`, as `--radius-button`." }] },
+        { kind: "user", id: "h-u3", time: t + 300_000, text: "Review note 4\n\nless space above the plans", images: [pics[0]!], note: { n: 4, text: "less space above the plans" } },
+        {
+          kind: "marker",
+          id: "end_h-u3",
+          time: t + 302_000,
+          tone: "error",
+          failed: true,
+          text: "Failed: kimi-code-plan-global refused the key OpenCode has for it, so Kimi K3.1 Pro could not answer. OpenCode itself is signed in. Choose another model, or add a key in a terminal: opencode auth login.",
+          refused: { model: "Kimi K3.1 Pro", provider: "kimi-code-plan-global", agent: "OpenCode", fix: "opencode auth login" },
+        },
+      ]
+      const refused = (items.at(-1) as { text: string }).text.replace(/^Failed: /, "")
+      state.review.notes = state.review.notes.flatMap((n) =>
+        n.n === 3 ? [{ ...n, text: "match the card radius to the button" }] : n.n === 4 ? [{ ...n, text: "less space above the plans", status: "failed" as const, error: refused }] : [],
+      )
+      state.review.unplaced = 0
+      break
+    }
     case "canvas":
       state.review.notes = canvasNotes()
       // The chat calls a note what the list calls it.

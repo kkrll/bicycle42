@@ -53,6 +53,13 @@ export type FakeAgent = {
   models: { value: string; name: string; description?: string }[]
   /** The commands it says each new conversation has. */
   commands: { name: string; description?: string }[]
+  /** What it says in `initialize` of the ways to sign in (OpenCode: "Run `opencode auth login`…"). */
+  authMethods: Record<string, unknown>[]
+  /** Asked for the first model, it puts the conversation on the second (an agent that answers a
+   *  change of model with another one). */
+  swap: Record<string, string>
+  /** A conversation's config options as it says them, for a turn to send in config_option_update. */
+  options(session: string): unknown[]
 }
 
 /** `byDefault`: the models begin with the agent's default, which names the model it is in its
@@ -97,6 +104,9 @@ export function fakeAgent(opts: { file?: string } = {}): FakeAgent {
     defaultModel: false,
     models: MODELS,
     commands: [{ name: "compact", description: "Summarise" }, { name: "review", description: "Review" }],
+    authMethods: [],
+    swap: {},
+    options: (session) => OPTIONS(fake.sessions.get(session)!, fake.defaultModel, fake.models),
     capabilities: { loadSession: true, promptCapabilities: { image: true }, sessionCapabilities: { list: {}, fork: {}, delete: {} } },
     onPrompt: async (turn) => {
       await turn.say({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "ok" }, messageId: "m1" })
@@ -126,7 +136,7 @@ export function fakeAgent(opts: { file?: string } = {}): FakeAgent {
         .onRequest("initialize", ({ params }) => {
           record("initialize")(params)
           if (fake.dieAfterInit) setTimeout(() => exit("it exited with code 1"), 5)
-          return { protocolVersion: 1, agentCapabilities: fake.capabilities as never, agentInfo: { name: "fake", version: "9.9" }, _meta: { steering: { supported: true } } }
+          return { protocolVersion: 1, agentCapabilities: fake.capabilities as never, agentInfo: { name: "fake", version: "9.9" }, authMethods: fake.authMethods as never, _meta: { steering: { supported: true } } }
         })
         .onRequest("session/new", ({ params, client }) => {
           record("session/new")(params)
@@ -160,7 +170,7 @@ export function fakeAgent(opts: { file?: string } = {}): FakeAgent {
           record("session/set_config_option")(params)
           const s = fake.sessions.get(params.sessionId)!
           const value = (params as { value: string }).value
-          if (params.configId === "model") s.model = value
+          if (params.configId === "model") s.model = fake.swap[value] ?? value
           if (params.configId === "effort") s.effort = value
           if (params.configId === "mode") s.mode = value
           return { configOptions: OPTIONS(s, fake.defaultModel, fake.models) as never }

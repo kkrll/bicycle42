@@ -2865,9 +2865,13 @@ export function createCore(host: Host): Core {
     },
     async setModel(model) {
       const current = needSession()
-      await need().setModel(current.id, model)
+      const b = need()
+      await b.setModel(current.id, model)
       store.update((s) => void (s.defaultModel = { providerID: model.providerID, id: model.id, ...(model.variant ? { variant: model.variant } : {}) }))
-      if (session?.id === current.id) session = { ...session, model }
+      // The chip shows the model the agent now says the conversation is on, never only the one
+      // that was asked for: an agent may answer with another.
+      const now = await b.session(current.id).catch(() => null)
+      if (now && session?.id === current.id) session = { ...session, model: now.model }
       push()
     },
     setServerName(name) {

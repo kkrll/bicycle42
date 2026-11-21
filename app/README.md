@@ -65,6 +65,8 @@ src/main/acp.ts         the backend: an ACP agent the app runs, here or over ssh
 src/main/machine.ts     where the code is: commands, files, the agent's process and PATH of a computer (Machine); this one's (LocalMachine)
 src/main/ssh.ts         another computer over ssh as a Machine: ControlMaster, the helper put there and attached to, reconnecting, port forwards
 src/helper/helper.ts    the app's helper on that computer (dist/helper.cjs): Machine's calls as JSON-RPC, and the agent's process kept with its output while the app is away
+src/main/model-facts.ts what an agent says of its models beyond their names (OpenCode's model list), how its errors about them read
+src/shared/models.ts    how a model is named to the reviewer: its provider when another has its name, its labels (free, alpha)
 src/main/agents.ts      the ACP agents the app knows (Claude Code, Codex, Gemini CLI, OpenCode), how each starts and installs, whether a sign-in is found
 src/main/chat-items.ts  what a conversation is built with: a user message, a run's end, parseNote, reading untrusted JSON
 src/main/patch.ts       an edit's old and new text as a unified diff (ACP says edits that way)
@@ -395,6 +397,35 @@ can also be moved by hand (the date `tested` then goes, unless you ran the check
   models are known on connecting; Claude Code also answers `session/options` before any
   conversation. A change is a `{ type: "agent" }` event, and the controller reads them again.
   `/compact` is the agent's own command when it has one (`can.compact`).
+- **The model is said as the agent says it** (`main/model-facts.ts`, `shared/models.ts`). A
+  model's name loses its provider ("moonshotai/Kimi K3.1 Pro" is "Kimi K3.1 Pro" under
+  moonshotai), so when two providers have a model of one name the chip and the lists name the
+  provider beside it (`modelLabel`). Free and pre-release models carry a quiet label ("free,
+  alpha"), from their name or id and from OpenCode's own metadata (its "opencode" provider at no
+  cost; `status` alpha or beta); "Free" leaves the name once the label says it. Which models see
+  pictures: the agent's `promptCapabilities.image`, and for OpenCode `opencode api GET /api/model`
+  (2.x, through its background service; `opencode models --verbose` on 1.x), run on the agent's
+  computer through its `Machine` and read once per list (`ModelInfo.images`, "no images"). The
+  conversation's model is the option's `currentValue` as the agent last said it (its answer to
+  `set_config_option`, a `config_option_update`), never what the app asked for; a model the agent
+  changes by itself gets a line in the chat, and one a new conversation could not start on says
+  why and which it is on. Each turn keeps the model that answered (`ChatAssistant.model`,
+  "Worked for 2m · Kimi K3.1 Pro"): Claude Code's adapter says it with its token count
+  (`usage_update._meta["_claude/model"]`, an API id matched to the list's name by `modelWords`),
+  others by the conversation's model when the turn began; the ledger keeps it for a re-read.
+- **Pictures a model did not see are said on the message** (`ChatUser.unseen`): the agent takes no
+  pictures (they are not sent), OpenCode says the model takes text only, or the model's answer
+  repeats what OpenCode puts in a picture's place (`ERROR: Cannot read "…" (this model does not
+  support image input)`). The message goes all the same, and the box says the model in use sees
+  no images, with the way to another one beside it. Codex refuses such a message instead; its
+  error says so in those words.
+- **A sign-in and a provider's refusal are told apart.** An auth error (ACP's -32000, or words for
+  it) at `initialize` or a new or loaded conversation asks for the agent's own sign-in, as before.
+  The same on a prompt of an agent whose models are several providers' (their names say
+  "provider/…"), or one that names a provider, is that provider refusing the agent's key: the run
+  fails saying the model and the provider and that the agent itself is signed in, and its line
+  (`ChatMarker.refused`) offers another model and the agent's own command to add a key, read from
+  its `authMethods` ("Run `opencode auth login` in the terminal").
 - **Done here, not by the agent**: folders (`listFolders`), `@`-files (`git ls-files`, else a
   walk), the branch and its changes (`git status`, `git diff --numstat HEAD`), projects (the
   folders of the conversations the ledger and `session/list` know). "Here" is the agent's

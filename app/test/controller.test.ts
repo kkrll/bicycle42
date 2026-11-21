@@ -1406,6 +1406,22 @@ test("first launch with an agent of several models: the app asks, makes no conve
   }
 })
 
+test("the picker under the box shows the model the agent says the conversation is on, not only the one asked for", async () => {
+  const { h } = await withModels(MODELS, { defaultModel: { providerID: "acme", id: "acme/vision" } })
+  try {
+    await until(() => !!h.snap().session)
+    assert.equal(h.snap().session!.model?.id, "acme/vision")
+    // Asked for the small one, the agent keeps the conversation on another.
+    h.w.fa.swap["acme/vision-mini"] = "acme/text-only"
+    await h.cmd("setModel", { providerID: "acme", id: "acme/vision-mini" })
+    assert.equal(h.snap().session!.model?.id, "acme/text-only")
+    // What was asked for is still the person's choice for new conversations.
+    assert.deepEqual(h.snap().defaultModel, { providerID: "acme", id: "acme/vision-mini" })
+  } finally {
+    await h.close()
+  }
+})
+
 test("a saved model the agent still offers: nothing is asked", async () => {
   const { h, created } = await withModels(MODELS, { defaultModel: { providerID: "acme", id: "acme/vision" } })
   try {

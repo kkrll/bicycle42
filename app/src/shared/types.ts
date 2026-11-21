@@ -53,12 +53,22 @@ export const phoneOf = (id: unknown): Phone => PHONES.find((p) => p.id === id) ?
 
 export type ModelRef = { providerID: string; id: string; variant?: string }
 
+/** What a model's name or the agent's metadata say of it that the reviewer should know before
+ *  choosing it: it costs nothing (often slower, or with its prompts used for training), or it
+ *  is not yet released. Quiet labels after its name (shared/models.ts). */
+export type ModelTag = "free" | "alpha" | "beta" | "preview"
+
 export type ModelInfo = {
   providerID: string
   id: string
+  /** Its name without its provider ("Kimi K3.1 Pro", not "moonshotai/Kimi K3.1 Pro"), nor the
+   *  word "Free" when `tags` says it. Two providers' models may share one: the window then
+   *  shows the provider beside it (shared/models.ts: modelLabel). */
   name: string
-  /** Takes screenshots. Review notes need this. */
+  /** Sees pictures: a note's screenshots reach it. False when the agent says this model takes
+   *  text only (OpenCode's model list), or that it takes no pictures at all. */
   images: boolean
+  tags?: ModelTag[]
   /** Effort levels, e.g. low | medium | high. Empty when the model has none. */
   variants: string[]
   /** How many tokens the model can be given at once: the window its context is measured
@@ -94,6 +104,10 @@ export type ChatUser = {
   ask?: { title: string }
   /** Sent but not yet picked up by the agent (it is busy with earlier work). */
   pending?: boolean
+  /** It had pictures, and the model it went to did not see them: the agent says the model takes
+   *  text only, takes no pictures at all, or said in its answer that it could not read them.
+   *  `by`: that model's name, when known. Nothing is held back: the words went. */
+  unseen?: { by?: string }
 }
 
 export type ToolStatus = "pending" | "running" | "done" | "error"
@@ -126,6 +140,10 @@ export type ChatAssistant = {
   /** When the step ended (ms), once it has and the agent said when. */
   ended?: number
   error?: string
+  /** The model that answered in this turn, as the window names it: the one the agent reported
+   *  for the turn where it says (Claude Code: with its token count), else the conversation's
+   *  model when the turn began. On the turn's items once they are done. */
+  model?: string
 }
 
 /** A line between messages: "Stopped", "Failed: …", "Model changed to Sonnet". */
@@ -139,7 +157,15 @@ export type ChatMarker = {
   checkpoint?: string
   /** The agent's run failed by itself. (Stopped by the reviewer is also "error" in tone.) */
   failed?: true
+  /** It failed because the model's provider refused the agent's key for it (the agent itself is
+   *  signed in): which model, whose, and the agent's own command to add a key, when it has one.
+   *  The line offers another model, and that command. */
+  refused?: Refused
 }
+
+/** A model's provider would not take the agent's key (OpenCode: "provider authentication
+ *  required" on a prompt, with OpenCode signed in). */
+export type Refused = { model: string; provider: string; agent: string; fix?: string }
 
 export type ChatItem = ChatUser | ChatAssistant | ChatMarker
 

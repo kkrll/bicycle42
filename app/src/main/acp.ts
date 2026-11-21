@@ -32,6 +32,8 @@ import { client, ndJsonStream, type ClientContext, type Stream } from "@agentcli
 import { thisMachine, type Machine } from "./machine"
 import { clip, defined, endMarker, list, num, rec, str, userItem, type Raw } from "./chat-items"
 import { unifiedPatch } from "./patch"
+import { addKeyCommand, isOpenCode, NO_PICTURES, openCodeFacts, PICTURE_UNREAD, type ModelFacts } from "./model-facts"
+import { modelLabel, modelTags, modelWords, plainName } from "../shared/models"
 import type { NamePicture, PictureSource, Wire } from "./pictures"
 import type {
   AgentInfo,
@@ -56,6 +58,7 @@ import type {
   PromptFile,
   Question,
   QuestionField,
+  Refused,
   RepoChange,
   SessionSummary,
   SlashCommand,
@@ -108,6 +111,10 @@ export type AcpOptions = {
    *  took longer than `timing.beforeTurn`, or failed): what the agent changes in that turn may
    *  be in its "before". */
   turnUntrusted?: (session: string) => void
+  /** What the agent says of its models beyond their names (which take pictures, which are free
+   *  or pre-releases), by option value. Without it, OpenCode is asked through its own CLI
+   *  (model-facts.ts) and any other agent is not. */
+  modelFacts?: () => Promise<ModelFacts | undefined>
 }
 
 /** Exported so tests can shorten them. Milliseconds. */
@@ -128,6 +135,9 @@ export const timing = {
    *  itself: the window offers Retry. */
   crashes: 5,
   save: 300,
+  /** How long the model list waits for what the agent says of its models (OpenCode's CLI); it
+   *  is read again when that comes later. */
+  facts: 4_000,
 }
 
 const VERSION = "0.1.0"
@@ -145,7 +155,21 @@ const FILES_FRESH_MS = 15_000
 /** A message the app sent: its id, a hash of its text (to know it again in a replay), when it was
  *  taken, and how its turn ended when that was not plainly ("interrupted", or failed with a
  *  reason) with when. */
-type Sent = { id: string; key: string; time: number; ended?: number; end?: "interrupted" | "failed"; error?: string }
+type Sent = {
+  id: string
+  key: string
+  time: number
+  ended?: number
+  end?: "interrupted" | "failed"
+  error?: string
+  /** The model that answered: the one the agent reported for the turn, else the conversation's
+   *  when it began (an option value, or the id the agent reported). */
+  model?: string
+  /** The message had pictures the model did not see; `by` names that model. */
+  unseen?: { by?: string }
+  /** It failed because the model's provider refused the agent's key. */
+  refused?: Refused
+}
 type Kept = {
   cwd: string
   title?: string
@@ -179,6 +203,10 @@ type Turn = {
   open?: { key: string; message?: string }
   /** Replayed: what the ledger says of how it ended, put in once its output has been read. */
   sent?: Sent
+  /** The conversation's model (its option value) when the turn began. */
+  model?: string
+  /** The model the agent said answered (Claude Code: `_claude/model` with its token count). */
+  reported?: string
 }
 
 type Conv = {
@@ -203,6 +231,8 @@ type Conv = {
   /** Some of the agent's output was lost while its computer could not be reached, during the run
    *  under way: the conversation is read again once that run ends. */
   stale?: true
+  /** A model or effort the app is asking for right now: the agent's word of it is not news. */
+  asking?: string
   /** During a replay: the user message being read, and where in the ledger the match is. */
   replay?: { cursor: number; group?: { message?: string; text: string; images: { mime: string; data: string }[] }; count: number }
 }
@@ -213,6 +243,10 @@ const TOOL_STATUS: Record<string, ToolStatus> = { pending: "pending", in_progres
 
 /** The window's name for a kind of tool (its icon is picked by name, as OpenCode's tools are). */
 const TOOL_NAME: Record<string, string> = { edit: "edit", delete: "edit", move: "edit", execute: "shell", read: "read", search: "grep", fetch: "webfetch", think: "think", switch_mode: "mode" }
+
+/** Requests that carry a message to the model, and those that start the agent or a conversation. */
+const PROMPTS = new Set(["session/prompt", "_session/steering"])
+const STARTS = new Set(["initialize", "authenticate", "session/new", "session/load", "session/resume", "session/options", "session/list"])
 
 const STOPPED_BY: Record<string, string> = {
   max_tokens: "the model reached its limit of words for one answer",
@@ -573,13 +607,43 @@ export function createAcp(opts: AcpOptions): Acp {
     try {
       return rec(ms ? await Promise.race([req, new Promise((_, reject) => (cancel = upTimer(ms, () => reject(new Error(`${name} did not answer in ${ms / 1000} s`)))))]) : await req)
     } catch (err) {
+      const refused = needsSignIn(err) ? providerRefused(method, params, err) : undefined
+      if (refused) {
+        log("warn", `${refused.provider} refused ${name}'s key`, said(err))
+        throw Object.assign(new Error(refusedLine(refused)), { code: code(err), refused })
+      }
       if (needsSignIn(err))
         throw Object.assign(new Error(`${name} needs you to sign in first: run it once in a terminal and log in. (${said(err)})`), { code: code(err) })
+      if (PROMPTS.has(method) && NO_PICTURES.test(said(err))) {
+        const c = convs.get(str(rec(params).sessionId) ?? "")
+        const model = modelName(currentModel(c), c) ?? "This model"
+        throw Object.assign(new Error(`${model} can't take pictures, and ${name} would not send the message with them. Choose a model that sees pictures, or send it without. (${said(err)})`), { code: code(err) })
+      }
       throw Object.assign(new Error(said(err)), { code: code(err) })
     } finally {
       cancel?.()
     }
   }
+
+  /** A sign-in error is the model's provider refusing the agent's key, not the agent wanting a
+   *  sign-in of its own, when it comes once the agent took the conversation (a prompt, a change
+   *  of model) and either names a provider or comes from an agent whose models are several
+   *  providers' (OpenCode: "provider authentication required", with OpenCode signed in). At
+   *  start (initialize, a new or loaded conversation) it is the agent's own sign-in. */
+  function providerRefused(method: string, params: unknown, err: unknown): Refused | undefined {
+    if (STARTS.has(method)) return undefined
+    if (!/\bprovider\b/i.test(said(err)) && !(PROMPTS.has(method) && providers() > 1)) return undefined
+    const c = convs.get(str(rec(params).sessionId) ?? "")
+    const value = method === "session/set_config_option" ? str(rec(params).value) : currentModel(c)
+    return defined({
+      model: modelName(value, c, true) ?? "this model",
+      provider: value ? modelRef(value).providerID : "its provider",
+      agent: name,
+      fix: proc ? addKeyCommand(proc.init, opts.command) : undefined,
+    })
+  }
+  const refusedLine = (r: Refused) =>
+    `${r.provider} refused the key ${name} has for it, so ${r.model} could not answer. ${name} itself is signed in. Choose another model${r.fix ? `, or add a key in a terminal: ${r.fix}` : ""}.`
 
   // ── conversations ───────────────────────────────────────────────────────────────────────────
 
@@ -605,6 +669,99 @@ export function createAcp(opts: AcpOptions): Acp {
   function modelRef(value: string, variant?: string): ModelRef {
     const cut = value.indexOf("/")
     return defined({ providerID: cut > 0 ? value.slice(0, cut) : name, id: value, variant: variant && variant !== "default" ? variant : undefined })
+  }
+
+  /** The agent's models as the window lists them: each by its name without its provider (and
+   *  without "Free" when its label says so), whether it sees pictures, its labels. */
+  function modelList(c?: Conv): ModelInfo[] {
+    const effort = optionOf(c, "thought_level")
+    const variants = choices(effort).flatMap((o) => (str(o.value) && o.value !== "default" ? [str(o.value)!] : []))
+    const all = choices(optionOf(c, "model"))
+    /** An option's name without the provider before it ("fake/Alpha" under "fake"). */
+    const shown = (o: Raw) => {
+      const value = str(o.value) ?? ""
+      const label = str(o.name) ?? value
+      const provider = modelRef(value).providerID
+      return label.startsWith(`${provider}/`) ? label.slice(provider.length + 1) : label
+    }
+    const names = new Map(all.flatMap((o) => (str(o.name) ? [[str(o.name)!, shown(o)] as const] : [])))
+    return all.flatMap((o): ModelInfo[] => {
+      const value = str(o.value)
+      if (!value) return []
+      let label = shown(o)
+      // The agent's default says which model it is in its description (Claude Code's adapter:
+      // "Default (recommended)", "Opus 5.5"): the reviewer sees the model that works.
+      const isName = str(o.description)?.trim() ?? ""
+      const is = names.get(isName)
+      const isDefault = value === "default" || /^default\b/i.test(label)
+      if (is && isDefault) label = `Default · ${is}`
+      // What is known of it is known of the model a default stands for, too.
+      const same = isDefault && is ? all.find((x) => str(x.name) === isName) : undefined
+      const fact = facts?.get(value) ?? (same ? facts?.get(str(same.value) ?? "") : undefined)
+      const tags = modelTags(label, value, fact?.tags)
+      return [
+        defined({
+          providerID: modelRef(value).providerID,
+          id: value,
+          name: plainName(label, tags),
+          // An agent that takes no pictures sends none; one that does may still have models that
+          // see none (OpenCode says which).
+          images: promptCaps.image === true && fact?.images !== false,
+          variants,
+          tags: tags.length ? tags : undefined,
+        }),
+      ]
+    })
+  }
+
+  /** How many providers the agent's models are of, where it names them ("moonshotai/Kimi K3"). */
+  function providers(): number {
+    const seen = new Set<string>()
+    for (const o of choices(optionOf(undefined, "model"))) {
+      const value = str(o.value) ?? ""
+      const p = modelRef(value).providerID
+      if (value.includes("/") && str(o.name)?.startsWith(`${p}/`)) seen.add(p)
+    }
+    return seen.size
+  }
+
+  /** The conversation's model, as its option value: what the agent last said it is. */
+  const currentModel = (c?: Conv) => (c?.options.length ? str(optionOf(c, "model")?.currentValue) : undefined)
+
+  /** A model as the window names it, from its option value or from an id the agent reported for
+   *  a turn ("claude-opus-5-5" is the list's "Opus 5.5"): its name, with its provider when
+   *  another provider has a model of that name. The id's last part when the list lacks it. */
+  function modelName(value: string | undefined, c?: Conv, plain = false): string | undefined {
+    if (!value) return undefined
+    const all = modelList(c)
+    const words = modelWords(value)
+    const hit = all.find((m) => m.id === value) ?? all.find((m) => !/^default\b/i.test(m.name) && modelWords(m.name) === words) ?? all.find((m) => !/^default\b/i.test(m.name) && modelWords(m.id) === words)
+    if (!hit) return value.split("/").pop() || value
+    const l = modelLabel(hit, all)
+    return l.provider && !plain ? `${l.name} · ${l.provider}` : l.name
+  }
+
+  // What the agent says of its models beyond their names: asked once per list it offers.
+  let facts: ModelFacts | undefined
+  let factsFor = ""
+  let factsLoading: Promise<void> = Promise.resolve()
+  function loadFacts(): Promise<void> {
+    const p = proc
+    if (!p || !(opts.modelFacts || isOpenCode(p.init, opts.command))) return Promise.resolve()
+    const key = offer()
+    if (factsFor === key) return factsLoading
+    factsFor = key
+    const ask = opts.modelFacts ?? (() => openCodeFacts(machine, opts.command[0]!))
+    factsLoading = ask().then(
+      (got) => {
+        if (!got || factsFor !== key) return
+        const before = JSON.stringify([...(facts ?? [])])
+        facts = got
+        if (JSON.stringify([...got]) !== before) emit({ type: "agent" })
+      },
+      (err) => warn(`Could not read what ${name} says of its models`, said(err)),
+    )
+    return factsLoading
   }
 
   function modeOf(c: Conv): string | undefined {
@@ -747,7 +904,8 @@ export function createAcp(opts: AcpOptions): Acp {
     const id = sent?.id ?? `u_${c.id}_${g.message ?? r.count}`
     const time = sent?.time ?? before
     r.count++
-    upsert(c, user(c.id, id, time, g.text, g.images, false), false)
+    const item = user(c.id, id, time, g.text, g.images, false)
+    upsert(c, sent?.unseen && item.images.length ? { ...item, unseen: { ...sent.unseen } } : item, false)
     c.turn = defined({ user: id, assistant: `a_${id}`, time, ordinal: { text: 0, reasoning: 0 }, sent })
   }
 
@@ -758,6 +916,9 @@ export function createAcp(opts: AcpOptions): Acp {
     if (!t?.sent) return
     const item = c.items.find((i) => i.id === t.assistant)
     if (item?.kind === "assistant" && t.sent.ended) item.ended = t.sent.ended
+    const answered = t.reported ?? t.sent.model
+    if (item?.kind === "assistant" && answered) item.model = modelName(answered, c)
+    noticeUnread(c, t, false)
     endLine(c, t.user, t.sent, false)
     t.sent = undefined
   }
@@ -811,12 +972,19 @@ export function createAcp(opts: AcpOptions): Acp {
         if (opt) opt.currentValue = mode
         return told(c)
       }
-      case "config_option_update":
+      case "config_option_update": {
+        const was = currentModel(c)
         c.options = list(u.configOptions).map(rec)
         ledger.options = c.options
         save()
         told(c)
+        const now = currentModel(c)
+        // The agent changed the model by itself (not because the app asked): the chip follows
+        // what it says, and the chat says it happened.
+        if (live && was && now && was !== now && c.asking !== now)
+          upsert(c, { kind: "marker", id: `m_${c.id}_${Date.now()}`, time: Date.now(), tone: "info", text: `${name} changed the model to ${modelName(now, c)}` }, true)
         return emit({ type: "agent" })
+      }
       case "session_info_update": {
         const k = ledger.sessions[c.id]
         if (!k) return
@@ -828,6 +996,9 @@ export function createAcp(opts: AcpOptions): Acp {
         return told(c)
       }
       case "usage_update": {
+        // Claude Code's adapter says which model the count is of: the one that answered.
+        const reported = str(rec(u._meta)["_claude/model"])
+        if (reported && c.turn) c.turn.reported = reported
         const used = num(u.used)
         if (!used) return
         c.context = defined({ used, limit: num(u.size) || undefined })
@@ -1007,7 +1178,14 @@ export function createAcp(opts: AcpOptions): Acp {
     delete item.pending
     c.items.push(item)
     chat({ type: "delivered", session: c.id, item: q.id, time: now })
-    c.turn = { user: q.id, assistant: `a_${q.id}`, time: now, ordinal: { text: 0, reasoning: 0 } }
+    const model = currentModel(c)
+    const pics = pictures(q.files).length > 0
+    c.turn = defined({ user: q.id, assistant: `a_${q.id}`, time: now, ordinal: { text: 0, reasoning: 0 }, model })
+    const sent = k.sent.at(-1)
+    if (sent && model) sent.model = model
+    // Pictures this model will not see: the agent takes none, or says this model takes text only.
+    // The message goes all the same; its line says so.
+    if (pics && (promptCaps.image !== true || (model && facts?.get(model)?.images === false))) unseen(c, q.id, model)
     let prompt: unknown[]
     try {
       prompt = blocks(q)
@@ -1046,7 +1224,8 @@ export function createAcp(opts: AcpOptions): Acp {
           if (c.running?.cancelled) return finish(c, q.id, { interrupted: true })
           // The connection closing rejects the prompt before the process is seen to have ended:
           // then the reason is the process's (`died`), not "connection closed".
-          void Promise.race([p.ended, new Promise((r) => setTimeout(r, 1000).unref())]).then(() => proc === p && finish(c, q.id, { failed: said(err) }))
+          const refused = rec(err).refused as Refused | undefined
+          void Promise.race([p.ended, new Promise((r) => setTimeout(r, 1000).unref())]).then(() => proc === p && finish(c, q.id, defined({ failed: said(err), refused })))
         },
       )
     }
@@ -1055,7 +1234,7 @@ export function createAcp(opts: AcpOptions): Acp {
   /** A turn ended: the next waiting message goes, or the run ends. `id` is the message it was
    *  asked with; what it says goes with the turn's last message (one steered into it, if any),
    *  where a replay puts it. */
-  function finish(c: Conv, id: string, how: { failed?: string; interrupted?: true }): void {
+  function finish(c: Conv, id: string, how: { failed?: string; interrupted?: true; refused?: Refused }): void {
     if (c.running?.id !== id) return
     c.running = undefined
     if (c.stale) {
@@ -1064,14 +1243,20 @@ export function createAcp(opts: AcpOptions): Acp {
       queueMicrotask(() => emit({ type: "resync", session: c.id }))
     }
     const now = Date.now()
-    const item = c.turn && c.items.find((i) => i.id === c.turn!.assistant)
-    if (item?.kind === "assistant") upsert(c, { ...item, done: true, ended: now }, true)
-    const last = c.turn?.user || id
+    const t = c.turn
+    const item = t && c.items.find((i) => i.id === t.assistant)
+    const answered = t?.reported ?? t?.model
+    if (item?.kind === "assistant") upsert(c, defined({ ...item, done: true, ended: now, model: modelName(answered, c) }), true)
+    if (t) noticeUnread(c, t, true)
+    const last = t?.user || id
     c.turn = undefined
     const sent = ledger.sessions[c.id]?.sent.find((s) => s.id === last)
-    if (sent) sent.ended = now
+    if (sent) {
+      sent.ended = now
+      if (answered) sent.model = answered
+    }
     if (how.failed || how.interrupted) {
-      if (sent) Object.assign(sent, defined({ end: how.failed ? ("failed" as const) : ("interrupted" as const), error: how.failed }))
+      if (sent) Object.assign(sent, defined({ end: how.failed ? ("failed" as const) : ("interrupted" as const), error: how.failed, refused: how.refused }))
       save()
       // What waits stays waiting, until something is sent again.
       c.parked = true
@@ -1093,8 +1278,27 @@ export function createAcp(opts: AcpOptions): Acp {
   }
 
   function endLine(c: Conv, id: string, sent: Sent, live: boolean) {
-    const marker = endMarker(`end_${id}`, sent.ended ?? sent.time, sent.end, { message: sent.error })
+    const marker = endMarker(`end_${id}`, sent.ended ?? sent.time, sent.end, { message: sent.error }, sent.refused)
     if (marker) upsert(c, marker, live)
+  }
+
+  /** The message's pictures were not seen by the model it went to: its line says so, live and in
+   *  a re-read (the ledger keeps it). */
+  function unseen(c: Conv, id: string, model: string | undefined, live = true) {
+    const by = modelName(model, c)
+    const sent = ledger.sessions[c.id]?.sent.find((s) => s.id === id)
+    if (sent && !sent.unseen) ((sent.unseen = defined({ by })), save())
+    const item = c.items.find((i) => i.id === id)
+    if (item?.kind === "user" && item.images.length && !item.unseen) upsert(c, { ...item, unseen: defined({ by }) }, live)
+  }
+
+  /** A turn whose message had pictures, where the model says it could not read them (OpenCode
+   *  puts that in their place for a model that takes text only): the message is marked. */
+  function noticeUnread(c: Conv, t: Turn, live: boolean) {
+    const item = c.items.find((i) => i.id === t.assistant)
+    const user = c.items.find((i) => i.id === t.user)
+    if (item?.kind !== "assistant" || user?.kind !== "user" || !user.images.length || user.unseen) return
+    if (item.parts.some((p) => p.kind !== "tool" && PICTURE_UNREAD.test(p.text))) unseen(c, t.user, t.reported ?? t.model ?? t.sent?.model, live)
   }
 
   // ── permissions and questions ───────────────────────────────────────────────────────────────
@@ -1206,14 +1410,26 @@ export function createAcp(opts: AcpOptions): Acp {
     if (!option || str(option.currentValue) === value) return
     if (!choices(option).some((o) => str(o.value) === value)) throw new Error(`${name} does not offer "${value}" here.`)
     await attach(c)
-    if (option.legacy) await call("session/set_model", { sessionId: c.id, modelId: value })
-    else {
-      const res = await call("session/set_config_option", { sessionId: c.id, configId: str(option.id), value })
-      if (Array.isArray(res.configOptions)) c.options = list(res.configOptions).map(rec)
+    const before = offer()
+    // What the agent answers with is what it now is: the chip shows that, not what was asked.
+    let answered = false
+    c.asking = value
+    try {
+      if (option.legacy) await call("session/set_model", { sessionId: c.id, modelId: value })
+      else {
+        const res = await call("session/set_config_option", { sessionId: c.id, configId: str(option.id), value })
+        if (Array.isArray(res.configOptions)) ((c.options = list(res.configOptions).map(rec)), (answered = true))
+      }
+    } finally {
+      c.asking = undefined
     }
-    const now = c.options.find((o) => o.id === option.id)
-    if (now) now.currentValue = value
+    if (!answered) {
+      const now = c.options.find((o) => o.id === option.id)
+      if (now) now.currentValue = value
+    }
     ledger.options = c.options
+    // Another model may have other effort levels.
+    if (offer() !== before) emit({ type: "agent" })
     save()
     told(c)
   }
@@ -1270,30 +1486,11 @@ export function createAcp(opts: AcpOptions): Acp {
         // A conversation of none: what it is told goes into the ledger alone.
         configured(blank(""), res)
       }
-      const model = optionOf(undefined, "model")
-      const effort = optionOf(undefined, "thought_level")
-      const variants = choices(effort).flatMap((o) => (str(o.value) && o.value !== "default" ? [str(o.value)!] : []))
-      const all = choices(model)
-      /** An option's name without the provider before it ("fake/Alpha" under "fake"). */
-      const shown = (o: Raw) => {
-        const value = str(o.value) ?? ""
-        const label = str(o.name) ?? value
-        const provider = modelRef(value).providerID
-        return label.startsWith(`${provider}/`) ? label.slice(provider.length + 1) : label
-      }
-      const names = new Map(all.flatMap((o) => (str(o.name) ? [[str(o.name)!, shown(o)] as const] : [])))
-      return all.flatMap((o): ModelInfo[] => {
-        const value = str(o.value)
-        if (!value) return []
-        let label = shown(o)
-        // The agent's default says which model it is in its description (Claude Code's adapter:
-        // "Default (recommended)", "Opus 5.5"): the reviewer sees the model that works.
-        const is = names.get(str(o.description)?.trim() ?? "")
-        if (is && (value === "default" || /^default\b/i.test(label))) label = `Default · ${is}`
-        return [{ providerID: modelRef(value).providerID, id: value, name: label, images: promptCaps.image === true, variants }]
-      })
+      // What the agent says of its models beyond their names, if it comes soon; else the list
+      // goes without it, and is read again when it comes.
+      await Promise.race([loadFacts(), new Promise((r) => setTimeout(r, timing.facts).unref())])
+      return modelList()
     },
-
     async agents() {
       const mode = optionOf(undefined, "mode")
       const modes = mode ? choices(mode) : list(rec(ledger.modes).availableModes).map((m) => ({ value: str(rec(m).id), name: str(rec(m).name) }))
@@ -1323,7 +1520,15 @@ export function createAcp(opts: AcpOptions): Acp {
       if (input.parent) k.parent = input.parent
       if (input.title) k.title = input.title
       if (input.title && has("title")) await call("session/set_title", { sessionId: c.id, title: input.title }).catch((err) => warn("Could not name the conversation", said(err)))
-      if (input.model) await backend.setModel(c.id, input.model).catch((err) => warn("Could not set the conversation's model", said(err)))
+      if (input.model) {
+        const wanted = input.model.id
+        await backend.setModel(c.id, input.model).catch((err) => {
+          warn("Could not set the conversation's model", said(err))
+          // The conversation is on the agent's own choice: the chip says which, and this says why.
+          const now = modelName(currentModel(c), c)
+          upsert(c, { kind: "marker", id: `model_${c.id}`, time: Date.now(), tone: "error", text: clip(`Could not start on ${modelName(wanted, c)}: ${said(err)} This conversation is on ${now ?? `${name}'s own choice`}.`, 400) }, true)
+        })
+      }
       save()
       return summary(c)
     },
@@ -1603,7 +1808,11 @@ export function createAcp(opts: AcpOptions): Acp {
     if (before?.kind === "assistant") upsert(c, { ...before, done: true, ended: now }, true)
     const was = c.turn && k.sent.find((x) => x.id === c.turn!.user)
     if (was) was.ended = now
-    c.turn = { user: q.id, assistant: `a_${q.id}`, time: now, ordinal: { text: 0, reasoning: 0 } }
+    const model = currentModel(c)
+    const pics = pictures(q.files).length > 0
+    c.turn = defined({ user: q.id, assistant: `a_${q.id}`, time: now, ordinal: { text: 0, reasoning: 0 }, model })
+    if (model) k.sent.at(-1)!.model = model
+    if (pics && (promptCaps.image !== true || (model && facts?.get(model)?.images === false))) unseen(c, q.id, model)
     return true
   }
 

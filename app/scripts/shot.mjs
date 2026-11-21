@@ -96,6 +96,16 @@ const SHOTS = [
   { name: "model-choice", mock: "model-choice" },
   { name: "model-choice-filter", mock: "model-choice", query: "&previous", run: [type(".model-form input[type=search]", "gpt")], wait: 300, report: `[document.querySelector(".model-form button[type=submit]").textContent, document.querySelector(".connect-lead").textContent]` },
   { name: "model-choice-settings", mock: "review", run: [click("[data-action=settings]"), pause(300), click("[data-action=default-model]")], wait: 500 },
+  // Honest about the model (OpenCode's list): two providers' "Kimi K3.1 Pro" under their own
+  // headings, the free ones labelled ("free, alpha"), the ones that see no pictures marked.
+  { name: "model-list-providers", mock: "model-choice", query: "&opencode", run: [`document.querySelector(".model-list").scrollTop = 150`], wait: 300 },
+  // The conversation on OpenCode's free alpha: the chip says so and that it sees no images, a
+  // note's screenshots marked as not seen by it, the model each reply came from ("Worked for 2m
+  // 8s · Tidepool Alpha", one under a reply with no steps), and a turn its provider refused.
+  { name: "model-honest", mock: "honest", query: "&agent=opencode" },
+  { name: "model-honest-top", mock: "honest", query: "&agent=opencode", run: [`document.querySelector(".transcript").scrollTop = 0`], wait: 300 },
+  // A model whose name another provider's model has: the chip names its provider.
+  { name: "model-chip-twin", mock: "review", query: "&agent=opencode&model=moonshotai/kimi-k3.1-pro", report: `document.querySelector(".pick.model").textContent` },
   // The list of conversations (review-menu, below, is the list itself: pinned first, counts of
   // notes): a row's own controls, a name being changed, a delete asked about and the archived.
   // A finished note opened: its pictures, what changed in the code, the verdict. Then the

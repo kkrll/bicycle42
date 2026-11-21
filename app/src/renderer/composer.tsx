@@ -6,6 +6,7 @@
 // mention reads as a chip without the box becoming an editor of its own.
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, type JSX } from "solid-js"
 import type { Mention, MentionOption, ModelInfo, PromptFile, SendOptions, SlashCommand } from "../shared/types"
+import { labelText, modelLabel } from "../shared/models"
 import { Icon, type IconName } from "./icons"
 import { SuggestMenu, type MenuItem } from "./menu"
 import { ContextMeter } from "./meter"
@@ -25,6 +26,26 @@ export function announce(words: string, ms = 4000): void {
 }
 
 // ── model, effort ─────────────────────────────────────────────────────────────────────────
+
+/** Opens the model list under the box (from a line that says the model is the trouble): the
+ *  native list where it can be opened by a click elsewhere, else the picker gets the focus. */
+export function openModelPicker(): void {
+  const el = document.querySelector<HTMLSelectElement>(".pick.model select")
+  if (!el || el.disabled) return
+  el.focus()
+  try {
+    el.showPicker()
+  } catch {
+    // Opened only by a click of the reader's own: the focus says where it is.
+  }
+}
+
+/** The open conversation's model as the agent says it (`session.model`), else the one new
+ *  conversations start with: its entry in the agent's list, when it has one. */
+export function currentModel(): ModelInfo | undefined {
+  const c = state.session?.model ?? state.defaultModel
+  return c && state.models.find((m) => m.providerID === c.providerID && m.id === c.id)
+}
 
 function Pickers() {
   const current = () => state.session?.model ?? state.defaultModel
@@ -65,21 +86,32 @@ function Pickers() {
    *  the agent's words. A model the list does not have (the conversation's, from before) goes by
    *  the last part of its id. */
   const label = () => {
-    const name = info()?.name ?? current()?.id.split("/").pop()
+    const name = info() ? modelLabel(info()!, state.models).name : current()?.id.split("/").pop()
     if (!name) return "Model"
     const plain = name.replace(/\s*\((recommended|default)\)\s*$/i, "").trim() || name
     return /^default$/i.test(plain) ? "Default model" : plain
   }
   /** One group needs no heading: an agent's models are all its own. */
   const single = () => groups().length === 1
+  /** After the name, quieter: its provider when another provider has a model of that name, and
+   *  its labels (free, alpha). That it sees no images is said under the box. */
+  const extra = () => {
+    const m = info()
+    if (!m) return ""
+    const l = modelLabel(m, state.models)
+    return [l.provider, l.tags].filter(Boolean).join(" · ")
+  }
+  /** An option of the native list: in a provider's group, the group says the provider. */
+  const option = (m: ModelInfo) => labelText({ ...modelLabel(m, state.models), ...(single() ? {} : { provider: undefined }) })
+  const help = () => {
+    const m = info()
+    const what = m ? labelText(modelLabel(m, state.models, { provider: single() ? "shared" : "always" })) : (current()?.id ?? "none chosen")
+    return `Model: ${what}${state.harness ? `, as ${state.harness.name} says` : ""}. Click to change it. A model marked "no images" sees only the notes' words.`
+  }
   return (
     <div class="pickers">
       <Show when={state.models.length}>
-        <Pick
-          class="model"
-          value={label()}
-          help={`Model: ${info()?.name ?? current()?.id ?? "none chosen"}${state.harness ? `, of ${state.harness.name}` : ""}. Click to change it. Models marked "no screenshots" only read the notes' words.`}
-        >
+        <Pick class="model" value={label()} extra={extra()} help={help()}>
           <select class="pick-native" aria-label="Model" disabled={!state.session} onChange={(e) => choose(e.currentTarget)}>
             <Show when={!info()}>
               <option selected disabled>
@@ -92,8 +124,7 @@ function Pickers() {
                 <For each={groups()[0]?.[1]}>
                   {(entry) => (
                     <option value={entry.index} selected={entry.model === info()}>
-                      {entry.model.name}
-                      {entry.model.images ? "" : " (no screenshots)"}
+                      {option(entry.model)}
                     </option>
                   )}
                 </For>
@@ -105,8 +136,7 @@ function Pickers() {
                     <For each={models}>
                       {(entry) => (
                         <option value={entry.index} selected={entry.model === info()}>
-                          {entry.model.name}
-                          {entry.model.images ? "" : " (no screenshots)"}
+                          {option(entry.model)}
                         </option>
                       )}
                     </For>
@@ -155,7 +185,7 @@ const short = (word: string) => {
 
 /** A native <select>, invisible, over a label that reads in plain words: "Effort medium", or
  *  "Med" when the box is narrow. The select still takes the clicks and the keys. */
-function Pick(props: { class: string; prefix?: string; value: string; short?: string; help: string; children: JSX.Element }) {
+function Pick(props: { class: string; prefix?: string; value: string; short?: string; extra?: string; help: string; children: JSX.Element }) {
   return (
     <label class={`pick ${props.class}`} classList={{ off: !state.session }} title={state.session ? props.help : "Open a conversation first"}>
       <span class="pick-text">
@@ -164,6 +194,9 @@ function Pick(props: { class: string; prefix?: string; value: string; short?: st
         </Show>
         <span class="pick-long">{props.value}</span>
         <span class="pick-short">{props.short ?? props.value}</span>
+        <Show when={props.extra}>
+          <span class="pick-extra">{props.extra}</span>
+        </Show>
       </span>
       <Icon name="down" />
       {props.children}
@@ -571,10 +604,10 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
     }
   }
 
+  /** The model sees no pictures: a note's screenshots would not reach it. */
   const blind = () => {
-    const m = state.session?.model ?? state.defaultModel
-    const found = m && state.models.find((x) => x.providerID === m.providerID && x.id === m.id)
-    return !!found && !found.images
+    const found = currentModel()
+    return found && !found.images ? found : undefined
   }
   const menuId = "composer-menu"
 
@@ -726,7 +759,14 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
         </Show>
       </div>
       <Show when={blind()}>
-        <p class="composer-hint">This model cannot see screenshots, so notes reach it as text only.</p>
+        {(m) => (
+          <p class="composer-hint blind-hint">
+            <span>{modelLabel(m(), state.models).name} sees no images: notes reach it as words only.</span>
+            <button class="text-btn" onClick={openModelPicker}>
+              Choose another model
+            </button>
+          </p>
+        )}
       </Show>
     </div>
   )
