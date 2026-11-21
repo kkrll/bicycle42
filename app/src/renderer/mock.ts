@@ -441,6 +441,7 @@ function base(): AppState {
         { file: "src/styles/buttons.css", additions: 4, deletions: 0, status: "modified" },
         { file: "src/components/pricing/Faq.tsx", additions: 18, deletions: 0, status: "added" },
       ],
+      total: 3,
     },
     session: { id: SESSION, title: "Pricing page review", updated: now, busy: false, agent: "build", directory: DIRECTORY, ...(agent.model ? { model: agent.model } : {}) },
     sessions: [

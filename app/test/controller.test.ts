@@ -376,7 +376,9 @@ test("an address belongs to the project that is open: the same one in another pr
     assert.deepEqual([h.snap().site, h.snap().session!.id, h.snap().review.notes.length], [{ origin: SITE, directory: OTHER }, second, 0])
     h.note("the second project's note")
     await until(() => h.w.prompts.length === 2)
-    assert.deepEqual([h.w.prompts[1]!.session, h.snap().review.notes.map((n) => n.text)], [second, ["the second project's note"]])
+    // The first project's note may reach the agent after this one: found by its words.
+    const sent = h.w.prompts.find((p) => p.text.includes("the second project's note"))
+    assert.deepEqual([sent?.session, h.snap().review.notes.map((n) => n.text)], [second, ["the second project's note"]])
 
     // Each project opens on its own page at that address, with its own notes and conversation.
     await h.cmd("openProject", REPO)
@@ -1830,7 +1832,7 @@ test("a checkpoint is a line in the conversation, kept by the app; the repo's br
   try {
     const s = await h.ready(work)
     await until(() => !!h.snap().repo)
-    assert.deepEqual(h.snap().repo, { branch: "polish", changes: [{ file: "a.css", additions: 1, deletions: 0, status: "modified" }, { file: "new.css", additions: 4, deletions: 0, status: "added" }] })
+    assert.deepEqual(h.snap().repo, { branch: "polish", changes: [{ file: "a.css", additions: 1, deletions: 0, status: "modified" }, { file: "new.css", additions: 4, deletions: 0, status: "added" }], total: 2 })
 
     await h.cmd("addCheckpoint", "  before  the hero ")
     const marker = h.chat().flatMap((e) => (e.type === "item" && e.item.kind === "marker" && e.item.checkpoint ? [e.item] : []))[0]!

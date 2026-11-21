@@ -1370,6 +1370,11 @@
   height: 24px;
 }
 
+.repo-uncounted,
+.repo-more {
+  color: var(--muted);
+}
+
 .repo-status {
   flex: none;
   width: 1ch;

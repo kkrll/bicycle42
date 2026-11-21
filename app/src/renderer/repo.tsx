@@ -29,7 +29,9 @@ export function RepoBar(props: { onOpen?: () => void }) {
   const [error, setError] = createSignal("")
   const changes = () => state.repo?.changes ?? []
   const totals = () => changes().reduce((t, f) => ({ plus: t.plus + f.additions, minus: t.minus + f.deletions }), { plus: 0, minus: 0 })
-  const count = () => (changes().length === 1 ? "1 file changed" : `${changes().length} files changed`)
+  /** All of them: the list holds the first ones. */
+  const total = () => Math.max(state.repo?.total ?? 0, changes().length)
+  const count = () => (total() === 1 ? "1 file changed" : `${total()} files changed`)
   /** The agent is on something: its changes would go into the commit half done. */
   const working = () => !!state.session?.busy || state.review.notes.some((n) => n.status === "working")
   let chip!: HTMLButtonElement
@@ -105,13 +107,21 @@ export function RepoBar(props: { onOpen?: () => void }) {
                     {f.status === "added" ? "A" : f.status === "deleted" ? "D" : "M"}
                   </span>
                   <bdi class="repo-file">{f.file}</bdi>
-                  <span class="counts">
-                    <span class="plus">+{f.additions}</span>
-                    <span class="minus">−{f.deletions}</span>
-                  </span>
+                  <Show
+                    when={!f.uncounted}
+                    fallback={<span class="counts repo-uncounted">{f.uncounted}</span>}
+                  >
+                    <span class="counts">
+                      <span class="plus">+{f.additions}</span>
+                      <span class="minus">−{f.deletions}</span>
+                    </span>
+                  </Show>
                 </li>
               )}
             </For>
+            <Show when={total() > changes().length}>
+              <li class="repo-more">and {total() - changes().length} more</li>
+            </Show>
           </ul>
           <textarea
             class="repo-message"
