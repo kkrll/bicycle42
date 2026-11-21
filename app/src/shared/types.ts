@@ -279,8 +279,13 @@ export type NoteRow = {
   takenBack?: TakeBackWay
 }
 
-/** A file the working tree has changed since the last commit. */
-export type RepoChange = { file: string; additions: number; deletions: number; status: "added" | "deleted" | "modified" }
+/** A file the working tree has changed since the last commit. `uncounted`: its lines were not
+ *  counted (additions and deletions 0), a binary file, or a new one too large to count. */
+export type RepoChange = { file: string; additions: number; deletions: number; status: "added" | "deleted" | "modified"; uncounted?: "binary" | "large" }
+
+/** A repo's branch and its uncommitted changes: the first ones (the app shows so many), and how
+ *  many there are in all. */
+export type Repo = { branch?: string; changes: RepoChange[]; total: number }
 
 /** How a note is taken back (`takeBackWay`): "restored" by the app from its own snapshots of the
  *  files (its changes reversed exactly, later ones kept), or the agent is "asked" to reverse it. */
@@ -428,7 +433,7 @@ export type AppState = {
   missingFolder?: string
   /** The open repo under version control: its branch, and what is changed and not committed.
    *  Absent when the folder is not a repository. */
-  repo?: { branch?: string; changes: RepoChange[] }
+  repo?: Repo
   /** The agent was asked to get the site running (`startSite`) and has not finished answering. */
   startingSite?: true
   /** The open conversation. `null` until there is a folder. */
@@ -733,8 +738,9 @@ export type Backend = {
    *  Resolves once it is queued. */
   compact(session: string, input?: { delivery?: Delivery }): Promise<void>
   rename(session: string, title: string): Promise<void>
-  /** The folder's branch and uncommitted changes; undefined when it is not under version control. */
-  vcs(directory: string): Promise<{ branch?: string; changes: RepoChange[] } | undefined>
+  /** The folder's branch and uncommitted changes, the first `max` of them with their line counts;
+   *  undefined when it is not under version control. */
+  vcs(directory: string, max?: number): Promise<Repo | undefined>
   /** Puts the conversation away (out of `sessions()`), or brings it back. */
   archive(session: string, archived: boolean): Promise<void>
   /** Deletes the conversation for good. */

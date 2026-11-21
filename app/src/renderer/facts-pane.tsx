@@ -157,11 +157,16 @@ export function FactsPane() {
                     <li class="fp-row fp-file" title={f.file}>
                       <span class="fp-cells">
                         <bdi class="fp-label">{shortPath(f.file)}</bdi>
-                        <Counts additions={f.additions} deletions={f.deletions} />
+                        <Show when={!f.uncounted} fallback={<span class="counts repo-uncounted">{f.uncounted}</span>}>
+                          <Counts additions={f.additions} deletions={f.deletions} />
+                        </Show>
                       </span>
                     </li>
                   )}
                 </For>
+                <Show when={(state.repo?.total ?? 0) > changes().length}>
+                  <li class="fp-row repo-more">and {state.repo!.total - changes().length} more</li>
+                </Show>
               </ul>
             </section>
           </Show>

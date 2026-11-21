@@ -60,7 +60,7 @@ import type {
   ProjectInfo,
   Harness,
   Rect,
-  RepoChange,
+  Repo,
   ServerInfo,
   SessionSummary,
   SlashCommand,
@@ -1376,7 +1376,7 @@ export function createCore(host: Host): Core {
 
   // ── the repo: its branch, and what is not committed ─────────────────────────────────────────────
 
-  let repo: { branch?: string; changes: RepoChange[] } | undefined
+  let repo: Repo | undefined
   const REPO_CHANGES_MAX = 200
 
   async function refreshRepo() {
@@ -1385,9 +1385,10 @@ export function createCore(host: Host): Core {
     const directory = s && siteSettings(s.origin)?.directory
     if (!b || !s || !directory) return void ((repo = undefined), push())
     try {
-      const found = await b.vcs(directory)
+      // Cut where it is read: only the changes shown are counted.
+      const found = await b.vcs(directory, REPO_CHANGES_MAX)
       if (backend !== b || site !== s) return
-      repo = found && { ...found, changes: found.changes.slice(0, REPO_CHANGES_MAX) }
+      repo = found
     } catch (err) {
       // A folder that can't be read, or no git there: no line about the repo.
       if (backend !== b || site !== s) return

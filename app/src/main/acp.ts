@@ -32,6 +32,7 @@ import { client, ndJsonStream, type ClientContext, type Stream } from "@agentcli
 import { thisMachine, type Machine } from "./machine"
 import { clip, defined, endMarker, list, num, rec, str, userItem, type Raw } from "./chat-items"
 import { unifiedPatch } from "./patch"
+import { git, vcs } from "./vcs"
 import { addKeyCommand, isOpenCode, NO_PICTURES, openCodeFacts, PICTURE_UNREAD, type ModelFacts } from "./model-facts"
 import { modelLabel, modelTags, modelWords, plainName } from "../shared/models"
 import type { NamePicture, PictureSource, Wire } from "./pictures"
@@ -59,7 +60,6 @@ import type {
   Question,
   QuestionField,
   Refused,
-  RepoChange,
   SessionSummary,
   SlashCommand,
   ToolStatus,
@@ -1623,7 +1623,7 @@ export function createAcp(opts: AcpOptions): Acp {
       told(conv(id))
     },
 
-    vcs: (directory) => vcs(machine, directory),
+    vcs: (directory, max) => vcs(machine, directory, max),
 
     async archive(id, archived) {
       if (!has("archive")) throw cannot("put a conversation away")
@@ -1889,65 +1889,6 @@ async function listFolders(m: Machine, dir: string): Promise<DirEntry[]> {
   const folders = entries.filter((_, i) => kept[i]).map((e) => ({ name: e.name, path: m.path.join(dir, e.name) }))
   const hidden = (e: DirEntry) => e.name.startsWith(".")
   return folders.sort((a, b) => Number(hidden(a)) - Number(hidden(b)) || a.name.localeCompare(b.name))
-}
-
-async function git(m: Machine, dir: string, args: string[], maxBuffer = 16 * 1024 * 1024): Promise<string> {
-  const r = await m.run("git", ["-C", dir, ...args], { timeout: 10_000, maxBuffer })
-  if (r.error) throw new Error(r.error.message)
-  if (r.code !== 0) throw new Error(`git ${args[0]}: ${r.signal ? `killed (${r.signal})` : r.err.trim() || `exit ${r.code}`}`)
-  return r.out
-}
-
-async function vcs(m: Machine, dir: string): Promise<{ branch?: string; changes: RepoChange[] } | undefined> {
-  try {
-    if ((await git(m, dir, ["rev-parse", "--is-inside-work-tree"])).trim() !== "true") return undefined
-  } catch {
-    return undefined
-  }
-  const branch = (await git(m, dir, ["symbolic-ref", "--short", "-q", "HEAD"]).catch(() => "")).trim() || undefined
-  const status = await git(m, dir, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]).catch(() => "")
-  const counts = new Map<string, { additions: number; deletions: number }>()
-  const numstat = await git(m, dir, ["diff", "--numstat", "-z", "HEAD"]).catch(() => "")
-  // -z: "<add>\t<del>\t<path>\0", or for a rename "<add>\t<del>\t\0<from>\0<to>\0".
-  const parts = numstat.split("\0")
-  for (let i = 0; i < parts.length; i++) {
-    const match = /^(\d+|-)\t(\d+|-)\t(.*)$/.exec(parts[i]!)
-    if (!match) continue
-    const file = match[3] || parts[(i += 2)] || ""
-    counts.set(file, { additions: Number(match[1]) || 0, deletions: Number(match[2]) || 0 })
-  }
-  const found: Array<{ file: string; status: RepoChange["status"]; untracked: boolean }> = []
-  const entries = status.split("\0")
-  for (let i = 0; i < entries.length; i++) {
-    const e = entries[i]!
-    if (e.length < 4) continue
-    const x = e[0]
-    const y = e[1]
-    const file = e.slice(3)
-    // A rename's old path follows it.
-    if (x === "R" || x === "C") i++
-    const untracked = x === "?"
-    found.push({ file, untracked, status: untracked || x === "A" ? "added" : x === "D" || y === "D" ? "deleted" : "modified" })
-  }
-  // The lines of new files are counted side by side: on another computer each is a round trip.
-  const changes = await Promise.all(
-    found.map(async ({ file, status: kind, untracked }): Promise<RepoChange> => {
-      const n = untracked ? { additions: await lineCount(m, m.path.join(dir, file)), deletions: 0 } : (counts.get(file) ?? { additions: 0, deletions: 0 })
-      return { file, ...n, status: kind }
-    }),
-  )
-  return defined({ branch, changes })
-}
-
-async function lineCount(m: Machine, file: string): Promise<number> {
-  try {
-    const stat = await m.stat(file)
-    if (stat.kind !== "file" || stat.size > 2 * 1024 * 1024) return 0
-    const text = await m.readFile(file)
-    return text ? text.split("\n").length - (text.endsWith("\n") ? 1 : 0) : 0
-  } catch {
-    return 0
-  }
 }
 
 /** Per machine: the same path on two computers is two folders. */
