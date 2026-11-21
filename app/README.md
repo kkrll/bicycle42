@@ -66,6 +66,7 @@ src/main/acp.ts         the backend: an ACP agent the app runs, here or over ssh
 src/main/machine.ts     where the code is: commands, files, the agent's process and PATH of a computer (Machine); this one's (LocalMachine)
 src/main/ssh.ts         another computer over ssh as a Machine: ControlMaster, the helper put there and attached to, reconnecting, port forwards
 src/helper/helper.ts    the app's helper on that computer (dist/helper.cjs): Machine's calls as JSON-RPC, and the agent's process kept with its output while the app is away
+src/shared/wire.ts      the wire between the app and that helper: lines read as bytes and decoded whole, LINE_MAX, the protocol's number
 src/main/model-facts.ts what an agent says of its models beyond their names (OpenCode's model list), how its errors about them read
 src/shared/models.ts    how a model is named to the reviewer: its provider when another has its name, its labels (free, alpha)
 src/main/agents.ts      the ACP agents the app knows (Claude Code, Codex, Gemini CLI, OpenCode), how each starts and installs, whether a sign-in is found
@@ -451,7 +452,14 @@ can also be moved by hand (the date `tested` then goes, unless you ran the check
   helper is `Machine` (`machine.ts`, the same code as here) as JSON-RPC plus a host for the
   agent's process, which outlives the connection: its output is kept until read (8 MB, then the
   oldest lines go and the app re-reads the conversations: `Child.onGap`), its stdin numbered, so a
-  reconnect reads and writes nothing twice. While the computer can't be reached the connection is
+  reconnect reads and writes nothing twice. The wire (`src/shared/wire.ts`) is one JSON message a
+  line, split on the newline byte and decoded whole (text of any language survives any cut), 64 MiB
+  a line at most each way (a longer one from there drops the link with a sentence; an answer too
+  long is an error, E2BIG); the helper says its `protocol` in `hello` and the app refuses another;
+  every call's params are checked (EINVAL); each spawn has a key, so one sent again after a drop
+  is the same process; and what waits for the agent's stdin goes joined, 4 MiB a write. The app's
+  ssh never forwards the reviewer's agent or X11, and a changed host key is said as a possible
+  attack. While the computer can't be reached the connection is
   `offline` with `away`: nothing is failed, cancelled or forgotten (turns under way stay), notes
   wait, working ones stay working, and Retry (`reconnect`) tries the connection, not the agent.
   The app's file history of its folders is kept there (`~/.bicycle42/snapshots`) and git runs

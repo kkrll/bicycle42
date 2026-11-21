@@ -7,14 +7,27 @@
 // none attached for `leaseMs` (the app quit without ending it, or its computer was away too long)
 // it is ended; once it has ended, what it said and how it ended are kept until the app has read
 // them (reap) or that long has passed with no app attached.
+//
+// Each process also has the `key` the app gave its spawn (one connection of the app, and a count):
+// a spawn sent again after the link dropped before its answer came gets the process the first one
+// started, never a second one.
+//
+// Every call is looked up among the calls below and nothing else (not `constructor`, not
+// `toString`), its params are checked before anything is done (EINVAL, saying which), and every
+// call with an id gets exactly one answer: an answer too long for a line (LINE_MAX) becomes an
+// error saying so (E2BIG), and the connection stays.
 import type { Child, Exit, Machine } from "../main/machine"
+import { LINE_MAX, PROTOCOL, sizeOf } from "../shared/wire"
 
-export type Conn = { send(msg: unknown): void }
+/** A connection: each message is given as its JSON line, without the newline. */
+export type Conn = { send(line: string): void }
 type Kept = { chunks: Buffer[]; start: number; end: number; max: number; gap: boolean }
 type Proc = {
   hid: string
   owner: string
   launch: number
+  /** What the app called this spawn: the same key again is this process again. */
+  key?: string
   child: Child
   out: Kept
   err: Kept
@@ -41,11 +54,62 @@ export type HostOptions = {
   busy(): void
   /** The `shutdown` call: what runs was ended. */
   shutdown(): void
+  /** The longest line sent or taken (LINE_MAX unless said, for the tests). */
+  lineMax?: number
 }
+
+// ── params ─────────────────────────────────────────────────────────────────────────────────────
+
+/** What a param must be: "?" after it, it may be left out (or null). */
+type Kind = "string" | "uint" | "number" | "strings" | "env" | "object" | "base64"
+type Shape = Record<string, Kind | `${Kind}?`>
+
+const isUint = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0
+const fits: Record<Kind, (v: unknown) => boolean> = {
+  string: (v) => typeof v === "string",
+  uint: isUint,
+  number: (v) => typeof v === "number" && Number.isFinite(v),
+  strings: (v) => Array.isArray(v) && v.every((x) => typeof x === "string"),
+  // Variables to set (a string) or take out (null).
+  env: (v) => !!v && typeof v === "object" && !Array.isArray(v) && Object.values(v).every((x) => typeof x === "string" || x === null),
+  object: (v) => !!v && typeof v === "object" && !Array.isArray(v),
+  base64: (v) => typeof v === "string" && /^[A-Za-z0-9+/]*={0,2}$/.test(v) && v.length % 4 === 0,
+}
+const said: Record<Kind, string> = {
+  string: "a string",
+  uint: "a whole number, 0 or more",
+  number: "a number",
+  strings: "a list of strings",
+  env: "an object of strings (or null)",
+  object: "an object",
+  base64: "base64",
+}
+
+/** Refused: a param missing, or not what the call takes. */
+const einval = (message: string) => Object.assign(new Error(message), { code: "EINVAL" })
+
+function checkParams(method: string, shape: Shape, params: Record<string, unknown>) {
+  for (const [name, want] of Object.entries(shape)) {
+    const optional = want.endsWith("?")
+    const kind = want.replace("?", "") as Kind
+    const v = params[name]
+    if (v === undefined || v === null) {
+      if (optional) continue
+      throw einval(`${method}: ${name} is missing (it must be ${said[kind]})`)
+    }
+    if (!fits[kind](v)) throw einval(`${method}: ${name} must be ${said[kind]}`)
+  }
+}
+
+/** run's options, checked as its params are. */
+const RUN_OPTIONS: Shape = { cwd: "string?", env: "env?", clearPrefix: "string?", input: "string?", timeout: "uint?", maxBuffer: "uint?" }
 
 export function createHost(o: HostOptions) {
   const { machine, log } = o
+  const lineMax = o.lineMax ?? LINE_MAX
   const procs = new Map<string, Proc>()
+  /** Each spawn's key, to its process. */
+  const keys = new Map<string, string>()
   const conns = new Set<Conn>()
   let next = 0
 
@@ -74,6 +138,7 @@ export function createHost(o: HostOptions) {
   function forget(p: Proc) {
     clearTimeout(p.lease)
     procs.delete(p.hid)
+    if (p.key && keys.get(p.key) === p.hid) keys.delete(p.key)
     check()
   }
 
@@ -98,7 +163,20 @@ export function createHost(o: HostOptions) {
       if (fd === 1 && nl >= 0) (k.chunks[0] = first.subarray(nl + 1)), (k.start += nl + 1)
       k.gap = true
     }
-    p.conn?.send({ ev: "data", hid: p.hid, fd, at, data: data.toString("base64") })
+    if (p.conn) send(p.conn, { ev: "data", hid: p.hid, fd, at, data: data.toString("base64") })
+  }
+
+  /** A message, as its line. An answer longer than a line may be is an error saying so, sent in
+   *  its place: the call gets its one answer, and the connection stays. */
+  function send(conn: Conn, msg: { id?: number; [k: string]: unknown }) {
+    let line = JSON.stringify(msg)
+    // Bytes are at least as many as UTF-16 units, and at most three times as many.
+    if (line.length * 3 > lineMax && Buffer.byteLength(line) > lineMax) {
+      const size = Buffer.byteLength(line)
+      if (msg.id === undefined) return log("a message too long to send was let go", sizeOf(size))
+      line = JSON.stringify({ id: msg.id, error: { message: `the answer is ${sizeOf(size)}, more than the ${sizeOf(lineMax)} a message may be`, code: "E2BIG" } })
+    }
+    conn.send(line)
   }
 
   /** What the app has read is no longer kept. */
@@ -116,130 +194,213 @@ export function createHost(o: HostOptions) {
       trim(k, fd === 1 ? from.out : from.err)
       let at = k.start
       for (const c of k.chunks) {
-        conn.send({ ev: "data", hid: p.hid, fd, at, data: c.toString("base64") })
+        send(conn, { ev: "data", hid: p.hid, fd, at, data: c.toString("base64") })
         at += c.length
       }
     }
-    if (p.exit && p.closed) conn.send({ ev: "exit", hid: p.hid, ...p.exit })
+    if (p.exit && p.closed) send(conn, { ev: "exit", hid: p.hid, ...p.exit })
   }
 
-  const procsOf = () => [...procs.values()].map((p) => ({ hid: p.hid, owner: p.owner, launch: p.launch, ...(p.exit ? { exited: true } : {}) }))
+  const procsOf = () => [...procs.values()].map((p) => ({ hid: p.hid, owner: p.owner, launch: p.launch, ...(p.key ? { key: p.key } : {}), ...(p.exit ? { exited: true } : {}) }))
 
-  const ops: Record<string, (params: Record<string, unknown>, conn: Conn) => unknown> = {
-    ping: () => ({ version: o.version }),
-    hello: () => ({ version: o.version, pid: process.pid, procs: procsOf() }),
-    info: () => ({ home: machine.home, platform: machine.platform, hostname: machine.hostname(), devNull: machine.devNull }),
-    run: (q) => machine.run(String(q.program), q.args as string[], q.options as never),
-    agentEnv: () => machine.agentEnv(),
-    which: (q) => machine.which(String(q.program), q.env as never).then((x) => x ?? null),
-    stat: (q) => machine.stat(String(q.path)),
-    lstat: (q) => machine.lstat(String(q.path)),
-    readdir: (q) => machine.readdir(String(q.path)),
-    readFile: (q) => machine.readFile(String(q.path)),
-    writeFile: (q) => machine.writeFile(String(q.path), String(q.data), typeof q.mode === "number" ? q.mode : undefined),
-    mkdir: (q) => machine.mkdir(String(q.path)),
-    rename: (q) => machine.rename(String(q.from), String(q.to)),
-    rm: (q) => machine.rm(String(q.path)),
-    realpath: (q) => machine.realpath(String(q.path)),
+  type Op = { params: Shape; run(params: Record<string, unknown>, conn: Conn): unknown }
+  const str = (v: unknown) => v as string
+  /** The calls, and nothing else: a Map, so no name of an object's own (constructor, toString,
+   *  __proto__) is ever one. */
+  const ops = new Map<string, Op>([
+    ["ping", { params: {}, run: () => ({ version: o.version, protocol: PROTOCOL }) }],
+    ["hello", { params: { owner: "string?", launch: "number?" }, run: () => ({ version: o.version, protocol: PROTOCOL, pid: process.pid, procs: procsOf() }) }],
+    ["info", { params: {}, run: () => ({ home: machine.home, platform: machine.platform, hostname: machine.hostname(), devNull: machine.devNull }) }],
+    [
+      "run",
+      {
+        params: { program: "string", args: "strings", options: "object?" },
+        run: (q) => {
+          const options = (q.options ?? {}) as Record<string, unknown>
+          checkParams("run", RUN_OPTIONS, options)
+          // Output beyond a line could never be sent back: the command is ended there, as one
+          // with a smaller maxBuffer is, before the helper holds it all.
+          const maxBuffer = Math.min(typeof options.maxBuffer === "number" && options.maxBuffer > 0 ? options.maxBuffer : lineMax, lineMax)
+          return machine.run(str(q.program), q.args as string[], { ...(options as object), maxBuffer })
+        },
+      },
+    ],
+    ["agentEnv", { params: {}, run: () => machine.agentEnv() }],
+    ["which", { params: { program: "string", env: "env?" }, run: (q) => machine.which(str(q.program), (q.env ?? undefined) as never).then((x) => x ?? null) }],
+    ["stat", { params: { path: "string" }, run: (q) => machine.stat(str(q.path)) }],
+    ["lstat", { params: { path: "string" }, run: (q) => machine.lstat(str(q.path)) }],
+    ["readdir", { params: { path: "string" }, run: (q) => machine.readdir(str(q.path)) }],
+    [
+      "readFile",
+      {
+        params: { path: "string" },
+        run: async (q) => {
+          // A file longer than a line could never be sent back: said before it is read.
+          const st = await machine.stat(str(q.path))
+          if (st.kind === "file" && st.size > lineMax) throw Object.assign(new Error(`${str(q.path)} is ${sizeOf(st.size)}, more than the ${sizeOf(lineMax)} the app reads over ssh`), { code: "EFBIG" })
+          return machine.readFile(str(q.path))
+        },
+      },
+    ],
+    ["writeFile", { params: { path: "string", data: "string", mode: "uint?" }, run: (q) => machine.writeFile(str(q.path), str(q.data), (q.mode ?? undefined) as number | undefined) }],
+    ["mkdir", { params: { path: "string" }, run: (q) => machine.mkdir(str(q.path)) }],
+    ["rename", { params: { from: "string", to: "string" }, run: (q) => machine.rename(str(q.from), str(q.to)) }],
+    ["rm", { params: { path: "string" }, run: (q) => machine.rm(str(q.path)) }],
+    ["realpath", { params: { path: "string" }, run: (q) => machine.realpath(str(q.path)) }],
 
-    spawn(q, conn) {
-      const hid = `p${process.pid.toString(36)}${(++next).toString(36)}`
-      const child = machine.spawn(String(q.program), q.args as string[], { cwd: q.cwd as string, env: q.env as never })
-      const p: Proc = { hid, owner: String(q.owner ?? ""), launch: Number(q.launch) || 0, child, out: kept(o.outMax), err: kept(o.errMax), inAt: 0, conn: conns.has(conn) ? conn : undefined, closed: false }
-      procs.set(hid, p)
-      lease(p)
-      child.stdout.on("data", (d: Buffer) => take(p, 1, d))
-      child.stderr.on("data", (d: Buffer) => take(p, 2, d))
-      child.stdin.on("error", () => undefined)
-      let outDone = false
-      let errDone = false
-      const settle = () => {
-        if (!p.exit || !outDone || !errDone || p.closed) return
-        p.closed = true
-        log("exit", hid, JSON.stringify(p.exit))
-        p.conn?.send({ ev: "exit", hid, ...p.exit })
-        if (p.orphan) forget(p)
-      }
-      child.stdout.on("close", () => ((outDone = true), settle()))
-      child.stderr.on("close", () => ((errDone = true), settle()))
-      void child.exited.then((exit) => {
-        p.exit = exit
-        // Not started at all: its streams may never say "close".
-        if (exit.error) outDone = errDone = true
-        settle()
-      })
-      log("spawn", hid, String(q.program))
-      check()
-      return { hid }
-    },
-    /** Bytes for its stdin, from byte `at` on: what came before (sent again after a reconnect) is skipped. */
-    write(q) {
-      const p = procs.get(String(q.hid))
-      if (!p) throw Object.assign(new Error("no such process"), { code: "ESRCH" })
-      let data = Buffer.from(String(q.data), "base64")
-      const at = Number(q.at)
-      if (at > p.inAt) throw new Error(`a write from ${at} when ${p.inAt} were written`)
-      data = data.subarray(Math.min(data.length, p.inAt - at))
-      if (data.length && !p.exit) p.child.stdin.write(data)
-      p.inAt += data.length
-      return { inAt: p.inAt }
-    },
-    /** Answered once it and what it started are gone (or were sent SIGKILL). */
-    async kill(q) {
-      const p = procs.get(String(q.hid))
-      if (p) await p.child.kill()
-      return {}
-    },
-    /** The app takes a process up (again): its output from these bytes on comes to this connection.
-     *  What is kept is sent before anything new can be: in this very call, with nothing between. */
-    resume(q, conn) {
-      const p = procs.get(String(q.hid))
-      if (!p) return { gone: true }
-      const from = { out: Number(q.out) || 0, err: Number(q.err) || 0 }
-      const gap = from.out < p.out.start
-      replay(p, conn, from)
-      p.conn = conns.has(conn) ? conn : undefined
-      lease(p)
-      return { inAt: p.inAt, gap }
-    },
-    /** The app knows it has ended: it is forgotten. */
-    reap(q) {
-      const p = procs.get(String(q.hid))
-      if (p?.exit) forget(p)
-      return {}
-    },
-    /** Ends everything it runs, waits for that (each with what it started), and ends. */
-    async shutdown() {
-      log("shutdown")
-      await Promise.race([Promise.all([...procs.values()].map((p) => p.child.kill())), new Promise((r) => setTimeout(r, 3000))])
-      setTimeout(o.shutdown, 50)
-      return {}
-    },
-  }
+    [
+      "spawn",
+      {
+        params: { program: "string", args: "strings", cwd: "string?", env: "env?", owner: "string?", launch: "number?", key: "string?" },
+        run(q, conn) {
+          // Sent again (the link dropped before its answer): the process the first one started.
+          // The app takes it up with resume, from the start of its output.
+          const known = typeof q.key === "string" ? procs.get(keys.get(q.key) ?? "") : undefined
+          if (known) return { hid: known.hid, again: true }
+          const hid = `p${process.pid.toString(36)}${(++next).toString(36)}`
+          const child = machine.spawn(str(q.program), q.args as string[], { cwd: (q.cwd ?? undefined) as string | undefined, env: (q.env ?? undefined) as never })
+          const key = typeof q.key === "string" ? q.key : undefined
+          const p: Proc = { hid, owner: String(q.owner ?? ""), launch: Number(q.launch) || 0, key, child, out: kept(o.outMax), err: kept(o.errMax), inAt: 0, conn: conns.has(conn) ? conn : undefined, closed: false }
+          procs.set(hid, p)
+          if (key) keys.set(key, hid)
+          lease(p)
+          child.stdout.on("data", (d: Buffer) => take(p, 1, d))
+          child.stderr.on("data", (d: Buffer) => take(p, 2, d))
+          child.stdin.on("error", () => undefined)
+          let outDone = false
+          let errDone = false
+          const settle = () => {
+            if (!p.exit || !outDone || !errDone || p.closed) return
+            p.closed = true
+            log("exit", hid, JSON.stringify(p.exit))
+            if (p.conn) send(p.conn, { ev: "exit", hid, ...p.exit })
+            if (p.orphan) forget(p)
+          }
+          child.stdout.on("close", () => ((outDone = true), settle()))
+          child.stderr.on("close", () => ((errDone = true), settle()))
+          void child.exited.then((exit) => {
+            p.exit = exit
+            // Not started at all: its streams may never say "close".
+            if (exit.error) outDone = errDone = true
+            settle()
+          })
+          log("spawn", hid, str(q.program))
+          check()
+          return { hid }
+        },
+      },
+    ],
+    [
+      "write",
+      {
+        params: { hid: "string", at: "uint", data: "base64" },
+        /** Bytes for its stdin, from byte `at` on: what came before (sent again after a reconnect)
+         *  is skipped, so each byte reaches it once, in order. */
+        run(q) {
+          const p = procs.get(str(q.hid))
+          if (!p) throw Object.assign(new Error("no such process"), { code: "ESRCH" })
+          let data = Buffer.from(str(q.data), "base64")
+          const at = q.at as number
+          if (at > p.inAt) throw einval(`write: a write from ${at} when ${p.inAt} were written`)
+          data = data.subarray(Math.min(data.length, p.inAt - at))
+          if (data.length && !p.exit) p.child.stdin.write(data)
+          p.inAt += data.length
+          return { inAt: p.inAt }
+        },
+      },
+    ],
+    [
+      "kill",
+      {
+        params: { hid: "string" },
+        /** Answered once it and what it started are gone (or were sent SIGKILL). Again, or for a
+         *  process the helper does not have, it is answered the same. */
+        async run(q) {
+          const p = procs.get(str(q.hid))
+          if (p) await p.child.kill()
+          return {}
+        },
+      },
+    ],
+    [
+      "resume",
+      {
+        params: { hid: "string", out: "uint?", err: "uint?" },
+        /** The app takes a process up (again): its output from these bytes on comes to this
+         *  connection. What is kept is sent before anything new can be: in this very call, with
+         *  nothing between. */
+        run(q, conn) {
+          const p = procs.get(str(q.hid))
+          if (!p) return { gone: true }
+          const from = { out: (q.out as number | undefined) ?? 0, err: (q.err as number | undefined) ?? 0 }
+          const gap = from.out < p.out.start
+          replay(p, conn, from)
+          p.conn = conns.has(conn) ? conn : undefined
+          lease(p)
+          return { inAt: p.inAt, gap }
+        },
+      },
+    ],
+    [
+      "reap",
+      {
+        params: { hid: "string" },
+        /** The app knows it has ended: it is forgotten. */
+        run(q) {
+          const p = procs.get(str(q.hid))
+          if (p?.exit) forget(p)
+          return {}
+        },
+      },
+    ],
+    [
+      "shutdown",
+      {
+        params: {},
+        /** Ends everything it runs, waits for that (each with what it started), and ends. */
+        async run() {
+          log("shutdown")
+          await Promise.race([Promise.all([...procs.values()].map((p) => p.child.kill())), new Promise((r) => setTimeout(r, 3000))])
+          setTimeout(o.shutdown, 50)
+          return {}
+        },
+      },
+    ],
+  ])
 
-  /** One JSON line from a connection. Answers go to the same connection. */
+  /** One JSON line from a connection. Answers go to the same connection: one for each message
+   *  with an id, whatever it is. A line that is not JSON, or has no id, can't be answered. */
   function handle(conn: Conn, line: string) {
-    let msg: { id?: number; method?: string; params?: Record<string, unknown> }
+    let msg: unknown
     try {
       msg = JSON.parse(line)
     } catch {
+      return log("a line that is not JSON was let go")
+    }
+    if (!msg || typeof msg !== "object" || Array.isArray(msg)) return
+    const { id, method, params: raw } = msg as { id?: unknown; method?: unknown; params?: unknown }
+    // An id the app can match: a number (what the app sends) or a string.
+    const answerable = typeof id === "number" || typeof id === "string"
+    const answer = (m: Record<string, unknown>) => answerable && send(conn, { id: id as number, ...m })
+    const params = (raw ?? {}) as Record<string, unknown>
+    if (method === "ack") {
+      // Told, not asked: never answered. One that does not make sense is let go.
+      if (!fits.object(params) || typeof params.hid !== "string" || !isUint(params.out) || !isUint(params.err)) return
+      const p = procs.get(params.hid)
+      if (p) (trim(p.out, params.out as number), trim(p.err, params.err as number))
       return
     }
-    const params = msg.params ?? {}
-    if (msg.method === "ack") {
-      const p = procs.get(String(params.hid))
-      if (p) (trim(p.out, Number(params.out) || 0), trim(p.err, Number(params.err) || 0))
-      return
-    }
-    const op = msg.method ? ops[msg.method] : undefined
     void (async () => {
       try {
-        if (!op) throw new Error(`no such call: ${msg.method}`)
-        const result = await op(params, conn)
-        if (msg.id !== undefined) conn.send({ id: msg.id, result: result ?? null })
+        const op = typeof method === "string" ? ops.get(method) : undefined
+        if (!op) throw Object.assign(new Error(`no such call: ${typeof method === "string" ? method.slice(0, 80) : JSON.stringify(method ?? null)}`), { code: "ENOSYS" })
+        if (!fits.object(params)) throw einval(`${method}: params must be an object`)
+        checkParams(method as string, op.params, params)
+        const result = await op.run(params, conn)
+        answer({ result: result ?? null })
       } catch (err) {
         const e = err as NodeJS.ErrnoException
-        if (msg.id !== undefined) conn.send({ id: msg.id, error: { message: e?.message ?? String(err), ...(e?.code ? { code: e.code } : {}) } })
+        answer({ error: { message: e?.message ?? String(err), ...(e?.code ? { code: e.code } : {}) } })
       }
     })()
   }

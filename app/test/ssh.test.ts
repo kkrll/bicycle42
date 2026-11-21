@@ -2,7 +2,10 @@
 // fake ssh (test/fake-ssh.ts) whose "other computer" is this one under a home of its own: the
 // helper put there and started as a daemon, every Machine call, the agent's process kept while
 // the connection is down with its output read once after, too much output said as a gap, ssh's
-// failures as sentences, and a port forwarded.
+// failures as sentences, and a port forwarded. Then the wire (after the review of Nov 21): text of
+// any language whole both ways, a computer that floods the app or a helper that floods nothing,
+// a helper of another protocol, a spawn whose answer was lost, stdin's writes joined, and a
+// changed host key said as what it may be.
 //
 //   node scripts/build.mjs --tests && node --test dist/test/ssh.test.cjs
 import assert from "node:assert/strict"
@@ -12,18 +15,21 @@ import http from "node:http"
 import net from "node:net"
 import path from "node:path"
 import { test } from "node:test"
-import { checkHost, connectSsh, sshError, sshTiming } from "../src/main/ssh"
+import { checkHost, connectSsh, SSH_OUT_MAX, sshError, sshTiming } from "../src/main/ssh"
+import { LINE_MAX, WRITE_CHUNK } from "../src/shared/wire"
 import { fakeHost, sleep, until } from "./ssh-fixture"
 
 sshTiming.retryMin = 100
 sshTiming.retryMax = 300
 
 /** A program that answers each line of its stdin with "got <line>" and says "ready" first. */
-const ECHO = `process.stdout.write("ready\\n"); let b = ""; process.stdin.on("data", (d) => { b += d; let i; while ((i = b.indexOf("\\n")) >= 0) { process.stdout.write("got " + b.slice(0, i) + "\\n"); b = b.slice(i + 1) } })`
+const ECHO = `process.stdout.write("ready\\n"); let b = ""; process.stdin.setEncoding("utf8"); process.stdin.on("data", (d) => { b += d; let i; while ((i = b.indexOf("\\n")) >= 0) { process.stdout.write("got " + b.slice(0, i) + "\\n"); b = b.slice(i + 1) } })`
 
 function reader(stream: NodeJS.ReadableStream) {
   let text = ""
-  stream.on("data", (d: Buffer) => void (text += d.toString()))
+  // Decoded as a stream: a character cut between two reads is read whole.
+  stream.setEncoding("utf8")
+  stream.on("data", (d: string) => void (text += d))
   return () => text
 }
 
@@ -513,4 +519,305 @@ test("the shared connection is made once when two calls need it at the same time
     taken.close()
     await h.end()
   }
+})
+
+// ── the wire ───────────────────────────────────────────────────────────────────────────────────
+
+/** How many processes run with `marker` in their command line. */
+const count = (marker: string) =>
+  fs.readdirSync("/proc").filter((pid) => {
+    try {
+      return /^\d+$/.test(pid) && fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").replace(/\0/g, " ").includes(marker)
+    } catch {
+      return false
+    }
+  }).length
+
+test("text of any language goes whole both ways: a file of 200 KB of é written and read, a command's input and output, and the agent's stdin and stdout, with no U+FFFD anywhere", async () => {
+  const h = fakeHost()
+  try {
+    const m = await connectSsh({ host: "dev-box", dataDir: h.data })
+    try {
+      const text = "é".repeat(100_000) + "中文🚲".repeat(20_000) + "\n"
+      const file = path.join(h.home, "utf8.txt")
+      await m.writeFile(file, text)
+      assert.equal(fs.readFileSync(file, "utf8"), text, "on disk there as it was sent")
+      fs.writeFileSync(path.join(h.home, "there.txt"), text)
+      assert.equal(await m.readFile(path.join(h.home, "there.txt")), text, "read as it is there")
+      const r = await m.run("cat", [], { input: text })
+      assert.equal(r.out, text)
+      // The agent: lines of many-byte characters out of it, cut wherever its pipe cuts them.
+      const c = m.spawn(process.execPath, ["-e", ECHO], { cwd: h.home })
+      const out = reader(c.stdout)
+      await until(() => out().includes("ready"))
+      const line = "ü🚲".repeat(50_000)
+      c.stdin.write(`${line}\n`)
+      await until(() => out().includes("got "))
+      await until(() => out().endsWith("\n") && out().length > line.length)
+      assert.equal(out(), `ready\ngot ${line}\n`)
+      assert.ok(!out().includes("�"))
+      c.kill()
+      await c.exited
+    } finally {
+      await m.close()
+    }
+  } finally {
+    await h.end()
+  }
+})
+
+/** An ssh whose "other computer" answers the way `how` says: it passes the connecting steps
+ *  (probe, daemon) unless told not to, and on the attach channel does what is asked. */
+function scriptedSsh(h: { root: string }, how: "flood" | "protocol-none" | "protocol-2" | "probe-flood") {
+  const js = path.join(h.root, "scripted-ssh.cjs")
+  fs.writeFileSync(
+    js,
+    `const how = ${JSON.stringify(how)}
+const a = process.argv.slice(2)
+const cmd = a[a.length - 1]
+if (a.includes("-O")) process.exit(0)
+const flood = () => {
+  const chunk = Buffer.alloc(4 * 1024 * 1024, 0x41)
+  const go = () => { while (process.stdout.write(chunk)); process.stdout.once("drain", go) }
+  go()
+}
+if (/ attach$/.test(cmd)) {
+  // Answers hello, then info (the app is connected), then floods.
+  const protocol = how === "protocol-none" ? {} : { protocol: how === "protocol-2" ? 2 : 1 }
+  let buf = ""
+  process.stdin.on("data", (d) => {
+    buf += d
+    let nl
+    while ((nl = buf.indexOf("\\n")) >= 0) {
+      const m = JSON.parse(buf.slice(0, nl))
+      buf = buf.slice(nl + 1)
+      if (m.method === "hello") process.stdout.write(JSON.stringify({ id: m.id, result: { version: "x", ...protocol, pid: 1, procs: [] } }) + "\\n")
+      if (m.method === "info") {
+        process.stdout.write(JSON.stringify({ id: m.id, result: { home: "/home/u", platform: "linux", hostname: "h", devNull: "/dev/null" } }) + "\\n")
+        if (how === "flood") flood()
+      }
+    }
+  })
+  process.stdin.on("end", () => process.exit(0))
+} else if (/NONODE/.test(cmd)) {
+  if (how === "probe-flood") flood()
+  else process.stdout.write('B42 {"node":"/usr/bin/node","version":"22.0.0","platform":"linux","have":true,"dir":"ok"}\\n')
+} else if (/ daemon$/.test(cmd)) process.stdout.write("B42 READY\\n")
+else process.exit(0)
+`,
+  )
+  const bin = path.join(h.root, `scripted-${how}`)
+  fs.writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${js}" "$@"\n`, { mode: 0o755 })
+  return bin
+}
+
+test("a computer that sends bytes with no line's end: the app holds one line's worth at most, lets go of the link with a sentence, and its memory stays bounded; a connecting step that prints without end is stopped too", async () => {
+  const h = fakeHost()
+  try {
+    const before = process.memoryUsage().rss
+    let peak = before
+    const watch = setInterval(() => (peak = Math.max(peak, process.memoryUsage().rss)), 20)
+    const m = await connectSsh({ host: "hostile-box", dataDir: h.data, ssh: scriptedSsh(h, "flood") })
+    try {
+      await until(() => m.reach().status === "down", 20_000)
+      const reach = m.reach() as { error: string }
+      assert.match(reach.error, /hostile-box sent the app a message of .* and more, longer than any its helper sends \(64 MiB\): the app let go of the connection/)
+    } finally {
+      clearInterval(watch)
+      await m.close()
+    }
+    // One line of 64 MiB, held as its pieces, and a few of the pipe's reads: never the flood.
+    assert.ok(peak - before < 4 * LINE_MAX, `grew ${Math.round((peak - before) / 1048576)} MB`)
+    await assert.rejects(connectSsh({ host: "hostile-box", dataDir: h.data, ssh: scriptedSsh(h, "probe-flood") }), (e: Error) => e.message.includes(`printed more than ${SSH_OUT_MAX / 1048576} MiB, which no step of connecting does`))
+  } finally {
+    await h.end()
+  }
+})
+
+test("a helper that does not speak the app's protocol is refused with a sentence, and nothing is asked of it", async () => {
+  const h = fakeHost()
+  try {
+    await assert.rejects(connectSsh({ host: "dev-box", dataDir: h.data, ssh: scriptedSsh(h, "protocol-none") }), /helper on dev-box speaks no protocol the app knows, and this app speaks version 1\. Quit the app's other versions, or move ~\/\.bicycle42 away on dev-box/)
+    await assert.rejects(connectSsh({ host: "dev-box", dataDir: h.data, ssh: scriptedSsh(h, "protocol-2") }), /helper on dev-box speaks version 2 of its protocol, and this app speaks version 1/)
+  } finally {
+    await h.end()
+  }
+})
+
+test("the helper itself: a connection that sends a line longer than any the app sends is dropped and the helper goes on; one that reads nothing is dropped once it has taken nothing for a while; one that reads slowly is not", async () => {
+  const h = fakeHost()
+  const dir = helperDir(h)
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+  const js = path.join(dir, "helper-wiretest.js")
+  fs.copyFileSync(bundle(), js)
+  const sock = path.join(dir, "helper-wiretest.sock")
+  const log = () => fs.readFileSync(path.join(dir, "helper.log"), "utf8")
+  execFileSync(process.execPath, [js, "daemon"], { env: { ...process.env, HOME: h.home, B42_HELPER_WRITE_MAX: "65536", B42_HELPER_WRITE_HARD: String(64 << 20), B42_HELPER_STALL_MS: "400" }, encoding: "utf8" })
+  /** A connection to it, with what it read. */
+  const open = () => {
+    const s = net.connect(sock)
+    let got = Buffer.alloc(0)
+    let closed = false
+    s.on("data", (d: Buffer) => void (got = Buffer.concat([got, d])))
+    s.on("close", () => void (closed = true))
+    s.on("error", () => undefined)
+    return { s, got: () => got, closed: () => closed }
+  }
+  const big = (marker: string) => ({ program: process.execPath, args: ["-e", `process.stdout.write("x".repeat(1 << 20)); setInterval(() => {}, 1e6) // ${marker}`], cwd: h.home, key: marker })
+  try {
+    // A line of LINE_MAX and more.
+    const flood = open()
+    const mb = Buffer.alloc(1024 * 1024, 0x41)
+    // Until it is dropped: a write the helper will never take waits for nothing after that.
+    for (let i = 0; i <= LINE_MAX / mb.length + 1 && !flood.closed(); i++)
+      await new Promise<void>((r) => {
+        if (flood.s.write(mb)) return r()
+        flood.s.once("drain", () => r())
+        flood.s.once("close", () => r())
+      })
+    await until(() => flood.closed())
+    assert.match(log(), /a connection sent a line of .* longer than any the app sends: dropped/)
+    const ping = open()
+    ping.s.write(`${JSON.stringify({ id: 1, method: "ping" })}\n`)
+    await until(() => ping.got().includes(0x0a))
+    assert.match(ping.got().toString(), /"protocol":1/)
+    ping.s.destroy()
+    // One that reads nothing: its 1 MiB is far more than 64 KB waiting.
+    const deaf = open()
+    deaf.s.pause()
+    deaf.s.write(`${JSON.stringify({ id: 1, method: "spawn", params: big(`deaf-${process.pid}`) })}\n`)
+    await until(() => /reads nothing: dropped/.test(log()), 10_000)
+    // One that reads, slowly: a pause after each read, shorter than the helper waits.
+    const slow = open()
+    slow.s.on("data", () => (slow.s.pause(), setTimeout(() => slow.s.resume(), 60)))
+    slow.s.write(`${JSON.stringify({ id: 1, method: "spawn", params: big(`slow-${process.pid}`) })}\n`)
+    // All of it: 1 MiB as base64, in data messages.
+    const read = () =>
+      slow
+        .got()
+        .toString()
+        .split("\n")
+        // Whole lines only: the last may be on its way.
+        .slice(0, -1)
+        .filter((l) => l.includes('"ev":"data"'))
+        .reduce((n, l) => n + Buffer.from(JSON.parse(l).data, "base64").length, 0)
+    await until(() => read() >= 1 << 20, 20_000)
+    assert.equal(slow.closed(), false)
+    assert.equal(log().match(/reads nothing: dropped/g)!.length, 1, "only the one that read nothing")
+    slow.s.destroy()
+    deaf.s.destroy()
+  } finally {
+    await endHelpers(h)
+    await h.end()
+  }
+})
+
+test("a spawn whose answer was lost when the link dropped is the same process once the app is back, read from its start; one the app ended meanwhile is ended there", async () => {
+  const h = fakeHost()
+  const mute = path.join(h.root, "mute")
+  try {
+    const m = await connectSsh({ host: "dev-box", dataDir: h.data })
+    try {
+      const marker = `lost-answer-${process.pid}`
+      fs.writeFileSync(mute, "")
+      const c = m.spawn(process.execPath, ["-e", ECHO, marker], { cwd: h.home })
+      const out = reader(c.stdout)
+      // It runs there; the app never heard so.
+      await until(() => count(marker) === 1)
+      h.drop()
+      await until(() => m.reach().status === "down")
+      fs.rmSync(mute)
+      h.up()
+      await until(() => out().includes("ready"))
+      c.stdin.write("still one\n")
+      await until(() => out().includes("got still one"))
+      assert.equal(out(), "ready\ngot still one\n", "its output from the start, once")
+      assert.equal(count(marker), 1, "one process, not two")
+
+      // Ended here while its start was not answered: ended there once the app is back.
+      const gone = `ended-starting-${process.pid}`
+      fs.writeFileSync(mute, "")
+      const d = m.spawn(process.execPath, ["-e", ECHO, gone], { cwd: h.home })
+      await until(() => count(gone) === 1)
+      await d.kill()
+      h.drop()
+      await until(() => m.reach().status === "down")
+      fs.rmSync(mute)
+      h.up()
+      await until(() => count(gone) === 0)
+      assert.equal((await d.exited).signal, "SIGTERM")
+      // The first works on.
+      c.stdin.write("after\n")
+      await until(() => out().includes("got after"))
+      c.kill()
+      await c.exited
+    } finally {
+      await m.close()
+    }
+  } finally {
+    await h.end()
+  }
+})
+
+test("what is written to the agent while a write is on its way goes in one write, not one each: 20 lines in 2 writes; a write larger than a piece goes in pieces, every byte once", async () => {
+  const h = fakeHost()
+  const sent = path.join(h.root, "sent")
+  const writes = () => (fs.existsSync(sent) ? fs.readFileSync(sent, "utf8").split("\n").filter((l) => l.includes('"method":"write"')).length : 0)
+  try {
+    const m = await connectSsh({ host: "dev-box", dataDir: h.data })
+    try {
+      const c = m.spawn(process.execPath, ["-e", ECHO], { cwd: h.home })
+      const out = reader(c.stdout)
+      await until(() => out().includes("ready"))
+      fs.writeFileSync(sent, "")
+      for (let i = 0; i < 20; i++) c.stdin.write(`line ${i}\n`)
+      await until(() => out().includes("got line 19"))
+      assert.deepEqual(
+        out().split("\n").filter((l) => l.startsWith("got ")),
+        Array.from({ length: 20 }, (_, i) => `got line ${i}`),
+      )
+      assert.equal(writes(), 2, "the first at once, the other 19 joined")
+      c.kill()
+      await c.exited
+
+      // 9 MB in one write: pieces of WRITE_CHUNK, and what arrives hashes the same.
+      const crypto = await import("node:crypto")
+      const COUNT = `const h = require("crypto").createHash("sha1"); let n = 0; process.stdout.write("ready\\n"); process.stdin.on("data", (d) => { h.update(d); n += d.length; if (d[d.length - 1] === 10) process.stdout.write(n + " " + h.digest("hex") + "\\n") })`
+      const k = m.spawn(process.execPath, ["-e", COUNT], { cwd: h.home })
+      const kOut = reader(k.stdout)
+      await until(() => kOut().includes("ready"))
+      fs.writeFileSync(sent, "")
+      const blob = Buffer.from(`${"é🚲".repeat(1_500_000)}\n`)
+      k.stdin.write(blob)
+      await until(() => /\d+ [0-9a-f]{40}/.test(kOut()), 20_000)
+      assert.equal(kOut().trim().split("\n").at(-1), `${blob.length} ${crypto.createHash("sha1").update(blob).digest("hex")}`)
+      assert.equal(writes(), Math.ceil(blob.length / WRITE_CHUNK))
+      k.kill()
+      await k.exited
+    } finally {
+      await m.close()
+    }
+  } finally {
+    await h.end()
+  }
+})
+
+test("a host key that changed is said as what it may be (an attack), never with \"answer yes\"; one not known yet is said as before", () => {
+  const changed = `@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!
+Someone could be eavesdropping on you right now (man-in-the-middle attack)!
+The fingerprint for the ED25519 key sent by the remote host is
+SHA256:AAAA.
+Offending ED25519 key in /home/u/.ssh/known_hosts:12
+Host key for dev-box has changed and you have requested strict checking.
+Host key verification failed.`
+  const said = sshError("dev-box", changed, 255)
+  assert.match(said, /dev-box's host key has changed since this computer last connected to it\. That can mean someone is between you and dev-box \(an attack\)/)
+  assert.match(said, /Don't connect until whoever runs dev-box has told you its new key's fingerprint/)
+  assert.doesNotMatch(said, /answer yes/)
+  const unknown = sshError("dev-box", "No ED25519 host key is known for dev-box and you have requested strict checking.\nHost key verification failed.", 255)
+  assert.match(unknown, /dev-box's host key is not known on this computer yet\. Run `ssh dev-box` once in a terminal, check the fingerprint and answer yes/)
+  assert.doesNotMatch(unknown, /changed/)
 })

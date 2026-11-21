@@ -16,6 +16,11 @@
 //                    much). Meanwhile the machine is "down" (reach), and what is written to the
 //                    agent waits here.
 //   the site         the address the agent reports on its localhost is forwarded here (forward)
+//   the wire         one JSON message per line (src/shared/wire.ts): split on the newline byte and
+//                    decoded whole, LINE_MAX at most each way (a longer one from there drops the
+//                    link with a sentence; one the app would send is refused before it goes); a
+//                    helper that does not speak PROTOCOL is refused; each spawn has a key, so one
+//                    sent again after a drop is the same process there
 import { spawn, type ChildProcess } from "node:child_process"
 import crypto from "node:crypto"
 import fs from "node:fs"
@@ -23,6 +28,7 @@ import net from "node:net"
 import os from "node:os"
 import path from "node:path"
 import { PassThrough, Writable } from "node:stream"
+import { LINE_MAX, lineReader, PROTOCOL, sizeOf, WRITE_CHUNK } from "../shared/wire"
 import type { Child, Entry, Exit, Machine, Reach, RunResult, Stat } from "./machine"
 
 type Log = (level: "info" | "warn" | "error", msg: string, data?: unknown) => void
@@ -41,6 +47,11 @@ export const sshTiming = {
    *  at most), and how long close() waits for that. */
   kill: 5_000,
 }
+
+/** What the app keeps of what an ssh command (the probe, the upload, the daemon's start, a control
+ *  command) prints, each stream: its last bytes. Theirs is a line or two; a login shell's banner
+ *  is less than this. More on stdout ends the command: no answer of the helper's is that long. */
+export const SSH_OUT_MAX = 1024 * 1024
 
 export type RemoteMachine = Machine & {
   readonly host: string
@@ -96,8 +107,11 @@ export function sshError(host: string, stderr: string, code: number | null): str
     .filter((l) => l && !/^(Warning: Permanently added|debug\d?:)/.test(l))
   const all = said.join(" ")
   const once = `Run \`ssh ${host}\` once in a terminal`
-  if (/Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED|No (ED25519|ECDSA|RSA)? ?host key is known/i.test(all))
-    return `${host}'s host key is not known on this computer yet (or it changed). ${once}, check the fingerprint and answer yes, then connect again.`
+  // A key that changed is not one to accept: never "answer yes".
+  if (/REMOTE HOST IDENTIFICATION HAS CHANGED|Host key for .* has changed|Offending .* key in/i.test(all))
+    return `${host}'s host key has changed since this computer last connected to it. That can mean someone is between you and ${host} (an attack), or that ${host} was set up again. Don't connect until whoever runs ${host} has told you its new key's fingerprint and you have checked it; the app will not connect meanwhile.`
+  if (/Host key verification failed|No (ED25519|ECDSA|RSA)? ?host key is known/i.test(all))
+    return `${host}'s host key is not known on this computer yet. ${once}, check the fingerprint and answer yes, then connect again.`
   if (/Permission denied|Too many authentication failures|no more authentication methods/i.test(all))
     return `${host} did not accept a key from this computer, and the app does not type passwords. ${once}: if it asks for a password, set up a key (ssh-copy-id ${host}) or start your ssh agent, then connect again.`
   if (/Could not resolve hostname|Name or service not known|nodename nor servname/i.test(all)) return `There is no computer called ${host} that this one can find. Check the name, or the Host in your ~/.ssh/config.`
@@ -176,6 +190,8 @@ type Pending = { resolve(v: unknown): void; reject(e: Error): void; timer?: Retu
  *  helper says it got to. */
 type RemoteChild = Child & {
   hid?: string
+  /** Its spawn's key there: the same spawn sent again is the same process. */
+  key: string
   out: number
   err: number
   /** Bytes written to stdin, by where each begins, until the helper says it has them. */
@@ -199,23 +215,56 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
   const bundle = fs.readFileSync(helperPath)
   const digest = crypto.createHash("sha1").update(bundle).digest("hex")
   const version = digest.slice(0, 12)
+  /** This connection's own: each process it starts there has a key under it (spawn), so one sent
+   *  again is known, and on attaching again what it started and no longer knows of is ended. */
+  const instance = crypto.randomBytes(6).toString("hex")
+  let spawned = 0
 
   const common = [
     "-o", "BatchMode=yes",
+    // The reviewer's ssh agent and display are not lent to the other computer: what runs there
+    // (the agent, what it starts) could use them for as long as the connection lasts, whatever
+    // their ~/.ssh/config says for that host.
+    "-o", "ForwardAgent=no",
+    "-o", "ForwardX11=no",
+    "-o", "ForwardX11Trusted=no",
     "-o", `ControlPath="${ctl.replace(/%/g, "%%")}"`,
     "-o", "ServerAliveInterval=15",
     "-o", "ServerAliveCountMax=3",
     "-o", "ConnectTimeout=15",
   ]
 
-  /** ssh with these words, to its end (or the timeout): what it printed. */
+  /** ssh with these words, to its end (or the timeout): what it printed, the last SSH_OUT_MAX
+   *  bytes of each stream. More than that on stdout ends it, and its last line says so. */
   function sshRun(args: string[], input?: Buffer | string, ms = sshTiming.step): Promise<{ code: number | null; out: string; err: string }> {
     return new Promise((resolve) => {
       const child = spawn(ssh, args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true })
-      const out: Buffer[] = []
-      const err: Buffer[] = []
+      const tail = () => {
+        let bufs: Buffer[] = []
+        let size = 0
+        return {
+          total: 0,
+          push(b: Buffer) {
+            this.total += b.length
+            bufs.push(b)
+            size += b.length
+            while (size - bufs[0]!.length >= SSH_OUT_MAX) size -= bufs.shift()!.length
+          },
+          text() {
+            const all = Buffer.concat(bufs)
+            bufs = []
+            return all.subarray(Math.max(0, all.length - SSH_OUT_MAX)).toString("utf8")
+          },
+        }
+      }
+      const out = tail()
+      const err = tail()
+      let flood = false
       const timer = setTimeout(() => child.kill(), ms)
-      child.stdout.on("data", (b: Buffer) => out.push(b))
+      child.stdout.on("data", (b: Buffer) => {
+        out.push(b)
+        if (out.total > SSH_OUT_MAX && !flood) (flood = true), child.kill()
+      })
       child.stderr.on("data", (b: Buffer) => err.push(b))
       child.on("error", (e) => {
         clearTimeout(timer)
@@ -223,7 +272,8 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
       })
       child.on("close", (code) => {
         clearTimeout(timer)
-        resolve({ code, out: Buffer.concat(out).toString("utf8"), err: Buffer.concat(err).toString("utf8") })
+        const said = err.text()
+        resolve(flood ? { code: null, out: out.text(), err: `${said}\n${host} printed more than ${sizeOf(SSH_OUT_MAX)}, which no step of connecting does: it was stopped` } : { code, out: out.text(), err: said })
       })
       child.stdin.on("error", () => undefined)
       child.stdin.end(input ?? "")
@@ -341,19 +391,32 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
   let closed = false
   let info: { home: string; platform: NodeJS.Platform; hostname: string; devNull: string } | undefined
 
+  /** A message as its line, or a sentence: one longer than the helper takes is never sent (it
+   *  would drop the connection, and everything waiting on it). */
+  function lineOf(msg: unknown): Buffer {
+    const line = Buffer.from(`${JSON.stringify(msg)}\n`)
+    if (line.length - 1 > LINE_MAX) throw Object.assign(new Error(`That is ${sizeOf(line.length - 1)} to send to ${host}, more than the ${sizeOf(LINE_MAX)} the app sends at once.`), { code: "E2BIG" })
+    return line
+  }
   function send(msg: unknown) {
-    if (link?.stdin?.writable) link.stdin.write(`${JSON.stringify(msg)}\n`)
+    if (link?.stdin?.writable) link.stdin.write(lineOf(msg))
   }
 
   function call<T>(method: string, params: Record<string, unknown> = {}, ms = sshTiming.call): Promise<T> {
     if (closed) return Promise.reject(new Error(`The connection to ${host} was closed.`))
     if (reach.status !== "up" || !link) return Promise.reject(new Error(`Can't reach ${host} now.`))
     const id = ++seq
+    let line: Buffer
+    try {
+      line = lineOf({ id, method, params })
+    } catch (err) {
+      return Promise.reject(err)
+    }
     return new Promise<T>((resolve, reject) => {
       const p: Pending = { resolve: resolve as (v: unknown) => void, reject }
       if (ms) p.timer = setTimeout(() => (pending.delete(id), reject(new Error(`${host} did not answer in ${ms / 1000} s`))), ms)
       pending.set(id, p)
-      send({ id, method, params })
+      if (link?.stdin?.writable) link.stdin.write(line)
     })
   }
 
@@ -364,10 +427,11 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
     } catch {
       return log("warn", `the helper on ${host} said something that is not JSON`, line.slice(0, 200))
     }
+    if (!msg || typeof msg !== "object") return log("warn", `the helper on ${host} said something that is not a message`, line.slice(0, 200))
     if (msg.ev) {
       const c = msg.hid ? children.get(msg.hid) : undefined
       if (!c) return
-      if (msg.ev === "data") c.data(msg.fd ?? 1, msg.at ?? 0, Buffer.from(msg.data ?? "", "base64"))
+      if (msg.ev === "data" && typeof msg.data === "string" && Number.isSafeInteger(msg.at) && msg.at! >= 0) c.data(msg.fd === 2 ? 2 : 1, msg.at!, Buffer.from(msg.data, "base64"))
       else if (msg.ev === "exit") c.exit({ code: msg.code ?? null, signal: msg.signal ?? null, ...(msg.error ? { error: msg.error } : {}) })
       return
     }
@@ -379,36 +443,40 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
     else p.resolve(msg.result)
   }
 
-  /** Attaches to the helper (`ssh host node helper attach`): resolves once it answered hello. */
-  function attachOnce(): Promise<{ procs: Array<{ hid: string; owner: string; launch?: number; exited?: true }> }> {
+  /** Attaches to the helper (`ssh host node helper attach`): resolves once it answered hello, in
+   *  this app's protocol. */
+  function attachOnce(): Promise<{ protocol?: number; procs: Array<{ hid: string; owner: string; launch?: number; key?: string; exited?: true }> }> {
     return new Promise((resolve, reject) => {
       const child = spawn(ssh, [...common, "-o", "ControlMaster=no", "-T", "--", host, `${shq(node)} "${file}" attach`], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true })
       link = child
-      let buf = ""
       let err = ""
       let hello = false
-      child.stdout!.on("data", (d: Buffer) => {
-        buf += d.toString("utf8")
-        let nl: number
-        while ((nl = buf.indexOf("\n")) >= 0) {
-          const line = buf.slice(0, nl)
-          buf = buf.slice(nl + 1)
-          if (line.trim()) onLine(line)
-        }
+      /** Why the app ended this link itself: said instead of ssh's words. */
+      let why: string | undefined
+      const lines = lineReader({
+        max: LINE_MAX,
+        line: onLine,
+        tooLong(n) {
+          why = `${host} sent the app a message of ${sizeOf(n)} and more, longer than any its helper sends (${sizeOf(LINE_MAX)}): the app let go of the connection. If it happens again, something on ${host} is not the app's helper.`
+          log("error", why)
+          child.kill()
+        },
       })
+      child.stdout!.on("data", (d: Buffer) => lines.push(d))
       child.stderr!.on("data", (d: Buffer) => void (err = (err + d.toString("utf8")).slice(-4000)))
       child.stdin!.on("error", () => undefined)
       child.on("error", (e) => {
         if (!hello) reject(e)
       })
       child.on("close", (code) => {
+        lines.stop()
         if (link !== child) return
         link = undefined
-        const why = sshError(host, err, code)
-        for (const [id, p] of pending) (pending.delete(id), clearTimeout(p.timer), p.reject(new Error(`Can't reach ${host}: the connection ended.`)))
-        if (!hello) return reject(new Error(why))
-        log("warn", `the connection to ${host} ended`, why)
-        down(`Can't reach ${host}.`)
+        const said = why ?? sshError(host, err, code)
+        for (const [id, p] of pending) (pending.delete(id), clearTimeout(p.timer), p.reject(new Error(why ?? `Can't reach ${host}: the connection ended.`)))
+        if (!hello) return reject(new Error(said))
+        log("warn", `the connection to ${host} ended`, said)
+        down(why ?? `Can't reach ${host}.`)
       })
       // hello is sent before "up": calls wait for it.
       const id = ++seq
@@ -420,6 +488,13 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
       pending.set(id, {
         resolve: (v) => {
           clearTimeout(timer)
+          const got = (v as { protocol?: unknown } | null)?.protocol
+          // Another version's helper (or something else) on the socket: nothing is asked of it.
+          if (got !== PROTOCOL) {
+            why = `The app's helper on ${host} speaks ${typeof got === "number" ? `version ${got} of its protocol` : "no protocol the app knows"}, and this app speaks version ${PROTOCOL}. Quit the app's other versions, or move ~/.bicycle42 away on ${host}, and connect again.`
+            child.kill()
+            return reject(new Error(why))
+          }
           hello = true
           resolve(v as never)
         },
@@ -460,9 +535,14 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
         info ??= await call("info")
         // What this install of the app started there in an earlier run, and no longer knows:
         // ended, as an agent on this computer ends with the app. Never this run's own, which
-        // another connection of it to the same computer (typed another way) may be using.
+        // another connection of it to the same computer (typed another way) may be using; but
+        // what this very connection started and no longer knows of (it was ended here while its
+        // start was not answered, and the answer was lost) is ended too. One still starting is
+        // known: its spawn, sent again below, takes it up.
+        const startingKeys = new Set([...starting].filter((c) => !c.ended).map((c) => c.key))
+        const mine = (p: { owner: string; launch?: number; key?: string }) => p.owner === owner && (p.launch ?? 0) === launch && p.key?.startsWith(`${instance}-`) && !startingKeys.has(p.key)
         for (const p of hello.procs)
-          if (p.owner === owner && (p.launch ?? 0) < launch && !children.has(p.hid)) void call("kill", { hid: p.hid }).then(() => call("reap", { hid: p.hid })).catch(() => undefined)
+          if (p.owner === owner && ((p.launch ?? 0) < launch || mine(p)) && !children.has(p.hid)) void call("kill", { hid: p.hid }).then(() => call("reap", { hid: p.hid })).catch(() => undefined)
         for (const [hid, c] of children) {
           if (!theirs.has(hid)) {
             c.exit({ code: null, signal: null, error: { message: `it was lost on ${host} (the app's helper there was ended)` } })
@@ -521,12 +601,15 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
       return c.exit({ code: null, signal: "SIGTERM" })
     }
     try {
-      const r = await call<{ hid: string }>("spawn", { ...c.spawnArgs, owner, launch })
+      const r = await call<{ hid: string; again?: true }>("spawn", { ...c.spawnArgs, owner, launch, key: c.key })
       starting.delete(c)
       c.hid = r.hid
       children.set(r.hid, c)
       // Ended while it was starting: ended now that it has (its exit comes as any other's).
       if (c.ended) return void (await killThere(r.hid))
+      // Started by the spawn sent before the link dropped: its output so far went to that link,
+      // and is taken up from the start (resume flushes what waits for its stdin).
+      if (r.again) return void (await resume(c))
       c.flush()
     } catch (err) {
       // Not reachable now: tried again on the next attach. Any other failure ends it.
@@ -548,6 +631,7 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
     let finished = false
     const c: RemoteChild & { spawnArgs: Record<string, unknown> } = {
       spawnArgs: { program, args, cwd: o.cwd, env: o.env },
+      key: `${instance}-${++spawned}`,
       out: 0,
       err: 0,
       unsent: [],
@@ -602,13 +686,26 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
         stderr.end()
         resolveExit(e)
       },
-      /** Sends what waits for stdin, in order, one write at a time. */
+      /** Sends what waits for stdin, in order: all of it joined into one write (WRITE_CHUNK at
+       *  most), one write at a time. What comes meanwhile goes in the next, whole. The helper
+       *  skips what it has, so a write that overlaps one it got is fine. */
       flush() {
         if (writing || !c.hid || reach.status !== "up") return
+        // What the helper has (it said so on taking the process up again) waits no longer.
+        while (c.unsent.length && c.unsent[0]!.at + c.unsent[0]!.data.length <= c.inAt) c.unsent.shift()
         const first = c.unsent[0]
         if (!first) return
+        const from = Math.max(first.at, c.inAt)
+        const parts: Buffer[] = []
+        let size = 0
+        for (const u of c.unsent) {
+          if (size >= WRITE_CHUNK) break
+          const piece = u.data.subarray(Math.max(0, from - u.at), Math.max(0, from - u.at) + WRITE_CHUNK - size)
+          parts.push(piece)
+          size += piece.length
+        }
         writing = true
-        call<{ inAt: number }>("write", { hid: c.hid, at: first.at, data: first.data.toString("base64") })
+        call<{ inAt: number }>("write", { hid: c.hid, at: from, data: (parts.length === 1 ? parts[0]! : Buffer.concat(parts)).toString("base64") })
           .then((r) => {
             c.inAt = r.inAt
             while (c.unsent.length && c.unsent[0]!.at + c.unsent[0]!.data.length <= r.inAt) c.unsent.shift()

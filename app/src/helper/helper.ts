@@ -19,7 +19,8 @@
 // ends another's. A version no app uses ends by itself once nothing is attached and nothing kept,
 // and its files go when another version's daemon finds its socket dead.
 //
-// One JSON message per line, both ways:
+// One JSON message per line, both ways (src/shared/wire.ts: lines split on the newline byte and
+// decoded whole, LINE_MAX at most; a longer one from the app drops its connection):
 //   app → helper   {id, method, params}             answered {id, result} or {id, error: {message, code}}
 //                  {method: "ack", params}          (no answer) output read up to here
 //   helper → app   {ev: "data", hid, fd, at, data}  output of a process, base64, from byte `at` of that stream
@@ -31,6 +32,7 @@ import path from "node:path"
 import { spawn } from "node:child_process"
 import { createLocalMachine } from "../main/machine"
 import { AWAY_HOURS } from "../shared/types"
+import { LINE_MAX, lineReader, sizeOf } from "../shared/wire"
 import { createHost, type Conn } from "./host"
 
 const DIR = path.join(os.homedir(), ".bicycle42")
@@ -45,9 +47,14 @@ const ERR_MAX = 256 * 1024
 const IDLE_MS = Number(process.env.B42_HELPER_IDLE_MS) || 10 * 60_000
 /** A process with no app attached for this long is ended (the banner says the same time). */
 const LEASE_MS = Number(process.env.B42_HELPER_LEASE_MS) || AWAY_HOURS * 3600_000
-/** What waits to be written to an app that does not read (a connection gone half-open), at most:
- *  beyond it the connection is dropped, and the app takes up again from what it read. */
-const WRITE_MAX = Number(process.env.B42_HELPER_WRITE_MAX) || 32 * 1024 * 1024
+/** What waits to be written to an app, before the helper asks whether it reads at all. Beyond it,
+ *  a connection that takes nothing of it for STALL_MS (one gone half-open) is dropped, and the app
+ *  takes up again from what it read; one that reads, however slowly, is not: an app taking up five
+ *  agents' kept output at once (8 MiB each, a third more as base64) or a few long answers is a
+ *  burst of its own making, not a dead link. Beyond WRITE_HARD it is dropped at once: memory. */
+const WRITE_MAX = Number(process.env.B42_HELPER_WRITE_MAX) || 64 * 1024 * 1024
+const WRITE_HARD = Math.max(WRITE_MAX * 4, Number(process.env.B42_HELPER_WRITE_HARD) || 0)
+const STALL_MS = Number(process.env.B42_HELPER_STALL_MS) || 15_000
 /** Another version's files with a dead socket are left this long after that version last started. */
 const STALE_MS = 3600_000
 
@@ -100,11 +107,10 @@ function ping(socket: string, ms = 2000): Promise<"up" | "dead" | "busy"> {
   return new Promise((resolve) => {
     const sock = net.connect(socket)
     const timer = setTimeout(() => (sock.destroy(), resolve("busy")), ms)
-    let buf = ""
     sock.on("connect", () => sock.write(`${JSON.stringify({ id: 1, method: "ping" })}\n`))
-    sock.on("data", (d) => {
-      buf += d
-      if (buf.includes("\n")) (clearTimeout(timer), sock.destroy(), resolve("up"))
+    // Any answer at all, a line's end: nothing of it is read or kept.
+    sock.on("data", (d: Buffer) => {
+      if (d.includes(0x0a)) (clearTimeout(timer), sock.destroy(), resolve("up"))
     })
     sock.on("error", (err: NodeJS.ErrnoException) => {
       clearTimeout(timer)
@@ -254,30 +260,50 @@ async function serve() {
 
   const server = net.createServer((sock) => {
     let dropped = false
-    const conn: Conn = {
-      send(msg) {
-        if (sock.destroyed || dropped) return
-        sock.write(`${JSON.stringify(msg)}\n`)
+    const drop = (why: string) => {
+      if (dropped) return
+      dropped = true
+      log(why)
+      lines.stop()
+      sock.destroy()
+    }
+    /** Bytes given to the socket. Whether any have gone since: a write the socket has finished
+     *  (writableLength falls, though only once a whole batch of writes is out), or one under way
+     *  that has gone in part (libuv's queue, which falls as the other end reads). */
+    let queued = 0
+    const inLibuv = () => (sock as unknown as { _handle?: { writeQueueSize?: number } })._handle?.writeQueueSize ?? 0
+    let stall: ReturnType<typeof setTimeout> | undefined
+    const watch = () => {
+      if (sock.writableLength > WRITE_HARD) return drop(`a connection has ${sizeOf(sock.writableLength)} waiting to be read: dropped`)
+      if (stall || sock.writableLength <= WRITE_MAX) return
+      const done = queued - sock.writableLength
+      const going = inLibuv()
+      stall = setTimeout(() => {
+        stall = undefined
+        if (sock.writableLength <= WRITE_MAX) return
         // An app that reads nothing (the connection is half-open): dropped, its output kept.
-        if (sock.writableLength > WRITE_MAX) {
-          dropped = true
-          log("a connection reads nothing: dropped")
-          sock.destroy()
-        }
+        if (queued - sock.writableLength === done && inLibuv() >= going) return drop("a connection reads nothing: dropped")
+        watch()
+      }, STALL_MS)
+    }
+    sock.on("drain", () => (clearTimeout(stall), (stall = undefined)))
+    const conn: Conn = {
+      send(line) {
+        if (sock.destroyed || dropped) return
+        const bytes = Buffer.from(`${line}\n`)
+        queued += bytes.length
+        sock.write(bytes)
+        watch()
       },
     }
     host.attach(conn)
-    let buf = ""
-    sock.on("data", (d) => {
-      buf += d
-      let nl: number
-      while ((nl = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, nl)
-        buf = buf.slice(nl + 1)
-        if (line.trim()) host.handle(conn, line)
-      }
+    const lines = lineReader({
+      max: LINE_MAX,
+      line: (text) => host.handle(conn, text),
+      tooLong: (n) => drop(`a connection sent a line of ${sizeOf(n)} and more, longer than any the app sends: dropped`),
     })
-    const gone = () => host.detach(conn)
+    sock.on("data", (d: Buffer) => lines.push(d))
+    const gone = () => (clearTimeout(stall), host.detach(conn))
     sock.on("close", gone)
     sock.on("error", gone)
   })
