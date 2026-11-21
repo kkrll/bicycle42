@@ -1961,7 +1961,9 @@ function filesOf(m: Machine, dir: string): Promise<string[]> {
   if (!lists) fileLists.set(m, (lists = new Map()))
   const known = lists.get(dir)
   if (known && Date.now() - known.at < FILES_FRESH_MS) return known.files
-  const files = git(m, dir, ["ls-files", "-co", "--exclude-standard", "-z"], 64 * 1024 * 1024)
+  // git's 16 MiB at most (some 300,000 names): over ssh its answer is one message, which a line
+  // of the helper's wire takes whole (LINE_MAX, shared/wire.ts); more falls back to the walk.
+  const files = git(m, dir, ["ls-files", "-co", "--exclude-standard", "-z"])
     .then((out) => out.split("\0").filter(Boolean).slice(0, FILES_MAX))
     .catch(async () => {
       const out: string[] = []

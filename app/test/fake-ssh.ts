@@ -13,9 +13,13 @@
 //   B42_FAKE_SSH_BIND   "there=here" pairs, ";"-separated: the other computer sees folder `here`
 //                       at path `there` (a mount namespace, `unshare -rm`), so the same path is two
 //                       folders, one on each computer
+//   <root>/mute         while it is there, what commands print never reaches the app (a link
+//                       gone half-open: an answer lost on its way back)
+//   <root>/sent         when it is there, what the app writes to commands is added to it
 //
 // What it understands of ssh: -o, -O check|exit|forward|cancel, -L, -f -N (a master), -T, --,
-// a host, and the command, run with `sh -c` there.
+// a host, and the command, run with `sh -c` there. It refuses a call without BatchMode=yes, or
+// without agent and X11 forwarding turned off.
 import { spawn } from "node:child_process"
 import fs from "node:fs"
 import net from "node:net"
@@ -79,6 +83,12 @@ function main() {
     process.stderr.write("fake-ssh: the app must ask for BatchMode\n")
     process.exit(255)
   }
+  // Nothing of the reviewer's is lent to the other computer, whatever their config says.
+  for (const want of ["ForwardAgent=no", "ForwardX11=no", "ForwardX11Trusted=no"])
+    if (!opts.includes(want)) {
+      process.stderr.write(`fake-ssh: the app must ask for ${want}\n`)
+      process.exit(255)
+    }
   const fail = (said: string) => {
     process.stderr.write(`${said}\n`)
     process.exit(255)
@@ -135,9 +145,16 @@ function main() {
   fs.mkdirSync(sessions, { recursive: true })
   const mine = path.join(sessions, String(process.pid))
   fs.writeFileSync(mine, command)
+  const sent = path.join(root, "sent")
+  process.stdin.on("data", (d: Buffer) => {
+    if (fs.existsSync(sent)) fs.appendFileSync(sent, d)
+  })
   process.stdin.pipe(run.stdin)
   run.stdin.on("error", () => undefined)
-  run.stdout.pipe(process.stdout)
+  const mute = path.join(root, "mute")
+  run.stdout.on("data", (d: Buffer) => {
+    if (!fs.existsSync(mute)) process.stdout.write(d)
+  })
   run.stderr.pipe(process.stderr)
   // The connection dropped: what ran there for it ends (its stdin closes, and it is hung up on).
   process.on("SIGTERM", () => {
