@@ -1,12 +1,12 @@
 // How full the conversation's context is, as the message box shows it: nothing while there is
-// room, a quiet percentage from half full, the warning colour when the server is about to
-// summarise by itself. The numbers are the server's (see `AppState.context`); this is only the
+// room, a quiet percentage from half full, the warning colour when the agent is about to
+// summarise by itself. The numbers are the agent's (see `AppState.context`); this is only the
 // arithmetic, kept apart from the component so it can be tested without a window.
 import type { AppState } from "../shared/types"
 
 /** From this share of the window the meter shows. */
 export const SHOWN_FROM = 0.5
-/** From this share it warns. The server summarises by itself a little later (at 85% of the
+/** From this share it warns. The agent may summarise by itself a little later (at 85% of the
  *  window unless it is configured otherwise), so the warning comes while there is still a choice. */
 export const WARN_FROM = 0.8
 

@@ -10,7 +10,7 @@ import { agent, type Stream } from "@agentclientprotocol/sdk/unstable"
 import type { Transport } from "../src/main/acp"
 
 type Update = Record<string, unknown> & { sessionUpdate: string }
-type Session = { id: string; cwd: string; history: Update[]; model: string; effort: string; mode: string; cancel?: () => void }
+type Session = { id: string; cwd: string; history: Update[]; model: string; effort: string; mode: string; title?: string; archived?: true; cancel?: () => void }
 type Turn = {
   session: string
   text: string
@@ -49,12 +49,20 @@ export type FakeAgent = {
   holdStreams: boolean
   /** The models begin with a "Default (recommended)" that names its model. */
   defaultModel: boolean
+  /** The models it offers; a conversation starts on the first. */
+  models: { value: string; name: string; description?: string }[]
+  /** The commands it says each new conversation has. */
+  commands: { name: string; description?: string }[]
 }
 
 /** `byDefault`: the models begin with the agent's default, which names the model it is in its
  *  description, as Claude Code's adapter says "Default (recommended)", "Opus 5.5". */
-const OPTIONS = (s: Session, byDefault = false) => [
-  { id: "model", name: "Model", category: "model", type: "select", currentValue: s.model, options: [...(byDefault ? [{ value: "default", name: "Default (recommended)", description: "fake/Beta" }] : []), { value: "fake/alpha", name: "fake/Alpha", description: "Quick" }, { value: "fake/beta", name: "fake/Beta" }] },
+const MODELS = [
+  { value: "fake/alpha", name: "fake/Alpha", description: "Quick" },
+  { value: "fake/beta", name: "fake/Beta" },
+]
+const OPTIONS = (s: Session, byDefault = false, models = MODELS) => [
+  { id: "model", name: "Model", category: "model", type: "select", currentValue: s.model, options: [...(byDefault ? [{ value: "default", name: "Default (recommended)", description: "fake/Beta" }] : []), ...models] },
   { id: "effort", name: "Effort", category: "thought_level", type: "select", currentValue: s.effort, options: [{ value: "default", name: "Default" }, { value: "high", name: "High" }] },
   { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: s.mode, options: [{ value: "build", name: "Build" }, { value: "plan", name: "Plan" }] },
 ]
@@ -87,6 +95,8 @@ export function fakeAgent(opts: { file?: string } = {}): FakeAgent {
     dieAfterInit: false,
     holdStreams: false,
     defaultModel: false,
+    models: MODELS,
+    commands: [{ name: "compact", description: "Summarise" }, { name: "review", description: "Review" }],
     capabilities: { loadSession: true, promptCapabilities: { image: true }, sessionCapabilities: { list: {}, fork: {}, delete: {} } },
     onPrompt: async (turn) => {
       await turn.say({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "ok" }, messageId: "m1" })
@@ -120,10 +130,10 @@ export function fakeAgent(opts: { file?: string } = {}): FakeAgent {
         })
         .onRequest("session/new", ({ params, client }) => {
           record("session/new")(params)
-          const s: Session = { id: `s${++n}`, cwd: params.cwd, history: [], model: "fake/alpha", effort: "default", mode: "build" }
+          const s: Session = { id: `s${++n}`, cwd: params.cwd, history: [], model: fake.models[0]?.value ?? "fake/alpha", effort: "default", mode: "build" }
           fake.sessions.set(s.id, s)
-          setTimeout(() => void client.notify("session/update", { sessionId: s.id, update: { sessionUpdate: "available_commands_update", availableCommands: [{ name: "compact", description: "Summarise" }, { name: "review", description: "Review" }] } }))
-          return { sessionId: s.id, configOptions: OPTIONS(s, fake.defaultModel) as never }
+          setTimeout(() => void client.notify("session/update", { sessionId: s.id, update: { sessionUpdate: "available_commands_update", availableCommands: fake.commands } }))
+          return { sessionId: s.id, configOptions: OPTIONS(s, fake.defaultModel, fake.models) as never }
         })
         .onRequest("session/load", async ({ params, client }) => {
           record("session/load")(params)
@@ -131,15 +141,20 @@ export function fakeAgent(opts: { file?: string } = {}): FakeAgent {
           const s = fake.sessions.get(params.sessionId)
           if (!s) throw Object.assign(new Error("Session not found"), { code: -32002 })
           for (const update of coalesce(s.history)) await client.notify("session/update", { sessionId: s.id, update: update as never })
-          return { configOptions: OPTIONS(s, fake.defaultModel) as never }
+          return { configOptions: OPTIONS(s, fake.defaultModel, fake.models) as never }
         })
         .onRequest("session/options", ({ params }) => {
           record("session/options")(params)
-          return { configOptions: OPTIONS({ id: "", cwd: "", history: [], model: "default", effort: "default", mode: "build" }, fake.defaultModel) as never }
+          return { configOptions: OPTIONS({ id: "", cwd: "", history: [], model: "default", effort: "default", mode: "build" }, fake.defaultModel, fake.models) as never }
         })
         .onRequest("session/list", ({ params }) => {
           record("session/list")(params)
-          return { sessions: [...fake.sessions.values()].filter((s) => !params.cwd || s.cwd === params.cwd).map((s) => ({ sessionId: s.id, cwd: s.cwd, title: `Session ${s.id}` })) }
+          const archived = (params as { archived?: string }).archived
+          return {
+            sessions: [...fake.sessions.values()]
+              .filter((s) => (!params.cwd || s.cwd === params.cwd) && (archived === "only" ? !!s.archived : archived === "exclude" ? !s.archived : true))
+              .map((s) => ({ sessionId: s.id, cwd: s.cwd, title: s.title ?? `Session ${s.id}`, ...(archived ? { archived: !!s.archived } : {}) })),
+          }
         })
         .onRequest("session/set_config_option", ({ params }) => {
           record("session/set_config_option")(params)
@@ -148,18 +163,36 @@ export function fakeAgent(opts: { file?: string } = {}): FakeAgent {
           if (params.configId === "model") s.model = value
           if (params.configId === "effort") s.effort = value
           if (params.configId === "mode") s.mode = value
-          return { configOptions: OPTIONS(s, fake.defaultModel) as never }
+          return { configOptions: OPTIONS(s, fake.defaultModel, fake.models) as never }
         })
         .onRequest("session/fork", ({ params }) => {
           record("session/fork")(params)
           const from = fake.sessions.get(params.sessionId)!
           const s: Session = { ...from, id: `s${++n}`, history: [...from.history] }
           fake.sessions.set(s.id, s)
-          return { sessionId: s.id, configOptions: OPTIONS(s, fake.defaultModel) as never }
+          return { sessionId: s.id, configOptions: OPTIONS(s, fake.defaultModel, fake.models) as never }
         })
         .onRequest("session/delete", ({ params }) => {
           record("session/delete")(params)
           fake.sessions.delete(params.sessionId)
+          return {}
+        })
+        .onRequest("session/archive", (p) => p as Record<string, unknown>, ({ params }) => {
+          record("session/archive")(params)
+          const s = fake.sessions.get(params.sessionId as string)
+          if (s) s.archived = true
+          return {}
+        })
+        .onRequest("session/unarchive", (p) => p as Record<string, unknown>, ({ params }) => {
+          record("session/unarchive")(params)
+          const s = fake.sessions.get(params.sessionId as string)
+          if (s) delete s.archived
+          return {}
+        })
+        .onRequest("session/set_title", (p) => p as Record<string, unknown>, ({ params }) => {
+          record("session/set_title")(params)
+          const s = fake.sessions.get(params.sessionId as string)
+          if (s) s.title = params.title as string
           return {}
         })
         .onRequest("_session/steering", (p) => p as Record<string, unknown>, ({ params }) => {

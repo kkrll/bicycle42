@@ -1,6 +1,6 @@
-// The controller (src/main/core.ts) with an ACP agent on this computer instead of an OpenCode
-// server: the app starts the agent as a process of its own, as it starts Claude Code's adapter
-// (here test/acp-agent.ts, the fake agent run as a program), and the notes go to it. What the
+// The controller (src/main/core.ts) with an ACP agent on this computer that the app starts as a
+// process of its own, as it starts Claude Code's adapter (here test/acp-agent.ts, the fake agent
+// run as a program), and the notes go to it. What the
 // reviewer at the screen must see when that process ends with a note under way, or the app quits
 // with one: the note says so, with Retry, and is never called done.
 import assert from "node:assert/strict"
@@ -104,12 +104,10 @@ test("an agent on this computer: started by its command, remembered, a note goes
     assert.ok(projects.length > 0 && projects.every((p) => p.on === program && p.kind === "custom" && p.here), JSON.stringify(projects))
     h.note("make it blue")
     await until(() => h.notes() === "1:done")
-    assert.deepEqual(h.snap().running, [])
     // What it can't do is not offered: Archive is gone from the list's commands, /fork stays.
     const commands = ((await h.cmd("commands")) as { name: string }[]).map((x) => x.name)
     assert.ok(commands.includes("fork") && commands.includes("review"))
     await assert.rejects(h.cmd("archiveSession", h.snap().session!.id, true), /can't put a conversation away/)
-    await assert.rejects(h.cmd("stopRunning"), /can't stop what it left running/)
   } finally {
     await h.close()
   }

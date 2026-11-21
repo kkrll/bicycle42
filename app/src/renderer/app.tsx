@@ -13,7 +13,6 @@ import { DockRegion, PhoneAside, dockShown } from "./dock"
 import { ConnectScreen, ModelScreen, ServerButton, SettingsDialog, SetupSteps, firstRunConnecting } from "./connect"
 import { Icon, Kbd, type IconName } from "./icons"
 import { Switcher } from "./switcher"
-import { RunningButton, RunningList } from "./running"
 import { Panel, RepoScreen, countNotes, countWords, shortWords } from "./panel"
 import {
   act,
@@ -28,7 +27,7 @@ import {
   expandNotes,
   setFocusedNote,
   setNotice,
-  state, pageCovered, message, switcherOpen, setSwitcherOpen, runningOpen, setRunningOpen } from "./store"
+  state, pageCovered, message, switcherOpen, setSwitcherOpen } from "./store"
 
 const PANEL_MIN = 320
 const PANEL_DEFAULT = 400
@@ -71,9 +70,8 @@ function UrlField(props: { ref: (el: HTMLInputElement) => void }) {
   // null while the field shows the page's own address; a string while the user is typing.
   const [draft, setDraft] = createSignal<string | null>(null)
   // How many characters the field shows (12px mono is about 7.2px a character).
-  // What the server still runs sits inside the field, at its right end, and takes that room.
   const [width, setWidth] = createSignal(600)
-  const chars = () => Math.max(12, Math.floor((width() - 20 - (state.running.length ? 44 : 0)) / 7.2))
+  const chars = () => Math.max(12, Math.floor((width() - 20) / 7.2))
   let el!: HTMLInputElement
   onMount(() => {
     const observer = new ResizeObserver(() => setWidth(el.clientWidth))
@@ -81,7 +79,7 @@ function UrlField(props: { ref: (el: HTMLInputElement) => void }) {
     onCleanup(() => observer.disconnect())
   })
   return (
-    <div class="url-field" classList={{ "has-running": state.running.length > 0 }}>
+    <div class="url-field">
       <input
         ref={(e) => {
           el = e
@@ -114,7 +112,6 @@ function UrlField(props: { ref: (el: HTMLInputElement) => void }) {
           }
         }}
       />
-      <RunningButton />
     </div>
   )
 }
@@ -354,7 +351,7 @@ function TopBar(props: {
             <Icon name="draw" size={20} />
           </button>
           <ModeSwitch disabled={noOverlay()} />
-          {/* With the panel open the server button is in its conversation row, and the notes are
+          {/* With the panel open the agent button is in its conversation row, and the notes are
               right there: both are here only while they cannot be seen in the panel. */}
           <Show when={!props.panelOpen || !state.site?.directory}>
             <ServerButton onClick={props.openSettings} />
@@ -519,7 +516,7 @@ export function App() {
   let urlEl: HTMLInputElement | undefined
   let composerEl: HTMLTextAreaElement | undefined
 
-  // The first-run screen: no server yet, or the form on that screen is waiting for main.
+  // The first-run screen: no agent yet, or the form on that screen is waiting for main.
   const connectStep = () => state.connection.status === "unconfigured" || firstRunConnecting()
   // …or connected, and main asks which model conversations should start with.
   const modelStep = () => !connectStep() && !!state.modelChoice && state.connection.status === "online"
@@ -535,7 +532,7 @@ export function App() {
   }
   const canStart = () => state.connection.status === "online" && !!state.session && !state.startingSite
   // A page that failed to load is replaced by a card saying so, in the same place.
-  const pageHidden = () => setup() || settings() || !!switcherOpen() || runningOpen() || resizing() || state.page.url === "" || loadFailed() || pageCovered()
+  const pageHidden = () => setup() || settings() || !!switcherOpen() || resizing() || state.page.url === "" || loadFailed() || pageCovered()
 
   // ── page bounds: one call per frame at most, none when nothing moved ──
   let sent: Rect | null | undefined
@@ -844,7 +841,7 @@ export function App() {
         </Show>
         {/* While a dialog is open or the panel is resized the page view is away: a quiet surface
             stands in for it, so the window does not go black. */}
-        <div class="page" ref={pageEl} classList={{ veiled: settings() || !!switcherOpen() || runningOpen() || resizing() }}>
+        <div class="page" ref={pageEl} classList={{ veiled: settings() || !!switcherOpen() || resizing() }}>
           <Show when={resizing() && state.page.url !== "" && !loadFailed()}>
             <p class="page-size" aria-hidden="true">
               {sizeSaid()}
@@ -947,9 +944,6 @@ export function App() {
       </Show>
       <Show when={settings()}>
         <SettingsDialog onClose={() => setSettings(false)} />
-      </Show>
-      <Show when={runningOpen() && !setup()}>
-        <RunningList onClose={() => setRunningOpen(false)} />
       </Show>
       <Show when={switcherOpen() && !setup()}>
         <Switcher projectsOnly={switcherOpen() === "projects"} onClose={() => setSwitcherOpen(false)} />

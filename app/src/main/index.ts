@@ -1,13 +1,14 @@
 // bicycle 42, main process: the Electron shell around the controller.
 //
 // The controller (core.ts) owns the app's state and knows nothing of Electron. This file is what
-// it runs in here: the window and its menu, the page's view (page.ts), the keychain, the three
+// it runs in here: the window and its menu, the page's view (page.ts), the three
 // IPC channels of the window's bridge (preload.ts), the address the conversation's pictures are
 // served at, and the app's start and quit. It keeps no state of the app's own.
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, protocol, safeStorage, shell } from "electron"
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, protocol, shell } from "electron"
 import fs from "node:fs"
 import path from "node:path"
 import type { Shortcut } from "../shared/types"
+import type { Transport } from "./acp"
 import { createCore } from "./core"
 import { createPage, type PageView } from "./page"
 import { SCHEME } from "./pictures"
@@ -31,19 +32,18 @@ let window: BrowserWindow | undefined
 let windowContents: Electron.WebContents | undefined
 let page: PageView | undefined
 
+/** The end-to-end test's agent, in this process (test/app.e2e.ts sets it before loading the app). */
+const testAgent = process.env.BICYCLE42_TEST ? ((globalThis as Record<string, unknown>).__b42Agent as ((command: string[]) => Transport) | undefined) : undefined
+
 const core = createCore({
   dataDir: app.getPath("userData"),
-  secrets: {
-    available: () => safeStorage.isEncryptionAvailable(),
-    encrypt: (secret) => safeStorage.encryptString(secret),
-    decrypt: (sealed) => safeStorage.decryptString(sealed),
-  },
   emit(stream, value) {
     if (window && !window.isDestroyed()) window.webContents.send(`b42:${stream}`, value)
   },
   dialog(box) {
     if (window) void dialog.showMessageBox(window, box)
   },
+  ...(testAgent ? { agentTransport: testAgent } : {}),
   log,
 })
 

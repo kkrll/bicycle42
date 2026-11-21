@@ -5,29 +5,28 @@
 //
 //   page.ts      the site under review, a native view with the overlay injected
 //   review.ts    the notes of a site and their status
-//   opencode.ts  the agent backend: an OpenCode server (sessions, queue, event stream), or
-//   acp.ts       an ACP agent the app runs (Claude Code, Codex, Gemini CLI, …), on this
-//                computer or on another one over ssh (ssh.ts: its Machine, machine.ts)
+//   acp.ts       the agent: one the app runs over ACP (Claude Code, Codex, Gemini CLI,
+//                OpenCode, …), on this computer or on another one over ssh (ssh.ts: its
+//                Machine, machine.ts)
 //   store.ts     settings and notes on disk
 //
 // Flow of a note:  overlay → "note" → screenshot → prompt → backend queue → inbox/run events →
 // note status → pins on the page and rows in the window.
 //
-// One site (a page origin in the repo that is open) maps to one folder on the server and to one
-// open conversation there, plus a second "background" one for alt+Enter notes. The same origin
+// One site (a page origin in the repo that is open) maps to one folder and to one open
+// conversation there, plus a second "background" one for alt+Enter notes. The same origin
 // in another repo is another site (`placeOf`). A note remembers the
 // conversation it was sent to, so switching conversations never moves an older note's status.
 //
 // Nothing here is Electron's. `createCore(host)` is given what the shell around it has (`Host`:
-// a folder, the keychain, a way to tell the window, a dialog, a log) and the page once there is
+// a folder, a way to tell the window, a dialog, a log) and the page once there is
 // one (`attach`), and gives back what the shell passes on (`Core`: the window's commands, its
 // state, the conversation's pictures). index.ts is that shell; the tests are another
 // (test/stubs/host.ts). All of the controller's state is inside one call of createCore.
 import crypto from "node:crypto"
-import os from "node:os"
 import path from "node:path"
 import { notePrompt, noteWords, TEMPLATES } from "../../../overlay/prompt.js"
-import { createAcp, type AcpOptions } from "./acp"
+import { createAcp, type Acp, type AcpOptions, type Transport } from "./acp"
 import { commandOf, customName, KNOWN_AGENTS, localAgent, localAgents, splitCommand, type StartPrefs } from "./agents"
 import { commitPrompt, parseAsk, splitTold, startPrompt, takeBackPrompt, toldLine } from "./asks"
 import type {
@@ -62,7 +61,6 @@ import type {
   Harness,
   Rect,
   RepoChange,
-  RunningCommand,
   ServerInfo,
   SessionSummary,
   SlashCommand,
@@ -70,9 +68,8 @@ import type {
 } from "../shared/types"
 import { HOSTED_PANES, PHONE, phoneOf } from "../shared/types"
 import { noteImages, notePicture, type Frame } from "./images"
-import { readLocal } from "./local"
 import { isPlaceholder, placeholderTitle, titleFrom } from "./naming"
-import { createOpenCode, parseNote, type OpenCode } from "./opencode"
+import { parseNote } from "./chat-items"
 import type { Page, PageMessage } from "./page"
 import { createReview, imageUri, pageNote, type PageNote, type Review } from "./review"
 import { createOutbox, type Outgoing } from "./outbox"
@@ -92,15 +89,15 @@ export type Emitted = { state: AppState; chat: ChatEvent; note: NoteFocus; panel
 export type Host = {
   /** The folder settings, notes, and what unfinished notes send are kept in. */
   dataDir: string
-  /** The OS keychain, for the server password. Where there is none (`available()` is false) the
-   *  password is stored as it is, in a settings file only the user can read. */
-  secrets: { available(): boolean; encrypt(secret: string): Buffer; decrypt(sealed: Buffer): string }
   /** To the window. With no window to tell, nothing happens. */
   emit<K extends keyof Emitted>(stream: K, value: Emitted[K]): void
   /** Something the person has to be told before they go on, in a dialog of its own. */
   dialog(box: { type: "warning"; message: string; detail: string }): void
   /** The panes this shell's window draws itself. Without it, HOSTED_PANES (shared/types.ts). */
   docks?: readonly Pane[]
+  /** For tests: the agent a command names, reached in this process instead of started (an agent
+   *  on this computer only). */
+  agentTransport?(command: string[]): Transport
   log(level: Level, msg: string, data?: unknown): void
 }
 
@@ -126,18 +123,18 @@ export type Core = {
   /** Where the window last put the page, if a rectangle was kept: the shell lays the page out
    *  there while it loads, hidden, before the window can say where it goes. */
   lastPageBounds(): Rect | undefined
-  /** Once the window and the page are there: connects to the saved server, and says what the
-   *  person has to know first. */
+  /** Once the window and the page are there: starts the saved agent, and says what the person
+   *  has to know first. */
   start(): void
-  /** Before the app quits: stops listening to the server and writes what changed. Resolves once
+  /** Before the app quits: ends the agent and writes what changed. Resolves once
    *  what is written in the background (what notes send, their pictures) is on disk. May be
    *  called again. */
   dispose(): Promise<void>
 }
 
-/** The backend in use, with what the controller asks of it beyond the contract (OpenCode's
- *  helper agents and pictures). An ACP agent also says which messages its process lost. */
-type Client = Backend & Pick<OpenCode, "mentionAgents" | "picture"> & { lost?(session: string): string[] }
+/** The backend in use: an ACP agent, with what the controller asks of it beyond the contract
+ *  (its pictures, the messages its process lost). */
+type Client = Acp
 
 /** Errors meant for the person at the screen; anything else gets a generic prefix. */
 const say = (err: unknown) => (err instanceof Error ? err.message : String(err))
@@ -146,6 +143,7 @@ export function createCore(host: Host): Core {
   const { log } = host
   const host_ = host
   const store = createStore(host.dataDir, { log })
+  retireServers()
   const noteShots = createShots(host.dataDir, log)
   /** What each unfinished note sends, on disk: a note waiting its turn, or one to retry, outlives a restart. */
   const outboxFiles = createOutbox(host.dataDir, log)
@@ -234,8 +232,8 @@ export function createCore(host: Host): Core {
   }
 
   /** The conversation's pictures, served to the window by address (pictures.ts). A note's own
-   *  first picture is on disk already; anything else comes from what the server sent, or from the
-   *  server again. The scheme is the app window's: the page's session does not know it. */
+   *  first picture is on disk already; anything else comes from what the agent was sent, or said.
+   *  The scheme is the app window's: the page's session does not know it. */
   const chatPictures = createPictures({
     fetch: async (src) => backend?.picture(src),
     async local(src) {
@@ -247,21 +245,39 @@ export function createCore(host: Host): Core {
       return undefined
     },
   })
-  // ── secrets ─────────────────────────────────────────────────────────────────────────────────────
-  // The server password is stored through the OS keychain when there is one. Without (a Linux box
-  // with no keyring), it is stored as is, in a settings file only the user can read.
-  function seal(secret: string) {
-    if (host.secrets.available()) return `enc:${host.secrets.encrypt(secret).toString("base64")}`
-    return `plain:${secret}`
-  }
-  function unseal(sealed: string): string | undefined {
-    try {
-      if (sealed.startsWith("plain:")) return sealed.slice(6)
-      if (sealed.startsWith("enc:")) return host.secrets.decrypt(Buffer.from(sealed.slice(4), "base64"))
-    } catch (err) {
-      log("warn", "the saved password can't be read; connect again", say(err))
-    }
-    return undefined
+  /** An OpenCode server saved by an earlier version is no longer connected to: the app runs an
+   *  agent instead, here or on another computer over ssh. It leaves the saved list with its
+   *  password, before anything is opened. What was its own (its repo, sites and conversations, the
+   *  space the settings' own fields hold while it is the one in use) is kept as it was under
+   *  `retired`, and its notes files stay on disk; nothing reaches them. The next agent starts
+   *  clean, under a prefix of its own. The connect screen says so once (`serversRetired`). */
+  function retireServers() {
+    // Read as an earlier version wrote it: a server there was { url, password } or { local: true }.
+    type Loose = Record<string, unknown> & { id?: string }
+    const s = store.settings() as unknown as { server?: Loose; servers?: Loose[]; current?: string }
+    const isServer = (x: object) => !("agent" in x)
+    const mine = s.servers?.find((v) => v.id === s.current)
+    // The settings' own fields belong to the server in use, or to the last one used.
+    const owns = mine ? isServer(mine) : !!s.server && isServer(s.server)
+    if (!owns && !(s.server && isServer(s.server)) && !(s.servers ?? []).some(isServer)) return
+    store.update((x) => {
+      const bare = (v: object): Loose => Object.fromEntries(Object.entries(v).filter(([k]) => k !== "password"))
+      const out = (x.servers ?? []).filter(isServer).map(bare)
+      if (owns) {
+        const space = { ...(x.folder ? { folder: x.folder } : {}), ...(x.lastUrl ? { lastUrl: x.lastUrl } : {}), ...(x.defaultModel ? { defaultModel: x.defaultModel } : {}), sites: x.sites, prefix: x.prefix ?? "" }
+        const own = out.find((v) => v.id === x.current)
+        if (own) own.space = space
+        else out.push({ ...bare(x.server ?? {}), space })
+        delete x.current, delete x.folder, delete x.lastUrl, delete x.defaultModel
+        x.sites = {}
+        x.prefix = `r${Date.now().toString(36)}~`
+      }
+      if (x.server && isServer(x.server)) delete x.server
+      x.servers = (x.servers ?? []).filter((v) => !isServer(v))
+      x.retired = [...(x.retired ?? []), ...out]
+      x.serversRetired = true
+    })
+    log("info", "OpenCode servers are no longer supported: the saved ones were put aside")
   }
 
   // ── state ───────────────────────────────────────────────────────────────────────────────────────
@@ -280,7 +296,7 @@ export function createCore(host: Host): Core {
   /** Every site visited since launch stays loaded, so notes still in flight on a site the reviewer
    *  navigated away from keep their status. */
   const sites = new Map<string, Site>()
-  /** A server's name is a label, not a description. */
+  /** An agent's name is a label, not a description. */
   const SERVER_NAME_MAX = 60
   const SESSION_TITLE_MAX = 120
   let site: Site | undefined
@@ -306,10 +322,10 @@ export function createCore(host: Host): Core {
   let measured: { session: string; use: ContextUse } | undefined
 
   /** The open conversation's context for the window: the measurement, beside the window of the
-   *  model the conversation is on. The server sets aside a count made by another provider's
+   *  model the conversation is on. The agent sets aside a count made by another provider's
    *  model when it decides whether the context is full, so it is not shown either. */
   function contextShown(): AppState["context"] {
-    // A conversation the server names no model for runs on the default, as the pickers show it.
+    // A conversation the agent names no model for runs on the default, as the pickers show it.
     const model = session?.model ?? defaultModel()
     if (!measured || !session || measured.session !== session.id) return undefined
     if (model && measured.use.providerID && measured.use.providerID !== model.providerID) return undefined
@@ -318,14 +334,14 @@ export function createCore(host: Host): Core {
   }
 
   /** What each unfinished note was sent with, so it can be sent again. `id` is the message id the
-   *  server knows it by: sending the same id twice queues it once, which makes a retry after a
+   *  agent knows it by: sending the same id twice queues it once, which makes a retry after a
    *  lost reply safe. Entries go when their note is done or removed. */
   const outbox = new Map<string, Outgoing>()
 
   /** What is saved of a place, whatever became of its folder. */
   const placeEntry = (place: string) => store.settings().sites[place]
   /** What is saved of a place that has a folder to work in. One whose folder is not on this
-   *  server (`missingFolder`) has none until a folder is chosen; its entry is kept as it is, with
+   *  agent (`missingFolder`) has none until a folder is chosen; its entry is kept as it is, with
    *  its conversation and what was pinned, since the folder may only be away. */
   const siteSettings = (origin: string) => {
     const entry = placeEntry(origin)
@@ -366,7 +382,7 @@ export function createCore(host: Host): Core {
   }
   /** The conversation asked to get the site running. It stays asked while no page works, so an
    *  address given after a question and its answer is opened too; `starting` until it first answers. */
-  /** A repo that turned out not to be on this server, until another is chosen. */
+  /** A repo that turned out not to be a folder where this agent works, until another is chosen. */
   let missingFolder: string | undefined
   let siteAsked: string | undefined
   let starting = false
@@ -375,11 +391,11 @@ export function createCore(host: Host): Core {
   function harness(): Harness | undefined {
     const s = store.settings()
     if (!s.server) return undefined
-    // A server saved before servers were kept is in the list only once it has connected.
+    // An agent saved before agents were kept apart is in the list only once it has started.
     return describe(s.servers?.find((x) => x.id === s.current) ?? s.server)
   }
 
-  /** The name the server in use goes by: the reviewer's, else its computer's own. */
+  /** The name the agent in use goes by: the reviewer's, else its own. */
   function serverName(): string | undefined {
     const s = store.settings()
     if (!s.server) return undefined
@@ -400,6 +416,7 @@ export function createCore(host: Host): Core {
     return {
       connection,
       ...(serverName() ? { serverName: serverName() } : {}),
+      ...(store.settings().serversRetired ? { serversRetired: true as const } : {}),
       ...(harness() ? { harness: harness() } : {}),
       home: machine.home,
       page: {
@@ -420,7 +437,6 @@ export function createCore(host: Host): Core {
       site: site ? { origin: addressOf(site.origin), ...(saved ? { directory: saved.directory } : {}) } : null,
       ...(starting && siteAsked === session?.id ? { startingSite: true as const } : {}),
       ...(missingFolder && !saved ? { missingFolder } : {}),
-      running: runningShown(),
       ...(repo ? { repo } : {}),
       session,
       sessions: listed(),
@@ -480,7 +496,7 @@ export function createCore(host: Host): Core {
   }
 
   /** Does what `changed` put off. Also called directly where the sites are about to change hands
-   *  (another server), so what was changed before goes to the file it belongs to. */
+   *  (another agent), so what was changed before goes to the file it belongs to. */
   function settleChanges() {
     settling = false
     if (!dirty.size) return
@@ -494,7 +510,7 @@ export function createCore(host: Host): Core {
       }
     }
     for (const s of now) {
-      // A site of a server that was left meanwhile: its file belongs to that server, not this one.
+      // A site of an agent that was left meanwhile: its file belongs to that agent, not this one.
       if (sites.get(s.origin) !== s) continue
       // Serialised when it is written, not now: a burst of changes costs one write.
       store.saveReview(reviewKey(s.origin), () => s.review.stored())
@@ -514,7 +530,7 @@ export function createCore(host: Host): Core {
   const sameModel = (a: ModelRef, b: { providerID: string; id: string }) => a.providerID === b.providerID && a.id === b.id
 
   /** The model new conversations start with: the last one picked, else the first that takes
-   *  screenshots. The server's own default may be text-only, which would blind every note. */
+   *  screenshots. The agent's own default may be text-only, which would blind every note. */
   function defaultModel(): ModelRef | undefined {
     const saved = store.settings().defaultModel
     if (saved && models.some((m) => sameModel(saved, m))) return saved
@@ -523,10 +539,10 @@ export function createCore(host: Host): Core {
   }
 
   /** Set while the person is being asked which model to start conversations with (see
-   *  `AppState.modelChoice`). `previous` is a saved choice this server no longer lists. */
+   *  `AppState.modelChoice`). `previous` is a saved choice this agent no longer lists. */
   let modelChoice: { previous?: ModelRef } | undefined
 
-  /** Run when a server's model list has arrived. Asks once: not when a saved choice is still on
+  /** Run when an agent's model list has arrived. Asks once: not when a saved choice is still on
    *  the list, not when there is nothing to choose between (one model is simply saved), and not
    *  when the list is empty or could not be read. */
   function settleDefaultModel() {
@@ -542,27 +558,9 @@ export function createCore(host: Host): Core {
 
   // ── connection ──────────────────────────────────────────────────────────────────────────────────
 
-  /** `box:49374` → `http://box:49374`. Public hosts get https; bare names, IPs and localhost http. */
-  function serverUrl(input: string) {
-    let url = input.trim().replace(/\/+$/, "")
-    if (!url) throw new Error("Enter the server address.")
-    if (!/^https?:\/\//i.test(url)) {
-      const host = url.split(/[/:]/)[0] ?? ""
-      const local = host === "localhost" || /^[\d.]+$/.test(host) || !host.includes(".")
-      url = `${local ? "http" : "https"}://${url}`
-    }
-    try {
-      return new URL(url).origin
-    } catch {
-      throw new Error(`"${input}" is not a server address. It looks like https://name.example or http://127.0.0.1:49374.`)
-    }
-  }
-
   function drop() {
     forgetBusy()
     undelivered()
-    running = []
-    clearTimeout(runningTimer)
     clearTimeout(retryTimer)
     unlisten?.()
     unlisten = undefined
@@ -577,39 +575,37 @@ export function createCore(host: Host): Core {
     chat = undefined
   }
 
-  // ── the servers connected to ────────────────────────────────────────────────────────────────────
+  // ── the agents started before ───────────────────────────────────────────────────────────────────
 
-  /** A site's notes are kept per server: the same address (localhost:3000) on two machines is two sites. */
+  /** A site's notes are kept per agent: the same address (localhost:3000) on two machines is two sites. */
   const reviewKey = (origin: string) => (store.settings().prefix ?? "") + origin
 
-  /** The saved entry for a server, made the first time it is connected to; a remote one's
-   *  password is kept up to date, an agent's command too. */
-  function remember(kind: "remote" | "local", url: string, password: string, computer?: string, agent?: { agent: string; command: string[]; host?: string }): SavedServer {
+  /** The saved entry for an agent, made the first time it is started; its command is kept up to date. */
+  function remember(agent: { agent: string; command: string[]; host?: string }, computer?: string): SavedServer {
     const all = store.settings().servers ?? []
-    let found = all.find((x) => (agent ? "agent" in x && x.agent === agent.agent && x.host === agent.host : kind === "local" ? "local" in x : "url" in x && x.url === url))
+    let found = all.find((x) => x.agent === agent.agent && x.host === agent.host)
     store.update((s) => {
       s.servers ??= []
       if (!found) {
         const id = `srv_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
-        // A server saved before servers were kept: the name it had then stays with it.
+        // An agent saved before agents were kept apart: the name it had then stays with it.
         const name = !s.current && s.server?.name ? { name: s.server.name } : {}
-        found = agent ? { id, ...agent, ...name } : kind === "local" ? { id, local: true, ...name } : { id, url, password: seal(password), ...name }
+        found = { id, ...agent, ...name }
         s.servers.push(found)
-      } else if ("url" in found) found.password = seal(password)
-      else if ("agent" in found && agent) found.command = agent.command
+      } else found.command = agent.command
       if (computer) found.computer = computer
     })
     return found!
   }
 
-  /** Makes `id` the server in use: what belongs to the one before (its repo, pages, conversations,
+  /** Makes `id` the agent in use: what belongs to the one before (its repo, pages, conversations,
    *  model) is put away with it, and this one's is brought out, with the page it was on. */
   function enter(id: string) {
     const s = store.settings()
     if (s.current === id) return
-    // What changed on this server's sites is saved under its own prefix, before that changes.
+    // What changed on this agent's sites is saved under its own prefix, before that changes.
     settleChanges()
-    // The first server ever, or the one saved before servers were kept: what is here is its own.
+    // The first agent ever, or the one saved before agents were kept apart: what is here is its own.
     if (!s.current) return store.update((x) => void ((x.current = id), (x.prefix ??= "")))
     store.update((x) => {
       const out = x.servers?.find((v) => v.id === x.current)
@@ -625,7 +621,7 @@ export function createCore(host: Host): Core {
       x.prefix = space.prefix
       x.current = id
     })
-    // Nothing loaded belongs here: notes still in flight on the other server are read again when it is gone back to.
+    // Nothing loaded belongs here: notes still in flight on the other agent are read again when it is gone back to.
     sites.clear()
     owners.clear()
     outbox.clear()
@@ -643,28 +639,8 @@ export function createCore(host: Host): Core {
     page?.load(forwardedAt(last) ? "" : last)
   }
 
-  /** Checks the server, then keeps listening to it. Rejects, leaving things as they were, when the
-   *  address or password is wrong. */
-  async function connect(url: string, password: string, opts: { save?: "remote" | "local" }) {
-    const next = createOpenCode({ url, password, log, pictures: chatPictures.name })
-    const info = await next.info()
-    serverComputer = info.computer
-    await use(next, url, info.version, () => {
-      // A local server is saved as "the one on this computer", not by address: its port and
-      // password are OpenCode's to change, and are read again from its own file each time.
-      // A name stays with its server: connecting to the same one again keeps it, another drops it.
-      // It is also kept among the servers connected to, with the name it was given there.
-      const kind = opts.save ?? (store.settings().server && "local" in store.settings().server! ? "local" : "remote")
-      const kept = remember(kind, url, password, info.computer)
-      const name = kept.name ? { name: kept.name } : {}
-      if (opts.save === "remote") store.update((s) => void (s.server = { url, password: seal(password), ...name }))
-      if (opts.save === "local") store.update((s) => void (s.server = { local: true, ...name }))
-      return kept
-    })
-  }
-
   /** Runs an ACP agent on this computer (a known one by its id, or any `command`) and uses it as
-   *  the server. Rejects, leaving things as they were, when it can't be started. */
+   *  the agent. Rejects, leaving things as they were, when it can't be started. */
   async function connectAgent(id: string, command?: string[], where?: string) {
     if (!where) return startAgent(id, command)
     startingOn.add(where)
@@ -699,6 +675,7 @@ export function createCore(host: Host): Core {
       machine: m,
       stateDir: path.join(host.dataDir, "agents"),
       log,
+      ...(host.agentTransport && !where ? { connect: () => host.agentTransport!(line) } : {}),
       pictures: chatPictures.name,
       // The app sends each message itself here: its turn's "before" is taken before it goes.
       beforeTurn: (id) => turnsOpen.get(id)?.before?.tree,
@@ -717,13 +694,12 @@ export function createCore(host: Host): Core {
       if (same && !backend) (connection = { status: "offline", url, error: say(err) }), push()
       throw err
     }
-    serverComputer = undefined
     await use(
       next,
       url,
       info.version,
       () => {
-        const kept = remember("local", url, "", info.computer, { agent, command: line, ...(where ? { host: where } : {}) })
+        const kept = remember({ agent, command: line, ...(where ? { host: where } : {}) }, info.computer)
         store.update((s) => void (s.server = { agent, command: line, ...(where ? { host: where } : {}), ...(kept.name ? { name: kept.name } : {}) }))
         return kept
       },
@@ -734,7 +710,7 @@ export function createCore(host: Host): Core {
   /** An agent's address: acp://claude, or acp://claude@dev-box for one on another computer. */
   const acpUrl = (agent: string, where?: string) => (where ? `acp://${agent}@${encodeURIComponent(where)}` : `acp://${agent}`)
 
-  /** Makes `next` the backend: what belonged to the one before goes, the server is remembered
+  /** Makes `next` the backend: what belonged to the one before goes, the agent is remembered
    *  (`save`) and its own repo, pages and conversations come back. */
   async function use(next: Client, url: string, version: string, save: () => SavedServer, on: Machine = thisMachine()) {
     drop()
@@ -792,41 +768,17 @@ export function createCore(host: Host): Core {
       } else if (p?.error && p.url && !failed.has(originOf(p.url) ?? "")) page?.reload()
     }
     await openSite()
-    void refreshRunning(true)
   }
 
+  /** The saved agent, started again (at launch, or Retry). */
   async function reconnectSaved() {
     const saved = store.settings().server
     if (!saved) return
     clearTimeout(retryTimer)
-    if ("agent" in saved) return reconnectAgent(saved)
-    const local = "local" in saved
-    const found = local ? readLocal() : undefined
-    const url = local ? (found?.url ?? LOCAL_NAME) : saved.url
-    const password = local ? found?.password : unseal(saved.password)
-    if (!local && password === undefined) {
-      connection = { status: "offline", url, error: "The saved password can't be read. Enter it again." }
-      return push()
-    }
-    // Quiet retries keep saying "offline" with the reason; only the first try shows "connecting".
-    if (connection.status !== "offline") connection = { status: "connecting", url }
-    push()
-    try {
-      if (password === undefined) throw new Error(NO_LOCAL)
-      await connect(url, password, {})
-      retryDelay = RETRY_FIRST_MS
-    } catch (err) {
-      if (backend || !store.settings().server) return // connected or disconnected by hand meanwhile
-      connection = { status: "offline", url, error: say(err) }
-      push()
-      // The machine may simply not be up yet. Once connected, the event stream reconnects by
-      // itself; before the first success this timer is the only thing that tries again.
-      retryTimer = setTimeout(() => void reconnectSaved(), retryDelay)
-      retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS)
-    }
+    return reconnectAgent(saved)
   }
-  /** The saved agent, started again; tried again later while it cannot start (like a server
-   *  that is not up yet). */
+  /** The saved agent, started again; tried again later while it cannot start (its computer may
+   *  not be up yet). */
   async function reconnectAgent(saved: { agent: string; command: string[]; host?: string }) {
     const url = acpUrl(saved.agent, saved.host)
     if (connection.status !== "offline") connection = { status: "connecting", url }
@@ -842,9 +794,6 @@ export function createCore(host: Host): Core {
       retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS)
     }
   }
-  /** Shown as the address while no local server is registered. */
-  const LOCAL_NAME = "http://localhost"
-  const NO_LOCAL = "No OpenCode server is running on this computer. Start one with: opencode service start"
   const RETRY_FIRST_MS = 3_000
   const RETRY_MAX_MS = 30_000
   let retryDelay = RETRY_FIRST_MS
@@ -957,7 +906,6 @@ export function createCore(host: Host): Core {
       session = current
       void warm(saved.directory)
       push()
-      void refreshRunning()
       void refreshRepo()
       void refreshSessions()
       void openChat(current.id)
@@ -973,7 +921,7 @@ export function createCore(host: Host): Core {
     }
   }
 
-  /** Whether `directory` is a folder on the server. Only a clear no counts: when the server
+  /** Whether `directory` is a folder where the agent works. Only a clear no counts: when the agent
    *  can't be asked, the folder is taken to be there, as before. */
   const folders = new WeakMap<Client, Set<string>>()
   async function folderExists(b: Client, directory: string): Promise<boolean> {
@@ -984,7 +932,7 @@ export function createCore(host: Host): Core {
       seen.add(directory)
       return true
     } catch (err) {
-      // The server's own word for it: 404, FileNotFoundError "Directory not found".
+      // acp.ts's word for it: 404, "Directory not found".
       return !((err as { status?: number }).status === 404 && /FileNotFound|Directory not found/i.test(say(err)))
     }
   }
@@ -992,21 +940,14 @@ export function createCore(host: Host): Core {
   /** How the known agents are started beyond what is installed: which adapters at their newest. */
   const startPrefs = (): StartPrefs => ({ latest: (id) => !!store.settings().agentLatest?.includes(id) })
 
-  /** Which agent a saved server is, what it is called and where it runs. An ACP agent is called
-   *  by the reviewer's name for it, else its own ("Claude Code"; a custom command's program),
-   *  never by its id; this computer's OpenCode server is "OpenCode server", not the computer's
-   *  name; another computer's goes by its name or address. */
+  /** Which agent a saved one is, what it is called and where it runs: by the reviewer's name for
+   *  it, else its own ("Claude Code"; a custom command's program), never by its id. */
   function describe(x: NonNullable<Settings["server"]> & { computer?: string }): Harness {
-    if ("agent" in x) {
-      const known = KNOWN_AGENTS.find((a) => a.id === x.agent)
-      return { kind: known ? (known.id as Harness["kind"]) : "custom", name: x.name ?? known?.name ?? x.computer ?? customName(x.command), here: !x.host, ...(x.host ? { host: x.host } : {}) }
-    }
-    if ("local" in x) return { kind: "opencode-server", name: x.name ?? "OpenCode server", here: true }
-    const host = x.url.replace(/^https?:\/\//, "").replace(/\/+$/, "")
-    return { kind: "opencode-server", name: x.name ?? x.computer ?? host, here: false, host }
+    const known = KNOWN_AGENTS.find((a) => a.id === x.agent)
+    return { kind: known ? (known.id as Harness["kind"]) : "custom", name: x.name ?? known?.name ?? x.computer ?? customName(x.command), here: !x.host, ...(x.host ? { host: x.host } : {}) }
   }
 
-  /** What a saved server is called: the reviewer's name, its agent's or computer's own, or its address. */
+  /** What a saved agent is called: the reviewer's name, else its own. */
   const serverCalled = (x: SavedServer) => describe(x).name
 
   /** The site's conversations as the list shows them: the ones not put away, the pinned first,
@@ -1033,7 +974,7 @@ export function createCore(host: Host): Core {
     return [...all.filter((x) => x.pinned), ...all.filter((x) => !x.pinned)]
   }
 
-  /** A conversation has a new name: here at once, without waiting for the server to say so. */
+  /** A conversation has a new name: here at once, without waiting for the agent to say so. */
   function retitle(id: string, title: string) {
     if (session?.id === id) session = { ...session, title }
     sessions = sessions.map((x) => (x.id === id ? { ...x, title } : x))
@@ -1164,7 +1105,7 @@ export function createCore(host: Host): Core {
     pumpSite(s)
   }
 
-  /** A conversation was deleted on the server. Its notes fail (with a way forward), and if it was
+  /** A conversation was deleted on the agent. Its notes fail (with a way forward), and if it was
    *  the one on screen, the site gets a fresh one so the next note has somewhere to go. */
   function sessionGone(id: string) {
     const origin = owners.get(id)
@@ -1229,8 +1170,6 @@ export function createCore(host: Host): Core {
         if (e.type === "inbox" && e.status === "working") delivered(e.id)
         if (e.type === "inbox" && e.status === "cancelled") undelivered(e.session, e.id)
         if (e.type === "run" && session?.id === e.session) (session = { ...session, busy: e.status === "started" }), push()
-        // A run that ends may have left something running, or stopped it.
-        if (e.type === "run" && e.status !== "started") void refreshRunning()
         if (e.type === "run" && siteAsked === e.session) {
           if (e.status === "started") (starting = true), push()
           else void started(e.session, e.status === "succeeded")
@@ -1249,7 +1188,7 @@ export function createCore(host: Host): Core {
         if (e.type === "run" && e.status !== "started" && s === site) void refreshRepo()
         if (e.type === "run" && e.status !== "started" && reversing.delete(e.session)) showFiles(s)
         // The conversation is free: the next waiting note goes. Not after an error, which leaves
-        // the rest waiting until something is sent again, as the server's own queue does. (Stop
+        // the rest waiting until something is sent again, as the agent's own queue does. (Stop
         // from the app takes the rest out of both queues first; see `commands.stop`.)
         if ((e.type === "run" && e.status === "succeeded") || (e.type === "inbox" && e.status === "cancelled")) pumpSite(s)
         if (!touched) return
@@ -1269,7 +1208,7 @@ export function createCore(host: Host): Core {
         if (session?.id === e.session.id) session = e.session
         const i = sessions.findIndex((x) => x.id === e.session.id)
         if (i >= 0) sessions = sessions.with(i, e.session)
-        // Events arrive for every folder on the server; only a new top-level conversation in this
+        // Events arrive for every folder on the agent; only a new top-level conversation in this
         // site's folder belongs in the switcher.
         else if (!e.session.parent && site && e.session.directory === siteSettings(site.origin)?.directory)
           sessions = [e.session, ...sessions]
@@ -1327,77 +1266,7 @@ export function createCore(host: Host): Core {
     push()
   }
 
-  // ── what is left running ────────────────────────────────────────────────────────────────────────
-  // A dev server the agent started goes on after its reply, and after the app has moved to
-  // another project. The server knows what it is still running in each folder; the app shows
-  // it in the address line, where it can be stopped.
-
-  let running: RunningCommand[] = []
-  /** A command this young is most likely one of the step the agent is on, not something left behind. */
-  const RUNNING_SETTLED_MS = 15_000
-  const RUNNING_EVERY_MS = 20_000
-  let runningTimer: ReturnType<typeof setTimeout> | undefined
-
-  function runningShown(): RunningCommand[] {
-    const here = site && siteSettings(site.origin)?.directory
-    const now = Date.now()
-    return running
-      .filter((r) => now - r.started >= RUNNING_SETTLED_MS)
-      .sort((a, b) => Number(b.directory === here) - Number(a.directory === here) || a.directory.localeCompare(b.directory) || a.started - b.started)
-  }
-
-  /** Reads what is running: in the open repo, or with `everywhere` in every project the server
-   *  knows (asked on connecting, on changing project, and when the list is opened). */
-  async function refreshRunning(everywhere = false) {
-    const b = backend
-    clearTimeout(runningTimer)
-    if (!b) return
-    // An ACP agent can't say what its shell runs: nothing is listed, and nothing asked again.
-    if (!b.can.running) return void (running.length && ((running = []), push()))
-    const here = site && siteSettings(site.origin)?.directory
-    try {
-      const where = everywhere ? [...new Set([...(here ? [here] : []), ...(await Promise.resolve(commands.projects()).catch(() => [] as string[]))])] : here ? [here] : []
-      const found = await Promise.all(where.map((d) => b.running(d).catch(() => undefined)))
-      if (backend !== b) return
-      // A folder that could not be asked keeps what was known of it; one not asked this time too.
-      const asked = new Set(where.filter((_, i) => found[i]))
-      const before = JSON.stringify(runningShown())
-      running = [...running.filter((r) => !asked.has(r.directory)), ...found.flatMap((f) => f ?? [])]
-      if (JSON.stringify(runningShown()) !== before) push()
-    } finally {
-      if (backend === b) (runningTimer = setTimeout(() => void refreshRunning(), RUNNING_EVERY_MS)).unref()
-    }
-  }
-
   // ── starting the site ───────────────────────────────────────────────────────────────────────────
-
-  /** The app and the server are on one computer, so an address on localhost opens here too. */
-  function sameComputer() {
-    const saved = store.settings().server
-    if (saved && "agent" in saved && saved.host) return false
-    if (saved && ("local" in saved || "agent" in saved)) return true
-    try {
-      return /^(localhost|127(\.\d+){3}|\[::1\]|::1)$/.test(new URL("url" in connection ? connection.url : "").hostname)
-    } catch {
-      return false
-    }
-  }
-
-  /** What the OpenCode server connected to says its computer is called. */
-  let serverComputer: string | undefined
-  /** This computer's name, as opencode.ts reads a server's. */
-  const thisComputer = () => os.hostname().trim().replace(/\.(local|lan|home|localdomain)$/i, "").slice(0, 60).toLowerCase()
-
-  /** The folders the agent works in are this computer's own, so the app may keep a history of
-   *  them, and change them by it: an agent the app runs here, the OpenCode server saved as this
-   *  computer's, or one on localhost that says it runs on a computer of this one's name. An
-   *  address on localhost alone is not enough: a server elsewhere reached through `ssh -L` is
-   *  on localhost too, and the repo may be at the same path here, untouched by its agent. */
-  function filesHere() {
-    const saved = store.settings().server
-    if (saved && ("local" in saved || "agent" in saved)) return true
-    return sameComputer() && !!serverComputer && serverComputer.toLowerCase() === thisComputer()
-  }
 
   /** The line the agent ends its answer to `startPrompt` (asks.ts) with: the site's address. */
   const SITE_LINE = /^\s*`?SITE:\s*<?(https?:\/\/[^\s<>`"']{1,2000})>?`?\s*$/gim
@@ -1413,7 +1282,7 @@ export function createCore(host: Host): Core {
     if (!ok || !b || siteAsked !== id) return
     try {
       const items = (await b.transcript(id)).items
-      const last = items.findLast((i) => i.kind === "assistant" && !i.summary && i.parts.some((p) => p.kind === "text" && p.text.trim()))
+      const last = items.findLast((i) => i.kind === "assistant" && i.parts.some((p) => p.kind === "text" && p.text.trim()))
       const said = last?.kind === "assistant" ? last.parts.map((p) => (p.kind === "text" ? p.text : "")).join("\n") : ""
       const url = [...said.matchAll(SITE_LINE)].pop()?.[1]
       if (!url || !originOf(url) || backend !== b || siteAsked !== id || works()) return
@@ -1520,7 +1389,7 @@ export function createCore(host: Host): Core {
       if (backend !== b || site !== s) return
       repo = found && { ...found, changes: found.changes.slice(0, REPO_CHANGES_MAX) }
     } catch (err) {
-      // A server without these routes, or a folder it cannot read: no line about the repo.
+      // A folder that can't be read, or no git there: no line about the repo.
       if (backend !== b || site !== s) return
       repo = undefined
       log("warn", "can't read the repo's state", say(err))
@@ -1529,13 +1398,13 @@ export function createCore(host: Host): Core {
   }
 
   // ── the app's own file history ──────────────────────────────────────────────────────────────────
-  // Where the files are on this computer, the app snapshots a conversation's folder at each turn
-  // boundary (snapshots.ts): when a run starts, when the server hands the agent the next message
+  // On the computer the agent works on, the app snapshots a conversation's folder at each turn
+  // boundary (snapshots.ts): when a run starts, when the agent is handed the next message
   // ("working"), when the run ends. The notes that finished at a boundary ran in the turn it ends,
   // and its two trees are what they changed: a note is taken back by reversing them, later turns
   // kept, and without any help from the backend. What the reviewer changes by hand between turns
   // is in the next turn's "before", so it is never reversed. A turn during which another
-  // conversation ran in the same folder (a background one, or another client of the server) is
+  // conversation ran in the same folder (the background one, or another project's) is
   // `shared`: its diff may hold the other's changes, so it is not reversed by itself.
 
   /** A snapshot at a turn boundary. `late`: it may hold changes of the turn it begins (it was
@@ -1552,7 +1421,7 @@ export function createCore(host: Host): Core {
   const finishing = new Set<Promise<void>>()
   let spans: Span[] = []
   let tick = 0
-  /** Folders of conversations that are no site's, as the server said. */
+  /** Folders of conversations that are no site's, as the agent said. */
   const foreignDirs = new Map<string, string>()
   /** Backends that hold a message until its turn's "before" is taken (`beforeTurn`). */
   const waitsForBefore = new WeakSet<Client>()
@@ -1581,13 +1450,13 @@ export function createCore(host: Host): Core {
   }
 
   /** The folder a conversation works in, as far as known without asking: a site's, or one the
-   *  server said. */
+   *  agent said. */
   function knownDir(id: string): string | undefined {
     const origin = owners.get(id)
     const own = origin !== undefined ? placeEntry(origin)?.directory : undefined
     return own && own !== missingFolder ? own : foreignDirs.get(id)
   }
-  /** The folder a conversation works in, when known: a site's, or asked of the server once. */
+  /** The folder a conversation works in, when known: a site's, or asked of the agent once. */
   function dirOf(id: string): Promise<string | undefined> {
     const known = knownDir(id)
     if (known) return Promise.resolve(known)
@@ -1607,7 +1476,8 @@ export function createCore(host: Host): Core {
   const here = (): On => ({ m: machine, sn: snapshots })
 
   async function localDir(dir: string | undefined, on: On = here()): Promise<string | undefined> {
-    if (!dir || !filesHere()) return undefined
+    // The agent in use works in this computer's folders, or in its own computer's over ssh (`on.m`).
+    if (!dir || !store.settings().server) return undefined
     try {
       return (await on.m.stat(dir)).kind === "dir" ? dir : undefined
     } catch {
@@ -1767,16 +1637,6 @@ export function createCore(host: Host): Core {
     showFiles(site)
   }
 
-  /** Whether the backend's own undo, from a turn that began at `since`, would bring back what the
-   *  app took back by itself in the folder: OpenCode's puts each file the turns touched back whole,
-   *  as it was before them, and that was before the app's take-back. Without `since`: whether the
-   *  app took back anything there that no message has followed yet. The app's own way is used then. */
-  async function undoClobbers(directory: string | undefined, since?: number, on: On = here()) {
-    const dir = await localDir(directory, on)
-    if (!dir) return false
-    return (await on.sn.history(dir)).restores.some((r) => (since === undefined ? !r.told : r.time > since))
-  }
-
   /** Messages on their way that carry the line about take-backs, by message id: the take-backs
    *  are final (`told`) once the agent has the message ("working"), and stay as they are when it
    *  never gets it (cancelled, a Stop, the agent's process or the app ending first). */
@@ -1837,7 +1697,7 @@ export function createCore(host: Host): Core {
 
   // ── checkpoints ─────────────────────────────────────────────────────────────────────────────────
   // A named point in a conversation. It is a line in the transcript, kept by the app; going back
-  // to it is the server's undo, to the first message said after it.
+  // to it puts back the files the agent changed since, from the app's own history.
 
   const CHECKPOINT_NAME_MAX = 60
   const checkpointsOf = (id: string): Checkpoint[] =>
@@ -1859,7 +1719,7 @@ export function createCore(host: Host): Core {
 
   // ── the page ────────────────────────────────────────────────────────────────────────────────────
 
-  /** The pins the page draws. While the server can't be reached nothing is being worked on,
+  /** The pins the page draws. While the agent can't be reached nothing is being worked on,
    *  whatever the last word from it was: those pins show as paused, like their rows. */
   function pinsOf(review: Review) {
     const pins = review.pins()
@@ -2118,7 +1978,7 @@ export function createCore(host: Host): Core {
     }
   }
 
-  /** Whether a conversation is running: what the stream said, or the server when it said nothing. */
+  /** Whether a conversation is running: what the stream said, or the agent when it said nothing. */
   async function isBusy(b: Client, id: string): Promise<boolean> {
     const known = busy.get(id)
     if (known !== undefined) return known
@@ -2140,8 +2000,8 @@ export function createCore(host: Host): Core {
     try {
       for (;;) {
         const next = s.review.next(lane)
-        // Out of reach: the notes wait until the server is back, which settles them and comes here.
-        // (So do the notes of a site whose server was left while this waited for an answer.)
+        // Out of reach: the notes wait until the agent is back, which settles them and comes here.
+        // (So do the notes of a site whose agent was left while this waited for an answer.)
         if (!next || !backend || connection.status !== "online" || sites.get(s.origin) !== s) return
         try {
           if (await isBusy(backend, await laneSession(s, lane))) return
@@ -2175,7 +2035,7 @@ export function createCore(host: Host): Core {
       const target = await laneSession(s, lane)
       payload.id ??= backend!.messageId()
       // On disk with the id it goes by before it goes: after a restart it is retried under the
-      // same id, which the server does not queue twice.
+      // same id, which the agent does not queue twice.
       await outboxFiles.save(id, payload)
       const b = backend!
       const sent = await telling(target, payload.text, (text, mid) => b.prompt(target, { ...(mid ? { id: mid } : {}), text, files: payload.files }), payload.id)
@@ -2190,7 +2050,7 @@ export function createCore(host: Host): Core {
   /** The conversation a lane's notes go to. The background one is made on its first note: a child
    *  of the main one, on the same model and folder, so its queue runs beside the main queue. */
   async function laneSession(s: Site, lane: Lane): Promise<string> {
-    if (!backend) throw new Error(connection.status === "unconfigured" ? "Connect to a server first." : "The server is offline.")
+    if (!backend) throw new Error(connection.status === "unconfigured" ? "Connect an agent first." : "The agent can't be reached.")
     const saved = siteSettings(s.origin)
     if (!saved) throw new Error("Pick this site's folder first.")
     if (s === site && !session) await openSite()
@@ -2219,12 +2079,10 @@ export function createCore(host: Host): Core {
     }
     return pending
   }
-  /** A finished note that can be taken back, and how that would go now. The newest message of an
-   *  idle conversation is undone by a backend that can, conversation and files ("undone"). Else
-   *  the app reverses its turn from its own file history, when the files are on this computer,
-   *  nothing is at work in the folder, the turn was not shared with another conversation, and
-   *  its reverse applies to the files as they are ("restored": later changes stay). Else only the
-   *  agent can take it out ("asked"). */
+  /** A finished note that can be taken back, and how that would go now. The app reverses its turn
+   *  from its own file history when nothing is at work in the folder, the turn was not shared
+   *  with another conversation, and its reverse applies to the files as they are ("restored":
+   *  later changes stay). Else only the agent can take it out ("asked"). */
   async function takeBack(id: unknown) {
     const s = site
     const found = typeof id === "string" ? s?.review.note(id) : undefined
@@ -2236,8 +2094,6 @@ export function createCore(host: Host): Core {
     const info = await b.session(note.session)
     if (!info) throw new Error("Its conversation no longer exists.")
     const mine = await noteTurn(s, note, on)
-    if (b.can?.undo && !info.busy && (await b.lastTurn(note.session))?.id === note.message && !(await undoClobbers(knownDir(note.session) ?? info.directory, mine?.turn.start, on)))
-      return { s, note, how: "undone" as TakeBackWay, mine }
     // A turn that changed nothing the app saw (the agent worked in a nested repository, an
     // ignored file, outside the folder) has nothing to put back: the agent is asked.
     const usable = !!mine && !mine.reversed && !mine.turn.shared && !mine.turn.untrusted && mine.turn.before !== mine.turn.after
@@ -2246,15 +2102,13 @@ export function createCore(host: Host): Core {
     return { s, note, how: (files.length ? "restored" : "asked") as TakeBackWay, mine, files }
   }
 
-  /** What the agent changed for a note: its turn from the app's history when there is one and no
-   *  other conversation shares it; else the backend's diff of the turn, when it has one; else the
-   *  shared turn's, which may hold another conversation's changes too. */
+  /** What the agent changed for a note: its turn from the app's history (a shared turn's may hold
+   *  another conversation's changes too). null: not known (no turn was kept for it), not "no file
+   *  changed". */
   async function diffOf(s: Site, note: { session: string; message: string }, mine?: Awaited<ReturnType<typeof noteTurn>>): Promise<FileChange[] | null> {
-    const b = need()
+    need()
     const turn = mine ?? (await noteTurn(s, note))
-    if (turn && (!turn.turn.shared || !b.can?.undo)) return turn.on.sn.diff(turn.dir, turn.turn.before, turn.turn.after)
-    // null: not known (no turn was kept for it), not "no file changed".
-    return b.can?.undo ? b.diff(note.session, note.message) : null
+    return turn ? turn.on.sn.diff(turn.dir, turn.turn.before, turn.turn.after) : null
   }
 
   /** Two alt+Enter notes in a row must not make two background conversations. */
@@ -2262,11 +2116,11 @@ export function createCore(host: Host): Core {
 
   // ── commands from the window ────────────────────────────────────────────────────────────────────
 
-  /** The app's own slash commands, as "/" lists them, above the server's. */
+  /** The app's own slash commands, as "/" lists them, above the agent's. */
   const BUILTINS: SlashCommand[] = [
     { name: "compact", description: "Summarise the conversation to free up context", builtin: true },
     { name: "new", description: "Start a new conversation", builtin: true },
-    { name: "undo", description: "Take back your last message and what the agent did after it", builtin: true },
+    { name: "undo", description: "Take back the files the agent changed in its last turn", builtin: true },
     { name: "redo", description: "Bring back what /undo took away", builtin: true },
     { name: "rename", description: "Name this conversation: /rename new name", builtin: true },
     { name: "fork", description: "Go on in a copy of this conversation", builtin: true },
@@ -2296,13 +2150,12 @@ export function createCore(host: Host): Core {
 
   const LATE_TURN = "The app's snapshot of the folder came late for that turn, so it can't tell exactly what the agent changed. Ask the agent to reverse it instead."
 
-  /** /undo with a backend that cannot cut the conversation: the agent's newest turn here that is
-   *  not taken back already, from the app's history, files only. The conversation stays as it is;
-   *  the agent is told with the next message. */
+  /** /undo: the agent's newest turn here that is not taken back already, from the app's history,
+   *  files only. The conversation stays as it is; the agent is told with the next message. */
   async function undoFiles(current: SessionSummary, args: string): Promise<CommandResult> {
     const on = here()
     const dir = await localDir(knownDir(current.id) ?? current.directory, on)
-    if (!dir) throw new Error("This agent can't undo, and the files are on another computer, where the app keeps no history of them.")
+    if (!dir) throw new Error("The app keeps no history of this folder: it is not there.")
     await Promise.all(finishing)
     const h = await on.sn.history(dir)
     const turn = h.turns.findLast((t) => t.session === current.id && t.before !== t.after && !h.restores.some((r) => r.turns.includes(t.id)))
@@ -2333,56 +2186,23 @@ export function createCore(host: Host): Core {
     async new() {
       await commands.newSession()
     },
-    // Two steps, because it cannot be done by halves: the server takes back everything from that
-    // message on, the agent's file changes included. The first "/undo" only says what would go.
-    async undo(b, current, args) {
+    // Two steps: the first "/undo" only says what would go back.
+    async undo(_b, current, args) {
       if (session?.id === current.id && session.busy) throw new Error("The agent is working. Stop it first, then /undo.")
-      if (!b.can?.undo || (await undoClobbers(knownDir(current.id) ?? current.directory))) return undoFiles(current, args)
-      const said = await b.lastTurn(current.id)
-      if (!said) throw new Error("Nothing to undo.")
-      // A message that began with the line about a note the app took back is the rest of it.
-      const told = splitTold(said.text)
-      const note = said.note ?? (told.told ? parseNote(told.rest) : undefined)
-      const turn = { ...said, text: told.rest, ...(note ? { note } : {}) }
-      const what = turn.note ? `note ${turn.note.n} (${quoted(turn.note.text)})` : `your message ${quoted(turn.text)}`
-      if (args !== UNDO_CONFIRM)
-        return {
-          say: `This takes back ${what} and everything after it: the agent's replies, and the changes it made to files since then. Press Enter to undo.`,
-          draft: `/undo ${UNDO_CONFIRM}`,
-        }
-      await b.undo(current.id, turn.id)
-      showFiles(site)
-      // The note it was says so in the list, until /redo.
-      for (const s of sites.values()) {
-        const row = s.review.rows().find((r) => s.review.note(r.id)?.message === turn.id && s.review.note(r.id)?.session === current.id && r.status === "done")
-        if (row && s.review.mark(row.id, { takenBack: "undone" })) changed(s)
-      }
-      // A note cannot be sent again from the message box; a typed message can, so it comes back.
-      return { say: `Took back ${what}. /redo brings it back; your next message makes it final.`, ...(turn.note ? {} : { draft: turn.text }) }
+      return undoFiles(current, args)
     },
     async redo(b, current) {
-      const now = b.can?.undo ? await b.session(current.id) : undefined
-      if (!now?.undone) {
-        // What the app took back by itself, the newest first, until the agent is told.
-        const on = here()
-        const dir = await localDir(knownDir(current.id) ?? current.directory, on)
-        const r = dir && (await lastRestore(dir, current.id, on))
-        if (!dir || !r) throw new Error("Nothing to redo.")
-        if (onItsWay(r)) throw new Error("Nothing to redo: your last message tells the agent what was taken back. Remove it from the queue first.")
-        // Files changed while a conversation works in the folder would be in its turn.
-        if ((session?.id === current.id && session.busy) || (await b.session(current.id))?.busy || (await folderBusy(dir)))
-          throw new Error("The agent is working in this folder. Stop it first, then /redo.")
-        await unrestore(dir, r, on)
-        return { say: "Brought back what was taken back." }
-      }
-      await b.redo(current.id)
-      showFiles(site)
-      for (const s of sites.values()) {
-        let touched = false
-        for (const r of s.review.rows()) if (r.takenBack === "undone" && s.review.note(r.id)?.session === current.id) touched = s.review.mark(r.id, { takenBack: undefined }) || touched
-        if (touched) changed(s)
-      }
-      return { say: "Brought back what was undone." }
+      // What the app took back, the newest first, until the agent is told.
+      const on = here()
+      const dir = await localDir(knownDir(current.id) ?? current.directory, on)
+      const r = dir && (await lastRestore(dir, current.id, on))
+      if (!dir || !r) throw new Error("Nothing to redo.")
+      if (onItsWay(r)) throw new Error("Nothing to redo: your last message tells the agent what was taken back. Remove it from the queue first.")
+      // Files changed while a conversation works in the folder would be in its turn.
+      if ((session?.id === current.id && session.busy) || (await b.session(current.id))?.busy || (await folderBusy(dir)))
+        throw new Error("The agent is working in this folder. Stop it first, then /redo.")
+      await unrestore(dir, r, on)
+      return { say: "Brought back what was taken back." }
     },
     async rename(b, current, args) {
       if (!args) throw new Error("Type the new name after /rename.")
@@ -2403,7 +2223,7 @@ export function createCore(host: Host): Core {
   }
 
   const need = () => {
-    if (!backend) throw new Error("Not connected to a server.")
+    if (!backend) throw new Error("Not connected to an agent.")
     return backend
   }
   const needSession = () => {
@@ -2417,7 +2237,7 @@ export function createCore(host: Host): Core {
     return found.session
   }
 
-  /** Pictures pasted into the message box, checked and named for the server. At most four. */
+  /** Pictures pasted into the message box, checked and named for the agent. At most four. */
   function pictures(images: PromptFile[] | undefined): PromptFile[] {
     const files: PromptFile[] = []
     for (const im of (images ?? []).slice(0, 4)) {
@@ -2452,7 +2272,7 @@ export function createCore(host: Host): Core {
   /** The folder of the conversation messages go to. */
   const chatDirectory = (s: SessionSummary) => (site && siteSettings(site.origin)?.directory) || s.directory
 
-  /** Per connection, so a new server (or the same one reconnected) is asked again. Failed reads
+  /** Per connection, so a new agent (or the same one reconnected) is asked again. Failed reads
    *  are not kept. */
   const lookups = new WeakMap<Client, Map<string, Promise<unknown>>>()
   function cached<T>(b: Client, key: string, read: () => Promise<T>): Promise<T> {
@@ -2574,7 +2394,7 @@ export function createCore(host: Host): Core {
     async retryNote(id) {
       const s = site
       if (!s) return
-      // A note the server had accepted (then stopped, or lost with its conversation) goes again as
+      // A note the agent had accepted (then stopped, or lost with its conversation) goes again as
       // a new message. One that may never have arrived keeps its id, so it can't be queued twice.
       const accepted = !!s.review.note(id)?.message
       const note = s.review.retry(id)
@@ -2612,7 +2432,7 @@ export function createCore(host: Host): Core {
     async takeBackNote(id, expect) {
       const { s, note, how, mine } = await takeBack(id)
       // The question named one way; the conversation has moved since, and this is not that way.
-      if ((expect === "undone" || expect === "restored" || expect === "asked") && expect !== how)
+      if ((expect === "restored" || expect === "asked") && expect !== how)
         throw new Error("Its conversation or its files changed meanwhile. Press Take back again to see what it would do now.")
       const b = need()
       if (how === "restored") {
@@ -2620,14 +2440,9 @@ export function createCore(host: Host): Core {
         await restore(mine!.dir, note.session, [mine!.turn], mine!.on)
         return how
       }
-      if (how === "undone") {
-        await b.undo(note.session, note.message)
-        showFiles(s)
-      } else {
-        const diff = (await diffOf(s, note, mine).catch(() => null)) ?? []
-        await startsRun(note.session, () => telling(note.session, takeBackPrompt(note.n, note.text, diff), (text, mid) => b.prompt(note.session, { ...(mid ? { id: mid } : {}), text })))
-        reversing.add(note.session)
-      }
+      const diff = (await diffOf(s, note, mine).catch(() => null)) ?? []
+      await startsRun(note.session, () => telling(note.session, takeBackPrompt(note.n, note.text, diff), (text, mid) => b.prompt(note.session, { ...(mid ? { id: mid } : {}), text })))
+      reversing.add(note.session)
       s.review.mark(note.id, { takenBack: how })
       changed(s)
       return how
@@ -2664,38 +2479,20 @@ export function createCore(host: Host): Core {
       const info = await b.session(cp.session)
       if (!info) throw new Error("Its conversation no longer exists.")
       if (info.busy) throw new Error("The agent is working. Stop it first.")
-      // A backend that cannot cut the conversation (or whose undo would bring back what the app
-      // took back since): the files go back from the app's history, every turn of the agent's
-      // since the checkpoint that is not taken back already.
+      // The files go back from the app's history, every turn of the agent's since the checkpoint
+      // that is not taken back already. The conversation stays as it is.
       const on = here()
-      if (!b.can?.undo || (await undoClobbers(knownDir(cp.session) ?? info.directory, cp.time, on))) {
-        const dir = await localDir(knownDir(cp.session) ?? info.directory, on)
-        if (!dir) throw new Error("This agent can't go back, and the files are on another computer, where the app keeps no history of them.")
-        await Promise.all(finishing)
-        const h = await on.sn.history(dir)
-        const turns = h.turns.filter((t) => t.session === cp.session && t.start > cp.time && t.before !== t.after && !h.restores.some((r) => r.turns.includes(t.id)))
-        if (!turns.length) throw new Error("The agent has changed no file since this checkpoint.")
-        if (turns.some((t) => t.shared)) throw new Error("Another conversation worked in this folder meanwhile, so the app can't tell its changes apart. Ask the agent to go back instead.")
-        if (turns.some((t) => t.untrusted)) throw new Error(LATE_TURN)
-        if (await folderBusy(dir)) throw new Error("The agent is working in this folder. Stop it first.")
-        await restore(dir, cp.session, turns, on)
-        return { taken: turns.length, how: "restored" as const }
-      }
-      // Everything said after it goes: the first such message is where the server cuts.
-      const after = (await b.transcript(cp.session)).items.filter((i) => i.kind === "user" && !i.pending && i.time > cp.time)
-      if (!after.length) throw new Error("Nothing has been said since this checkpoint.")
-      await b.undo(cp.session, after[0]!.id)
-      showFiles(site)
-      const gone = new Set(after.map((i) => i.id))
-      for (const s of sites.values()) {
-        let touched = false
-        for (const row of s.review.rows()) {
-          const note = s.review.note(row.id)
-          if (note?.session === cp.session && note.message && gone.has(note.message) && note.status === "done") touched = s.review.mark(row.id, { takenBack: "undone" }) || touched
-        }
-        if (touched) changed(s)
-      }
-      return { taken: after.length, how: "undone" as const }
+      const dir = await localDir(knownDir(cp.session) ?? info.directory, on)
+      if (!dir) throw new Error("The app keeps no history of this folder: it is not there.")
+      await Promise.all(finishing)
+      const h = await on.sn.history(dir)
+      const turns = h.turns.filter((t) => t.session === cp.session && t.start > cp.time && t.before !== t.after && !h.restores.some((r) => r.turns.includes(t.id)))
+      if (!turns.length) throw new Error("The agent has changed no file since this checkpoint.")
+      if (turns.some((t) => t.shared)) throw new Error("Another conversation worked in this folder meanwhile, so the app can't tell its changes apart. Ask the agent to go back instead.")
+      if (turns.some((t) => t.untrusted)) throw new Error(LATE_TURN)
+      if (await folderBusy(dir)) throw new Error("The agent is working in this folder. Stop it first.")
+      await restore(dir, cp.session, turns, on)
+      return { taken: turns.length }
     },
     async refreshRepo() {
       await refreshRepo()
@@ -2712,19 +2509,6 @@ export function createCore(host: Host): Core {
       if (typeof id === "string" && site?.review.note(id)) page?.send({ type: "show", id })
     },
 
-    async connect(server) {
-      if (!server.password) throw new Error("Enter the server password.")
-      await connect(serverUrl(server.url), server.password, { save: "remote" })
-    },
-    localServer() {
-      const found = readLocal()
-      return found ? { url: found.url } : null
-    },
-    async connectLocal() {
-      const found = readLocal()
-      if (!found) throw new Error(NO_LOCAL)
-      await connect(found.url, found.password, { save: "local" })
-    },
     localAgents: () => localAgents(thisMachine(), startPrefs()),
     async setAgentLatest(input) {
       const id = typeof input?.id === "string" ? input.id : ""
@@ -2768,6 +2552,8 @@ export function createCore(host: Host): Core {
       return { host: where, computer: m.hostname(), home: m.home, agents }
     },
     leaveSsh() {
+      // The connect screen said that saved servers were put aside: once is enough.
+      if (store.settings().serversRetired) store.update((s) => void delete s.serversRetired), push()
       // Connected to only to list its agents: let go, with the connect screen.
       for (const [h, p] of remotes)
         void p.then(
@@ -2781,16 +2567,15 @@ export function createCore(host: Host): Core {
     },
     servers() {
       const s = store.settings()
-      const here = readLocal()?.url ?? ""
       return (s.servers ?? [])
         .map(
           (x): ServerInfo => ({
             id: x.id,
             ...((x.name ?? x.computer) ? { name: x.name ?? x.computer } : {}),
-            url: "local" in x ? here : "agent" in x ? acpUrl(x.agent, x.host) : x.url,
-            local: "local" in x,
             current: !!s.server && x.id === s.current,
-            ...("agent" in x ? { agent: x.agent, command: x.command.join(" "), ...(x.host ? { host: x.host } : {}) } : {}),
+            agent: x.agent,
+            command: x.command.join(" "),
+            ...(x.host ? { host: x.host } : {}),
             kind: describe(x).kind,
             here: describe(x).here,
           }),
@@ -2799,12 +2584,8 @@ export function createCore(host: Host): Core {
     },
     async useServer(id) {
       const saved = store.settings().servers?.find((x) => x.id === id)
-      if (!saved) throw new Error("That server is no longer saved.")
-      if ("local" in saved) return void (await commands.connectLocal())
-      if ("agent" in saved) return void (await connectAgent(saved.agent, saved.command, saved.host))
-      const password = unseal(saved.password)
-      if (password === undefined) throw new Error("Its saved password can't be read. Enter the address and password again.")
-      await connect(saved.url, password, { save: "remote" })
+      if (!saved) throw new Error("That agent is no longer saved.")
+      await connectAgent(saved.agent, saved.command, saved.host)
     },
     forgetServer(id) {
       const s = store.settings()
@@ -2835,12 +2616,12 @@ export function createCore(host: Host): Core {
     },
     async projects() {
       const b = need()
-      // The server lists every folder a conversation was ever started for, also one that is not
+      // The agent lists every folder a conversation was ever started for, also one that is not
       // there (deleted since, or another computer's, named by mistake): those are left out.
       const known = (await b.projects()).slice(0, 40)
       const there = await Promise.all(known.map((d) => folderExists(b, d)))
       const list = known.filter((_, i) => there[i])
-      // Kept with the server, so its projects can be offered while another one is in use.
+      // Kept with the agent, so its projects can be offered while another one is in use.
       store.update((s) => {
         const mine = s.servers?.find((x) => x.id === s.current)
         if (mine) mine.projects = list
@@ -2886,11 +2667,11 @@ export function createCore(host: Host): Core {
     },
     async openProject(directory, server) {
       if (typeof directory !== "string" || !directory.startsWith("/")) throw new Error("Choose a folder.")
-      // A project of another server: that server first. Its own repo and page come up with it,
+      // A project of another agent: that agent first. Its own repo and page come up with it,
       // and then this project is opened there.
       if (typeof server === "string" && (server !== store.settings().current || !backend)) await commands.useServer(server)
       const b = need()
-      if (!(await folderExists(b, directory))) throw new Error(`${directory} is not a folder on this server.`)
+      if (!(await folderExists(b, directory))) throw new Error(`${directory} is not a folder there.`)
       missingFolder = undefined
       // Its site, as it was last open: the one visited most recently among those that work in it.
       const known = Object.entries(store.settings().sites)
@@ -2910,19 +2691,6 @@ export function createCore(host: Host): Core {
       else page?.load(to)
       await openSite()
     },
-    async refreshRunning() {
-      need()
-      await refreshRunning(true)
-    },
-    async stopRunning(directory, id) {
-      const b = need()
-      if (!b.can.running) throw new Error("This agent can't stop what it left running: it ends when the agent does.")
-      const which = runningShown().filter((r) => (directory === undefined || r.directory === directory) && (id === undefined || r.id === id))
-      const failed: string[] = []
-      await Promise.all(which.map((r) => b.kill(r.directory, r.id).catch((err) => void failed.push(say(err)))))
-      await refreshRunning(true)
-      if (failed.length) throw new Error(`Could not stop ${failed.length === 1 ? "it" : `${failed.length} of them`}: ${failed[0]}`)
-    },
     async startSite() {
       const b = need()
       const current = needSession()
@@ -2931,7 +2699,7 @@ export function createCore(host: Host): Core {
       starting = true
       push()
       try {
-        await startsRun(current.id, () => telling(current.id, startPrompt(p?.error ? p.url : "", !sameComputer() && machine.local, !!b.can.running), (text, mid) => b.prompt(current.id, { ...(mid ? { id: mid } : {}), text })))
+        await startsRun(current.id, () => telling(current.id, startPrompt(p?.error ? p.url : ""), (text, mid) => b.prompt(current.id, { ...(mid ? { id: mid } : {}), text })))
       } catch (err) {
         siteAsked = undefined
         starting = false
@@ -2954,9 +2722,9 @@ export function createCore(host: Host): Core {
       const b = need()
       const directory = site && siteSettings(site.origin)?.directory
       if (!directory) return [] as SlashCommand[]
-      // The app's own first. The server's list is extra: without it "/" still works.
+      // The app's own first. The agent's list is extra: without it "/" still works.
       const theirs = await cached(b, `commands:${directory}`, () => b.commands(directory)).catch((err) => {
-        log("warn", "can't list the server's commands", say(err))
+        log("warn", "can't list the agent's commands", say(err))
         return [] as SlashCommand[]
       })
       const ours = BUILTINS.filter((c) => allowed(b, c.name))
@@ -3003,10 +2771,10 @@ export function createCore(host: Host): Core {
     async cancelNote(id) {
       const s = site
       const note = typeof id === "string" ? s?.review.note(id) : undefined
-      // Still waiting in the app: no conversation has it, so there is nothing to tell the server.
+      // Still waiting in the app: no conversation has it, so there is nothing to tell the agent.
       if (s && note && s.review.cancel(note.id)) return changed(s)
       if (!note?.session || !note.message || note.status !== "queued") throw new Error("This note is no longer waiting.")
-      // The server's "cancelled" event is what moves the note; it arrives for any conversation.
+      // The agent's "cancelled" event is what moves the note; it arrives for any conversation.
       await need().cancelQueued(note.session, note.message)
     },
     async stop() {
@@ -3014,21 +2782,21 @@ export function createCore(host: Host): Core {
       const id = needSession().id
       // Stop is for what is queued too, not only the run under way. Left in a queue, the rest went
       // on by itself later: the app's own queue (the notes waiting for their turn) is pumped again
-      // on every reconnect and restart, and any prompt wakes the server's.
+      // on every reconnect and restart, and any prompt wakes the agent's.
       // The app's first: the end of the run, or a cancel below, pumps the lane again.
       const origin = owners.get(id)
       const s = origin ? sites.get(origin) : undefined
       const saved = origin ? siteSettings(origin) : undefined
       const lane: Lane | undefined = saved?.session === id ? "main" : saved?.bg === id ? "bg" : undefined
       if (s && lane && s.review.cancelHeld(lane)) changed(s)
-      // Then the run: interrupting first leaves the server's queue parked, so nothing in it is
+      // Then the run: interrupting first leaves the agent's queue parked, so nothing in it is
       // delivered while it is emptied.
       const stopped = await b.stop(id)
       const queued = await b.waiting(id)
       // A cancelled note stays on the list as stopped, with Retry (its inbox event moves it).
       await Promise.all(queued.map((item) => b.cancelQueued(id, item)))
       if (stopped) return
-      // Nothing was running: the busy shown was out of date. What the server says now is.
+      // Nothing was running: the busy shown was out of date. What the agent says now is.
       forgetBusy(id)
       const now = await b.session(id)
       if (now && session?.id === id) (session = { ...session, busy: now.busy }), push()
@@ -3086,7 +2854,7 @@ export function createCore(host: Host): Core {
       if (typeof id !== "string" || !id) return
       await need().remove(id)
       unpin(id)
-      // The server says so too (sessionGone); by then the site has moved on, so that it goes to
+      // The agent says so too (sessionGone); by then the site has moved on, so that it goes to
       // the conversation before this one and not to a new one.
       const owner = sites.get(owners.get(id) ?? "")
       if (owner?.review.gone(id)) changed(owner)
@@ -3104,7 +2872,7 @@ export function createCore(host: Host): Core {
     },
     setServerName(name) {
       const server = store.settings().server
-      if (!server) throw new Error("Connect to a server first.")
+      if (!server) throw new Error("Connect an agent first.")
       const clean = name.replace(/\s+/g, " ").trim().slice(0, SERVER_NAME_MAX)
       store.update((s) => {
         for (const x of [s.server, s.servers?.find((v) => v.id === s.current)]) {
@@ -3117,7 +2885,7 @@ export function createCore(host: Host): Core {
     },
     async setDefaultModel(model) {
       const known = models.find((m) => typeof model?.providerID === "string" && typeof model.id === "string" && sameModel(model, m))
-      if (!known) throw new Error("This server does not offer that model. Choose another one.")
+      if (!known) throw new Error("This agent does not offer that model. Choose another one.")
       const variant = typeof model.variant === "string" && known.variants.includes(model.variant) ? model.variant : undefined
       store.update((s) => void (s.defaultModel = { providerID: known.providerID, id: known.id, ...(variant ? { variant } : {}) }))
       modelChoice = undefined
@@ -3133,7 +2901,7 @@ export function createCore(host: Host): Core {
     },
     async replyPermission(id, decision) {
       await need().replyPermission(pendingSession(permissions, id), id, decision)
-      // The server confirms with an event; don't leave the card up if that event is missed.
+      // The agent confirms with an event; don't leave the card up if that event is missed.
       if (permissions.delete(id)) push()
     },
     async answerQuestion(id, answer) {

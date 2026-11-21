@@ -1,10 +1,10 @@
 // Everything that crosses a boundary in the app lives here, and nothing else does.
 //
 //   app window (renderer) ⇄ main      AppState snapshots, ChatEvents, Commands      (via preload.ts)
-//   main ⇄ agent backend              the Backend interface and its BackendEvents   (main/opencode.ts)
+//   main ⇄ agent backend              the Backend interface and its BackendEvents   (main/acp.ts)
 //
 // The UI speaks of sites, notes and changes. Backend words (session, inbox, provider) stop at
-// main: the renderer never sees a raw server payload.
+// main: the renderer never sees a raw agent payload.
 import type { Dock, PanelAct, PanelPart, PanelView, Pane } from "../../../overlay/protocol"
 
 // ── the page's docks, drawn by the window ───────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ export type ModelInfo = {
   /** Effort levels, e.g. low | medium | high. Empty when the model has none. */
   variants: string[]
   /** How many tokens the model can be given at once: the window its context is measured
-   *  against. Absent when the server does not say. */
+   *  against. Absent when the agent does not say. */
   context?: number
 }
 
@@ -123,13 +123,9 @@ export type ChatAssistant = {
   parts: ChatPart[]
   /** False while the step is still running. */
   done: boolean
-  /** When the step ended (ms), once it has and the server said when. */
+  /** When the step ended (ms), once it has and the agent said when. */
   ended?: number
   error?: string
-  /** Not a reply: the server's summary of the conversation so far, written to free up context
-   *  ("manual" when asked for with /compact, "auto" when the context filled up). Its one text
-   *  part is the summary. */
-  summary?: "manual" | "auto"
 }
 
 /** A line between messages: "Stopped", "Failed: …", "Model changed to Sonnet". */
@@ -165,8 +161,7 @@ export type ChatEvent =
 // ── the message box: commands and mentions ──────────────────────────────────────────────────────
 
 /** A command, run by typing `/name arguments`: one of the app's own (`builtin`: /compact, /new,
- *  /undo, …) or one the server offers for the site's folder. A built-in wins over a server
- *  command of the same name. */
+ *  /undo, …) or one the agent offers. A built-in wins over an agent's command of the same name. */
 export type SlashCommand = { name: string; description?: string; builtin?: true }
 
 /** What a command has to say once it has run: a line for under the message box, and text to
@@ -252,20 +247,18 @@ export type NoteRow = {
   /** Which pictures of its area there are (`notePictures`): the one from when it was made, or
    *  that and the one taken when the agent was done. */
   pictures?: "before" | "both"
-  /** What the agent did for it was taken back: "undone" with the conversation by the backend,
-   *  "restored" by the app from its own file history (files only: the conversation keeps it, and
-   *  the agent is told with the next message), both of which /redo can bring back until the next
-   *  message; or the agent was "asked" to reverse it. */
+  /** What the agent did for it was taken back: "restored" by the app from its own file history
+   *  (files only: the conversation keeps it, and the agent is told with the next message), which
+   *  /redo can bring back until the next message; or the agent was "asked" to reverse it. */
   takenBack?: TakeBackWay
 }
 
 /** A file the working tree has changed since the last commit. */
 export type RepoChange = { file: string; additions: number; deletions: number; status: "added" | "deleted" | "modified" }
 
-/** How a note is taken back (`takeBackWay`): "undone" by the backend with the conversation (the
- *  newest message of an idle one), "restored" by the app from its own snapshots of the files (its
- *  changes reversed exactly, later ones kept), or the agent is "asked" to reverse it. */
-export type TakeBackWay = "undone" | "restored" | "asked"
+/** How a note is taken back (`takeBackWay`): "restored" by the app from its own snapshots of the
+ *  files (its changes reversed exactly, later ones kept), or the agent is "asked" to reverse it. */
+export type TakeBackWay = "restored" | "asked"
 
 /** A named point in a conversation to go back to. */
 export type Checkpoint = { id: string; session: string; name: string; time: number }
@@ -279,7 +272,7 @@ export type Checkpoint = { id: string; session: string; name: string; time: numb
 export const AWAY_HOURS = 12
 
 export type ConnectionState =
-  /** No server configured yet: show the connect form. */
+  /** No agent set up yet: show the connect form. */
   | { status: "unconfigured" }
   | { status: "connecting"; url: string }
   | { status: "online"; url: string; version: string }
@@ -288,30 +281,24 @@ export type ConnectionState =
    *  notes wait meanwhile. */
   | { status: "offline"; url: string; error: string; away?: true }
 
-/** A server the app remembers. `url` is empty for this computer's while none is running here. */
-/** A shell command the server is still running in a project's folder. `started` is a time in ms. */
-export type RunningCommand = { id: string; directory: string; command: string; started: number }
-
 /** Which agent does the work, for the mark the window draws for it: one of the ACP agents the
- *  app knows (`localAgents`), any other ACP command ("custom"), or an OpenCode server. */
-export type AgentKind = "claude" | "codex" | "gemini" | "opencode" | "custom" | "opencode-server"
+ *  app knows (`localAgents`), or any other ACP command ("custom"). */
+export type AgentKind = "claude" | "codex" | "gemini" | "opencode" | "custom"
 
-/** An agent or server as the window names it. `name`: the reviewer's name for it, else the
- *  agent's own ("Claude Code", a custom command's program), "OpenCode server" for this
- *  computer's, or a server's computer name or address. `here`: it runs on this computer, so its
- *  folders are this computer's; else `host` is the server's address without its scheme. */
+/** An agent as the window names it. `name`: the reviewer's name for it, else the agent's own
+ *  ("Claude Code", a custom command's program). `here`: it runs on this computer, so its folders
+ *  are this computer's; else `host` is the computer it runs on over ssh, as the reviewer typed it. */
 export type Harness = { kind: AgentKind; name: string; here: boolean; host?: string }
 
-/** A folder on a server. `server` is absent for the server in use; `on` is what to call the
- *  server ("k", "Studio Mac", "Claude Code", or its address), `kind` which agent that is, `here`
- *  that it is on this computer; `open` marks the project that is open. */
+/** A folder an agent has worked in. `server` is absent for the agent in use, else the saved
+ *  agent's id; `on` is what to call that agent ("Claude Code", "Studio Mac"), `kind` which agent
+ *  that is, `here` that it is on this computer; `open` marks the project that is open. */
 export type ProjectInfo = { directory: string; server?: string; on: string; kind?: AgentKind; here?: true; open?: true }
 
-/** `name` is the reviewer's for it, else its computer's own. `agent` is set for an agent on
- *  this computer the app runs itself (an ACP agent: `connectAgent`): which one (an id in
- *  `localAgents`, or "custom-…"), with `command` the line that starts it. `local` is this
- *  computer's OpenCode server; `here` is anything on this computer (it and every ACP agent). */
-export type ServerInfo = { id: string; name?: string; url: string; local: boolean; current: boolean; agent?: string; command?: string; kind: AgentKind; here: boolean; host?: string }
+/** An agent the app has started before (`connectAgent`), remembered. `name` is the reviewer's for
+ *  it, else its own. `agent`: which one (an id in `localAgents`, or "custom-…"), `command` the line
+ *  that starts it; `host` the other computer it runs on over ssh, `here` when it is this one. */
+export type ServerInfo = { id: string; name?: string; current: boolean; agent: string; command: string; kind: AgentKind; here: boolean; host?: string }
 
 /** Another computer connected to over ssh (`connectSsh`): the host as typed, what it calls itself,
  *  its home folder, and the agents installed there, as `localAgents` says this computer's. */
@@ -339,7 +326,7 @@ export type LocalAgent = {
 
 export type SessionSummary = {
   id: string
-  /** The server folder it works in. */
+  /** The folder it works in. */
   directory: string
   /** Set on a child conversation (the background one); those stay out of the switcher. */
   parent?: string
@@ -348,12 +335,9 @@ export type SessionSummary = {
   busy: boolean
   model?: ModelRef
   agent?: string
-  /** Set while part of the conversation is undone and can still be brought back: the id of the
-   *  first message taken away. */
-  undone?: string
-  /** Put away: out of the list, kept on the server, and can be brought back. */
+  /** Put away: out of the list, kept by the agent, and can be brought back. */
   archived?: true
-  /** Kept at the top of the list. The app's own: the server does not know. */
+  /** Kept at the top of the list. The app's own: the agent does not know. */
   pinned?: true
   /** How many of this site's notes went to it, and their words (lower case), for the list's
    *  search. The app's own, of the notes still on the list. */
@@ -368,9 +352,11 @@ export type ReviewMode = "preview" | "notes" | "edit" | "motion"
 
 export type AppState = {
   connection: ConnectionState
-  /** The reviewer's name for the server in use, else its computer's own name; with neither it
-   *  goes by its address. */
+  /** The reviewer's name for the agent in use, else its own. */
   serverName?: string
+  /** OpenCode servers saved by an earlier version were put aside at start (the app no longer
+   *  connects to one): the connect screen says so once, then `leaveSsh` forgets it. */
+  serversRetired?: true
   /** The agent in use (or being connected to again, while offline or connecting): its mark,
    *  name and where it runs. Absent while none is set up. */
   harness?: Harness
@@ -406,20 +392,16 @@ export type AppState = {
     /** The panes the overlay was told the window draws (HOSTED_PANES, unless the shell says otherwise). */
     docks: Pane[]
   }
-  /** The site under review and the server folder (the repo) that holds its code. `null` until
+  /** The site under review and the folder (the repo) that holds its code. `null` until
    *  there is a repo or a page. The repo comes first: with one open and no page yet, `origin` is
    *  "" and the conversation is the repo's own, which the first site opened takes over.
    *  `directory` is absent only for a page opened while no repo is known. */
   site: { origin: string; directory?: string } | null
-  /** The repo that was open is not a folder on the server in use (it belonged to another
-   *  computer): another one has to be chosen. */
+  /** The repo that was open is not a folder where the agent in use works (it was moved, or it is
+   *  another computer's): another one has to be chosen. */
   missingFolder?: string
-  /** What the server in use has been running for a while, in the open repo first and then in
-   *  its other projects: dev servers the agent started and nobody stopped. Something that
-   *  has only just started (a command of the step the agent is on) is not here yet. */
-  running: RunningCommand[]
   /** The open repo under version control: its branch, and what is changed and not committed.
-   *  Absent when the folder is not a repository, or the server does not say. */
+   *  Absent when the folder is not a repository. */
   repo?: { branch?: string; changes: RepoChange[] }
   /** The agent was asked to get the site running (`startSite`) and has not finished answering. */
   startingSite?: true
@@ -431,19 +413,18 @@ export type AppState = {
   agents: AgentInfo[]
   /** The model new conversations start with. */
   defaultModel?: ModelRef
-  /** Set while the person has to choose that model: the server lists several and none is saved
-   *  (first launch), or the saved one is no longer on the server's list (`previous`). The window
+  /** Set while the person has to choose that model: the agent offers several and none is saved
+   *  (first launch), or the saved one is no longer on its list (`previous`). The window
    *  shows the chooser with `suggested` preselected; `setDefaultModel` answers it. No new
    *  conversation is made meanwhile. */
   modelChoice?: { suggested: ModelRef; previous?: ModelRef }
   permissions: PermissionAsk[]
   questions: Question[]
   /** What the agent in use can do beyond the basics (`BackendCan`). The window leaves out what it
-   *  cannot: Steer, the running commands and their Stop, Compact, Fork, Archive. Absent while
-   *  nothing is connected. */
+   *  cannot: Steer, Compact, Fork, Archive. Absent while nothing is connected. */
   can?: BackendCan
-  /** How full the open conversation's context is: the tokens the agent's last finished step
-   *  held, and the model's window (absent when the server gives none). Absent until a step has
+  /** How full the open conversation's context is: the tokens the agent last counted, and the
+   *  window it counts against (absent when it gives none). Absent until a step has
    *  finished, right after a summary (nothing has measured what is left yet), and after a
    *  change to another provider's model. */
   context?: { used: number; limit?: number }
@@ -491,11 +472,9 @@ export type Commands = {
    *  known (no record of the turn was kept), which is not "no file changed" ([]). */
   noteDiff(id: string): FileChange[] | null
   /** The result is right (or, with false, not looked at after all). */
-  /** Takes back what the agent did for a finished note. The newest message of an idle
-   *  conversation is undone by the backend, conversation and files ("undone"); else, on this
-   *  computer, the app reverses the files from its own snapshots when that applies cleanly
-   *  ("restored"); else the agent is asked to reverse its change ("asked"). /redo brings back
-   *  either of the first two. */
+  /** Takes back what the agent did for a finished note: the app reverses the files from its own
+   *  snapshots when that applies cleanly ("restored", which /redo brings back until the next
+   *  message); else the agent is asked to reverse its change ("asked"). */
   takeBackNote(id: string, expect?: TakeBackWay): TakeBackWay
   /** Which way `takeBackNote` would go now, so the question before it can say. With `expect`,
    *  `takeBackNote` does nothing and throws when it would by now go another. */
@@ -506,23 +485,15 @@ export type Commands = {
   /** Marks this point of the open conversation, to come back to. */
   addCheckpoint(name: string): void
   removeCheckpoint(id: string): void
-  /** Takes the conversation back to a checkpoint. With a backend that undoes ("undone"), every
-   *  message after it leaves and the files the agent changed since go back (in a git repository);
-   *  without one, the app reverses the files from its own snapshots and the conversation stays
-   *  ("restored"). /redo brings it all back until the next message. `taken`: how many messages
-   *  ("undone") or turns of the agent ("restored") were taken back. */
-  returnToCheckpoint(id: string): { taken: number; how: "undone" | "restored" }
+  /** Takes the files back to a checkpoint: the app reverses what the agent changed since from its
+   *  own snapshots, and the conversation stays. /redo brings it all back until the next message.
+   *  `taken`: how many turns of the agent were taken back. */
+  returnToCheckpoint(id: string): { taken: number }
   /** Looks again at the repo's branch and uncommitted changes (`AppState.repo`). */
   refreshRepo(): void
   /** Asks the agent, in the open conversation, to commit everything changed with this message. */
   commitChanges(message: string): void
   // connection and site
-  connect(server: { url: string; password: string }): void
-  /** The OpenCode server running on this computer, if there is one. Only its address: the
-   *  password stays in main. */
-  localServer(): { url: string } | null
-  /** Connects to that server, and remembers to use whichever one runs here from now on. */
-  connectLocal(): void
   /** The ACP agents this computer can run (Claude Code, Codex, Gemini CLI, OpenCode), and
    *  whether each is installed. */
   localAgents(): LocalAgent[]
@@ -530,9 +501,8 @@ export type Commands = {
    *  version the app pins. Kept in the settings, for every computer; answered with the agent as
    *  `localAgents` says it on this computer, or with `host` on that one (connected already). */
   setAgentLatest(input: { id: string; latest: boolean; host?: string }): LocalAgent
-  /** Runs one of them (or `command`, for "custom") and uses it as the server: its folders are
-   *  this computer's, or with `host` that computer's (connected with `connectSsh`), where it runs.
-   *  Remembered like a server. */
+  /** Runs one of them (or `command`, for "custom") and uses it: its folders are this computer's,
+   *  or with `host` that computer's (connected with `connectSsh`), where it runs. Remembered. */
   connectAgent(agent: { id: string; command?: string; host?: string }): void
   /** Connects to another computer over ssh (`user@host`, an alias of ~/.ssh/config) with the
    *  system's ssh and the reviewer's own keys, puts the app's helper there, and says which agents
@@ -540,47 +510,44 @@ export type Commands = {
    *  node there). */
   connectSsh(host: string): RemoteInfo
   /** The connect screen closed: a computer connected to only to list its agents (no agent in use
-   *  is there, none is being started there) is let go. */
+   *  is there, none is being started there) is let go, and the line about servers put aside
+   *  (`serversRetired`) has been seen. */
   leaveSsh(): void
-  /** Every server connected to so far, the one in use first. Passwords stay in main. */
+  /** Every agent started so far, the one in use first. */
   servers(): ServerInfo[]
-  /** Connects to one of them. Its own repo, page and conversations come back with it. */
+  /** Starts one of them again. Its own repo, page and conversations come back with it. */
   useServer(id: string): void
-  /** Forgets one that is not in use, with its password. Its notes stay on disk. */
+  /** Forgets one that is not in use. Its notes stay on disk. */
   forgetServer(id: string): void
-  /** Tries the saved server again. The outcome shows in `connection`. */
+  /** Tries the saved agent again. The outcome shows in `connection`. */
   reconnect(): void
   disconnect(): void
-  /** Names the saved server; an empty name goes back to its address. */
+  /** Names the agent in use; an empty name goes back to its own. */
   setServerName(name: string): void
-  /** Folders the server already knows, most recently used first. */
+  /** Folders the agent has worked in, most recently used first. */
   projects(): string[]
-  /** Sub-folders of an absolute path on the server, for the folder picker. */
+  /** Sub-folders of an absolute path on the agent's computer, for the folder picker. */
   listFolders(path: string): DirEntry[]
   /** Opens a repo: the folder the site on screen works in, and the one a site opened for the
    *  first time starts with. Works before any page is open. */
   setDirectory(directory: string): void
-  /** Every project that can be opened: the folders the server in use knows (the open one
-   *  first), then those of the other servers connected to before, as they were last seen. */
+  /** Every project that can be opened: the folders the agent in use knows (the open one first),
+   *  then those of the other agents used before, as they were last seen. */
   allProjects(): ProjectInfo[]
-  /** Switches to another project: the repo in that folder. With `server`, on that server:
-   *  it is connected to first. Its site comes back as it was last
+  /** Switches to another project: the repo in that folder. With `server`, with that saved agent:
+   *  it is started first. Its site comes back as it was last
    *  open (page, notes, conversation); a project with no site yet opens with no page, at the
    *  step where a site is opened or the agent is asked to start one. */
   openProject(directory: string, server?: string): void
-  /** Looks again at what is running (`AppState.running`), in every project of the server. */
-  refreshRunning(): void
-  /** Ends one running command; without an id, every one listed. */
-  stopRunning(directory?: string, id?: string): void
   /** Asks the agent, in the open conversation, to get the repo's site running and say where.
    *  Its answer shows in the chat; the address it ends with is opened when no page is. */
   startSite(): void
   // chat
   /** `images` are pictures pasted or dropped into the message box, as data URIs. */
   send(text: string, images?: PromptFile[], options?: SendOptions): void
-  /** What `/` offers: the app's own commands first, then the server's for the open site. */
+  /** What `/` offers: the app's own commands first, then the agent's. */
   commands(): SlashCommand[]
-  /** Runs `/name args` in the open conversation: a built-in here, anything else on the server. */
+  /** Runs `/name args` in the open conversation: a built-in here, anything else is the agent's. */
   runCommand(name: string, args: string, images?: PromptFile[], options?: SendOptions): CommandResult | void
   /** What `@query` could mean: files and folders of the site's code, skills, helper agents.
    *  At most 20, best first. An empty query lists skills and agents. */
@@ -596,7 +563,7 @@ export type Commands = {
   stop(): void
   newSession(): void
   openSession(id: string): void
-  /** Looks at the server's list again: the list of conversations asks when it opens. */
+  /** Looks at the agent's list again: the list of conversations asks when it opens. */
   refreshSessions(): void
   /** The conversations put away, newest first. */
   archivedSessions(): SessionSummary[]
@@ -607,7 +574,7 @@ export type Commands = {
   /** Puts a conversation away, or brings it back. The one on screen gives way to the most
    *  recent other one, or to a new one. Its notes still finish. */
   archiveSession(id: string, archived: boolean): void
-  /** Deletes a conversation on the server, for good. Unfinished notes sent to it fail. */
+  /** Deletes a conversation, for good. Unfinished notes sent to it fail. */
   deleteSession(id: string): void
   setModel(model: ModelRef): void
   /** Saves the model new conversations start with. Works before any conversation exists, and
@@ -641,19 +608,15 @@ export type Bridge = {
 }
 
 // ── backend ─────────────────────────────────────────────────────────────────────────────────────
-// The seam to whatever runs the agent: an OpenCode server (main/opencode.ts), or an ACP agent the
-// app runs on this computer (main/acp.ts). Nothing outside the implementation knows the wire format.
+// The seam to the agent: an ACP agent the app runs on this computer or on another one over ssh
+// (main/acp.ts). Nothing outside the implementation knows the wire format.
 
 /** What a backend can do beyond the basics. A missing field means it cannot. */
 export type BackendCan = {
-  /** undo/redo/lastTurn/diff on the server: the conversation is cut back, files and all. */
-  undo?: boolean
-  /** Messages sent while a run is under way wait on the server (prompt with delivery "queue"). */
+  /** Messages sent while a run is under way wait for it (prompt with delivery "queue"). */
   queue?: boolean
   /** delivery "steer": a message joins the run under way. */
   steer?: boolean
-  /** running()/kill(): commands the agent left running. */
-  running?: boolean
   /** compact(): summarise the conversation. */
   compact?: boolean
   /** fork(): copy a conversation. */
@@ -675,7 +638,7 @@ export type BackendEvent =
   /** The agent started, or stopped for the given reason. `succeeded` means its queue ran dry. */
   | { type: "run"; session: string; status: "started" | "succeeded" | "failed" | "interrupted"; error?: string }
   | { type: "session"; session: SessionSummary }
-  /** The conversation was deleted on the server. Nothing sent to it will finish. */
+  /** The conversation is gone (deleted). Nothing sent to it will finish. */
   | { type: "session-gone"; session: string }
   | { type: "chat"; event: ChatEvent }
   /** A step ended and its tokens were counted, or (without `context`) the conversation was
@@ -703,8 +666,8 @@ export type Backend = {
   /** What it can do beyond the basics. It may change once the backend has said (an ACP agent,
    *  after it starts): a `{ type: "agent" }` event follows. */
   readonly can: BackendCan
-  /** Checks the URL and password. Rejects with a message fit to show the user. */
-  /** `computer` is the name of the machine the server runs on, when it says. */
+  /** Starts the agent and says its version; rejects with a message fit to show the user.
+   *  `computer` is what the agent calls itself. */
   info(): Promise<{ version: string; computer?: string }>
   projects(): Promise<string[]>
   listFolders(path: string): Promise<DirEntry[]>
@@ -722,16 +685,15 @@ export type Backend = {
   /** A fresh id for a message this client is about to send. */
   messageId(): string
   /** Queues a message as its own turn and returns its id at once, without waiting for the agent.
-   *  With an `id` (from `messageId`), sending is safe to repeat: if the server already has that
-   *  message, nothing is queued twice and the call resolves with the same id. That is what makes
-   *  a retry after a lost reply safe. */
+   *  With an `id` (from `messageId`), sending is safe to repeat: if the backend already has that
+   *  message, nothing is queued twice and the call resolves with the same id. */
   prompt(
     session: string,
     input: { id?: string; text: string; files?: PromptFile[]; mentions?: Mention[]; delivery?: Delivery },
   ): Promise<{ id: string }>
-  /** The server's slash commands for a folder. */
+  /** The agent's slash commands for a folder. */
   commands(directory: string): Promise<SlashCommand[]>
-  /** Runs a slash command in a session. Resolves once the server has accepted it. */
+  /** Runs a slash command in a session. Resolves once it is queued. */
   command(
     session: string,
     input: { name: string; text: string; files?: PromptFile[]; mentions?: Mention[]; delivery?: Delivery },
@@ -741,23 +703,10 @@ export type Backend = {
   /** Files and folders under a folder whose path matches `query`, as mention options with `id`
    *  relative to the folder. */
   findFiles(directory: string, query: string): Promise<MentionOption[]>
-  /** Asks for the conversation to be summarised, to free up context. Resolves once the server
-   *  has taken the request; the summary arrives as chat events (an assistant item with
-   *  `summary`). Without `delivery` it runs at the next step boundary. */
+  /** Asks for the conversation to be summarised, to free up context (the agent's own /compact).
+   *  Resolves once it is queued. */
   compact(session: string, input?: { delivery?: Delivery }): Promise<void>
-  /** The newest message of the user's that is still part of the conversation: what undo()
-   *  would take back. `null` when there is none. */
-  lastTurn(session: string): Promise<{ id: string; text: string; note?: { n: number; text: string } } | null>
-  /** Takes the conversation back to just before `message`: that message and everything after
-   *  it leave the conversation, and the files the agent changed since go back to how they were
-   *  (where the folder is a git repository). It can be brought back with redo() until the next
-   *  message is sent. Rejects while the agent is working. */
-  undo(session: string, message: string): Promise<void>
-  /** Brings back everything undo() took away. */
-  redo(session: string): Promise<void>
   rename(session: string, title: string): Promise<void>
-  /** The files changed by the turn that the user message `message` was part of, as patches. */
-  diff(session: string, message: string): Promise<FileChange[]>
   /** The folder's branch and uncommitted changes; undefined when it is not under version control. */
   vcs(directory: string): Promise<{ branch?: string; changes: RepoChange[] } | undefined>
   /** Puts the conversation away (out of `sessions()`), or brings it back. */
@@ -770,14 +719,9 @@ export type Backend = {
   cancelQueued(session: string, id: string): Promise<void>
   /** Ids of sent messages the agent has not picked up yet, oldest first. */
   waiting(session: string): Promise<string[]>
-  /** Ends the run under way. False when the server had none running (the app's "busy" was out
-   *  of date). What is queued stays queued and goes with the next message sent. */
+  /** Ends the run under way. False when there was none running (the app's "busy" was out of
+   *  date). What is queued stays queued and goes with the next message sent. */
   stop(session: string): Promise<boolean>
-  /** The shell commands still running in a folder: a dev server the agent started, a watcher,
-   *  a long test run. Those that have ended are not among them. */
-  running(directory: string): Promise<RunningCommand[]>
-  /** Ends one of them. */
-  kill(directory: string, id: string): Promise<void>
   /** The whole conversation as it stands, including messages still waiting in the queue. With
    *  `gap`, only what came after the last messages read before may have changed (a gap in the
    *  events, not an undo or a summary): a backend may then read only those. */

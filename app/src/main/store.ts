@@ -20,38 +20,36 @@ import { REVIEW_VERSION } from "./review"
 /** `checkpoints`: the named points of its conversations, to go back to. */
 type Sites = Record<string, { directory: string; session?: string; bg?: string; url?: string; seen?: number; pinned?: string[]; checkpoints?: Checkpoint[] }>
 
-/** What belongs to one server: its repo, pages and conversations. Folders and conversations
- *  of one server mean nothing on another. `prefix` goes before a site's origin in the name of
- *  its notes file ("" for the first server, whose files were there before servers were kept). */
+/** What belongs to one agent: its repo, pages and conversations. Folders and conversations of
+ *  one agent mean nothing to another. `prefix` goes before a site's origin in the name of its
+ *  notes file ("" for the first one, whose files were there before agents were kept apart). */
 export type Space = { folder?: string; lastUrl?: string; defaultModel?: ModelRef; sites: Sites; prefix: string }
 
-/** A server the app has connected to, kept so it can be gone back to. `space` holds what is
- *  its own while another server is the one in use; the one in use has its space in the
- *  settings' own fields. */
-/** `projects`: the folders it last listed, so its projects can be offered while another server is in use.
- *  `computer`: what the machine calls itself, as it last said; the server goes by it until it is given a `name`. */
-/** `agent`: an ACP agent the app runs (`connectAgent` in core.ts): which one ("claude", or
- *  "custom-…" for a command typed by hand) and the command that starts it; with `host`, on that
- *  computer over ssh (as the reviewer typed it: "me@dev-box", an alias of their ~/.ssh/config),
- *  else on this one. */
-export type SavedServer = ({ url: string; password: string } | { local: true } | { agent: string; command: string[]; host?: string }) & { id: string; name?: string; computer?: string; space?: Space; projects?: string[] }
+/** An agent the app runs over ACP (`connectAgent` in core.ts), kept so it can be gone back to:
+ *  which one ("claude", or "custom-…" for a command typed by hand) and the command that starts it;
+ *  with `host`, on that computer over ssh (as the reviewer typed it: "me@dev-box", an alias of
+ *  their ~/.ssh/config), else on this one. `space` holds what is its own while another agent is
+ *  the one in use; the one in use has its space in the settings' own fields. `projects`: the
+ *  folders it last listed, so its projects can be offered while another agent is in use.
+ *  `computer`: what it calls itself, as it last said; it goes by that until it is given a `name`.
+ *  (An OpenCode server an earlier version saved here is put aside at start: `retired`.) */
+export type SavedServer = { agent: string; command: string[]; host?: string; id: string; name?: string; computer?: string; space?: Space; projects?: string[] }
 
 export type Settings = {
   version: 1
-  /** `password` is already encrypted by the caller; here it is an opaque string. */
-  /** `name` is the reviewer's own for it ("Studio Mac"); without one it is called by its address. */
-  server?: ({ url: string; password: string } | { local: true } | { agent: string; command: string[]; host?: string }) & { name?: string }
-  /** Every server connected to so far, and which of them the fields below belong to. */
+  /** The agent in use. `name` is the reviewer's own for it ("Studio Mac"); without one it goes by its own. */
+  server?: { agent: string; command: string[]; host?: string; name?: string }
+  /** Every agent started so far, and which of them the fields below belong to. */
   servers?: SavedServer[]
   current?: string
   /** See Space. */
   prefix?: string
   lastUrl?: string
-  /** The repo opened in the app: the server folder a site opened for the first time works in. */
+  /** The repo opened in the app: the folder a site opened for the first time works in. */
   folder?: string
   defaultModel?: ModelRef
   /** Where the window last had the page (CSS px): what the page is laid out to at the next
-   *  start, while the window is still loading and can't say. The window's, whatever the server. */
+   *  start, while the window is still loading and can't say. The window's, whatever the agent. */
   pageBounds?: Rect
   /** The page shown as a phone's (Device in shared/types.ts). Absent: as a desktop's. */
   device?: "phone"
@@ -67,6 +65,12 @@ export type Settings = {
   /** The known agents whose adapter npx starts at its newest instead of the app's pin, by id
    *  (agents.ts: adapterOf). Absent: all pinned. */
   agentLatest?: string[]
+  /** OpenCode servers saved by an earlier bicycle 42, which no longer connects to one: each as it
+   *  was saved, without its password, and with what was its own (`space`: its repo, sites and
+   *  conversations; its notes files stay under its prefix). Kept, not used. */
+  retired?: Record<string, unknown>[]
+  /** Saved servers were just retired: the connect screen says so, once. */
+  serversRetired?: true
 }
 
 export type Store = {
@@ -162,7 +166,7 @@ export function createStore(dir: string, opts: { debounceMs?: number; settleMs?:
     const tmp = tmpOf(file, false)
     try {
       fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
-      // 0600: settings hold the server password, reviews hold text from the reviewer's pages.
+      // 0600: settings hold what the reviewer was working on, reviews the text from their pages.
       const fd = fs.openSync(tmp, "w", 0o600)
       try {
         fs.writeSync(fd, text)

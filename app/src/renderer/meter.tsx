@@ -6,19 +6,17 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { meter } from "./context"
 import { Icon } from "./icons"
-import { b42, chat, message, setNotice, state, tallyNotes } from "./store"
+import { b42, message, setNotice, state, tallyNotes } from "./store"
 
 export function ContextMeter() {
   const [open, setOpen] = createSignal(false)
   const [asking, setAsking] = createSignal(false)
   const shown = createMemo(() => meter(state.context))
-  /** A summary is already being written: a second one would have nothing to do. */
-  const summarising = () => chat.items.some((i) => i.kind === "assistant" && i.summary && !i.done)
-  /** The agent can be asked for a summary: an OpenCode server, or an ACP agent with /compact.
-   *  Without, the meter only says how full the context is. */
+  /** The agent can be asked for a summary: it offers /compact. Without, the meter only says how
+   *  full the context is. */
   const compactable = () => !!state.can?.compact
-  /** Nothing is being worked on and nothing waits: the moment to suggest a summary. */
-  const resting = () => compactable() && !!state.session && !state.session.busy && !summarising() && tallyNotes().left === 0
+  /** Nothing is being worked on (a summary under way too) and nothing waits: the moment to suggest one. */
+  const resting = () => compactable() && !!state.session && !state.session.busy && tallyNotes().left === 0
   let button!: HTMLButtonElement
   let pop: HTMLDivElement | undefined
 
@@ -79,13 +77,11 @@ export function ContextMeter() {
               </p>
               <div class="meter-acts">
                 <span class="meter-hint">
-                  {summarising()
-                    ? "The agent is writing a summary of the conversation now."
-                    : state.session?.busy
-                      ? "The agent summarises the conversation so far when its current step ends, and continues from the summary. This cannot be undone."
-                      : "The agent summarises the conversation so far and continues from the summary. This cannot be undone."}
+                  {state.session?.busy
+                    ? "The agent summarises the conversation so far once it has finished what it is doing, and continues from the summary. This cannot be undone."
+                    : "The agent summarises the conversation so far and continues from the summary. This cannot be undone."}
                 </span>
-                <button class="btn primary" disabled={asking() || summarising() || !state.session} onClick={compact}>
+                <button class="btn primary" disabled={asking() || !state.session} onClick={compact}>
                   Compact
                 </button>
               </div>

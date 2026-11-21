@@ -6,24 +6,24 @@ import { AgentMark, Icon } from "./icons"
 import { atHome, middleCut } from "./paths"
 import { b42, host, message, state } from "./store"
 
-/** "this computer", or the server's address: where the agent works. */
+/** "this computer", or the other computer's host: where the agent works. */
 export const whereOf = (h: { here: boolean; host?: string }) => (h.here ? "this computer" : (h.host ?? "another computer"))
 
 /** The agent in use, or what the window can say of it before main has: its address. */
 export function harnessNow(): Harness | undefined {
   if (state.harness) return state.harness
-  return "url" in state.connection ? { kind: state.connection.url.startsWith("acp://") ? "custom" : "opencode-server", name: state.serverName || host(state.connection.url), here: /^acp:\/\/[^@]*$/.test(state.connection.url) } : undefined
+  return "url" in state.connection ? { kind: "custom", name: state.serverName || host(state.connection.url), here: /^acp:\/\/[^@]*$/.test(state.connection.url) } : undefined
 }
 
 /** Whether `state.home` is the home folder of the computer the agent works on: this computer, or
- *  another one whose agent the app runs over ssh (an OpenCode server elsewhere says none). */
-export const ownHome = (h: Harness | undefined) => !!h && (h.here || (!!h.host && h.kind !== "opencode-server"))
+ *  another one whose agent the app runs over ssh. */
+export const ownHome = (h: Harness | undefined) => !!h && (h.here || !!h.host)
 
 /** A path with its computer's home folder as "~", where that home is known (`ownHome`); another
  *  computer's as it is. */
 export const homePath = (path: string, here: boolean | undefined) => (here ? atHome(path, state.home) : path)
 
-/** A known agent's name and mark, for an agent that is not one of the saved servers yet. */
+/** A known agent's name and mark, for an agent that is not one of the saved ones yet. */
 const KNOWN: AgentKind[] = ["claude", "codex", "gemini", "opencode"]
 export const kindOfAgent = (id: string): AgentKind => (KNOWN.includes(id as AgentKind) ? (id as AgentKind) : "custom")
 
@@ -53,10 +53,10 @@ export function MiddlePath(props: { path: string; class?: string }) {
   return <span class={props.class} ref={el} />
 }
 
-/** One row of the switcher: a saved server or agent, or a known agent not used yet (`fresh`). */
+/** One row of the switcher: a saved agent, or a known agent not used yet (`fresh`). */
 type Choice = { key: string; kind: AgentKind; name: string; where: string; current: boolean; fresh?: true; go: () => Promise<unknown> }
 
-/** The agents and servers to switch to, the one in use first, then those connected to before,
+/** The agents to switch to, the one in use first, then those connected to before,
  *  then the agents installed here that were never started. Behind the agent's name in the
  *  panel's top row; "Connect another" opens the settings at the connect form. */
 export function AgentSwitch(props: { anchor: () => HTMLElement | undefined; onClose: () => void; onConnect: () => void }) {
@@ -68,14 +68,14 @@ export function AgentSwitch(props: { anchor: () => HTMLElement | undefined; onCl
 
   const choices = (): Choice[] => {
     const saved = servers() ?? []
-    const out: Choice[] = saved.map((s) => ({
+    const out: Choice[] = saved.flatMap((s) => (s.agent ? [{
       key: s.id,
       kind: s.kind,
-      name: s.name ?? (s.local ? "OpenCode server" : s.agent ? s.agent : host(s.url)),
-      where: s.here ? "this computer" : (s.host ?? host(s.url)),
+      name: s.name ?? s.agent,
+      where: s.here ? "this computer" : (s.host ?? "another computer"),
       current: s.current && state.connection.status !== "unconfigured",
       go: () => b42.invoke("useServer", s.id),
-    }))
+    }] : []))
     for (const a of agents() ?? [])
       if (a.installed && !saved.some((s) => s.agent === a.id && !s.host))
         out.push({ key: `agent:${a.id}`, kind: kindOfAgent(a.id), name: a.name, where: a.signIn ? "sign in first" : "this computer", current: false, fresh: true, go: () => b42.invoke("connectAgent", { id: a.id }) })

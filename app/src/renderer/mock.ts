@@ -102,16 +102,12 @@ const COMMANDS: SlashCommand[] = [
   { name: "redo", description: "Bring back what /undo took away", builtin: true },
   { name: "rename", description: "Name this conversation: /rename new name", builtin: true },
   { name: "fork", description: "Go on in a copy of this conversation", builtin: true },
-  // The server's, for the site's folder.
+  // The agent's, for the site's folder.
   { name: "review", description: "Look over the changes since the last commit" },
   { name: "test", description: "Run the tests and fix what fails" },
   { name: "explain", description: "Explain how a part of the site works" },
   { name: "init", description: "Write an AGENTS.md that describes this project" },
 ]
-
-const SUMMARY = `The reviewer is polishing the pricing page. Done so far: the hero's bottom margin went from mb-8 to mb-4 to match the cards; the navigation is hidden below md; the primary button uses the brand green.
-
-Still open: the logo is blurry on retina screens, and two cards are to be swapped.`
 
 /** What the agent says while it is still at work (the busy scenario). */
 const WORKING = `The heading and its paragraph sit 32px apart, while the cards below use 16px. I'm changing the hero's \`mb-8\` to \`mb-4\` so the two match.
@@ -219,7 +215,7 @@ function notes(): NoteRow[] {
     row(3, "make this the primary button style", "done", { pictures: "both" }),
     row(4, "too much space between the heading and the paragraph, should match the cards below", "working"),
     row(5, "swap these two", "queued"),
-    row(6, "logo is blurry on retina", "failed", { error: "The server stopped answering (timeout after 30 s)." }),
+    row(6, "logo is blurry on retina", "failed", { error: "The agent stopped answering (timeout after 30 s)." }),
     row(7, "use the brand green here", "queued"),
     row(8, "align with the grid", "working", { lane: "bg" }),
     row(9, "this link goes nowhere", "queued", { lane: "bg" }),
@@ -374,11 +370,11 @@ const NOTE_REPLY: Record<number, string> = {
 }
 
 /** `&agent=claude` (or codex, gemini, opencode, custom) in the address: that agent on this
- *  computer, over ACP, with the models it says; `&agent` alone is Claude Code. Without it, the
- *  OpenCode server on dev-box. */
+ *  computer, over ACP, with the models it says; `&agent` alone is Claude Code. Without it, Claude
+ *  Code on dev-box, over ssh. */
 function agentOf(): { connection: AppState["connection"]; harness: AppState["harness"]; models?: AppState["models"]; model?: ModelRef } {
   const q = new URLSearchParams(location.search)
-  if (!q.has("agent")) return { connection: { status: "online", url: "http://my-box.example:4096", version: "1.4.2" }, harness: { kind: "opencode-server", name: "dev-box", here: false, host: "my-box.example:4096" } }
+  if (!q.has("agent")) return { connection: { status: "online", url: "acp://claude@dev-box", version: "0.12.0" }, harness: { kind: "claude", name: "Claude Code", here: false, host: "dev-box" } }
   const id = q.get("agent") || "claude"
   if (id === "custom") return { connection: { status: "online", url: "acp://custom-1a2b3c4d", version: "0.3.0" }, harness: { kind: "custom", name: "my-agent", here: true } }
   const name = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", opencode: "OpenCode" }[id] ?? id
@@ -443,12 +439,9 @@ function base(): AppState {
     defaultModel: agent.model ?? { providerID: "anthropic", id: "sonnet-4-5", variant: "medium" },
     permissions: [],
     questions: [],
-    // `&agent` in the address: an ACP agent's, which can't undo, list what runs, or archive.
-    can: new URLSearchParams(location.search).has("agent") ? { queue: true, steer: true, fork: true } : { undo: true, queue: true, steer: true, running: true, compact: true, fork: true, archive: true },
-    running: [
-      { id: "sh_1", directory: DIRECTORY, command: "npm run dev -- --port 3000", started: now - 42 * 60_000 },
-      { id: "sh_2", directory: "/home/dev/code/blog", command: "pnpm astro dev --host 0.0.0.0 --port 4321", started: now - 26 * 3_600_000 },
-    ],
+    // `&agent` in the address: one that offers no /compact and can't archive. Without, Claude
+    // Code on dev-box, which does both.
+    can: new URLSearchParams(location.search).has("agent") ? { queue: true, steer: true, fork: true } : { queue: true, steer: true, compact: true, fork: true, archive: true },
   }
 }
 
@@ -503,7 +496,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   /** The conversations put away. */
   let put: SessionSummary[] = [{ id: "s-9", title: "Footer links", updated: Date.now() - 40 * 24 * HOUR, busy: false, directory: DIRECTORY, archived: true }]
 
-  /** Streams `text` into a new assistant item the way the server does: small deltas over time. */
+  /** Streams `text` into a new assistant item the way the agent does: small deltas over time. */
   function stream(text: string, done: () => void = () => {}, pace = 16) {
     const id = `a-${++serial}`
     const item: ChatAssistant = { kind: "assistant", id, time: Date.now(), done: false, parts: [{ kind: "text", key: "x", text: "" }] }
@@ -550,14 +543,13 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
         else note.status = "done"
       }
   }
-  /** As main decides it: the newest finished note of an idle conversation is undone exactly;
-   *  an older one is restored from the app's snapshots (here: every other one of an idle
-   *  conversation); for any other the agent is asked. */
-  function takeBackWay(id: string): "undone" | "restored" | "asked" {
+  /** As main decides it: a note of an idle conversation is restored from the app's snapshots
+   *  (here: the newest, and every other one); for any other the agent is asked. */
+  function takeBackWay(id: string): "restored" | "asked" {
     const note = state.review.notes.find((n) => n.id === id)
     const newest = state.review.notes.filter((n) => n.session === note?.session && n.status === "done").at(-1)
     const busy = note?.session === state.session?.id ? state.session?.busy : state.sessions.find((s) => s.id === note?.session)?.busy
-    return !note || busy ? "asked" : note === newest ? "undone" : note.n % 2 ? "restored" : "asked"
+    return !note || busy ? "asked" : note === newest || note.n % 2 ? "restored" : "asked"
   }
   /** The next waiting message gets its turn, or the agent goes idle. */
   function next() {
@@ -606,6 +598,8 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   switch (scenario) {
     case "connect":
       Object.assign(state, { ...base(), connection: { status: "unconfigured" }, site: null, session: null, sessions: [] })
+      // `&retired`: OpenCode servers saved by an earlier version were just put aside.
+      if (params.has("retired")) state.serversRetired = true
       delete state.harness
       state.page.url = ""
       state.review.notes = []
@@ -631,7 +625,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       items = []
       break
     case "model-choice":
-      // Just connected to a server with a long list: which model should conversations start with?
+      // Just connected to an agent with a long list: which model should conversations start with?
       Object.assign(state, { site: null, session: null, sessions: [] })
       state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false, device: "desktop", phone: PHONE.id }
       state.review = { enabled: false, mode: "preview", brush: false, autoReload: false, notes: [], unplaced: 0, docks: [] }
@@ -754,7 +748,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       items = [{ kind: "marker", id: "m-open", time: Date.now(), text: "Can't open a conversation: the folder /home/dev/code/acme/storefront no longer exists.", tone: "error" }]
       break
     case "offline":
-      state.connection = { status: "offline", url: "http://my-box.example:4096", error: "The connection was refused." }
+      state.connection = { status: "offline", url: "acp://claude@dev-box", error: "dev-box can't be reached: the connection was refused.", away: true }
       break
     case "pageerror":
       state.page.url = "http://a-very-long-development-hostname.some-team.example:3000/products/category/shoes?sort=price&direction=ascending&page=4"
@@ -771,7 +765,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
         text: `note ${i + 1}: nudge this a little`,
         status: (["done", "queued", "working", "failed"] as const)[i % 4]!,
         lane: i % 7 ? "main" : "bg",
-        ...(i % 4 === 3 ? { error: "The server stopped answering (timeout after 30 s)." } : {}),
+        ...(i % 4 === 3 ? { error: "The agent stopped answering (timeout after 30 s)." } : {}),
       }))
       break
   }
@@ -881,19 +875,6 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       push()
     },
     showNote() {},
-    async connect(server) {
-      await new Promise((r) => setTimeout(r, 900))
-      if (!server.password) throw new Error("Enter the server password.")
-      if (server.password === "wrong") throw new Error("The server did not accept that password.")
-      Object.assign(state, base(), { connection: { status: "online", url: server.url, version: "1.4.2" } })
-      push()
-    },
-    localServer: () => (new URLSearchParams(location.search).has("nolocal") ? null : { url: "http://127.0.0.1:49374" }),
-    async connectLocal() {
-      await new Promise((r) => setTimeout(r, 400))
-      Object.assign(state, base(), { connection: { status: "online", url: "http://127.0.0.1:49374", version: "1.4.2" } })
-      push()
-    },
     // One of each: ready, not signed in, not installed, ready (and in use with `&agent=opencode`).
     localAgents: () => [
       mockAgent("claude", mockLatest.has("claude")),
@@ -941,14 +922,14 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       if (scenario === "connect" && !params.has("returning")) return []
       const url = "url" in state.connection ? state.connection.url : ""
       const all: Omit<ServerInfo, "current">[] = [
-        { id: "srv_0", name: "dev-box", url: "http://my-box.example:4096", local: false, kind: "opencode-server", here: false },
-        { id: "srv_4", name: "Claude Code", url: "acp://claude", local: false, agent: "claude", command: "npx -y @agentclientprotocol/claude-agent-acp", kind: "claude", here: true },
-        { id: "srv_1", url: "http://127.0.0.1:49374", local: true, kind: "opencode-server", here: true },
-        { id: "srv_2", name: "Studio Mac", url: "https://studio.example.dev", local: false, kind: "opencode-server", here: false },
-        { id: "srv_5", name: "my-agent", url: "acp://custom-1a2b3c4d", local: false, agent: "custom-1a2b3c4d", command: "/opt/my-agent/bin/my-agent --acp", kind: "custom", here: true },
-        { id: "srv_3", name: "omarchy", url: "https://eb501e0e4f991ca4.7fek5zuoivit.opentunnel.xyz", local: false, kind: "opencode-server", here: false },
+        { id: "srv_0", name: "Claude Code", agent: "claude", command: "claude-agent-acp", host: "dev-box", kind: "claude", here: false },
+        { id: "srv_4", name: "Claude Code", agent: "claude", command: "npx -y @agentclientprotocol/claude-agent-acp", kind: "claude", here: true },
+        { id: "srv_2", name: "OpenCode", agent: "opencode", command: "opencode acp", host: "studio-mac", kind: "opencode", here: false },
+        { id: "srv_5", name: "my-agent", agent: "custom-1a2b3c4d", command: "/opt/my-agent/bin/my-agent --acp", kind: "custom", here: true },
+        { id: "srv_3", name: "Codex", agent: "codex", command: "npx -y @agentclientprotocol/codex-acp", host: "omarchy", kind: "codex", here: false },
       ]
-      return all.map((x) => ({ ...x, current: x.url === url })).sort((a, b) => Number(b.current) - Number(a.current))
+      const at = (x: Omit<ServerInfo, "current">) => (x.host ? `acp://${x.agent}@${encodeURIComponent(x.host)}` : `acp://${x.agent}`)
+      return all.map((x) => ({ ...x, current: at(x) === url })).sort((a, b) => Number(b.current) - Number(a.current))
     },
     useServer() {},
     forgetServer() {},
@@ -966,21 +947,16 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     },
     allProjects: () => {
       const h = state.harness
-      const mine = { on: h?.name ?? "dev-box", kind: h?.kind ?? ("opencode-server" as const), ...(h?.here ? { here: true as const } : {}) }
+      const mine = { on: h?.name ?? "Claude Code", kind: h?.kind ?? ("claude" as const), ...(h?.here ? { here: true as const } : {}) }
       return [
         { directory: "/home/dev/code/acme/storefront", ...mine, open: true as const },
         { directory: "/home/dev/code/acme/marketing-site", ...mine },
         { directory: "/home/dev/code/blog", ...mine },
         ...(h?.kind === "claude" ? [] : [{ directory: "/home/dev/cde/bicycle42", server: "srv_4", on: "Claude Code", kind: "claude" as const, here: true as const }]),
         ...(h?.kind === "custom" ? [] : [{ directory: "/home/dev/sketches/motion-lab", server: "srv_5", on: "my-agent", kind: "custom" as const, here: true as const }]),
-        { directory: "/Users/kiryl/Documents/cde/zing-social", server: "srv_2", on: "Studio Mac", kind: "opencode-server" as const },
-        { directory: "/srv/www/a-rather-long-organisation-name/internal-tools/design-review-playground", server: "srv_3", on: "omarchy", kind: "opencode-server" as const },
+        { directory: "/Users/kiryl/Documents/cde/zing-social", server: "srv_2", on: "OpenCode", kind: "opencode" as const },
+        { directory: "/srv/www/a-rather-long-organisation-name/internal-tools/design-review-playground", server: "srv_3", on: "Codex", kind: "codex" as const },
       ]
-    },
-    refreshRunning() {},
-    stopRunning(directory, id) {
-      state.running = state.running.filter((r) => !((directory === undefined || r.directory === directory) && (id === undefined || r.id === id)))
-      push()
     },
     openProject(directory) {
       state.site = { origin: "", directory }
@@ -1011,11 +987,9 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       if (!COMMANDS.some((c) => c.name === name)) throw new Error(`There is no /${name} command.`)
       // The app's own commands, roughly as main answers them.
       if (name === "compact") {
-        const item = { kind: "assistant" as const, id: `sum-${++serial}`, time: Date.now(), summary: "manual" as const }
-        emit({ type: "item", session: sid(), item: { ...item, parts: [], done: false } })
+        // The agent's own /compact: a turn of its, which says what it did; what it counts next is what is left.
+        deliver("/compact", images, options, COMMAND_REPLY.compact!)
         setTimeout(() => {
-          emit({ type: "item", session: sid(), item: { ...item, parts: [{ kind: "text", key: "text:0", text: SUMMARY }], done: true } })
-          // Nothing has counted what the summary left: the meter goes until the next step.
           delete state.context
           push()
         }, 700)
@@ -1023,8 +997,8 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       }
       if (name === "undo")
         return args === "yes"
-          ? { say: 'Took back your message "tighter". /redo brings it back; your next message makes it final.', draft: "tighter" }
-          : { say: 'This takes back your message "tighter" and everything after it: the agent\'s replies, and the changes it made to files since then. Press Enter to undo.', draft: "/undo yes" }
+          ? { say: 'Took back the agent\'s changes to files for note 7 ("tighter"). /redo brings them back; your next message makes it final.' }
+          : { say: 'This takes back the changes the agent made to files for note 7 ("tighter"). The conversation stays as it is, and the agent is told with your next message. Press Enter to undo.', draft: "/undo yes" }
       if (name === "redo") throw new Error("Nothing to redo.")
       if (name === "new") return void this.newSession()
       if (name === "rename") {
@@ -1098,7 +1072,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     removeCheckpoint(id) {
       emit({ type: "remove", session: sid(), item: `checkpoint:${id}` })
     },
-    returnToCheckpoint: () => ({ taken: 3, how: "undone" as const }),
+    returnToCheckpoint: () => ({ taken: 3 }),
     refreshRepo() {},
     commitChanges() {
       delete state.repo

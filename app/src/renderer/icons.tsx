@@ -96,12 +96,12 @@ const MARKS = {
   opencode: "M22 24H2V0h20zM17 4.8H7v14.4h10z",
 } as const
 
-/** Which mark an agent has: one of the four known agents', OpenCode's for an OpenCode server,
- *  a terminal for any other command, the server icon while it is not known. */
+/** Which mark an agent has: one of the four known agents', a terminal for any other command,
+ *  the server icon while it is not known. */
 export function AgentMark(props: { kind?: AgentKind; size?: 16 | 20; class?: string }): JSX.Element {
   const size = () => props.size ?? 16
   const d = () => {
-    const k = props.kind === "opencode-server" ? "opencode" : props.kind
+    const k = props.kind
     return k && k in MARKS ? MARKS[k as keyof typeof MARKS] : undefined
   }
   return (

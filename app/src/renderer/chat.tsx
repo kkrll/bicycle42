@@ -246,31 +246,6 @@ function Thinking(props: { text: string; live: boolean }) {
   )
 }
 
-/** The server's summary of the conversation so far (/compact, or the context filled up). Not a
- *  reply, so it is folded like a thought: one line says what happened, the summary is inside. */
-function Summary(props: { item: ChatAssistant }) {
-  const [open, setOpen] = createSignal(false)
-  const text = () => {
-    const part = props.item.parts.find((p) => p.kind === "text")
-    return part && part.kind === "text" ? part.text : ""
-  }
-  const title = () =>
-    !props.item.done ? "Summarising the conversation" : props.item.summary === "auto" ? "Conversation summarised: the context was full" : "Conversation summarised"
-  return (
-    <details class="thinking" data-summary={props.item.done ? "done" : "running"} onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary>
-        <Icon name={props.item.done ? "list" : "spinner"} />
-        <span>{title()}</span>
-        <span class="thinking-preview">{props.item.done ? "The agent goes on from this summary" : text().slice(-80)}</span>
-        <Icon name="right" class="caret" />
-      </summary>
-      <Show when={open()}>
-        <div class="thinking-body">{text()}</div>
-      </Show>
-    </details>
-  )
-}
-
 /** Note number → its row on the list: one map for every message, not a search of the list per
  *  message. A note in the conversation reads its live status from the row, so it wears the same
  *  colour as the row and as its pin on the page. Only the list and the numbers are tracked, so a
@@ -385,10 +360,7 @@ function Assistant(props: { item: ChatAssistant }) {
       .join("\n\n")
   return (
     <div class="msg assistant">
-      <Show when={props.item.summary}>
-        <Summary item={props.item} />
-      </Show>
-      <For each={props.item.summary ? [] : props.item.parts}>
+      <For each={props.item.parts}>
         {(part, i) => (
           <Switch>
             <Match when={part.kind === "text" && part}>
@@ -408,7 +380,7 @@ function Assistant(props: { item: ChatAssistant }) {
           <span>{props.item.error}</span>
         </div>
       </Show>
-      <Show when={props.item.done && !props.item.summary && props.item.parts.at(-1)?.kind === "text" && words()}>
+      <Show when={props.item.done && props.item.parts.at(-1)?.kind === "text" && words()}>
         <div class="msg-tools">
           <CopyButton text={words} label="Copy this reply" />
         </div>
@@ -998,12 +970,8 @@ function CheckpointLine(props: { id: string; name: string }) {
     b42
       .invoke("returnToCheckpoint", props.id)
       .then(
-        ({ taken: n, how }) =>
-          setNotice(
-            how === "undone"
-              ? `Took back ${n === 1 ? "1 message" : `${n} messages`} and what the agent changed since. /redo brings it back until you say something new.`
-              : `Put back the files the agent changed since, in ${n === 1 ? "1 turn" : `${n} turns`}. The conversation stays; the agent is told with your next message, and /redo brings them back until then.`,
-          ),
+        ({ taken: n }) =>
+          setNotice(`Put back the files the agent changed since, in ${n === 1 ? "1 turn" : `${n} turns`}. The conversation stays; the agent is told with your next message, and /redo brings them back until then.`),
         (err) => setNotice(message(err)),
       )
       .finally(() => (setBusy(false), setSure(false)))
@@ -1018,7 +986,7 @@ function CheckpointLine(props: { id: string; name: string }) {
         when={sure()}
         fallback={
           <>
-            <button class="text-btn" title="Take the conversation, and the files, back to this point" onClick={() => setSure(true)}>
+            <button class="text-btn" title="Take the files back to this point" onClick={() => setSure(true)}>
               Return here
             </button>
             <button class="icon-btn small" title="Remove this checkpoint" aria-label="Remove this checkpoint" onClick={() => act("removeCheckpoint", props.id)}>
@@ -1027,8 +995,7 @@ function CheckpointLine(props: { id: string; name: string }) {
           </>
         }
       >
-        {/* What goes depends on the agent: one that can cut the conversation takes it back too. */}
-        <span>{state.can?.undo ? "Everything after it goes, files too." : "The agent's file changes since go back; the conversation stays."}</span>
+        <span>The agent's file changes since go back; the conversation stays.</span>
         <button class="text-btn danger" disabled={busy()} onClick={back}>
           Return
         </button>
@@ -1382,7 +1349,7 @@ export function Chat(props: {
     let run: ChatAssistant[] | undefined
     let last: string | undefined
     for (const item of ordered()) {
-      if (item.kind === "assistant" && !item.summary) {
+      if (item.kind === "assistant") {
         if (run) run.push(item)
         else (run = [item]), turns.set(item.id, run), out.push(item), (last = item.id)
         continue
@@ -1523,7 +1490,6 @@ export function Chat(props: {
               {(item) => (
                 <Switch>
                   <Match when={item.kind === "user" && item}>{(i) => <User item={i()} />}</Match>
-                  <Match when={item.kind === "assistant" && item.summary && item}>{(i) => <Assistant item={i()} />}</Match>
                   <Match when={item.kind === "assistant" && item}>
                     {(i) => {
                       const steps = stepsOf(i())

@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "bicycle 42: a standalone design-review app. The page is the interface; an OpenCode server does the work.",
+  "description": "bicycle 42: a standalone design-review app. The page is the interface; a coding agent, run over ACP here or on another computer over ssh, does the work.",
   "main": "dist/main.cjs",
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node scripts/build.mjs --tests && node --test --test-force-exit dist/test/*.test.cjs && electron --ozone-platform=headless --disable-gpu dist/test/page.e2e.cjs && electron --ozone-platform=headless --disable-gpu dist/test/app.e2e.cjs",
     "test:unit": "node scripts/build.mjs --tests && node --test --test-force-exit dist/test/*.test.cjs",
-    "test:real": "node scripts/build.mjs --tests && electron --ozone-platform=headless --disable-gpu dist/test/real.e2e.cjs",
+    "test:real": "node scripts/build.mjs --tests && node dist/test/acp.real.cjs",
     "check:design": "kkrll-check src/renderer",
     "agents:check": "node scripts/agents-check.mjs"
   },

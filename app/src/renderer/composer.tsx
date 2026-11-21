@@ -175,7 +175,7 @@ function Pick(props: { class: string; prefix?: string; value: string; short?: st
 function blocked(): string {
   if (state.session) return ""
   const c = state.connection.status
-  if (c === "offline") return "Not connected to the server."
+  if (c === "offline") return "Not connected to the agent."
   if (c !== "online") return "Connecting…"
   if (!state.site?.directory) return "Open the repo first."
   // Main explains a conversation that would not open with a marker in the (session-less) transcript.
@@ -290,7 +290,7 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
     if (focus) field.focus()
   }
 
-  // ── the server's commands, once per conversation ──
+  // ── the agent's commands, once per conversation ──
   // A note's "Follow up": its words start the message, and the box takes the keyboard.
   createEffect(on(followUp, (f) => f && draft(text().trim() ? `${text().trimEnd()}\n${f.text}` : f.text, undefined, true), { defer: true }))
 
@@ -351,7 +351,7 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
       const q = t.query.toLowerCase()
       const starts = commands().filter((c) => c.name.toLowerCase().startsWith(q))
       const rest = commands().filter((c) => !c.name.toLowerCase().startsWith(q) && c.name.toLowerCase().includes(q))
-      // The app's own commands stay above the server's, each group best match first.
+      // The app's own commands stay above the agent's, each group best match first.
       const own = (c: SlashCommand) => (c.builtin ? 0 : 1)
       return [...starts, ...rest]
         .map((c, i) => ({ c, i }))
@@ -462,7 +462,7 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
         if (result.draft && !text()) draft(result.draft, result.draft.length, true)
       },
       (err) => {
-        // One of the app's own commands that the server would not do ("nothing to redo", "the
+        // One of the app's own commands that the agent would not do ("nothing to redo", "the
         // agent is working"): its reason is news, not a failed message to send again.
         if (known?.builtin) return say(message(err), 8000)
         fail(err)

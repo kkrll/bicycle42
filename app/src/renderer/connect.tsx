@@ -1,5 +1,6 @@
-// Connecting to the server that does the work. One form, used twice: full-window before the
-// first connection, and inside the settings dialog afterwards.
+// Connecting to the agent that does the work: one the app runs on this computer, or on another
+// one over ssh. One form, used twice: full-window before the first connection, and inside the
+// settings dialog afterwards.
 import { For, Match, Show, Switch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js"
 import type { ConnectionState, LocalAgent, ModelInfo, ModelRef, RemoteInfo } from "../shared/types"
 import { harnessNow, kindOfAgent } from "./agents"
@@ -32,15 +33,14 @@ export function connectionText(c: ConnectionState): string {
   }
 }
 
-/** What the agent or server is called: the reviewer's name for it, else the agent's own, else
- *  the server's computer or address. Never an acp:// id. */
+/** What the agent is called: the reviewer's name for it, else the agent's own. Never an acp:// id. */
 export const serverLabel = (url: string) => state.harness?.name || state.serverName || host(url)
 
 /** An agent the app runs over ACP (connectAgent): its "address" is acp://<id>, or
  *  acp://<id>@<host> on another computer over ssh. */
 export const isAgent = (url: string) => url.startsWith("acp://")
 
-/** The server's name, and the field that changes it. Empty goes back to the address. */
+/** The agent's name, and the field that changes it. Empty goes back to its own. */
 function ServerName(props: { url: string; version: string }) {
   const [editing, setEditing] = createSignal(false)
   let field!: HTMLInputElement
@@ -59,9 +59,7 @@ function ServerName(props: { url: string; version: string }) {
               {serverLabel(props.url)}
             </span>
             <span class="dialog-sub">
-              {isAgent(props.url)
-                ? `${state.harness?.host ? `On ${state.harness.host}, over ssh and ACP` : "On this computer, over ACP"} · ${props.version}`
-                : `${state.harness?.here ? "On this computer · " : state.harness?.name !== host(props.url) ? `${host(props.url)} · ` : ""}OpenCode ${props.version}`}
+              {`${state.harness?.host ? `On ${state.harness.host}, over ssh and ACP` : "On this computer, over ACP"} · ${props.version}`}
             </span>
             <button class="text-btn" data-action="rename-server" onClick={() => setEditing(true)}>
               {state.serverName ? "Rename" : "Name it"}
@@ -83,7 +81,7 @@ function ServerName(props: { url: string; version: string }) {
             }}
             class="input"
             aria-label="Its name"
-            placeholder={host(props.url)}
+            placeholder={harnessNow()?.name ?? ""}
             maxLength={60}
             value={state.serverName ?? ""}
             onKeyDown={(e) => {
@@ -238,33 +236,23 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
   /** Another computer was connected to here (to list its agents): let go with this screen,
    *  unless an agent there is the one in use (main keeps that one). */
   let reached = false
-  const leave = () => reached && void b42.invoke("leaveSsh").catch(() => undefined)
+  // Said once: the line about servers put aside goes with this screen too.
+  const leave = () => (reached || state.serversRetired) && void b42.invoke("leaveSsh").catch(() => undefined)
   onCleanup(() => {
     gone = true
     leave()
   })
-  const known = () => ("url" in state.connection && !isAgent(state.connection.url) && state.harness?.here !== true ? state.connection.url : "")
-  const [url, setUrl] = createSignal(known())
-  const [password, setPassword] = createSignal("")
   const [error, setError] = createSignal("")
   /** Which row an error belongs to: an agent's id, "custom", or "" for the form. */
   const [errorAt, setErrorAt] = createSignal("")
-  // Another computer's address and password: folded away until asked for, or while the one in
-  // use can't be reached (its password may have to be entered again).
-  const [remote, setRemote] = createSignal(!!known() && state.connection.status !== "online")
-  let first: HTMLInputElement | undefined
-  // Asked once per form: is OpenCode already running on this computer?
-  const [local] = createResource(() => b42.invoke("localServer").catch(() => null))
-  onMount(() => props.autofocus && remote() && first?.focus())
-  const here = () => state.connection.status === "online" && local()?.url === state.connection.url
   // The ACP agents this computer can run, each said installed or not.
   const [agents] = createResource(() => b42.invoke("localAgents").catch(() => [] as LocalAgent[]))
   const using = (id: string) => state.connection.status === "online" && state.connection.url === `acp://${id}`
   const [custom, setCustom] = createSignal("")
-  // The servers connected to before, on other computers, and agents run by a command typed by
-  // hand: one click, no password again. (A known agent has its own row above.)
+  // The agents used before on other computers, and those run by a command typed by hand: one
+  // click. (A known agent of this computer has its own row above.)
   const [saved, { refetch: reloadSaved }] = createResource(() => b42.invoke("servers").catch(() => []))
-  const others = () => (saved() ?? []).filter((s) => !s.local && !(s.agent && !s.host && (agents() ?? []).some((a) => a.id === s.agent)) && !(s.current && state.connection.status === "online"))
+  const others = () => (saved() ?? []).filter((s) => s.agent && !(!s.host && (agents() ?? []).some((a) => a.id === s.agent)) && !(s.current && state.connection.status === "online"))
   const fail = (at: string, err: unknown) => (setError(message(err)), setErrorAt(at))
   // Another computer over ssh: its host, and once connected, the agents installed there.
   const [sshHost, setSshHost] = createSignal(state.harness?.host && isAgent("url" in state.connection ? state.connection.url : "") ? state.harness.host : "")
@@ -313,28 +301,6 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
   }
   const startCustom = () => custom().trim() && useAgent({ id: "custom", command: custom().trim() }, custom().trim())
 
-  const useLocal = () => {
-    if (connecting()) return
-    setConnecting(true)
-    setError("")
-    b42
-      .invoke("connectLocal")
-      .then(() => gone || props.onDone?.())
-      .catch((err) => (gone ? setNotice(`Could not connect to this computer's server. ${message(err)}`) : fail("local", err)))
-      .finally(() => setConnecting(false))
-  }
-
-  const submit = (e: SubmitEvent) => {
-    e.preventDefault()
-    if (connecting() || !url().trim()) return
-    setConnecting(true)
-    setError("")
-    b42
-      .invoke("connect", { url: url().trim(), password: password() })
-      .then(() => gone || props.onDone?.())
-      .catch((err) => (gone ? setNotice(`Could not connect to ${host(url().trim())}. ${message(err)}`) : fail("remote", err)))
-      .finally(() => setConnecting(false))
-  }
   /** The error, under the row it belongs to. */
   const errorOf = (at: string) => (error() && errorAt() === at ? error() : undefined)
   const RowError = (p: { at: string }) => (
@@ -345,7 +311,12 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
     </Show>
   )
   return (
-    <form class="connect-form" onSubmit={submit}>
+    <form class="connect-form" onSubmit={(e) => e.preventDefault()}>
+      <Show when={state.serversRetired}>
+        <p class="form-help connect-retired" role="status">
+          OpenCode servers are no longer supported. Choose OpenCode as an agent here, or connect to that computer over ssh.
+        </p>
+      </Show>
       <section class="connect-section">
         <h3 class="label">Agents on this computer</h3>
         <p class="form-help">The app starts it with your own login, in this computer's folders.</p>
@@ -372,7 +343,7 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
               value={custom()}
               onInput={(e) => setCustom(e.currentTarget.value)}
               onKeyDown={(e) => {
-                // Enter here starts this command; the form's own Enter is for the server address.
+                // Enter here starts this command.
                 if (e.key !== "Enter") return
                 e.preventDefault()
                 startCustom()
@@ -407,7 +378,7 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
               value={sshHost()}
               onInput={(e) => setSshHost(e.currentTarget.value)}
               onKeyDown={(e) => {
-                // Enter here connects to this computer; the form's own Enter is for the server address.
+                // Enter here connects to that computer.
                 if (e.key !== "Enter") return
                 e.preventDefault()
                 reach()
@@ -441,107 +412,6 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
           </Show>
         </ul>
       </section>
-      <section class="connect-section">
-        <h3 class="label">OpenCode server</h3>
-        <ul class="agent-list">
-          <li class="agent-row" data-state={here() ? "using" : local() ? "ready" : "missing"}>
-            <AgentMark kind="opencode-server" size={20} />
-            <div class="agent-text">
-              <span class="agent-name">This computer</span>
-              <span class="agent-status">
-                <Show when={local()} fallback={<>Not running: <code>opencode service start</code> starts it</>}>
-                  {(found) => (
-                    <Show when={!here()} fallback={<><span class="dot" data-status="online" /> In use</>}>
-                      Running at <code>{host(found().url)}</code>
-                    </Show>
-                  )}
-                </Show>
-              </span>
-            </div>
-            <div class="agent-acts">
-              {/* Each row keeps its own action, whatever is typed in another. */}
-              <Show when={local() && !here()}>
-                <button class="btn" type="button" data-action="use-local" disabled={connecting()} onClick={useLocal}>
-                  Connect
-                </button>
-              </Show>
-            </div>
-            <RowError at="local" />
-          </li>
-          <li class="agent-row agent-remote" data-state={remote() ? "open" : "closed"}>
-            <AgentMark kind="opencode-server" size={20} />
-            <div class="agent-text">
-              <span class="agent-name">Another computer</span>
-              <span class="agent-status">Its address and password</span>
-            </div>
-            <div class="agent-acts">
-              <Show when={!remote()}>
-                <button
-                  class="btn"
-                  type="button"
-                  data-action="remote"
-                  onClick={() => {
-                    setRemote(true)
-                    first?.focus()
-                  }}
-                >
-                  Enter address
-                </button>
-              </Show>
-            </div>
-            <Show when={remote()}>
-              <div class="agent-remote-form">
-                <label class="form-row">
-                  <span class="label">Server address</span>
-                  <input
-                    ref={first}
-                    class="input mono"
-                    type="text"
-                    name="url"
-                    spellcheck={false}
-                    autocomplete="off"
-                    placeholder="http://my-box.example:4096"
-                    disabled={connecting()}
-                    value={url()}
-                    onInput={(e) => setUrl(e.currentTarget.value)}
-                  />
-                </label>
-                <label class="form-row">
-                  <span class="label">Password</span>
-                  <input
-                    class="input mono"
-                    type="password"
-                    name="password"
-                    autocomplete="off"
-                    disabled={connecting()}
-                    value={password()}
-                    onInput={(e) => setPassword(e.currentTarget.value)}
-                  />
-                </label>
-                <div class="form-help">
-                  <p>
-                    On the computer with your code, run <code>opencode service status</code>; it prints the address (the{" "}
-                    <code>https://…</code> one works from anywhere). The password is the <code>password</code> value in the file
-                    it names.
-                  </p>
-                  <p class="form-help-more">
-                    To see it: <code>cat ~/.config/opencode/service.json</code>
-                  </p>
-                </div>
-                <RowError at="remote" />
-                <div class="form-actions">
-                  <button class="btn primary" type="submit" disabled={connecting() || !url().trim()}>
-                    <Show when={connecting()}>
-                      <Icon name="spinner" />
-                    </Show>
-                    {connecting() ? "Connecting" : "Connect"}
-                  </button>
-                </div>
-              </div>
-            </Show>
-          </li>
-        </ul>
-      </section>
       <Show when={others().length}>
         <section class="connect-section connect-saved">
           <h3 class="label">Connected before</h3>
@@ -550,15 +420,15 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
               {(s) => (
                 <li class="agent-row saved-row" data-kind={s.kind}>
                   <AgentMark kind={s.kind} size={20} />
-                  <div class="agent-text" title={s.command ?? s.url}>
-                    <span class="agent-name">{s.name ?? host(s.url)}</span>
-                    <span class="agent-status">{s.here ? "this computer" : (s.host ?? host(s.url))}</span>
+                  <div class="agent-text" title={s.command}>
+                    <span class="agent-name">{s.name ?? s.agent}</span>
+                    <span class="agent-status">{s.here ? "this computer" : s.host}</span>
                   </div>
                   <div class="agent-acts">
-                    <button class="text-btn saved-forget" type="button" disabled={connecting()} title="Forgets it on this computer, with its password" onClick={() => forget(s.id)}>
+                    <button class="text-btn saved-forget" type="button" disabled={connecting()} title="Forgets it on this computer" onClick={() => forget(s.id)}>
                       Forget
                     </button>
-                    <button class="btn" type="button" data-server={s.id} disabled={connecting()} onClick={() => useSaved(s.id, s.name ?? host(s.url))}>
+                    <button class="btn" type="button" data-server={s.id} disabled={connecting()} onClick={() => useSaved(s.id, s.name ?? s.agent ?? "it")}>
                       Connect
                     </button>
                   </div>
@@ -598,7 +468,7 @@ const FILTER_FROM = 12
 const sameModel = (a: { providerID: string; id: string } | undefined, b: { providerID: string; id: string }) =>
   !!a && a.providerID === b.providerID && a.id === b.id
 
-/** The list of the server's models with one of them chosen, an effort level if it has any, and
+/** The list of the agent's models with one of them chosen, an effort level if it has any, and
  *  one button that saves the choice. Used on the first-run step and in the settings dialog.
  *  The keyboard never has to leave the form: type to narrow, ↑/↓ to move, Enter to choose. */
 export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void; autofocus?: boolean }) {
@@ -619,7 +489,7 @@ export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void;
     for (const m of shown()) by.set(m.providerID, [...(by.get(m.providerID) ?? []), m])
     return [...by]
   })
-  /** The rows in the order they are drawn, which is by provider, not the server's order. */
+  /** The rows in the order they are drawn, which is by provider, not the agent's order. */
   const ordered = createMemo(() => groups().flatMap(([, models]) => models))
   // Narrowing the list keeps the choice when it is still there, else takes the first left.
   createEffect(on(shown, (models) => models.includes(picked()!) || setPicked(models[0])))
@@ -733,7 +603,7 @@ export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void;
   )
 }
 
-/** The second first-run step. Also comes back when the saved model has left the server's list. */
+/** The second first-run step. Also comes back when the saved model has left the agent's list. */
 export function ModelScreen() {
   const choice = () => state.modelChoice
   return (
@@ -744,7 +614,7 @@ export function ModelScreen() {
         <p class="connect-lead">
           New conversations start with it. You can change it any time under the chat box.
           <Show when={choice()?.previous}>
-            {(was) => <> The one used before ({was().id}) is no longer offered by this server.</>}
+            {(was) => <> The one used before ({was().id}) is no longer offered by this agent.</>}
           </Show>
         </p>
         <ModelChooser suggested={choice()?.suggested} autofocus />
@@ -753,7 +623,7 @@ export function ModelScreen() {
   )
 }
 
-/** The server, as an icon with its state as a dot; in a word when it is not simply connected.
+/** The agent, as its mark with its state as a dot; in a word when it is not simply connected.
  *  Opens the settings. In the panel's conversation row, or the top bar while that is not shown. */
 export function ServerButton(props: { onClick: () => void }) {
   const word = () => (state.connection.status === "offline" ? "Offline" : state.connection.status === "connecting" ? "Connecting" : "")
@@ -763,7 +633,7 @@ export function ServerButton(props: { onClick: () => void }) {
       classList={{ labelled: word() !== "" }}
       data-action="settings"
       data-status={state.connection.status}
-      aria-label={word() ? `Settings. ${harnessNow()?.name ?? "Server"}: ${word()}` : "Settings"}
+      aria-label={word() ? `Settings. ${harnessNow()?.name ?? "Agent"}: ${word()}` : "Settings"}
       title={`${connectionText(state.connection)}. Click for settings`}
       onClick={props.onClick}
     >
@@ -802,7 +672,7 @@ function Preferences() {
       </div>
       <div class="dialog-pref">
         <Toggle on={soundOn()} label="Sounds" title="A question, a failure, finished" onClick={toggleSound} />
-        <span class="dialog-sub">When the agent asks something, when a note fails or the server is lost, and when it has finished.</span>
+        <span class="dialog-sub">When the agent asks something, when a note fails or the agent is lost, and when it has finished.</span>
       </div>
     </div>
   )
@@ -851,7 +721,7 @@ export function SettingsDialog(props: { onClose: () => void }) {
           </>
         }
       >
-        {/* Connected: that is the answer. Changing server is one quiet step away. */}
+        {/* Connected: that is the answer. Another agent is one quiet step away. */}
         <div class="dialog-connected">
           <p class="dialog-status" data-status="online">
             <span class="dot" />

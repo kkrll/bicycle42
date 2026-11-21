@@ -1,10 +1,11 @@
 // A shell for the controller (src/main/core.ts) in plain Node, where src/main/index.ts is the
-// Electron one: a folder, no keychain, a record of what went to the window, and a page that is
+// Electron one: a folder, a record of what went to the window, and a page that is
 // no browser, just a URL, a record of what the controller sent to the overlay, and a way for the
 // test to speak as the overlay.
 import { createCore, type Core } from "../../src/main/core"
 import type { Frame } from "../../src/main/images"
 import type { Page, PageMessage, PageState } from "../../src/main/page"
+import type { Transport } from "../../src/main/acp"
 import type { Pane } from "../../src/shared/types"
 
 export type TestShell = {
@@ -29,15 +30,15 @@ export type TestShell = {
 
 /** Starts a controller on `dataDir` the way the shell does: the page made, laid out where it was
  *  last and hidden, loaded at the address it was last at, then `start`. */
-export function testShell(dataDir: string, opts: { docks?: Pane[] } = {}): TestShell {
+export function testShell(dataDir: string, opts: { docks?: Pane[]; agent?: (command: string[]) => Transport } = {}): TestShell {
   const sent: TestShell["sent"] = []
   const dialogs: unknown[] = []
   const core = createCore({
     dataDir,
-    secrets: { available: () => false, encrypt: (secret) => Buffer.from(secret), decrypt: String },
     emit: (stream, value) => void sent.push([stream, value]),
     dialog: (box) => void dialogs.push(box),
     ...(opts.docks ? { docks: opts.docks } : {}),
+    ...(opts.agent ? { agentTransport: opts.agent } : {}),
     log: (level, msg, data) => console[level === "info" ? "log" : level](`[bicycle42] ${msg}`, data === undefined ? "" : data),
   })
 

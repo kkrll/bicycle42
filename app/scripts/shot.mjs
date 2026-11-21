@@ -59,23 +59,13 @@ const SHOTS = [
   { name: "connect", mock: "connect" },
   // The adapter's version under the command: Claude Code at its tested pin, Codex switched to the newest.
   { name: "connect-adapter", mock: "connect", run: [click('[data-agent="claude"] .agent-how'), click('[data-agent="codex"] .agent-how'), pause(100), click('[data-agent="codex"] .agent-version .toggle')], wait: 300 },
+  // The first start after an OpenCode server was the one saved: put aside, said once.
+  { name: "connect-retired", mock: "connect", query: "&retired" },
   // Someone who disconnected: the agents, then the ones connected to before, each with its mark.
   { name: "connect-returning", mock: "connect", query: "&returning", run: [`document.querySelector(".connect-saved").scrollIntoView({ block: "end" })`], wait: 300 },
   // The form inside the settings while Claude Code is in use: one agent in use, one to sign in
   // to, one not installed, one ready; the command that starts one, asked for.
   { name: "connect-agents", mock: "review", query: "&agent=claude", run: [click("[data-action=agents]"), pause(200), click("[data-action=connect-another]"), pause(400), click('[data-agent="opencode"] .agent-how')], wait: 400 },
-  {
-    name: "connect-error",
-    mock: "connect",
-    run: [click("[data-action=remote]"), type("input[name=url]", "http://my-box.example:4096"), type("input[name=password]", "wrong"), click(".connect-form button[type=submit]"), pause(1100), `document.querySelector(".agent-remote-form").scrollIntoView({ block: "end" })`],
-    wait: 300,
-  },
-  {
-    name: "connect-progress",
-    mock: "connect",
-    run: [click("[data-action=remote]"), type("input[name=url]", "http://my-box.example:4096"), type("input[name=password]", "wrong"), click(".connect-form button[type=submit]"), `document.querySelector(".agent-remote-form").scrollIntoView({ block: "end" })`],
-    wait: 300,
-  },
   // Another computer over ssh: its host typed, connected, the agents installed there.
   {
     name: "connect-ssh",
@@ -87,7 +77,7 @@ const SHOTS = [
   { name: "repo-agent", mock: "repo", query: "&agent=claude" },
   // The panel's top row: the agent (mark, name, the connection's dot) and the repo's path.
   { name: "place-claude", mock: "review", query: "&agent=claude", report: PLACE },
-  { name: "place-server", mock: "review", report: PLACE },
+  { name: "place-ssh", mock: "review", report: PLACE },
   { name: "place-custom", mock: "review", query: "&agent=custom", report: PLACE },
   // The panel at its least, with a long path: cut in the middle, its last folder kept.
   {
@@ -98,7 +88,7 @@ const SHOTS = [
     wait: 500,
     report: PLACE,
   },
-  // The agent's name pressed: the agents and servers to switch to.
+  // The agent's name pressed: the agents to switch to.
   { name: "agent-switch", mock: "review", query: "&agent=claude", run: [click("[data-action=agents]")], wait: 500 },
   { name: "agent-switch-narrow", mock: "review", query: "&agent=claude", run: [leastPanel, pause(200), click("[data-action=agents]")], wait: 500 },
   // The second first-run step: which model conversations start with. Then narrowed by typing,
@@ -113,7 +103,7 @@ const SHOTS = [
   { name: "note-detail", mock: "review", run: [click(".note:nth-of-type(3) .note-main"), pause(300), click(".note-diff-btn")], wait: 500 },
   // A note of another conversation names it at the end of its status line. Then Take back's
   // question, which says the way it will go: the agent asked (its conversation is at work), or
-  // an exact undo (the newest message of an idle one).
+  // its files put back from the app's own history (a note of an idle one).
   {
     name: "note-elsewhere",
     mock: "review",
@@ -132,7 +122,6 @@ const SHOTS = [
   { name: "ask", mock: "empty", run: [START_SITE], wait: 600 },
   { name: "ask-open", mock: "empty", run: [START_SITE, pause(400), click(".user-ask summary")], wait: 400 },
   { name: "empty", mock: "empty" },
-  { name: "running", mock: "review", run: [click('[data-action="running"]')], wait: 500 },
   { name: "switcher", mock: "review", run: [click('[data-action="switcher"]')], wait: 500 },
   // The project's name in the panel under the pointer (made so by hand: a headless window has no
   // :hover), and what it opens.
@@ -186,19 +175,7 @@ const SHOTS = [
   { name: "offline", mock: "offline" },
   { name: "pageerror", mock: "pageerror" },
   { name: "settings", mock: "review", run: [click("[data-action=settings]")], wait: 500 },
-  { name: "settings-servers", mock: "review", run: [click("[data-action=settings]"), pause(300), click(".dialog .disclosure summary")], wait: 500 },
-  // A tunnel's address is one long word; named, the name leads and the address goes under it.
-  {
-    name: "settings-tunnel",
-    mock: "review",
-    run: [
-      `window.__mock.state.connection.url = "https://eb501e0e4f991ca4.7fek5zuoivit.opentunnel.xyz"; 0`,
-      click("[data-action=draw]"), // anything that makes the mock send its state
-      click("[data-action=draw]"),
-      click("[data-action=settings]"),
-    ],
-    wait: 500,
-  },
+  { name: "settings-agents", mock: "review", run: [click("[data-action=settings]"), pause(300), click(".dialog .disclosure summary")], wait: 500 },
   { name: "settings-rename", mock: "review", run: [click("[data-action=settings]"), pause(300), click("[data-action=rename-server]")], wait: 500 },
   {
     name: "settings-named",
@@ -210,8 +187,8 @@ const SHOTS = [
   { name: "hint", mock: "review", run: [`document.querySelector('.mode[data-mode="edit"]').dispatchEvent(new PointerEvent("pointerenter"))`], wait: 900 },
   { name: "slash-menu", mock: "review", run: [typeIn("/")], wait: 300 },
   { name: "slash-filter", mock: "review", run: [typeIn("/re")], wait: 300 },
-  // The app's own commands: /compact leaves a folded summary in the conversation; /undo asks first.
-  { name: "slash-compact", mock: "review", run: [typeIn("/compact"), key("Escape"), key("Enter"), pause(1200), `document.querySelector("[data-summary]").open = true`], wait: 400, report: `document.querySelector("[data-summary=done] summary").textContent` },
+  // The app's own commands: /compact is the agent's own, a turn of its in the conversation; /undo asks first.
+  { name: "slash-compact", mock: "review", run: [typeIn("/compact"), key("Escape"), key("Enter"), pause(1200)], wait: 400, report: `[...document.querySelectorAll(".transcript .msg.assistant")].at(-1)?.textContent.slice(0, 80)` },
   { name: "slash-undo", mock: "review", run: [typeIn("/undo"), key("Escape"), key("Enter")], wait: 500, report: `[document.querySelector(".composer-hint").textContent, document.querySelector(".composer textarea").value]` },
   // The context meter: quiet from half full, the warning colour from 80% with its question
   // open, and the bottom row of a sidebar at its narrowest, while the agent works.

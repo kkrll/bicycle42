@@ -7,9 +7,9 @@ A bicycle for two: the designer and the agent.
 bicycle 42 is a desktop app for reviewing a web page together with a coding agent. The page under
 review fills the window. You click or draw on it and type a note, or change it directly in edit
 mode (DOM tree, raw CSS, drag), and each note goes to a coding agent, which makes the change in
-the code while you keep going: one the app runs on this computer over
-[ACP](https://agentclientprotocol.com) (Claude Code, Codex, Gemini CLI, OpenCode, or any other ACP
-agent), or an [OpenCode](https://opencode.ai) server on this computer or another one.
+the code while you keep going: one the app runs over [ACP](https://agentclientprotocol.com)
+(Claude Code, Codex, Gemini CLI, OpenCode, or any other ACP agent), on this computer or on
+another one over ssh.
 It is for designers who work with a coding agent, and it is open source.
 
 ![The overlay on the bundled test page](overlay/docs/harness.png)
@@ -19,7 +19,7 @@ It is for designers who work with a coding agent, and it is open source.
 - An agent: one of Claude Code, Codex, Gemini CLI or OpenCode installed and signed in on this
   computer (Claude Code and Codex are reached through their ACP adapters, which `npx` fetches the
   first time, at the version the app pins), or on another computer you reach with `ssh` (it
-  needs Node 18 or newer there), or an OpenCode server on this computer or another one.
+  needs Node 18 or newer there).
 - Node 22 or newer with npm, or Bun.
 - git, for the repo's branch and changes when the agent runs on this computer.
 
@@ -41,9 +41,8 @@ its own name and icon. It is not signed with a developer certificate, and there 
    installs it, to copy), or needing you to sign in (with the command to run in a terminal).
    Press **Start** beside one; **Command**, under the pointer, shows what the app runs. The app
    runs it with your own login of it, and it works in this computer's folders. Any other ACP
-   agent works too: type the command that starts it. Such an agent can't undo a message, show what one message changed, or
-   list the commands it left running (a dev server it starts ends with it, when the app quits or
-   uses another agent); the app leaves out what it can't do.
+   agent works too: type the command that starts it. What an agent can't do (copy a
+   conversation, put one away, summarise it) the app leaves out.
    Under **Another computer (ssh)**, type the computer your code is on: `user@host`, or a name
    from your `~/.ssh/config` (a Tailscale name works the same), and press **Connect**. The app uses
    your own `ssh`, keys and config, and never asks for a password: if that computer's key is not
@@ -54,47 +53,45 @@ its own name and icon. It is not signed with a developer certificate, and there 
    there: the banner says the computer can't be reached, notes wait, and the app connects again by
    itself (**Retry** tries at once) and shows what the agent did meanwhile. The site the agent
    starts there on its `localhost` is forwarded over the same connection and opens here.
-   Under **OpenCode server**, if one is running on this computer the app finds it: press
-   **Connect**. (`opencode service start` starts one.) For a server on another machine, press
-   **Enter address** and give its address and password: `opencode service status` there shows the address (the
-   `https://….opentunnel.xyz` one works from anywhere) and `~/.config/opencode/service.json`
-   holds the password. If the server offers more than one model, you then choose the one new
-   conversations start with; it can be changed any time under the chat box.
-   Every agent and server you connect to is remembered: the connect screen lists them under
-   **Connected before**, and going back to one needs no password and brings back its repo, page
-   and notes.
+   If the agent offers more than one model, you then choose the one new conversations start
+   with; it can be changed any time under the chat box.
+   Every agent you start is remembered: the connect screen lists the ones on other computers and
+   those started by a typed command under **Connected before**, and going back to one brings back
+   its repo, page and notes.
+   An earlier bicycle 42 also connected to an OpenCode server by its address and password. That
+   is no longer supported: OpenCode is one of the agents above, and a server's computer is
+   reached over ssh. A server saved then is not connected to again, its password is removed, and
+   the connect screen says so once; its notes stay on disk.
 2. **Open the repo**: the folder that holds the site's code ("Where should Claude Code
    work?", or "… work on dev-box?" for an agent on another computer, whose folders you browse
    then). The agent's own recent folders come first; on this computer, also those another
    agent here worked in. The agent works there, and you can talk to it from then on.
 
 The panel's top row says who works where: the agent's mark with the connection's dot, its name
-(an OpenCode server's computer name or address, and after it the computer an agent runs on over
-ssh), and the repo's path, `~` for your home folder (that computer's, for an agent there)
-and cut in the middle when the panel is narrow. Pressing the agent's name lists the agents and
-servers to switch to, the one in use checked, and **Connect another agent**; pressing the path
+(and after it the computer it runs on, for an agent there over ssh), and the repo's path, `~`
+for your home folder (that computer's, for an agent there) and cut in the middle when the panel
+is narrow. Pressing the agent's name lists the agents to switch to, the one in use checked, and
+**Connect another agent**; pressing the path
 lists the projects; the sliders at the end open the settings.
 3. **Open the site.** Type your dev URL in the top bar, for example `localhost:3000`. If the
    site is not running, press **Ask the agent to start it**: it starts the dev server (or serves
    plain HTML), is told whether the app is on its computer or another one so it gives an address
    that opens here, asks when it needs something, and the app opens the address it reports.
 
-A dev server the agent started keeps running after its reply. While the server has
-something running, a count with a stop mark shows at the end of the address line: it opens the
-list of what is still running, in the open repo and in the server's other projects, each with
-its own **Stop**.
+A dev server the agent started keeps running after its reply, as long as the agent does: it
+ends with the agent's process, when the app quits or uses another agent.
 
 After that, the app reopens the last page with its notes and conversation. An address works in
 the repo that is open: the same one (`localhost:3000`) in another project is that project's
 site, with notes and a conversation of its own.
 
 **Another project:** the project's name in the panel, or the **+** beside the conversation's
-name, lists the server's projects (type to narrow, `↑` `↓`, `Enter`; `mod+1`…`9` for the first
+name, lists the agent's projects (type to narrow, `↑` `↓`, `Enter`; `mod+1`…`9` for the first
 nine; a path starting with `/` opens any folder). Behind the **+** the list starts with a new
 conversation in the open project. A project
 opens on the page it was last on, with its notes and conversation, or with no page yet. Each row
-says which computer the project is on; the projects of servers you connected to before are in
-the list too, and choosing one connects to its server first.
+says which agent and computer the project is on; the projects of agents used before are in the
+list too, and choosing one starts that agent first.
 
 **Conversations:** a conversation is named after the first thing you say in it, a note or a
 message; `/rename`, or the pencil in the list, gives it a name of your own, which is kept. The
@@ -112,15 +109,13 @@ page the note was made on, at the same window width); what changed in the code f
 changes only: the agent gets one note at a time, the others wait in the app); and two things to do when it is not right:
 **Follow up** on it in the conversation, or **Take back** what the agent did. A result that is
 right needs nothing: a done note counts as accepted unless it is taken back. Take back first
-says which way it will go: the newest message of an idle conversation is undone exactly, files
-included. Where the files are on this computer, an older note is taken back exactly too: the app
-keeps its own snapshots of the folder at every turn of the agent's, and puts back the lines that
-note changed, keeping everything changed since (by the agent or by hand); the conversation keeps
-the note, and the agent is told in a line at the start of your next message. When later work
-changed the same lines, another conversation worked in the folder at the same time, or the server
-is on another computer, the agent is asked to reverse it. The question names the files the app
-would put back: anything changed in them during that turn, by you in your editor too, goes back
-with it.
+says which way it will go. The app keeps its own snapshots of the folder at every turn of the
+agent's (on the computer the agent works on), and puts back the lines that note changed,
+keeping everything changed since (by the agent or by hand); the conversation keeps the note,
+and the agent is told in a line at the start of your next message. When later work changed the
+same lines, or another conversation worked in the folder at the same time, the agent is asked to
+reverse it. The question names the files the app would put back: anything changed in them
+during that turn, by you in your editor too, goes back with it.
 A note stays with the conversation it was sent in. When that is not the open one, the note says
 which ("In Pricing page review"), Follow up opens it before starting the message, and Take back
 acts there.
@@ -129,23 +124,23 @@ says so and has **Remove from queue**, which takes it out and leaves it on the l
 with Retry.
 
 **Checkpoints and commits:** `/checkpoint name` marks a point in the conversation. Its line
-has **Return here**, which takes back every message after it and the files the agent changed
-since (in a git repository; `/redo` brings it back until you say something new). A note the app
-took back by itself is brought back by `/redo` too, until the next message. When the repo
+has **Return here**, which puts back the files the agent changed since, from the app's own
+snapshots (the conversation stays as it is; `/redo` brings the files back until you say
+something new). A note the app took back is brought back by `/redo` too, until the next message. When the repo
 has uncommitted changes, the conversation's header shows how many lines are added and removed;
 open it for the branch, the files and a commit message started from the finished notes, and **Commit**
 asks the agent to commit everything, without pushing.
 
 **Context:** a long review fills what the agent can keep in mind. From half full, the message
 box shows how full it is, as a percentage beside the model (hover for the numbers); from 80% it
-turns amber. While the agent has nothing left to do it also reads **Compact**: between rounds of
-notes is when a summary loses least. Press it and then **Compact**, or type `/compact`: the agent summarises the
-conversation so far and continues from the summary. That cannot be undone, so it asks first.
-Left alone, the server does the same by itself when the context is nearly full.
+turns amber. While the agent has nothing left to do it also reads **Compact**, when the agent
+offers `/compact`: between rounds of notes is when a summary loses least. Press it and then
+**Compact**, or type `/compact`: the agent summarises the conversation so far and continues
+from the summary. That cannot be undone, so it asks first.
 
 The app makes three sounds: a rising one when the agent asks something or wants permission, a
-falling one when a note fails or the server is lost, and a single note when the agent has
-finished everything you sent. They can be turned off in the settings (the server button, in the
+falling one when a note fails or the agent is lost, and a single note when the agent has
+finished everything you sent. They can be turned off in the settings (the agent's button, in the
 panel's conversation row), where reloading the page after a note is switched too.
 
 The top bar has the mode: **Preview** (the page as it is), **Annotate** (point at something
@@ -220,8 +215,7 @@ timeline says how many); **Duplicate** gives the element a copy of its own. Dura
 easing and the rest belong to the element.
 
 In the chat box, `/` lists commands: the app's own (`/compact`, `/new`, `/undo`, `/redo`,
-`/rename`, `/fork`, `/checkpoint`), then the ones the site's folder defines on the server. `@` names a file,
-a skill or a helper agent.
+`/rename`, `/fork`, `/checkpoint`), then the agent's own. `@` names a file of the site's code.
 
 ## Not built yet
 
