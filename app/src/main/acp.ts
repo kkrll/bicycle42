@@ -788,8 +788,13 @@ export function createAcp(opts: AcpOptions): Acp {
     return new Error("The conversation no longer exists.")
   }
 
+  /** What models, efforts and modes there are to choose from (not which is chosen): when it
+   *  changes, the controller reads them again. */
+  const offer = () => JSON.stringify(["model", "thought_level", "mode"].map((k) => choices(optionOf(undefined, k)).map((o) => o.value)).concat([list(rec(ledger.modes).availableModes).map((m) => rec(m).id)]))
+
   /** What session/new, load, resume and fork answer with: the options and modes. */
   function configured(c: Conv, res: Raw) {
+    const before = offer()
     const options = list(res.configOptions).map(rec)
     // Agents from before config options say their models apart.
     const models = rec(res.models)
@@ -799,6 +804,8 @@ export function createAcp(opts: AcpOptions): Acp {
     if (res.modes) c.modes = rec(res.modes)
     if (c.modes) ledger.modes = c.modes
     save()
+    // The first conversation of an agent that says its models only per conversation.
+    if (offer() !== before) emit({ type: "agent" })
   }
 
   function pictures(files: PromptFile[]) {
@@ -826,8 +833,11 @@ export function createAcp(opts: AcpOptions): Acp {
     if (c.running || c.parked || !c.queue.length || pumping.has(c.id)) return
     pumping.add(c.id)
     let p: Proc
+    const loaded = !!proc && c.attached === proc.gen
     try {
       p = await attach(c)
+      // Its history was read just now: what the screen shows of it was not.
+      if (!loaded) emit({ type: "resync", session: c.id })
     } catch (err) {
       pumping.delete(c.id)
       // It could not be loaded: what waits fails, as a message the agent never got.

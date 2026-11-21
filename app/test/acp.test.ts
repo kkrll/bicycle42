@@ -332,6 +332,8 @@ test("models, modes and commands come from what the agent offers; setModel sets 
   const { backend, fake, events } = setup()
   assert.deepEqual(await backend.models(), [])
   const s = await backend.createSession({ directory: "/repo", model: { providerID: "fake", id: "fake/beta", variant: "high" } })
+  // Said with the first conversation: the controller is told to read them again.
+  assert.ok(of(events, "agent").length > 0)
   assert.deepEqual(s.model, { providerID: "fake", id: "fake/beta", variant: "high" })
   assert.equal(s.agent, "build")
   const models = await backend.models()
