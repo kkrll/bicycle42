@@ -6,7 +6,7 @@ import { readPathsIfDue, treeChanged } from "./stamps.js";
 import { commit, draft, restoreEdits } from "./batch.js";
 import { dropFinished, finish, showEdits, unsendCanvas } from "./send.js";
 import { select, zoneOf } from "./select.js";
-import { cancelDrag, cvDown, cvMove, cvUp } from "./drag.js";
+import { cancelDrag, cvDown, cvMove, cvUp, modKey } from "./drag.js";
 import { endEdit, inEdit as inEditedText } from "./text.js";
 import { syncUi } from "./cursor.js";
 import { closePop, drawBar, hush, setPop } from "./bar.js";
@@ -75,7 +75,7 @@ function letGo() {
 export {
   HTML as html,
   mountCanvas as mount, setOn, resumeCanvas as resume, letGo, syncUi, drawBar, cvFrame as frame,
-  cvMove as pointerMove, cvUp as pointerUp, cancelDrag as pointerCancel, cvKey as key, zoneOf, closePop, select,
+  cvMove as pointerMove, cvUp as pointerUp, cancelDrag as pointerCancel, cvKey as key, modKey as keyUp, zoneOf, closePop, select,
   draft, restoreEdits as restore, unsendCanvas as refuse, finish, dropFinished, showEdits, treeChanged, readPathsIfDue,
 };
 export const on = () => C.on;

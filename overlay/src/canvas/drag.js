@@ -1,4 +1,4 @@
-import { DRAG_PX, mod } from "../state.js";
+import { DRAG_PX, isMac, mod } from "../state.js";
 import { BOOST, editSel, line, pick, pickDeep, plainLabel, readView, rectOf, VP } from "../page.js";
 import * as Notes from "../notes/api.js";
 import { C, kids, MAX_CSS, num, px } from "./state.js";
@@ -31,6 +31,15 @@ export function cvDown(e, z) {
   const x = e.clientX, y = e.clientY, r = C.r;
   const body = !z && r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
   C.drag = { x0: x, y0: y, x, y, zone: z || (body ? { t: "body" } : null), mode: null, deep: mod(e), free: mod(e), both: e.shiftKey, sx: window.scrollX, sy: window.scrollY };
+}
+
+/** The mod key went down or up over the page: the hover is, or is no longer, what a mod+click
+ *  would select, without waiting for the pointer to move. */
+export function modKey(e) {
+  if (e.key !== (isMac ? "Meta" : "Control") || C.mod === mod(e)) return;
+  C.mod = mod(e);
+  C.moved = true; // (the frame reads what is under the pointer again)
+  kick();
 }
 
 export function cvMove(e) {

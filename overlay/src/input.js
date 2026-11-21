@@ -151,6 +151,7 @@ export function endPeek() {
 }
 
 export function onKeyUp(e) {
+  if (S.enabled && !S.peek && Canvas.on()) Canvas.keyUp(e); // (the mod key let go: its hover goes)
   if (!S.peek || (e.code !== "KeyA" && e.key !== "Alt")) return;
   block(e); // (an alt let go alone would otherwise show the window's menu bar on Linux and Windows)
   endPeek();

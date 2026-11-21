@@ -10,7 +10,8 @@ import * as Motion from "./motion/api.js";
 let modeTold; // "mode|brush" as the host last heard it; undefined until its first "state"
 
 /** The three modes, each with the same few handlers for the page's pointer and keys (input.js):
- *  pointerDown(e, zone), pointerMove(e), pointerUp(e), key(e); canvas mode also has zoneOf(e).
+ *  pointerDown(e, zone), pointerMove(e), pointerUp(e), key(e); canvas mode also has zoneOf(e)
+ *  and keyUp(e).
  *  Canvas and motion mode are switched with setOn; notes mode is what is on when neither is.
  *  A frame and busy() are not routed: canvas mode's unsent batch outlives canvas mode (notes
  *  mode shows a chip for it), so each module draws itself, and says it is busy, whatever is on.

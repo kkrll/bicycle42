@@ -1773,15 +1773,19 @@ test("mod+click selects what is under the pointer through whatever is in the way
   await frames(f);
   assert.equal(await selTag(f), "button#ib");
   await page.keyboard.press("Escape");
-  await page.keyboard.down(MOD);
-  await page.mouse.move(ico[0] + 1, ico[1] + 1);
-  await frames(f, 3);
-  const hov = await ui(f, (r) => {
-    const b = r.querySelector(".box.hover")?.getBoundingClientRect();
+  const hover = () => ui(f, (r) => {
+    const b = r.querySelector(".box.hover:not([hidden])")?.getBoundingClientRect();
     return b ? { x: Math.round(b.x), y: Math.round(b.y) } : null;
   });
+  await page.mouse.move(ico[0] + 1, ico[1] + 1);
+  await frames(f, 3);
+  assert.deepEqual(await hover(), await near(f, "#ib"));
+  await page.keyboard.down(MOD);
+  await frames(f, 3);
+  assert.deepEqual(await hover(), await near(f, "#ico"), "with the key held, the hover is what the click would select: at once, the pointer still");
   await page.keyboard.up(MOD);
-  assert.deepEqual(hov, await near(f, "#ico"), "with the key held, the hover is what the click would select");
+  await frames(f, 3);
+  assert.deepEqual(await hover(), await near(f, "#ib"), "and let go, what a click would");
   await deep(...ico);
   assert.equal(await selTag(f), "span#ico");
   await deep(...ico);
@@ -1995,7 +1999,10 @@ test("mod+click reaches what the page keeps the pointer off beside what is hit: 
     d.innerHTML = `<p id="bp" style="margin: 0; padding: 24px 16px">Words here</p>
       <span id="badge" style="pointer-events: none; position: absolute; top: 4px; left: 4px; width: 34px; height: 14px; background: #c00"></span>
       <span id="sheen" style="pointer-events: none; position: absolute; inset: 0"></span>`;
-    document.querySelector("header").after(d);
+    const n = document.createElement("div");
+    n.id = "nest";
+    n.innerHTML = `<button id="nb" style="padding: 12px"><span id="outer" style="pointer-events: none; display: inline-block; padding: 4px"><span id="inner" style="pointer-events: none; display: inline-block; width: 20px; height: 20px">★</span></span></button>`;
+    document.querySelector("header").after(d, n);
   });
   await frames(f);
   const deep = async (x, y) => {
@@ -2016,6 +2023,57 @@ test("mod+click reaches what the page keeps the pointer off beside what is hit: 
   const words = [p.x + 40, p.y + p.height / 2];
   assert.equal(await deep(...words), "p#bp");
   assert.equal(await deep(...words), "span#sheen");
+  // one inside another: each on the way out is a stop
+  const s = await box(f, "#inner");
+  const star = [s.x + s.width / 2, s.y + s.height / 2];
+  const seen = [];
+  for (let i = 0; i < 4; i++) seen.push(await deep(...star));
+  assert.deepEqual(seen, ["span#inner", "span#outer", "button#nb", "div#nest"]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("text beside elements, the reviewers' cases: an element put in right before the words' own line break; text nodes the page builds anew are put back each as it was", async () => {
+  const { page, f, errors } = await open();
+  await f.evaluate(() => {
+    const p = document.createElement("p");
+    p.id = "k1";
+    p.innerHTML = "one<br>two";
+    const q = document.createElement("p");
+    q.id = "k2";
+    q.innerHTML = "one<br>A<!--split-->B";
+    document.querySelector("header").after(p, q);
+  });
+  await frames(f);
+  const nodes = (sel) => f.evaluate((s) => [...document.querySelector(s).childNodes].map((x) => (x.nodeType === 3 ? x.data : x.nodeType === 8 ? "<!>" : x.localName)), sel);
+  await dblRun(page, f, "#k1", 1);
+  await page.keyboard.type("TWO");
+  await page.keyboard.press("Enter");
+  await frames(f);
+  await f.evaluate(() => document.querySelector("#k1 br").insertAdjacentHTML("beforebegin", "<b>new</b>"));
+  await settle(f);
+  assert.deepEqual(await nodes("#k1"), ["one", "b", "br", "TWO"]);
+  await act(f, { type: "undo" });
+  await frames(f);
+  assert.deepEqual(await nodes("#k1"), ["one", "b", "br", "two"]);
+  // two text nodes in the run; the page replaces both with new ones that say the same
+  await dblRun(page, f, "#k2", 1);
+  await page.keyboard.type("X");
+  await page.keyboard.press("Enter");
+  await frames(f);
+  assert.deepEqual(await nodes("#k2"), ["one", "br", "X", "<!>", ""]);
+  await f.evaluate(() => {
+    const q = document.getElementById("k2"), [, , a, , b] = q.childNodes;
+    a.replaceWith(document.createTextNode("A"));
+    b.replaceWith(document.createTextNode("B"));
+    window.fresh = [q.childNodes[2], q.childNodes[4]];
+  });
+  await settle(f);
+  assert.deepEqual(await nodes("#k2"), ["one", "br", "X", "<!>", ""], "applied again, to the new nodes");
+  await act(f, { type: "undo" });
+  await frames(f);
+  assert.deepEqual(await nodes("#k2"), ["one", "br", "A", "<!>", "B"]);
+  assert.ok(await f.evaluate(() => { const q = document.getElementById("k2"); return q.childNodes[2] === window.fresh[0] && q.childNodes[4] === window.fresh[1]; }), "the page's own new nodes");
   assert.deepEqual(errors, []);
   await page.close();
 });

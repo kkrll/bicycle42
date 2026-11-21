@@ -4,7 +4,7 @@ import { redo, undo } from "./batch.js";
 import { submitCanvas } from "./send.js";
 import { cvWalk, hideSel, select } from "./select.js";
 import { draftCopy, dropCopy, duplicateSel } from "./copies.js";
-import { cancelDrag } from "./drag.js";
+import { cancelDrag, modKey } from "./drag.js";
 import { endEdit, hasWords, startEdit } from "./text.js";
 import { flash } from "./bar.js";
 import { setMode } from "../mode.js";
@@ -14,6 +14,7 @@ import { block } from "../input.js";
 // The page's keys in canvas mode. The inspector's are the host's: what they do comes as acts
 // (host.js).
 export function cvKey(e) {
+  modKey(e);
   if (C.edit) {
     if (e.key === "Enter" && !e.isComposing) {
       block(e);
