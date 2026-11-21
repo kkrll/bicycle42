@@ -9,13 +9,17 @@
 //                       the connection); forwards/<port>.pid for each port forward
 //   B42_FAKE_SSH_FAIL   what ssh says on stderr before it fails (exit 255): a host key not known…
 //   B42_FAKE_SSH_PATH   the other computer's PATH (no node on it, say)
-//   B42_FAKE_SSH_SHELL  its login shell (/bin/sh)
+//   B42_FAKE_SSH_SHELL  its login shell's name in SHELL (/bin/sh), what the probe asks for a PATH
+//   B42_FAKE_SSH_LOGIN  the login shell that runs the command line, as sshd runs it (`<it> -c
+//                       <command line>`; /bin/sh unless said): one that reads only some syntax
+//                       (fish's, csh's) or none (Windows's) shows what the app's command lines need
 //   B42_FAKE_SSH_BIND   "there=here" pairs, ";"-separated: the other computer sees folder `here`
 //                       at path `there` (a mount namespace, `unshare -rm`), so the same path is two
 //                       folders, one on each computer
 //   <root>/mute         while it is there, what commands print never reaches the app (a link
 //                       gone half-open: an answer lost on its way back)
 //   <root>/sent         when it is there, what the app writes to commands is added to it
+//   <root>/commands     every command line run there, one per line (a newline in it as "\n")
 //
 // What it understands of ssh: -o, -O check|exit|forward|cancel, -L, -f -N (a master), -T, --,
 // a host, and the command, run with `sh -c` there. It refuses a call without BatchMode=yes, or
@@ -135,12 +139,19 @@ function main() {
   }
 
   // A command, run "there".
-  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, SHELL: process.env.B42_FAKE_SSH_SHELL ?? "/bin/sh", ...(process.env.B42_FAKE_SSH_PATH ? { PATH: process.env.B42_FAKE_SSH_PATH } : {}) }
+  const login = process.env.B42_FAKE_SSH_LOGIN ?? "/bin/sh"
+  // A version manager's shims (mise, asdf, volta) find their node by the HOME they run under,
+  // which "there" is not this computer's: they would install or pick another one. Left out, as
+  // that computer would not have them.
+  const shim = /[\\/](?:mise|asdf|rtx)[\\/]shims$|[\\/]\.volta[\\/]bin$/
+  const PATH = (process.env.B42_FAKE_SSH_PATH ?? process.env.PATH ?? "").split(path.delimiter).filter((d) => !shim.test(d)).join(path.delimiter)
+  const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, SHELL: process.env.B42_FAKE_SSH_SHELL ?? process.env.B42_FAKE_SSH_LOGIN ?? "/bin/sh", PATH }
   fs.mkdirSync(home, { recursive: true })
+  fs.appendFileSync(path.join(root, "commands"), `${command.replace(/\n/g, "\\n")}\n`)
   const binds = (process.env.B42_FAKE_SSH_BIND ?? "").split(";").filter(Boolean).map((p) => p.split("=") as [string, string])
   const run = binds.length
     ? spawn("unshare", ["-rm", "sh", "-c", `${binds.map(([there, here]) => `mount --bind '${here}' '${there}'`).join(" && ")} && exec sh -c "$0"`, command], { cwd: home, env, stdio: "pipe", detached: true })
-    : spawn("/bin/sh", ["-c", command], { cwd: home, env, stdio: "pipe", detached: true })
+    : spawn(login, ["-c", command], { cwd: home, env, stdio: "pipe", detached: true })
   const sessions = path.join(root, "sessions")
   fs.mkdirSync(sessions, { recursive: true })
   const mine = path.join(sessions, String(process.pid))

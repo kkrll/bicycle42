@@ -179,13 +179,22 @@ export function createCore(host: Host): Core {
   function remoteOf(host: string): Promise<RemoteMachine> {
     let m = remotes.get(host)
     if (!m) {
-      m = connectSsh({ host, dataDir: host_.dataDir, log })
+      m = connectSsh({ host, dataDir: host_.dataDir, log, onStep: (text) => ((sshStep = { host, text }), push()) })
       remotes.set(host, m)
       // Not connected: the next try starts over.
       m.catch(() => remotes.delete(host))
+      // Connected or not, no step is under way.
+      void m.then(
+        () => undefined,
+        () => undefined,
+      ).finally(() => {
+        if (sshStep?.host === host) (sshStep = undefined), push()
+      })
     }
     return m
   }
+  /** The step a connection to another computer is at, while one is made. */
+  let sshStep: { host: string; text: string } | undefined
   /** Hosts an agent is being started on: their connection is not let go meanwhile. */
   const startingOn = new Set<string>()
   /** Lets go of another computer no agent in use is on: its connection and forwards end. */
@@ -446,6 +455,7 @@ export function createCore(host: Host): Core {
       connection,
       ...(serverName() ? { serverName: serverName() } : {}),
       ...(store.settings().serversRetired ? { serversRetired: true as const } : {}),
+      ...(sshStep ? { sshStep } : {}),
       ...(harness() ? { harness: harness() } : {}),
       home: machine.home,
       page: {

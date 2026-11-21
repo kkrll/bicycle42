@@ -259,6 +259,17 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
   const [sshHost, setSshHost] = createSignal(state.harness?.host && isAgent("url" in state.connection ? state.connection.url : "") ? state.harness.host : "")
   const [there, setThere] = createSignal<RemoteInfo>()
   const [reaching, setReaching] = createSignal(false)
+  /** A connection that takes longer than a second says the step it is at (a slow link, a helper
+   *  put there for the first time). */
+  const [slowReach, setSlowReach] = createSignal(false)
+  let slowTimer: ReturnType<typeof setTimeout> | undefined
+  createEffect(() => {
+    clearTimeout(slowTimer)
+    setSlowReach(false)
+    if (reaching()) slowTimer = setTimeout(() => setSlowReach(true), 1000)
+  })
+  onCleanup(() => clearTimeout(slowTimer))
+  const reachStep = () => (slowReach() && state.sshStep?.host === sshHost().trim() ? state.sshStep.text : "")
   const usingThere = (id: string, where: string) => state.connection.status === "online" && state.connection.url === `acp://${id}@${encodeURIComponent(where)}`
   const reach = () => {
     const where = sshHost().trim()
@@ -393,6 +404,11 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
                 {reaching() ? "Connecting" : "Connect"}
               </button>
             </div>
+            <Show when={reachStep()}>
+              <p class="agent-row-step" aria-live="polite">
+                {reachStep()}
+              </p>
+            </Show>
             <RowError at="ssh" />
           </li>
           <Show when={there()}>

@@ -2,10 +2,12 @@
 // that computer's own `node` (18 or newer), kept at ~/.bicycle42/helper-<version>.js.
 //
 //   node helper-<v>.js daemon   starts the helper in the background unless it is running (setsid:
-//                               it outlives the ssh connection), prints "B42 READY" once it listens
+//                               it outlives the ssh connection), prints "B42 READY" once it listens,
+//                               or "B42 FAILED <code> <sentence>" (failure.ts) when it can't
 //   node helper-<v>.js serve    the helper itself: a unix socket in ~/.bicycle42/
 //   node helper-<v>.js attach   joins this process's stdin and stdout to that socket: what the app
-//                               runs over ssh to speak to the helper
+//                               runs over ssh to speak to the helper; exits 3 ("B42 NOHELPER") when
+//                               no helper of this version listens there, and the app starts one
 //
 // The helper is thin. It does what `Machine` (src/main/machine.ts) does on this computer, with that
 // very code, as JSON-RPC: commands, files, the PATH; the app's work on a folder (src/main/ops.ts:
@@ -33,6 +35,7 @@ import os from "node:os"
 import path from "node:path"
 import { spawn } from "node:child_process"
 import { createLocalMachine } from "../main/machine"
+import { failure, socketTooLong } from "./failure"
 import { AWAY_HOURS } from "../shared/types"
 import { LINE_MAX, lineReader, sizeOf } from "../shared/wire"
 import { createHost, type Conn } from "./host"
@@ -42,6 +45,8 @@ const VERSION = /^helper-(.+)\.js$/.exec(path.basename(__filename))?.[1] ?? "dev
 const SOCKET = path.join(DIR, `helper-${VERSION}.sock`)
 const LOCK = path.join(DIR, `helper-${VERSION}.lock`)
 const LOG = path.join(DIR, "helper.log")
+/** What this version's helper said as it started, this start only: why it did not, when it did not. */
+const START_LOG = path.join(DIR, `helper-${VERSION}.start.log`)
 /** A process's output kept for an app that is away, at most (stdout; stderr keeps a tail). */
 const OUT_MAX = Number(process.env.B42_HELPER_OUT_MAX) || 8 * 1024 * 1024
 const ERR_MAX = 256 * 1024
@@ -60,18 +65,16 @@ const STALL_MS = Number(process.env.B42_HELPER_STALL_MS) || 15_000
 /** Another version's files with a dead socket are left this long after that version last started. */
 const STALE_MS = 3600_000
 
-const mode = process.argv[2]
-if (mode === "attach") attach()
-else if (mode === "daemon") void daemon()
-else if (mode === "serve") void serve()
-else {
-  process.stderr.write("usage: helper.js daemon|serve|attach\n")
-  process.exit(2)
-}
 
 // ── attach: ssh's stdio ⇄ the socket ────────────────────────────────────────────────────────────
 
 function attach() {
+  // Only a socket of this user's: anyone else's (left while the folder was open to others) is
+  // never spoken to. The daemon takes it away and listens there itself.
+  if (socketOf(SOCKET) === "foreign") {
+    process.stderr.write(`B42 NOHELPER ${SOCKET} is not this user's socket\n`)
+    process.exit(3)
+  }
   const sock = net.connect(SOCKET)
   sock.on("connect", () => {
     process.stdin.pipe(sock)
@@ -91,14 +94,35 @@ function attach() {
 // ── the folder ─────────────────────────────────────────────────────────────────────────────────
 
 /** ~/.bicycle42, only its user's: made so, or made so again when it is theirs and others could
- *  read it. A sentence when it is not a folder of theirs. */
+ *  use it, and then what others put in it goes (a socket, a helper file of theirs). A sentence
+ *  when it is not a folder of theirs. */
 function ownDir(): string | undefined {
   fs.mkdirSync(DIR, { recursive: true, mode: 0o700 })
   const st = fs.lstatSync(DIR)
   if (!st.isDirectory()) return `${DIR} is not a folder (a link, or a file): move it away and connect again.`
-  if (process.getuid && st.uid !== process.getuid()) return `${DIR} belongs to another user of this computer: move it away and connect again.`
-  if (st.mode & 0o077) fs.chmodSync(DIR, 0o700)
+  const uid = process.getuid?.()
+  if (uid !== undefined && st.uid !== uid) return `${DIR} belongs to another user of this computer: move it away and connect again.`
+  if (st.mode & 0o077) {
+    fs.chmodSync(DIR, 0o700)
+    for (const name of fs.readdirSync(DIR)) {
+      const f = path.join(DIR, name)
+      try {
+        if (uid !== undefined && fs.lstatSync(f).uid !== uid) fs.rmSync(f, { recursive: true, force: true })
+      } catch {}
+    }
+  }
   return undefined
+}
+
+/** Whether a socket is there, and this user's: "foreign" when it is anything else (another user's,
+ *  or not a socket at all), which nothing connects to. */
+function socketOf(p: string): "none" | "mine" | "foreign" {
+  try {
+    const st = fs.lstatSync(p)
+    return st.isSocket() && (!process.getuid || st.uid === process.getuid()) ? "mine" : "foreign"
+  } catch {
+    return "none"
+  }
 }
 
 // ── daemon: start the helper unless it runs ────────────────────────────────────────────────────
@@ -106,6 +130,8 @@ function ownDir(): string | undefined {
 /** Whether a helper answers on that socket: "up"; "dead" only when nothing can (nothing listens,
  *  or there is no socket); "busy" when it is there and did not answer in time. */
 function ping(socket: string, ms = 2000): Promise<"up" | "dead" | "busy"> {
+  // Not this user's: nothing of theirs is asked, and it is taken over as a dead one is.
+  if (socketOf(socket) === "foreign") return Promise.resolve("dead")
   return new Promise((resolve) => {
     const sock = net.connect(socket)
     const timer = setTimeout(() => (sock.destroy(), resolve("busy")), ms)
@@ -123,34 +149,76 @@ function ping(socket: string, ms = 2000): Promise<"up" | "dead" | "busy"> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/** "B42 FAILED <code> <sentence>", and the end. */
+function fail(code: string, sentence: string): never {
+  process.stdout.write(`B42 FAILED ${code} ${sentence}\n`)
+  process.exit(1)
+}
+
+/** Every failure is said as a code and a sentence: never node's own last line. */
 async function daemon() {
-  const fail = (why: string) => {
-    process.stdout.write(`B42 FAILED ${why}\n`)
-    process.exit(1)
+  try {
+    await startDaemon()
+  } catch (err) {
+    const f = failure(err, `the app's helper could not start`)
+    fail(f.code, f.sentence)
   }
-  const bad = ownDir()
-  if (bad) return fail(bad)
+}
+
+async function startDaemon() {
+  const step = <T>(what: string, run: () => T): T => {
+    try {
+      return run()
+    } catch (err) {
+      const f = failure(err, what)
+      return fail(f.code, f.sentence)
+    }
+  }
+  const long = socketTooLong(SOCKET, process.platform)
+  if (long) fail("ENAMETOOLONG", `The app's helper can't listen there: ${long}`)
+  const bad = step("can't make ~/.bicycle42", ownDir)
+  if (bad) fail("EBADDIR", bad)
   // This version is in use: its files are not another version's to take away.
   try {
     const now = new Date()
     fs.utimesSync(__filename, now, now)
   } catch {}
   let state = await ping(SOCKET)
+  /** The helper this daemon started, until it listens: whether it ended first. */
+  let ended: { code: number | null } | undefined
   // Not answering, but there: a helper that is busy. Never taken away from under it.
   if (state === "dead") {
-    const log = fs.openSync(LOG, "a")
+    // What it says as it starts goes to a log of this start alone (helper.log, which every start
+    // and every version adds to, could end in yesterday's lines).
+    const out = step("can't write ~/.bicycle42/" + path.basename(START_LOG), () => fs.openSync(START_LOG, "w", 0o600))
     // Its own session (setsid): the ssh connection that started it ending does not end it.
-    const child = spawn(process.execPath, [__filename, "serve"], { detached: true, stdio: ["ignore", log, log], cwd: os.homedir() })
+    const child = step("can't start the helper's process", () => spawn(process.execPath, [__filename, "serve"], { detached: true, stdio: ["ignore", out, out], cwd: os.homedir() }))
+    child.on("error", (err) => {
+      const f = failure(err, "can't start the helper's process")
+      fail(f.code, f.sentence)
+    })
+    child.on("exit", (code) => (ended = { code }))
     child.unref()
+    fs.closeSync(out)
   }
   const end = Date.now() + (Number(process.env.B42_HELPER_START_MS) || 10_000)
   while (state !== "up") {
-    if (Date.now() > end) {
-      let tail = ""
+    if (ended || Date.now() > end) {
+      if (state === "busy") fail("EBUSY", "the app's helper there is running and does not answer.")
+      // What it said: its own "B42 FAILED", or else its last line that is not node's version.
+      let said = ""
       try {
-        tail = fs.readFileSync(LOG, "utf8").trim().split("\n").slice(-3).join(" | ")
+        said = fs.readFileSync(START_LOG, "utf8")
       } catch {}
-      return fail(state === "busy" ? "the app's helper there is running and does not answer" : tail)
+      const own = /^B42 FAILED (\S+) (.*)$/m.exec(said)
+      if (own) fail(own[1]!, own[2]!)
+      const last = said
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l && !/^Node\.js v[\d.]+$/.test(l) && !/^at /.test(l) && !/^\^+$/.test(l))
+        .filter((l) => /Error|error:/.test(l))
+        .at(-1)
+      fail(ended ? "EXITED" : "ETIMEDOUT", ended ? `the app's helper ended as it started (exit ${ended.code})${last ? `: ${last}` : "."}` : `the app's helper did not start listening in time${last ? `: ${last}` : "."}`)
     }
     await sleep(100)
     state = await ping(SOCKET, 1000)
@@ -175,7 +243,7 @@ async function daemon() {
     }
     if ((await ping(`${base}.sock`, 1000)) !== "dead") continue
     if (lockHolder(`${base}.lock`)) continue
-    for (const ext of [".js", ".sock", ".lock"]) fs.rmSync(`${base}${ext}`, { force: true })
+    for (const ext of [".js", ".sock", ".lock", ".start.log"]) fs.rmSync(`${base}${ext}`, { force: true })
   }
   process.stdout.write("B42 READY\n")
   process.exit(0)
@@ -195,9 +263,35 @@ function lockHolder(lock: string): number | undefined {
 
 // ── serve: the helper ───────────────────────────────────────────────────────────────────────────
 
+/** The helper's log: every start of every version adds to helper.log. Never in the way: a log
+ *  that can't be written (a full disk) is let go. */
+const log = (...words: unknown[]) => {
+  try {
+    fs.appendFileSync(LOG, `${new Date().toISOString()} ${words.map(String).join(" ")}\n`, { mode: 0o600 })
+  } catch {}
+}
+
+/** Until the helper listens, what stops it is said for the daemon, as "B42 FAILED <code>
+ *  <sentence>", in this start's own log (its stdout, START_LOG): the daemon says it to the app. */
+const started = {
+  listening: false,
+  fail(err: unknown, what: string): never {
+    const f = failure(err, what)
+    log("can't start:", f.code, f.sentence)
+    if (!started.listening) process.stdout.write(`B42 FAILED ${f.code} ${f.sentence}\n`)
+    process.exit(1)
+  },
+}
+
 async function serve() {
-  const log = (...words: unknown[]) => process.stdout.write(`${new Date().toISOString()} ${words.map(String).join(" ")}\n`)
-  if (ownDir()) process.exit(1)
+  // What is thrown as it starts is said, never node's stack and its version.
+  process.on("uncaughtException", (err) => {
+    if (!started.listening) started.fail(err, "the app's helper stopped as it started")
+    log("ended by an error", err?.stack ?? String(err))
+    process.exit(1)
+  })
+  const bad = ownDir()
+  if (bad) started.fail(Object.assign(new Error(bad), { code: "EBADDIR" }), "~/.bicycle42")
   // One helper of a version at a time: it holds the lock while it runs. A lock whose process is
   // gone is taken over; so is one whose number another process has now, once it is old and no
   // helper answers.
@@ -206,10 +300,7 @@ async function serve() {
       fs.writeFileSync(LOCK, String(process.pid), { flag: "wx", mode: 0o600 })
       break
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "EEXIST" || tries > 2) {
-        log("can't take the lock", String(err))
-        process.exit(1)
-      }
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST" || tries > 2) started.fail(err, `can't take ~/.bicycle42/${path.basename(LOCK)}`)
       const holder = lockHolder(LOCK)
       let old = false
       try {
@@ -310,11 +401,18 @@ async function serve() {
     sock.on("error", gone)
   })
   server.on("error", (err) => {
-    log("can't listen", String(err))
+    if (started.listening) {
+      log("can't listen", String(err))
+      leave(1)
+    }
+    const f = failure(err, `can't listen at ${SOCKET}`)
+    log("can't start:", f.code, f.sentence)
+    process.stdout.write(`B42 FAILED ${f.code} ${f.sentence}\n`)
     leave(1)
   })
   const was = process.umask(0o077)
   server.listen(SOCKET, () => {
+    started.listening = true
     process.umask(was)
     try {
       ino = fs.statSync(SOCKET).ino
@@ -325,4 +423,16 @@ async function serve() {
     idleTimer = setTimeout(() => (log("idle: ending"), leave(0)), IDLE_MS)
   })
   process.on("SIGTERM", () => leave(0))
+}
+
+// ── which of them ──────────────────────────────────────────────────────────────────────────────
+// Last, once everything above is defined.
+
+const mode = process.argv[2]
+if (mode === "attach") attach()
+else if (mode === "daemon") void daemon()
+else if (mode === "serve") void serve().catch((err) => started.fail(err, "the app's helper stopped as it started"))
+else {
+  process.stderr.write("usage: helper.js daemon|serve|attach\n")
+  process.exit(2)
 }

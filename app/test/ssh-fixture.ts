@@ -18,8 +18,10 @@ export type FakeHost = {
   end(): Promise<void>
 }
 
-export function fakeHost(): FakeHost {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "b42-ssh-"))
+/** `under`: the folder its own is made in (a long one gives the other computer a long home). */
+export function fakeHost(o: { under?: string } = {}): FakeHost {
+  if (o.under) fs.mkdirSync(o.under, { recursive: true })
+  const root = fs.mkdtempSync(path.join(o.under ?? os.tmpdir(), "b42-ssh-"))
   const home = path.join(root, "home")
   const data = path.join(root, "data")
   fs.mkdirSync(home, { recursive: true })

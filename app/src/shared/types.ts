@@ -388,6 +388,9 @@ export type AppState = {
   /** OpenCode servers saved by an earlier version were put aside at start (the app no longer
    *  connects to one): the connect screen says so once, then `leaveSsh` forgets it. */
   serversRetired?: true
+  /** A connection to another computer under way: its host as typed, and the step it is at
+   *  ("Starting the app's helper on dev-box…"), which the connect screen says on a slow link. */
+  sshStep?: { host: string; text: string }
   /** The agent in use (or being connected to again, while offline or connecting): its mark,
    *  name and where it runs. Absent while none is set up. */
   harness?: Harness

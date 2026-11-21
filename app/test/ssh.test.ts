@@ -433,7 +433,7 @@ test("the daemon never takes away the socket of a helper that answers slowly, an
   const busy = net.createServer(() => undefined)
   await new Promise<void>((r) => busy.listen(sock, r))
   try {
-    assert.match(daemon(), /^B42 FAILED the app's helper there is running and does not answer/m)
+    assert.match(daemon(), /^B42 FAILED EBUSY the app's helper there is running and does not answer/m)
     assert.ok(fs.existsSync(sock), "its socket is still there")
     await new Promise((r) => busy.close(r))
     // A helper that died without taking its socket away.
@@ -599,11 +599,16 @@ if (/ attach$/.test(cmd)) {
     }
   })
   process.stdin.on("end", () => process.exit(0))
-} else if (/NONODE/.test(cmd)) {
-  if (how === "probe-flood") flood()
-  else process.stdout.write('B42 {"node":"/usr/bin/node","version":"22.0.0","platform":"linux","have":true,"dir":"ok"}\\n')
-} else if (/ daemon$/.test(cmd)) process.stdout.write("B42 READY\\n")
-else process.exit(0)
+} else if (cmd === "sh -s") {
+  // The probe, which starts the daemon when the helper is there (it is, here).
+  let script = ""
+  process.stdin.on("data", (d) => (script += d))
+  process.stdin.on("end", () => {
+    if (!/B42NODE/.test(script)) return process.stdout.write("B42 READY\\n")
+    if (how === "probe-flood") return flood()
+    process.stdout.write('B42NODE /usr/bin/node 22.0.0\\nB42 {"node":"/usr/bin/node","version":"22.0.0","platform":"linux","have":true,"dir":"ok"}\\nB42 READY\\n')
+  })
+} else process.exit(0)
 `,
   )
   const bin = path.join(h.root, `scripted-${how}`)
@@ -628,7 +633,8 @@ test("a computer that sends bytes with no line's end: the app holds one line's w
     }
     // One line of 64 MiB, held as its pieces, and a few of the pipe's reads: never the flood.
     assert.ok(peak - before < 4 * LINE_MAX, `grew ${Math.round((peak - before) / 1048576)} MB`)
-    await assert.rejects(connectSsh({ host: "hostile-box", dataDir: h.data, ssh: scriptedSsh(h, "probe-flood") }), (e: Error) => e.message.includes(`printed more than ${SSH_OUT_MAX / 1048576} MiB, which no step of connecting does`))
+    // A data folder of its own: the first one remembers the node there, and attaches first.
+    await assert.rejects(connectSsh({ host: "hostile-box", dataDir: path.join(h.root, "data-probe"), ssh: scriptedSsh(h, "probe-flood") }), (e: Error) => e.message.includes(`printed more than ${SSH_OUT_MAX / 1048576} MiB, which no step of connecting does`))
   } finally {
     await h.end()
   }

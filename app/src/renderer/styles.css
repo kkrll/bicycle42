@@ -3385,6 +3385,14 @@ details[open] > summary > .caret {
   margin-top: 4px;
 }
 
+/* The step a slow connection to another computer is at, under its row. */
+.agent-row-step {
+  grid-column: 2 / -1;
+  margin-top: 4px;
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
 /* Any other ACP agent: its command takes the row; Start keeps its width. */
 .agent-custom > .input {
   min-width: 0;

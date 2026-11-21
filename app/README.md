@@ -449,7 +449,16 @@ can also be moved by hand (the date `tested` then goes, unless you ran the check
   `{ agent, command, host }`, its ledger `<id>@<host>.json` here) is the same backend over a
   `RemoteMachine` (`ssh.ts`): the system's ssh with the reviewer's own config and keys, never a
   password (BatchMode), one ControlMaster connection per host for every call and forward, and the
-  app's helper (`src/helper/helper.ts`) as a daemon there, attached to over that connection. The
+  app's helper (`src/helper/helper.ts`) as a daemon there, attached to over that connection. A
+  connection attaches first, and starts the helper only when none runs: with scripts sent to
+  `sh -s` on stdin, so any login shell (bash, zsh, fish, csh) runs them alike and Windows's is said;
+  they find the newest node of 18 or later on the plain and the login shell's PATH (marker lines,
+  so a noisy profile is not read; remembered per host), and start the helper in the same session.
+  What stops the helper starting is said as a code and a sentence (EACCES, EROFS, ENOSPC, a home
+  too long for a socket's path, the helper stopping as it starts, from its own log of that start),
+  never node's last line; a socket there that is not this user's is never spoken to, and
+  ~/.bicycle42 there is tightened as the app's own folder here is. The connect screen says the
+  step it is at after a second (`AppState.sshStep`). The
   helper is `Machine` (`machine.ts`, the same code as here) as JSON-RPC plus a host for the
   agent's process, which outlives the connection: its output is kept until read (8 MB, then the
   oldest lines go and the app re-reads the conversations: `Child.onGap`), its stdin numbered, so a

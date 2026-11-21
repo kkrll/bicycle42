@@ -9,7 +9,15 @@
 //                    and every port forward goes over it, signed in once
 //   the helper       one bundled file (src/helper/helper.ts, dist/helper.cjs) put at
 //                    ~/.bicycle42/helper-<version>.js there and run with that computer's `node`
-//                    as a daemon; the app attaches to it with `ssh host node … attach`
+//                    as a daemon; the app attaches to it with `ssh host <node> ~/… attach`
+//   connecting       attach first: a helper that runs is all a reconnect (or the app's next
+//                    start) needs. Only when none does is it started, by scripts sent on stdin
+//                    to `sh -s` (whatever the login shell: bash, zsh, fish, csh; Windows's is
+//                    said), which find the newest node of 18 or later on both PATHs (said in
+//                    marker lines, so a noisy profile is not read), start the helper in the same
+//                    session when it is there, and put it there when not. The node chosen is
+//                    remembered per host (data/ssh/nodes.json). Why it did not start is the
+//                    daemon's "B42 FAILED <code> <sentence>"
 //   reconnecting     when the connection drops (the Mac sleeps, the network goes) the agent goes
 //                    on working there; the app attaches again, with a growing pause, and reads
 //                    what it missed, which the helper kept (machine.Child.onGap when that was too
@@ -85,6 +93,9 @@ export type SshOptions = {
   /** This run of the app (a time): what an earlier run of the same install started there and
    *  left is ended. The tests give one; else when this process started. */
   launch?: number
+  /** The step of connecting under way ("Starting the app's helper on dev-box…"), for a window
+   *  that waits on a slow link. */
+  onStep?(text: string): void
 }
 
 /** This run of the app: processes of an earlier one are ended, never this one's own (two
@@ -175,15 +186,114 @@ export function controlDir(dataDir: string) {
 
 /** Run with the other computer's node: its version, whether the helper of this version is there
  *  whole (its hash), and whether ~/.bicycle42 is a folder of its user's only (made so again when
- *  others could read it). Arguments: that folder, the helper's file, its sha1. */
+ *  others could use it, and what others put in it then goes). Arguments: that folder, the helper's
+ *  file, its sha1. Exits 0 when the helper is there and the folder is fine: the daemon is started
+ *  next, in the same session. */
 const PROBE = [
-  'const fs = require("fs"), c = require("crypto"); const [d, f, h] = process.argv.slice(1); let dir = "none"',
-  'try { const s = fs.lstatSync(d); if (!s.isDirectory()) dir = "notdir"; else if (process.getuid && s.uid !== process.getuid()) dir = "notmine"; else { dir = "ok"; if (s.mode & 0o077) fs.chmodSync(d, 0o700) } } catch {}',
+  'const fs = require("fs"), c = require("crypto"), p = require("path"); const [d, f, h] = process.argv.slice(1); let dir = "none"',
+  'try { const s = fs.lstatSync(d); const uid = process.getuid && process.getuid(); if (!s.isDirectory()) dir = "notdir"; else if (uid !== undefined && s.uid !== uid) dir = "notmine"; else { dir = "ok"; if (s.mode & 0o077) { fs.chmodSync(d, 0o700); for (const n of fs.readdirSync(d)) { try { if (uid !== undefined && fs.lstatSync(p.join(d, n)).uid !== uid) fs.rmSync(p.join(d, n), { recursive: true, force: true }) } catch {} } } } } catch {}',
   'let have = false; try { have = c.createHash("sha1").update(fs.readFileSync(f)).digest("hex") === h } catch {}',
   'process.stdout.write("B42 " + JSON.stringify({ node: process.execPath, version: process.versions.node, platform: process.platform, have, dir }) + "\\n")',
+  'process.exit(have && (dir === "ok" || dir === "none") ? 0 : 5)',
 ].join("\n")
-/** Exits 9 unless the file has this many bytes and this sha1. Arguments: the file, size, sha1. */
-const CHECK = 'const [f, n, h] = process.argv.slice(1); const b = require("fs").readFileSync(f); if (b.length !== Number(n) || require("crypto").createHash("sha1").update(b).digest("hex") !== h) process.exit(9)'
+/** Reads the helper as base64 from stdin, and writes it to a file of its own only when it has this
+ *  many bytes and this sha1 (else exits 9). Arguments: the file, size, sha1. */
+const WRITE = 'const [f, n, h] = process.argv.slice(1); const fs = require("fs"); const parts = []; process.stdin.on("data", (d) => parts.push(d)); process.stdin.on("end", () => { const b = Buffer.from(Buffer.concat(parts).toString("latin1"), "base64"); if (b.length !== Number(n) || require("crypto").createHash("sha1").update(b).digest("hex") !== h) process.exit(9); fs.writeFileSync(f, b, { mode: 0o600 }) })'
+
+/** The helper's folder and file there, as the scripts (POSIX sh, on stdin) name them. */
+const HELPER_DIR = '"$HOME/.bicycle42"'
+const helperAt = (version: string) => `"$HOME/.bicycle42/helper-${version}.js"`
+
+/** What `sh -s` reads there to find its node and start the helper. Every shell a login can have
+ *  (bash, zsh, fish, csh, even PowerShell) runs `sh -s` the same way, and this script is sh's
+ *  alone, whatever the login shell's own syntax: no command line of the app's is a script.
+ *
+ *  Node is looked for where a command finds it (this shell's PATH) and where an interactive login
+ *  shell does (its PATH, read with `env` from the login shell, which every shell runs the same
+ *  way: nvm, mise, Homebrew), and at the path that worked last time; each is said on a line of its
+ *  own ("B42NODE <path> <version>"), so whatever a noisy profile prints around them is not read.
+ *  The newest of 18 or later is used: it says what it found ("B42 {…}"), and when this version's
+ *  helper is there whole, starts it ("B42 READY", or "B42 FAILED <code> <sentence>"). */
+export function probeScript(o: { version: string; digest: string; remembered?: string }): string {
+  return [
+    "set -f",
+    `D=${HELPER_DIR}`,
+    `F=${helperAt(o.version)}`,
+    `H=${o.digest}`,
+    `R=${shq(o.remembered ?? "")}`,
+    "nl='",
+    "'",
+    "cands=",
+    'add() { [ -n "$1" ] && [ -f "$1" ] && [ -x "$1" ] || return 0; case "$nl$cands" in *"$nl$1$nl"*) return 0 ;; esac; cands="$cands$1$nl"; }',
+    'add "$R"',
+    'add "$(command -v node 2>/dev/null)"',
+    "was=$IFS",
+    "IFS=:",
+    'for d in $PATH; do add "${d:-.}/node"; done',
+    "IFS=$was",
+    // The login shell's PATH: as an interactive login shell has it, else a login shell, else any
+    // (tcsh takes -l only alone). What its profile prints is not a line starting PATH=.
+    // A profile that waits (one that attaches to tmux, say) holds it 10 s at most, where the
+    // computer has `timeout` (macOS has not, unless coreutils').
+    "T=",
+    "command -v timeout >/dev/null 2>&1 && T='timeout 10'",
+    "lp=",
+    "for f in -ilc -lc -c; do",
+    `  lp=$($T "\${SHELL:-/bin/sh}" $f env </dev/null 2>/dev/null | sed -n 's/^PATH=//p' | tail -n 1)`,
+    '  [ -n "$lp" ] && break',
+    "done",
+    "IFS=:",
+    'for d in $lp; do add "${d:-.}/node"; done',
+    "IFS=$was",
+    "found=",
+    'while IFS= read -r c; do',
+    '  [ -n "$c" ] || continue',
+    '  v=$("$c" -v </dev/null 2>/dev/null) || continue',
+    '  case "$v" in v[0-9]*) echo "B42NODE $c ${v#v}"; found="${found}B42NODE $c ${v#v}$nl" ;; esac',
+    "done <<B42EOF",
+    "$cands",
+    "B42EOF",
+    // The newest of 18 or later, and of two the same, the one found first: versions as numbers,
+    // padded, then the order found, backwards, sorted as text.
+    `best=$(printf '%s' "$found" | awk '{ v = $NF; split(v, a, "."); if (a[1] + 0 >= 18) printf "%09d%09d%09d%09d %s\\n", a[1], a[2], a[3], 999999999 - NR, substr($0, 9, length($0) - 9 - length(v)) }' | sort | tail -n 1 | cut -c38-)`,
+    '[ -n "$best" ] || { echo "B42 NONODE"; exit 0; }',
+    `if "$best" -e ${shq(PROBE)} "$D" "$F" "$H"; then exec "$best" "$F" daemon; fi`,
+    "exit 0",
+    "",
+  ].join("\n")
+}
+
+/** What `sh -s` reads there to put the helper in place whole (written to a name of its own,
+ *  checked, only then given its name) and start it: the file itself is in the script, as base64. */
+export function uploadScript(o: { version: string; node: string; bundle: Buffer; digest: string }): string {
+  const b64 = o.bundle.toString("base64").replace(/.{1,76}/g, "$&\n")
+  return [
+    `D=${HELPER_DIR}`,
+    `F=${helperAt(o.version)}`,
+    `N=${shq(o.node)}`,
+    'umask 077 && mkdir -p "$D" || exit 1',
+    't="$F.$$.tmp"',
+    `"$N" -e ${shq(WRITE)} "$t" ${o.bundle.length} ${o.digest} <<'B42EOF' || { rm -f "$t"; echo "B42 BROKEN"; exit 1; }`,
+    `${b64}B42EOF`,
+    'mv -f "$t" "$F" || exit 1',
+    'exec "$N" "$F" daemon',
+    "",
+  ].join("\n")
+}
+
+/** Whether what a login shell said is Windows's: cmd.exe's or PowerShell's word for a command it
+ *  does not have (`sh`). */
+export const saysWindows = (said: string) => /is not recognized as an internal or external command|CommandNotFoundException|The term 'sh' is not recognized/i.test(said)
+
+/** The nodes the probe found there, by its marker lines. */
+export function nodesSaid(out: string): Array<{ path: string; version: string }> {
+  const found: Array<{ path: string; version: string }> = []
+  for (const line of out.split("\n")) {
+    const m = /^B42NODE (.+) (\d+\.\d+\.\d+\S*)$/.exec(line.trim())
+    if (m) found.push({ path: m[1]!, version: m[2]! })
+  }
+  return found
+}
 
 type Pending = { resolve(v: unknown): void; reject(e: Error): void; timer?: ReturnType<typeof setTimeout> }
 
@@ -315,60 +425,95 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
     }
   }
 
-  const dir = "$HOME/.bicycle42"
-  const file = `${dir}/helper-${version}.js`
-  let node = "node"
+  /** The node there that runs the helper: the one the probe chose, remembered for this host
+   *  (attaching needs it before anything else is asked). */
+  const nodesFile = path.join(o.dataDir, "ssh", "nodes.json")
+  const nodes = (): Record<string, string> => {
+    try {
+      const all = JSON.parse(fs.readFileSync(nodesFile, "utf8")) as Record<string, unknown>
+      return Object.fromEntries(Object.entries(all).filter((e): e is [string, string] => typeof e[1] === "string"))
+    } catch {
+      return {}
+    }
+  }
+  let node: string | undefined = nodes()[host]
+  const remember = (found: string) => {
+    if (node === found && nodes()[host] === found) return
+    node = found
+    try {
+      const tmp = `${nodesFile}.${process.pid}.tmp`
+      fs.writeFileSync(tmp, JSON.stringify({ ...nodes(), [host]: found }), { mode: 0o600 })
+      fs.renameSync(tmp, nodesFile)
+    } catch (err) {
+      log("warn", `can't remember ${host}'s node`, String(err))
+    }
+  }
+  /** The step of connecting under way, said for a slow link. */
+  const step = (text: string) => o.onStep?.(text)
 
-  /** The other computer's node, found as an interactive login shell finds it (nvm, mise), and
-   *  whether the helper of this version is there. */
+  /** A script for `sh -s` there, on its stdin: the command line is those two words, which every
+   *  login shell runs the same way. */
+  const script = (text: string) => sshRun([...common, "-o", "ControlMaster=no", "-T", "--", host, "sh -s"], text)
+
+  /** What a step's script said: the helper started, or why not, as a sentence. */
+  function started(r: { code: number | null; out: string; err: string }, at: string) {
+    if (/^B42 READY$/m.test(r.out)) return
+    const failed = /^B42 FAILED (\S+) (.*)$/m.exec(r.out)
+    if (failed) throw new Error(`The app's helper did not start on ${host}: ${failed[2]!.trim()} (${failed[1]}, with Node ${at}).`)
+    // Node's own dump of an error, if that is what came: its line that names the error, never
+    // its last ("Node.js v22.12.0", "}").
+    const lines = (r.out + r.err).split("\n").map((l) => l.trim()).filter((l) => l && !/^Node\.js v[\d.]+$/.test(l) && !/^[{}\]^]+$/.test(l))
+    const said = lines.filter((l) => /^\w*Error\b|\berror:/.test(l)).at(-1) ?? lines.at(-1)
+    throw new Error(`The app's helper did not start on ${host}: ${said ?? `exit ${r.code}`} (with Node ${at}).`)
+  }
+
+  /** Finds the node there and starts the helper when it is there whole. Says what it found. */
   async function probe() {
-    const script = [
-      'n=$(command -v node 2>/dev/null)',
-      '[ -n "$n" ] || n=$("${SHELL:-/bin/sh}" -ilc "command -v node" </dev/null 2>/dev/null | tail -n 1)',
-      'if [ -z "$n" ] || [ ! -x "$n" ]; then echo "B42 NONODE"; exit 0; fi',
-      `"$n" -e ${shq(PROBE)} "${dir}" "${file}" ${digest}`,
-    ].join("\n")
-    const r = await remote(`sh -c ${shq(script)}`)
-    if (r.code !== 0) throw new Error(sshError(host, r.err, r.code))
-    const line = r.out.split("\n").reverse().find((l) => l.startsWith("B42 "))
-    if (!line) throw new Error(`${host} did not answer as expected: ${r.out.trim().slice(-200) || r.err.trim().slice(-200)}`)
-    if (line === "B42 NONODE") throw new Error(`The app needs Node 18 or newer on ${host} for its helper, and \`node\` was not found there. Install it (nodejs.org, or your package manager) and connect again.`)
+    const r = await script(probeScript({ version, digest, remembered: node }))
+    if (saysWindows(r.out + r.err)) throw new Error(`${host} runs Windows (its login shell is cmd.exe or PowerShell), which the app can't work on over ssh yet.`)
+    const line = r.out.split("\n").reverse().find((l) => l.startsWith("B42 ") && !l.startsWith("B42 READY") && !l.startsWith("B42 FAILED"))
+    if (!line) {
+      // ssh's own failure, or a step stopped (it printed without end): what was said of it.
+      if (r.code !== 0 || !r.out.trim()) throw new Error(sshError(host, r.err, r.code))
+      throw new Error(`${host} did not answer as expected: ${r.out.trim().slice(-200) || r.err.trim().slice(-200)}`)
+    }
+    const all = nodesSaid(r.out)
+    if (line === "B42 NONODE") {
+      if (all.length)
+        throw new Error(`The app needs Node 18 or newer on ${host} for its helper, and found only ${all.map((n) => `Node ${n.version} (${n.path})`).join(", ")}. Install a newer one (nodejs.org, nvm, or your package manager) and connect again.`)
+      throw new Error(`The app needs Node 18 or newer on ${host} for its helper, and \`node\` was not found there. Install it (nodejs.org, or your package manager) and connect again.`)
+    }
     const found = JSON.parse(line.slice(4)) as { node: string; version: string; platform: string; have: boolean; dir?: string }
     if (found.dir === "notdir") throw new Error(`~/.bicycle42 on ${host} is not a folder (a link, or a file): move it away there and connect again.`)
     if (found.dir === "notmine") throw new Error(`~/.bicycle42 on ${host} belongs to another user there: move it away and connect again.`)
     if (found.platform === "win32") throw new Error(`${host} runs Windows, which the app can't work on over ssh yet.`)
-    if (Number(found.version.split(".")[0]) < 18) throw new Error(`${host} has Node ${found.version}; the app's helper needs 18 or newer. Update it and connect again.`)
-    node = found.node
-    return found
+    const at = `${found.version} at ${found.node}`
+    // The path the probe ran, as the shell found it (process.execPath may be a link's target).
+    const chosen = all.find((n) => n.version === found.version)?.path ?? found.node
+    remember(chosen)
+    // The helper was there: the daemon ran next, in the same session.
+    if (found.have) started(r, at)
+    return { ...found, at }
   }
 
-  /** The helper's file, put there whole or not at all: written to a name of its own, checked
-   *  (its size and hash) and only then given its name. A connection that drops halfway leaves
-   *  nothing under the name the probe looks for. */
-  async function upload() {
-    const script = [
-      `umask 077 && mkdir -p "${dir}" || exit 1`,
-      `t="${file}.$$.tmp"`,
-      `cat > "$t" && ${shq(node)} -e ${shq(CHECK)} "$t" ${bundle.length} ${digest} && mv -f "$t" "${file}" && exit 0`,
-      'rm -f "$t"; exit 1',
-    ].join("\n")
-    const r = await remote(`sh -c ${shq(script)}`, bundle)
-    if (r.code !== 0) throw new Error(`Can't put the app's helper on ${host}: ${r.err.trim() ? sshError(host, r.err, r.code) : "it did not arrive whole; connect again"}`)
+  /** The helper's file, put there whole or not at all (written to a name of its own, checked by
+   *  its size and hash, only then given its name), and started. */
+  async function upload(at: string) {
+    const r = await script(uploadScript({ version, node: node!, bundle, digest }))
+    if (/^B42 BROKEN$/m.test(r.out)) throw new Error(`Can't put the app's helper on ${host}: it did not arrive whole; connect again.`)
+    if (r.code === 255 && !/^B42 /m.test(r.out)) throw new Error(`Can't put the app's helper on ${host}: ${sshError(host, r.err, r.code)}`)
+    started(r, at)
   }
 
-  async function daemon() {
-    const r = await remote(`${shq(node)} "${file}" daemon`)
-    if (/^B42 READY$/m.test(r.out)) return
-    const failed = /^B42 FAILED (.*)$/m.exec(r.out)?.[1]?.trim()
-    throw new Error(`The app's helper did not start on ${host}: ${failed || ((r.out + r.err).trim().split("\n").at(-1) ?? `exit ${r.code}`)}`)
-  }
-
-  /** Everything up to a helper that runs: the connection, node, the helper's file, the daemon. */
+  /** Everything up to a helper that runs: node there, the helper's file, the daemon. The
+   *  connection is made before. */
   async function bootstrap() {
-    await master()
+    step(`Starting the app's helper on ${host}…`)
     const found = await probe()
-    if (!found.have) await upload()
-    await daemon()
+    if (!found.have) {
+      step(`Putting the app's helper on ${host}…`)
+      await upload(found.at)
+    }
   }
 
   // ── the attached helper ────────────────────────────────────────────────────────────────────────
@@ -446,11 +591,13 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
     else p.resolve(msg.result)
   }
 
-  /** Attaches to the helper (`ssh host node helper attach`): resolves once it answered hello, in
-   *  this app's protocol. */
+  /** Attaches to the helper (`ssh host <node> ~/.bicycle42/helper-<version>.js attach`: words
+   *  every login shell reads alike): resolves once it answered hello, in this app's protocol.
+   *  Rejects with `noHelper` when nothing of this version listens there (or its file or that node
+   *  is gone): the helper is to be started. */
   function attachOnce(): Promise<{ protocol?: number; procs: Array<{ hid: string; owner: string; launch?: number; key?: string; exited?: true }> }> {
     return new Promise((resolve, reject) => {
-      const child = spawn(ssh, [...common, "-o", "ControlMaster=no", "-T", "--", host, `${shq(node)} "${file}" attach`], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true })
+      const child = spawn(ssh, [...common, "-o", "ControlMaster=no", "-T", "--", host, `${shq(node ?? "node")} ~/.bicycle42/helper-${version}.js attach`], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true })
       link = child
       let err = ""
       let hello = false
@@ -476,13 +623,22 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
         if (link !== child) return
         link = undefined
         const said = why ?? sshError(host, err, code)
+        // Ended before hello: said here, not as the calls waiting on it are.
+        if (!hello) pending.delete(helloId)
         for (const [id, p] of pending) (pending.delete(id), clearTimeout(p.timer), p.reject(new Error(why ?? `Can't reach ${host}: the connection ended.`)))
+        if (!hello) clearTimeout(timer)
+        // Before hello, an end that is neither ssh's own (255) nor the app's: no helper of this
+        // version listens there (3, "B42 NOHELPER"), or its file or that node is gone or broken
+        // (127, node's "Cannot find module", a file cut short): the helper is to be started.
+        if (!hello && !why && code !== 255 && code !== null)
+          return reject(Object.assign(new Error(`No helper of this version runs on ${host}: ${err.trim().split("\n").at(-1) ?? `exit ${code}`}`), { noHelper: true }))
         if (!hello) return reject(new Error(said))
         log("warn", `the connection to ${host} ended`, said)
         down(why ?? `Can't reach ${host}.`)
       })
       // hello is sent before "up": calls wait for it.
       const id = ++seq
+      const helloId = id
       const timer = setTimeout(() => {
         pending.delete(id)
         child.kill()
@@ -530,8 +686,22 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
   function reconnect(): Promise<void> {
     connecting ??= (async () => {
       try {
-        await bootstrap()
-        const hello = await attachOnce()
+        if (first) step(`Connecting to ${host}…`)
+        await master()
+        // The helper there is attached to first: it runs (a reconnect, a restart of the app),
+        // and nothing else is asked. Only when it does not is it started (and put there).
+        let hello: Awaited<ReturnType<typeof attachOnce>> | undefined
+        if (node) {
+          if (first) step(`Attaching to the app's helper on ${host}…`)
+          hello = await attachOnce().catch((err: Error & { noHelper?: true }) => {
+            if (!err.noHelper) throw err
+            return undefined
+          })
+        }
+        if (!hello) {
+          await bootstrap()
+          hello = await attachOnce()
+        }
         const theirs = new Set(hello.procs.map((p) => p.hid))
         retryDelay = sshTiming.retryMin
         setReach({ status: "up" })
