@@ -61,6 +61,9 @@ export type RemoteMachine = Machine & {
    *  when given, else the same number when it is free here, else any). `host`: the address the
    *  agent's server listens on there. */
   forward(port: number, host?: string, local?: number): Promise<number>
+  /** A call to the helper there, answered or failed (no time limit with `ms` 0): what ops.ts asks
+   *  of it, the work done where the files are. */
+  helper<T>(method: string, params: Record<string, unknown>, ms?: number): Promise<T>
   /** Try to connect again now (the banner's Retry). */
   retry(): void
   /** Ends what the app has there: the connection and its forwards, once the processes being
@@ -781,6 +784,7 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
     rename: (from, to) => call<void>("rename", { from, to }),
     rm: (p) => call<void>("rm", { path: p }),
     realpath: (p) => call<string>("realpath", { path: p }),
+    helper: (method, params, ms) => call(method, params, ms),
     reach: () => reach,
     onReach(l) {
       reachListeners.add(l)

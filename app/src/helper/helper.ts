@@ -8,7 +8,9 @@
 //                               runs over ssh to speak to the helper
 //
 // The helper is thin. It does what `Machine` (src/main/machine.ts) does on this computer, with that
-// very code, as JSON-RPC: commands, files, the PATH; and it keeps the processes the app starts
+// very code, as JSON-RPC: commands, files, the PATH; the app's work on a folder (src/main/ops.ts:
+// the repo's line, the file history's git side), each operation one call, done here with the
+// app's own code over this computer's files; and it keeps the processes the app starts
 // there (the agent) alive while no app is attached (the Mac sleeps, the network drops), with their
 // output kept until the app says it has read it, up to OUT_MAX per process (beyond that the oldest
 // lines go, and the app is told there is a gap), for at most AWAY_HOURS with no app attached

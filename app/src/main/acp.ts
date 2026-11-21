@@ -32,7 +32,8 @@ import { client, ndJsonStream, type ClientContext, type Stream } from "@agentcli
 import { thisMachine, type Machine } from "./machine"
 import { clip, defined, endMarker, list, num, rec, str, userItem, type Raw } from "./chat-items"
 import { unifiedPatch } from "./patch"
-import { git, vcs } from "./vcs"
+import { opsOf } from "./ops"
+import { git } from "./vcs"
 import { addKeyCommand, isOpenCode, NO_PICTURES, openCodeFacts, PICTURE_UNREAD, type ModelFacts } from "./model-facts"
 import { modelLabel, modelTags, modelWords, plainName } from "../shared/models"
 import type { NamePicture, PictureSource, Wire } from "./pictures"
@@ -1623,7 +1624,8 @@ export function createAcp(opts: AcpOptions): Acp {
       told(conv(id))
     },
 
-    vcs: (directory, max) => vcs(machine, directory, max),
+    // One call to the helper on another computer, which reads the repo there.
+    vcs: (directory, max) => opsOf(machine).vcs(directory, max),
 
     async archive(id, archived) {
       if (!has("archive")) throw cannot("put a conversation away")

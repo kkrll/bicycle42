@@ -12,6 +12,8 @@ import { noteWord } from "./panel"
 import { act, b42, message, noteShown, setFollowUp, setOpenedNote, state } from "./store"
 
 const clip = (text: string, max = 48) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
+/** How long a take-back runs before its button says it is at work. */
+const SLOW_MS = 300
 
 export function NoteView(props: { note: NoteRow }) {
   const n = () => props.note
@@ -91,6 +93,9 @@ function NoteDetail(props: { note: NoteRow }) {
   /** The files the app would put back ("restored"), as main's dry run said. */
   const [files, setFiles] = createSignal<string[]>([])
   const [busy, setBusy] = createSignal(false)
+  /** A take-back that has run for a while (on another computer, over a slow link): its button
+   *  says it is at work, not just greyed out. */
+  const [slow, setSlow] = createSignal(false)
 
   // One array for as long as the pictures are the same: <For> keeps each <img> (and the picture
   // it has decoded) instead of making both anew whenever the list is read.
@@ -138,10 +143,11 @@ function NoteDetail(props: { note: NoteRow }) {
     if (!way) return
     setBusy(true)
     setError("")
+    const timer = setTimeout(() => setSlow(true), SLOW_MS)
     b42
       .invoke("takeBackNote", n().id, way)
       .catch((err) => setError(message(err)))
-      .finally(() => (setBusy(false), setSure(false)))
+      .finally(() => (clearTimeout(timer), setSlow(false), setBusy(false), setSure(false)))
   }
   /** The files a take-back from the app's history puts back, a few by name, and what else goes
    *  with them: the turn's diff is the folder's, whoever made it. */
@@ -295,7 +301,7 @@ function NoteDetail(props: { note: NoteRow }) {
                       : `Note ${n().n} can't be taken back exactly: the app has no exact record of what it changed, another conversation changed this folder at the same time, or later changes touched the same lines. Ask the agent to reverse it?`}
                   </span>
                   <button class="btn danger" disabled={busy()} onClick={takeBack}>
-                    {sure() === "restored" ? `Take back note ${n().n}` : "Ask to reverse"}
+                    {slow() ? (sure() === "restored" ? "Restoring…" : "Asking…") : sure() === "restored" ? `Take back note ${n().n}` : "Ask to reverse"}
                   </button>
                   <button class="btn" data-keep disabled={busy()} onClick={() => setSure(false)}>
                     Keep it

@@ -78,7 +78,8 @@ import { createPictures } from "./pictures"
 import { thisMachine, type Machine } from "./machine"
 import { siteAt } from "./site-address"
 import { checkHost, connectSsh, ownerOf, type RemoteMachine } from "./ssh"
-import { createSnapshots, EMPTY_TREE, Refused, type Restore, type Snapshots, type Turn } from "./snapshots"
+import { opsOf } from "./ops"
+import { createSnapshots, EMPTY_TREE, Refused, type Restore, type Reversal, type Snapshots, type Turn } from "./snapshots"
 import { createStore, type SavedServer, type Settings } from "./store"
 
 type Level = "info" | "warn" | "error"
@@ -162,7 +163,13 @@ export function createCore(host: Host): Core {
     // Another computer's under this install's own id there: two installs of the app (a laptop
     // and a desktop) working in one folder there each keep theirs, and never write over the other's.
     if (!made)
-      histories.set(m, (made = m.local ? createSnapshots(host.dataDir, { log }) : createSnapshots(host.dataDir, { log, machine: m, root: m.path.join(m.home, ".bicycle42", "snapshots", (m as RemoteMachine).owner) })))
+      histories.set(
+        m,
+        (made = m.local
+          ? createSnapshots(host.dataDir, { log })
+          : // The git side done by the helper there, one call each (ops.ts).
+            createSnapshots(host.dataDir, { log, shadows: opsOf(m).shadows(m.path.join(m.home, ".bicycle42", "snapshots", (m as RemoteMachine).owner)) })),
+      )
     return made
   }
   let snapshots = snapshotsOf(machine)
@@ -1470,7 +1477,7 @@ export function createCore(host: Host): Core {
   const warmed = new Set<string>()
   async function warm(directory: string | undefined) {
     const on = here()
-    const dir = await localDir(directory, on)
+    const dir = historyDir(directory)
     if (!dir || warmed.has(`${on.m.where}\0${dir}`)) return
     warmed.add(`${on.m.where}\0${dir}`)
     void on.sn.snapshot(dir)
@@ -1512,6 +1519,10 @@ export function createCore(host: Host): Core {
   type On = { m: Machine; sn: Snapshots }
   const here = (): On => ({ m: machine, sn: snapshots })
 
+  /** The folder, when the agent in use works where the app keeps a history; whether it is there
+   *  is the snapshot's to find (with no call of its own to another computer). */
+  const historyDir = (dir: string | undefined) => (dir && store.settings().server ? dir : undefined)
+
   async function localDir(dir: string | undefined, on: On = here()): Promise<string | undefined> {
     // The agent in use works in this computer's folders, or in its own computer's over ssh (`on.m`).
     if (!dir || !store.settings().server) return undefined
@@ -1532,7 +1543,8 @@ export function createCore(host: Host): Core {
     // Only a site's conversations are snapshot; any other is followed for what overlaps.
     const asked = Date.now()
     const on = here()
-    const shot: Shot | undefined = owners.has(session) ? { tree: dir.then(async (d) => ((await localDir(d, on)) ? on.sn.snapshot(d!) : undefined)) } : undefined
+    // A folder that is not there has no snapshot: the snapshot says so, in its one call.
+    const shot: Shot | undefined = owners.has(session) ? { tree: dir.then(async (d) => (historyDir(d) ? on.sn.snapshot(d!) : undefined)) } : undefined
     // The backend gave the agent the message without waiting for this: a slow one may hold the
     // agent's first changes. (Known before the turn that ends here is written down.)
     if (shot && kind !== "end" && !(backend && waitsForBefore.has(backend)))
@@ -1631,9 +1643,10 @@ export function createCore(host: Host): Core {
 
   /** Takes turns back from the history: the files are reversed (or nothing is), the notes they
    *  hold say "restored", and the restore is kept for /redo and for telling the agent. Throws a
-   *  sentence for the reviewer when it does not apply. */
-  async function restore(dir: string, session: string, turns: Turn[], on: On = here()) {
-    const done = await on.sn.reverse(dir, turns).catch((err) => {
+   *  sentence for the reviewer when it does not apply. `was`: what a dry run of the same turns
+   *  found just before, taken as it is when the files have not changed since. */
+  async function restore(dir: string, session: string, turns: Turn[], on: On = here(), was?: Reversal) {
+    const done = await on.sn.reverse(dir, turns, false, was).catch((err) => {
       if (err instanceof Refused) throw err
       log("warn", "can't take back from the file history", say(err))
       throw new Error("The app could not read its own history of these files, so it can't take this back by itself. Ask the agent to reverse it instead.")
@@ -1695,9 +1708,11 @@ export function createCore(host: Host): Core {
    *  front when there is such a line to say (with no text: the line alone). They are final once
    *  the agent has the message, by its id, which `send` must send it with. */
   async function telling<T extends { id: string } | void>(session: string, text: string, send: (text: string, id?: string) => Promise<T>, id?: string): Promise<T> {
-    // Where the app keeps no history, the message goes as it is, at once.
+    // Where the app keeps no history, the message goes as it is, at once. The log is read once and
+    // kept: a message asks nothing of another computer before it goes (a folder that is not there
+    // has no log, so nothing to say).
     const on = here()
-    const dir = await localDir(knownDir(session), on)
+    const dir = historyDir(knownDir(session))
     if (!dir) return send(text, id)
     const h = await on.sn.history(dir)
     const untold = h.restores.filter((r) => r.session === session && !r.told)
@@ -1726,7 +1741,7 @@ export function createCore(host: Host): Core {
    *  back is still there, and a summary does not lose what was. */
   async function tellFirst(session: string) {
     const on = here()
-    const dir = await localDir(knownDir(session), on)
+    const dir = historyDir(knownDir(session))
     if (!dir || !(await on.sn.history(dir)).restores.some((r) => r.session === session && !r.told)) return
     const b = need()
     await startsRun(session, () => telling(session, "", (text, id) => b.prompt(session, { ...(id ? { id } : {}), text })))
@@ -2136,7 +2151,7 @@ export function createCore(host: Host): Core {
     const usable = !!mine && !mine.reversed && !mine.turn.shared && !mine.turn.untrusted && mine.turn.before !== mine.turn.after
     const dry = usable && !info.busy && !(await folderBusy(mine.dir)) ? await mine.on.sn.reverse(mine.dir, [mine.turn], true).catch((err) => void log("warn", "can't tell whether the file history can take it back", say(err))) : undefined
     const files = dry?.files ?? []
-    return { s, note, how: (files.length ? "restored" : "asked") as TakeBackWay, mine, files }
+    return { s, note, how: (files.length ? "restored" : "asked") as TakeBackWay, mine, files, dry: dry ?? undefined }
   }
 
   /** What the agent changed for a note: its turn from the app's history (a shared turn's may hold
@@ -2468,14 +2483,14 @@ export function createCore(host: Host): Core {
       return { how, ...(how === "restored" && files?.length ? { files } : {}) }
     },
     async takeBackNote(id, expect) {
-      const { s, note, how, mine } = await takeBack(id)
+      const { s, note, how, mine, dry } = await takeBack(id)
       // The question named one way; the conversation has moved since, and this is not that way.
       if ((expect === "restored" || expect === "asked") && expect !== how)
         throw new Error("Its conversation or its files changed meanwhile. Press Take back again to see what it would do now.")
       const b = need()
       if (how === "restored") {
         // Every note of the turn is taken back with it (notes that waited together share one).
-        await restore(mine!.dir, note.session, [mine!.turn], mine!.on)
+        await restore(mine!.dir, note.session, [mine!.turn], mine!.on, dry)
         return how
       }
       const diff = (await diffOf(s, note, mine).catch(() => null)) ?? []

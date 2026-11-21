@@ -30,6 +30,13 @@
 // On the computer the folder is on (`Machine`): this one, or the one an agent runs on over ssh,
 // where the shadow repositories are kept too (~/.bicycle42/snapshots) and git runs. The caller
 // says which; a folder whose files are on neither is not the app's to keep.
+//
+// Two halves. `createShadows` is the git side, done where the files are: on this computer by the
+// app, on another by its helper (src/helper/host.ts), with this very code over that computer's own
+// files, so a snapshot or a take-back is one call over ssh however many git commands it takes
+// (ops.ts). `createSnapshots` is the app's side: the log, read once and kept in memory, each
+// change written whole in one call, and when to prune. Nothing here is Electron's: the helper
+// bundles this file.
 import { createHash, randomBytes } from "node:crypto"
 import path from "node:path"
 import type { FileChange } from "../shared/types"
@@ -68,8 +75,11 @@ export type Restore = {
   told?: true
 }
 
-/** A change the app will not make by itself; the message is for the reviewer. */
-export class Refused extends Error {}
+/** A change the app will not make by itself; the message is for the reviewer. Its code says so
+ *  across the wire from another computer's helper, where it is made again (ops.ts). */
+export class Refused extends Error {
+  readonly code = "EREFUSED"
+}
 
 /** git's empty tree: what a folder with no file in it is. */
 export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
@@ -86,8 +96,9 @@ export type Snapshots = {
    *  are now. Undefined, and nothing touched, when that does not apply cleanly. With `dry`, only
    *  says whether it would. `files`: the paths it changes. A turn's `start`, when given, keeps
    *  the files it added that were on disk before it began. Throws `Refused` (nothing touched)
-   *  when it would delete much of the folder. */
-  reverse(dir: string, turns: Array<Pick<Turn, "before" | "after"> & { start?: number }>, dry?: boolean): Promise<{ from: string; to: string; files: string[] } | undefined>
+   *  when it would delete much of the folder. `was`: a dry run's answer for the same turns, taken
+   *  as it is when the files have not changed since (found with one `git add` and `write-tree`). */
+  reverse(dir: string, turns: Array<Pick<Turn, "before" | "after"> & { start?: number }>, dry?: boolean, was?: Reversal): Promise<Reversal | undefined>
   /** Changes the files by the difference between two trees (a redo is a restore's `to` → `from`).
    *  False, and nothing touched, when it does not apply; throws `Refused` as `reverse` does. */
   apply(dir: string, from: string, to: string): Promise<boolean>
@@ -127,20 +138,41 @@ export function parseDiff(numstat: string, patch: string): FileChange[] {
   return stats.map((s, i) => ({ ...s, patch: (chunks[i] ?? "").replace(/\n$/, "") }))
 }
 
-/** `machine`: the computer the folders are on (this one unless said); `root`: where on it the
- *  shadow repositories are kept (`<dataDir>/snapshots` unless said). */
-export function createSnapshots(dataDir: string, opts: { log?: Log; machine?: Machine; root?: string } = {}): Snapshots {
-  const log: Log = opts.log ?? (() => {})
-  const m = opts.machine ?? thisMachine()
+
+/** A shadow's settings and excludes are written once, and again only when this or the folder's own
+ *  excludes change: its `b42-shadow` file says what they were written from. */
+const SHADOW_FORMAT = "b42 shadow 1"
+
+/** The tree it went from and to, and the paths that changed: what `reverse` found. */
+export type Reversal = { from: string; to: string; files: string[] }
+
+/** The git side of the history, on the computer the folders are on, with that computer's own files
+ *  and git: every call is one step for whoever asks (one call to the helper over ssh), however many
+ *  git commands it takes there. One git operation at a time per folder, as they share the
+ *  shadow's index. Errors are thrown, never logged: the app says what went wrong. */
+export type Shadows = {
+  /** The folder's files as they are now, as a tree id. Undefined when the folder is not there, or
+   *  is not a folder. */
+  snapshot(dir: string): Promise<string | undefined>
+  diff(dir: string, from: string, to: string): Promise<FileChange[]>
+  /** As Snapshots.reverse. `was`: what a dry run of the same turns found just before: when the
+   *  files are still the tree it went from, its answer is taken as it is. */
+  reverse(dir: string, turns: Array<Pick<Turn, "before" | "after"> & { start?: number }>, dry?: boolean, was?: Reversal): Promise<Reversal | undefined>
+  apply(dir: string, from: string, to: string): Promise<boolean>
+  /** The folder's log as it is on disk, or undefined when there is none (or it can't be read). */
+  readLog(dir: string): Promise<string | undefined>
+  /** Writes the folder's log whole, atomically. */
+  writeLog(dir: string, text: string): Promise<void>
+  /** The trees named are kept, and those no longer named go with git's gc (a tree younger than
+   *  an hour is kept whatever is named: it may be a turn's "before" under way). */
+  keep(dir: string, trees: string[]): Promise<void>
+}
+
+/** The shadows of the folders on `m`, kept under `root` there. */
+export function createShadows(m: Machine, root: string): Shadows {
   const P = m.path
-  const root = opts.root ?? path.join(dataDir, "snapshots")
-  /** One git operation at a time per folder: they share the shadow's index. */
   const queue = createQueue()
-  const histories = new Map<string, Promise<History>>()
   const ready = new Map<string, Promise<string>>()
-  /** Folders whose log was looked at for pruning in this run. */
-  const pruneSeen = new Set<string>()
-  const pruning = new Set<Promise<void>>()
 
   const shadowOf = (dir: string) => {
     const name = P.basename(dir).replace(/[^\w.-]+/g, "_").slice(0, 40) || "root"
@@ -177,12 +209,20 @@ export function createSnapshots(dataDir: string, opts: { log?: Log; machine?: Ma
     return r.out
   }
 
-  /** Makes the shadow the first time, and brings its excludes up to date once per run. */
+  const read = (p: string) => m.readFile(p).catch(() => undefined)
+
+  /** Makes the shadow the first time, and brings its settings and excludes up to date when they
+   *  were written from anything else (looked at once per run of whoever asks). */
   function open(dir: string): Promise<string> {
     let made = ready.get(dir)
     if (!made) {
       made = (async () => {
         const shadow = shadowOf(dir)
+        // Not a repository, or one without excludes: none of its own.
+        const own = (await read(P.join(dir, ".git", "info", "exclude"))) ?? ""
+        const exclude = [...EXCLUDE, "", own].join("\n")
+        const mark = `${SHADOW_FORMAT}\n${createHash("sha1").update(exclude).digest("hex")}\n`
+        if ((await read(P.join(shadow, "b42-shadow"))) === mark && (await exists(P.join(shadow, "HEAD")))) return shadow
         if (!(await exists(P.join(shadow, "HEAD")))) {
           await m.mkdir(shadow)
           await must(dir, ["init", "--quiet", "--template="])
@@ -193,18 +233,13 @@ export function createSnapshots(dataDir: string, opts: { log?: Log; machine?: Ma
           ["core.quotepath", "false"],
           ["core.untrackedCache", "true"],
           ["core.fsmonitor", "false"],
-          // Nothing is thrown away behind the log's back (see prune).
+          // Nothing is thrown away behind the log's back (see keep).
           ["gc.auto", "0"],
         ])
           await must(dir, ["config", k!, v!])
-        let own = ""
-        try {
-          own = await m.readFile(P.join(dir, ".git", "info", "exclude"))
-        } catch {
-          // Not a repository, or one without excludes.
-        }
         await m.mkdir(P.join(shadow, "info"))
-        await m.writeFile(P.join(shadow, "info", "exclude"), [...EXCLUDE, "", own].join("\n"))
+        await m.writeFile(P.join(shadow, "info", "exclude"), exclude)
+        await m.writeFile(P.join(shadow, "b42-shadow"), mark)
         return shadow
       })()
       ready.set(dir, made)
@@ -216,74 +251,6 @@ export function createSnapshots(dataDir: string, opts: { log?: Log; machine?: Ma
 
   const exists = (p: string) => m.stat(p).then(() => true, () => false)
   const logFile = (dir: string) => P.join(shadowOf(dir), "b42.json")
-
-  function history(dir: string): Promise<History> {
-    let h = histories.get(dir)
-    if (!h) {
-      h = (async () => {
-        try {
-          const raw = JSON.parse(await m.readFile(logFile(dir))) as Partial<History>
-          return {
-            turns: Array.isArray(raw.turns) ? raw.turns.filter((t) => t && typeof t.before === "string" && typeof t.after === "string" && typeof t.session === "string") : [],
-            restores: Array.isArray(raw.restores) ? raw.restores.filter((r) => r && typeof r.from === "string" && typeof r.to === "string" && Array.isArray(r.turns)) : [],
-            ...(typeof raw.pruned === "number" ? { pruned: raw.pruned } : {}),
-          }
-        } catch {
-          return { turns: [], restores: [] }
-        }
-      })()
-      histories.set(dir, h)
-    }
-    return h
-  }
-
-  /** Writes the log whole, atomically, after the change `edit` makes to it. */
-  function write(dir: string, edit: (h: History) => void) {
-    return queue.run(`log:${dir}`, async () => {
-      const h = await history(dir)
-      edit(h)
-      const file = logFile(dir)
-      await m.mkdir(P.dirname(file))
-      const tmp = `${file}.${process.pid}.tmp`
-      await m.writeFile(tmp, JSON.stringify(h))
-      await m.rename(tmp, file)
-    })
-  }
-
-  /** Once a day per folder: turns older than KEEP_DAYS (or beyond KEEP_TURNS) leave the log, and
-   *  the trees it no longer names go with git's gc. A tree younger than an hour is kept whatever
-   *  the log says: it may be the "before" of a turn under way. Not waited for. */
-  function prune(dir: string) {
-    const run = (async () => {
-      const h = await history(dir)
-      if (h.pruned && Date.now() - h.pruned < DAY) return
-      const cut = Date.now() - KEEP_DAYS * DAY
-      await write(dir, (x) => {
-        // A take-back the agent has not been told of stays, old or not, with its turns: /redo can
-        // still bring it back, and the next message must still say it.
-        const untold = new Set(x.restores.filter((r) => !r.told).flatMap((r) => r.turns))
-        const recent = new Set(x.turns.filter((t) => t.start >= cut).slice(-KEEP_TURNS).map((t) => t.id))
-        x.turns = x.turns.filter((t) => recent.has(t.id) || untold.has(t.id))
-        const kept = new Set(x.turns.map((t) => t.id))
-        x.restores = x.restores.filter((r) => !r.told || (r.time >= cut && r.turns.some((t) => kept.has(t))))
-        x.pruned = Date.now()
-      })
-      const now = await history(dir)
-      const trees = new Set([...now.turns.flatMap((t) => [t.before, t.after]), ...now.restores.flatMap((r) => [r.from, r.to])])
-      await queue.run(dir, async () => {
-        const refs = new Set((await must(dir, ["for-each-ref", "--format=%(refname)", "refs/b42/"])).split("\n").filter(Boolean))
-        const lines = [
-          ...[...refs].filter((r) => !trees.has(r.slice("refs/b42/".length))).map((r) => `delete ${r}`),
-          ...[...trees].filter((t) => !refs.has(`refs/b42/${t}`)).map((t) => `update refs/b42/${t} ${t}`),
-        ]
-        if (lines.length) await must(dir, ["update-ref", "--stdin"], { input: `${lines.join("\n")}\n` })
-      })
-      // Beside the queue: gc is safe beside other git commands, and may take a while.
-      await must(dir, ["gc", "--quiet", "--prune=1.hour.ago"])
-    })().catch((err) => log("warn", "can't prune the file history", String(err)))
-    pruning.add(run)
-    void run.finally(() => pruning.delete(run))
-  }
 
   async function snap(dir: string): Promise<string> {
     const r = await git(dir, ["add", "--all", "--ignore-errors", "--", "."])
@@ -345,14 +312,14 @@ export function createSnapshots(dataDir: string, opts: { log?: Log; machine?: Ma
     async snapshot(dir) {
       try {
         if ((await m.stat(dir)).kind !== "dir") return undefined
-        await open(dir)
-        const tree = await queue.run(dir, () => snap(dir))
-        if (!pruneSeen.has(dir)) pruneSeen.add(dir), prune(dir)
-        return tree
       } catch (err) {
-        log("warn", "can't take a snapshot of the folder", String(err))
-        return undefined
+        // Not there (any more): no snapshot, and nothing to say.
+        const code = (err as NodeJS.ErrnoException).code
+        if (code === "ENOENT" || code === "ENOTDIR") return undefined
+        throw err
       }
+      await open(dir)
+      return queue.run(dir, () => snap(dir))
     },
 
     async diff(dir, from, to) {
@@ -364,10 +331,12 @@ export function createSnapshots(dataDir: string, opts: { log?: Log; machine?: Ma
       })
     },
 
-    async reverse(dir, turns, dry = false) {
+    async reverse(dir, turns, dry = false, was) {
       await open(dir)
       return queue.run(dir, async () => {
         const now = await snap(dir)
+        // The dry run just now found where these files go, and they are as they were then.
+        if (!dry && was && was.from === now) return (await move(dir, now, was.to)) ? { from: now, to: was.to, files: was.files } : undefined
         // A scratch index of the files as they are now; the turns come out of it newest first.
         const index = P.join(shadowOf(dir), `index.${randomBytes(4).toString("hex")}`)
         try {
@@ -400,6 +369,115 @@ export function createSnapshots(dataDir: string, opts: { log?: Log; machine?: Ma
       await open(dir)
       return queue.run(dir, () => move(dir, from, to))
     },
+
+    readLog: (dir) => read(logFile(dir)),
+
+    async writeLog(dir, text) {
+      const file = logFile(dir)
+      await m.mkdir(P.dirname(file))
+      // Its own name: two apps of one install (two connections to this computer) never share it.
+      const tmp = `${file}.${randomBytes(4).toString("hex")}.tmp`
+      await m.writeFile(tmp, text)
+      await m.rename(tmp, file)
+    },
+
+    async keep(dir, trees) {
+      await queue.run(dir, async () => {
+        const named = new Set(trees)
+        const refs = new Set((await must(dir, ["for-each-ref", "--format=%(refname)", "refs/b42/"])).split("\n").filter(Boolean))
+        const lines = [
+          ...[...refs].filter((r) => !named.has(r.slice("refs/b42/".length))).map((r) => `delete ${r}`),
+          ...[...named].filter((t) => !refs.has(`refs/b42/${t}`)).map((t) => `update refs/b42/${t} ${t}`),
+        ]
+        if (lines.length) await must(dir, ["update-ref", "--stdin"], { input: `${lines.join("\n")}\n` })
+      })
+      // Beside the queue: gc is safe beside other git commands, and may take a while.
+      await must(dir, ["gc", "--quiet", "--prune=1.hour.ago"])
+    },
+  }
+}
+
+/** `machine`: the computer the folders are on (this one unless said); `root`: where on it the
+ *  shadow repositories are kept (`<dataDir>/snapshots` unless said); `shadows`: who does the git
+ *  side there (on this computer, this process; on another, its helper, in one call each). */
+export function createSnapshots(dataDir: string, opts: { log?: Log; machine?: Machine; root?: string; shadows?: Shadows } = {}): Snapshots {
+  const log: Log = opts.log ?? (() => {})
+  const sh = opts.shadows ?? createShadows(opts.machine ?? thisMachine(), opts.root ?? path.join(dataDir, "snapshots"))
+  /** One write of a folder's log at a time. */
+  const queue = createQueue()
+  const histories = new Map<string, Promise<History>>()
+  /** Folders whose log was looked at for pruning in this run. */
+  const pruneSeen = new Set<string>()
+  const pruning = new Set<Promise<void>>()
+
+  function history(dir: string): Promise<History> {
+    let h = histories.get(dir)
+    if (!h) {
+      h = (async () => {
+        try {
+          const raw = JSON.parse((await sh.readLog(dir)) ?? "") as Partial<History>
+          return {
+            turns: Array.isArray(raw.turns) ? raw.turns.filter((t) => t && typeof t.before === "string" && typeof t.after === "string" && typeof t.session === "string") : [],
+            restores: Array.isArray(raw.restores) ? raw.restores.filter((r) => r && typeof r.from === "string" && typeof r.to === "string" && Array.isArray(r.turns)) : [],
+            ...(typeof raw.pruned === "number" ? { pruned: raw.pruned } : {}),
+          }
+        } catch {
+          return { turns: [], restores: [] }
+        }
+      })()
+      histories.set(dir, h)
+    }
+    return h
+  }
+
+  /** Writes the log whole, atomically, after the change `edit` makes to it. */
+  function write(dir: string, edit: (h: History) => void) {
+    return queue.run(`log:${dir}`, async () => {
+      const h = await history(dir)
+      edit(h)
+      await sh.writeLog(dir, JSON.stringify(h))
+    })
+  }
+
+  /** Once a day per folder: turns older than KEEP_DAYS (or beyond KEEP_TURNS) leave the log, and
+   *  the trees it no longer names go with git's gc. Not waited for. */
+  function prune(dir: string) {
+    const run = (async () => {
+      const h = await history(dir)
+      if (h.pruned && Date.now() - h.pruned < DAY) return
+      const cut = Date.now() - KEEP_DAYS * DAY
+      await write(dir, (x) => {
+        // A take-back the agent has not been told of stays, old or not, with its turns: /redo can
+        // still bring it back, and the next message must still say it.
+        const untold = new Set(x.restores.filter((r) => !r.told).flatMap((r) => r.turns))
+        const recent = new Set(x.turns.filter((t) => t.start >= cut).slice(-KEEP_TURNS).map((t) => t.id))
+        x.turns = x.turns.filter((t) => recent.has(t.id) || untold.has(t.id))
+        const kept = new Set(x.turns.map((t) => t.id))
+        x.restores = x.restores.filter((r) => !r.told || (r.time >= cut && r.turns.some((t) => kept.has(t))))
+        x.pruned = Date.now()
+      })
+      const now = await history(dir)
+      await sh.keep(dir, [...new Set([...now.turns.flatMap((t) => [t.before, t.after]), ...now.restores.flatMap((r) => [r.from, r.to])])])
+    })().catch((err) => log("warn", "can't prune the file history", String(err)))
+    pruning.add(run)
+    void run.finally(() => pruning.delete(run))
+  }
+
+  return {
+    async snapshot(dir) {
+      try {
+        const tree = await sh.snapshot(dir)
+        if (tree !== undefined && !pruneSeen.has(dir)) pruneSeen.add(dir), prune(dir)
+        return tree
+      } catch (err) {
+        log("warn", "can't take a snapshot of the folder", String(err))
+        return undefined
+      }
+    },
+
+    diff: (dir, from, to) => sh.diff(dir, from, to),
+    reverse: (dir, turns, dry = false, was) => sh.reverse(dir, turns, dry, was),
+    apply: (dir, from, to) => sh.apply(dir, from, to),
 
     history,
 

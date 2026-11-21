@@ -1,5 +1,5 @@
 // What the helper (helper.ts) keeps on the other computer, apart from its socket: Machine's calls
-// as JSON-RPC methods, and the processes the app starts there, with their output kept for an app
+// as JSON-RPC methods, the app's work on a folder (`ops.*`, src/main/ops.ts), and the processes the app starts there, with their output kept for an app
 // that is away. Here so the tests can drive it without a socket (test/helper.test.ts).
 //
 // A process belongs to the app that started it (`owner`: one install of the app, `launch`: one
@@ -17,6 +17,7 @@
 // call with an id gets exactly one answer: an answer too long for a line (LINE_MAX) becomes an
 // error saying so (E2BIG), and the connection stays.
 import type { Child, Exit, Machine } from "../main/machine"
+import { localOps, OPS } from "../main/ops"
 import { LINE_MAX, PROTOCOL, sizeOf } from "../shared/wire"
 
 /** A connection: each message is given as its JSON line, without the newline. */
@@ -61,7 +62,7 @@ export type HostOptions = {
 // ── params ─────────────────────────────────────────────────────────────────────────────────────
 
 /** What a param must be: "?" after it, it may be left out (or null). */
-type Kind = "string" | "uint" | "number" | "strings" | "env" | "object" | "base64"
+type Kind = "string" | "uint" | "number" | "strings" | "env" | "object" | "base64" | "boolean" | "turns"
 type Shape = Record<string, Kind | `${Kind}?`>
 
 const isUint = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0
@@ -74,6 +75,9 @@ const fits: Record<Kind, (v: unknown) => boolean> = {
   env: (v) => !!v && typeof v === "object" && !Array.isArray(v) && Object.values(v).every((x) => typeof x === "string" || x === null),
   object: (v) => !!v && typeof v === "object" && !Array.isArray(v),
   base64: (v) => typeof v === "string" && /^[A-Za-z0-9+/]*={0,2}$/.test(v) && v.length % 4 === 0,
+  boolean: (v) => typeof v === "boolean",
+  // A take-back's turns: their two trees, and when each began.
+  turns: (v) => Array.isArray(v) && v.every((t) => !!t && typeof t === "object" && typeof t.before === "string" && typeof t.after === "string" && (t.start === undefined || (typeof t.start === "number" && Number.isFinite(t.start)))),
 }
 const said: Record<Kind, string> = {
   string: "a string",
@@ -83,6 +87,8 @@ const said: Record<Kind, string> = {
   env: "an object of strings (or null)",
   object: "an object",
   base64: "base64",
+  boolean: "true or false",
+  turns: "a list of {before, after, start?}",
 }
 
 /** Refused: a param missing, or not what the call takes. */
@@ -200,6 +206,9 @@ export function createHost(o: HostOptions) {
     }
     if (p.exit && p.closed) send(conn, { ev: "exit", hid: p.hid, ...p.exit })
   }
+
+  /** The work done where the files are (ops.ts), over this computer's own files. */
+  const repo = localOps(machine)
 
   const procsOf = () => [...procs.values()].map((p) => ({ hid: p.hid, owner: p.owner, launch: p.launch, ...(p.key ? { key: p.key } : {}), ...(p.exit ? { exited: true } : {}) }))
 
@@ -366,6 +375,18 @@ export function createHost(o: HostOptions) {
         },
       },
     ],
+    // The app's work on a folder here, each one call: ops.vcs, ops.snapshot, ops.reverse, ...
+    ...Object.entries(OPS).map(([name, op]): [string, Op] => [
+      `ops.${name}`,
+      {
+        params: op.params,
+        run(q) {
+          // Where the app keeps its history of folders here: a full path, never one read from wherever the helper runs.
+          if (typeof q.root === "string" && !machine.path.isAbsolute(q.root)) throw einval(`ops.${name}: root must be a full path`)
+          return op.run(repo, q)
+        },
+      },
+    ]),
   ])
 
   /** One JSON line from a connection. Answers go to the same connection: one for each message

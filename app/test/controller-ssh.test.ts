@@ -241,6 +241,62 @@ test("take back with an agent there: an older note's files are put back from the
   }
 })
 
+test("with an agent there, a turn's snapshots are one call each, and a take-back is its dry run and its run, one call each", async () => {
+  const t = boot()
+  try {
+    const a = path.join(t.repo, "a.css")
+    fs.writeFileSync(a, "a { color: black }\n\n\n\n\nb { pad: 4px }\n")
+    await t.ready()
+    const first = t.note(`EDIT ${a} black red`)
+    await until(() => t.notes() === "1:done")
+    /** The turns written down in the folder's log there. */
+    const turns = () => {
+      try {
+        const root = path.join(t.h.home, ".bicycle42", "snapshots", fs.readFileSync(path.join(t.h.data, "ssh", "owner"), "utf8"))
+        return (JSON.parse(fs.readFileSync(path.join(root, fs.readdirSync(root).find((d) => d.endsWith(".git"))!, "b42.json"), "utf8")) as { turns: unknown[] }).turns.length
+      } catch {
+        return 0
+      }
+    }
+    await until(() => turns() === 1)
+    // What the app sends the helper from here on (fake-ssh's `sent`), as calls with their params.
+    const sent = path.join(t.h.root, "sent")
+    const calls = () =>
+      (fs.existsSync(sent) ? fs.readFileSync(sent, "utf8") : "")
+        .split("\n")
+        .flatMap((l) => {
+          try {
+            const m = JSON.parse(l) as { method?: string; params?: { path?: string; dir?: string; was?: unknown } }
+            return m.method && m.method !== "ack" ? [m] : []
+          } catch {
+            return []
+          }
+        })
+    /** The calls about the repo's folder: by name, with what they were asked of. */
+    const aboutRepo = () => calls().filter((m) => m.params?.dir === t.repo || m.params?.path === t.repo).map((m) => m.method)
+    fs.writeFileSync(sent, "")
+    t.note(`EDIT ${a} 4px 8px`)
+    await until(() => t.notes() === "1:done 2:done")
+    // The run's three boundaries (it starts, the agent is handed the note, it ends), a snapshot
+    // each in one call with no stat of the folder first, nor before the message goes; the turn
+    // written down in one; the panel's line in one each time it is read.
+    const tally = () => aboutRepo().filter((m) => m !== "ops.vcs").sort().join(" ")
+    await until(() => turns() === 2)
+    await until(() => tally() === "ops.snapshot ops.snapshot ops.snapshot ops.writeLog").catch(() => assert.fail(tally()))
+    fs.writeFileSync(sent, "")
+    assert.equal(await t.cmd("takeBackNote", first, "restored"), "restored")
+    assert.equal(fs.readFileSync(a, "utf8"), "a { color: black }\n\n\n\n\nb { pad: 8px }\n")
+    // Whether the folder is there, the dry run, the run (given the dry run's answer), the restore written down.
+    assert.deepEqual(aboutRepo().filter((m) => m !== "ops.vcs"), ["stat", "ops.reverse", "ops.reverse", "ops.writeLog"])
+    const [dry, run] = calls().filter((m) => m.method === "ops.reverse")
+    assert.equal(dry!.params?.was, undefined)
+    assert.ok(run!.params?.was)
+    fs.rmSync(sent)
+  } finally {
+    await t.close()
+  }
+})
+
 test("a take-back with an agent on another computer never touches this computer's folder at the same path", { skip: !canBind() && "unshare -rm is not allowed here" }, async () => {
   // The same path, two folders: `here` is what this computer has there; the other computer sees `theirs` at it.
   const base = fs.mkdtempSync(path.join(fs.realpathSync(require("node:os").tmpdir()), "b42-same-path-"))

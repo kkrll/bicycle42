@@ -74,6 +74,7 @@ src/main/chat-items.ts  what a conversation is built with: a user message, a run
 src/main/patch.ts       an edit's old and new text as a unified diff (ACP says edits that way)
 src/main/asks.ts        what the app itself asks the agent (site, commit, take back), what it tells it, and the line the chat shows for it
 src/main/snapshots.ts   the app's own file history: a shadow git repository per folder, outside it; snapshots, diffs, exact take-backs
+src/main/ops.ts         the work done where the files are (vcs, the history's git side): by the app here, by the helper there, one call each
 src/main/pictures.ts    the conversation's pictures by address (b42-img:), served to the window by main
 src/main/store.ts       settings and notes on disk, versioned, atomic writes off the main thread (flushed at quit)
 src/preload.ts          window.b42: the only door between the window and main
@@ -463,8 +464,13 @@ can also be moved by hand (the date `tested` then goes, unless you ran the check
   `offline` with `away`: nothing is failed, cancelled or forgotten (turns under way stay), notes
   wait, working ones stay working, and Retry (`reconnect`) tries the connection, not the agent.
   The app's file history of its folders is kept there (`~/.bicycle42/snapshots`) and git runs
-  there: `localDir`, snapshots and take-backs all go through that computer's `Machine`, never
-  this computer's disk. The address the agent reports (`SITE:` on its
+  there: snapshots and take-backs all go through that computer, never this computer's disk. The
+  work on a folder is done where its files are (`ops.ts`): the helper runs the same code as the
+  app does here (the repo's line, `vcs.ts`; the history's git side, `snapshots.ts`'s `Shadows`)
+  over its own files, and the app asks once per operation: a snapshot, a take-back's dry run, its
+  run (given the dry run's answer, taken as it is while the files are unchanged), a write of the
+  log, the repo's line, each one call however many git commands it is there. The log is read once
+  and kept by the app, and no message waits on a call before it goes. The address the agent reports (`SITE:` on its
   localhost) is forwarded here (`ssh -O forward`, the same port when it is free) and opened; the
   request to start the site says nothing of binding to the network or of a tunnel for it. Which
   addresses are that computer's is read from the address alone, parsed as the browser does, with
