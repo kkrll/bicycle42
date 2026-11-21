@@ -11,6 +11,7 @@ import os from "node:os"
 import path from "node:path"
 import { cmdLine, createAcp, needsSignIn, timing, toolPart, type AcpOptions } from "../src/main/acp"
 import { splitCommand } from "../src/main/agents"
+import { thisMachine, type Machine, type Reach } from "../src/main/machine"
 import { unifiedPatch } from "../src/main/patch"
 import type { BackendEvent, ChatEvent, ChatItem } from "../src/shared/types"
 import { fakeAgent, type FakeAgent } from "./fake-agent"
@@ -483,6 +484,96 @@ test("stop, with an agent that ignores it: the turn ends as stopped after a whil
   } finally {
     timing.stopGrace = grace
   }
+})
+
+/** This computer, as another one would be: the test says whether it can be reached. */
+function awayMachine() {
+  let reach: Reach = { status: "up" }
+  const listeners = new Set<(r: Reach) => void>()
+  const machine: Machine = Object.assign(Object.create(thisMachine()) as Machine, {
+    where: "dev-box",
+    local: false,
+    reach: () => reach,
+    onReach: (l: (r: Reach) => void) => (listeners.add(l), () => void listeners.delete(l)),
+  })
+  return {
+    machine,
+    set(status: "up" | "down") {
+      reach = status === "up" ? { status } : { status, error: "Can't reach dev-box." }
+      for (const l of [...listeners]) l(reach)
+    },
+  }
+}
+
+test("stop while the agent's computer can't be reached: the agent is not ended for it; the wait for it to stop starts once it is back", async () => {
+  const fake = fakeAgent()
+  fake.ignoreCancel = true
+  fake.onPrompt = () => new Promise(() => {})
+  const away = awayMachine()
+  const grace = timing.stopGrace
+  timing.stopGrace = 80
+  try {
+    const { backend, events } = setup(fake, undefined, undefined, { machine: away.machine })
+    const s = await backend.createSession({ directory: "/repo" })
+    await backend.prompt(s.id, { id: "m1", text: "long" })
+    await until(() => fake.calls.some((c) => c.method === "session/prompt"))
+    away.set("down")
+    assert.equal(await backend.stop(s.id), true)
+    await sleep(300)
+    assert.ok(!of(events, "run").some((e) => e.status === "interrupted"), "not ended while away")
+    assert.equal(fake.starts, 1)
+    away.set("up")
+    await until(() => of(events, "run").some((e) => e.status === "interrupted"))
+    await until(() => fake.starts === 2)
+  } finally {
+    timing.stopGrace = grace
+  }
+})
+
+test("a request in flight when the agent's computer can't be reached does not time out while it is away: only the time it can be reached counts", async () => {
+  const fake = fakeAgent()
+  const away = awayMachine()
+  const start = timing.start
+  try {
+    const dir = tmp()
+    const first = setup(fake, dir)
+    const s = await first.backend.createSession({ directory: "/repo" })
+    first.stop()
+    timing.start = 150
+    let answer!: () => void
+    fake.onLoad = () => new Promise<void>((r) => (answer = r))
+    const { backend } = setup(fake, dir, undefined, { machine: away.machine })
+    const read = backend.transcript(s.id)
+    let failed: unknown
+    read.catch((err) => (failed = err))
+    await until(() => fake.calls.some((c) => c.method === "session/load"))
+    away.set("down")
+    await sleep(400)
+    away.set("up")
+    await sleep(50)
+    answer()
+    await read
+    assert.equal(failed, undefined)
+  } finally {
+    timing.start = start
+  }
+})
+
+test("some of the agent's output was lost during a run (its computer away too long): the run fails saying so, the agent is asked to stop it, and the conversation is read again", async () => {
+  const fake = fakeAgent()
+  // Its answer is among what was lost: it never comes.
+  fake.onPrompt = () => new Promise(() => {})
+  let gap: (() => void) | undefined
+  const { backend, events } = setup(fake, undefined, undefined, { connect: () => ({ ...fake.connect(), onGap: (l: () => void) => void (gap = l) }) })
+  const s = await backend.createSession({ directory: "/repo" })
+  await backend.prompt(s.id, { id: "m1", text: "long" })
+  await until(() => fake.calls.some((c) => c.method === "session/prompt"))
+  gap!()
+  await until(() => of(events, "run").some((e) => e.status === "failed"))
+  assert.match(of(events, "run").find((e) => e.status === "failed")!.error ?? "", /was lost while .* could not be reached/)
+  await until(() => fake.calls.some((c) => c.method === "session/cancel"))
+  await until(() => of(events, "resync").some((e) => e.session === s.id))
+  assert.equal((await backend.session(s.id))?.busy, false)
 })
 
 test("before a turn, too slow or failed: the message goes anyway, and the controller is told the turn's before is not to be trusted", async () => {

@@ -79,6 +79,8 @@ export type Transport = {
   exited: Promise<string>
   /** Ends it, and whatever it started. */
   kill(): void
+  /** Some of what it said was lost on its way (machine.Child.onGap). */
+  onGap?(listener: () => void): void
 }
 
 export type AcpOptions = {
@@ -359,8 +361,6 @@ export function createAcp(opts: AcpOptions): Acp {
   let promptCaps: Raw = {}
 
   async function spawnAgent(): Promise<Transport> {
-    // The generation this process will be (start() counts it once the transport is there).
-    const mine = gen + 1
     const env = await machine.agentEnv()
     const [program, ...args] = opts.command
     if (!program) throw new Error(`No command to start ${name} with.`)
@@ -371,22 +371,56 @@ export function createAcp(opts: AcpOptions): Acp {
       for (const line of String(d).split("\n")) if (line.trim()) stderrTail.push(line.trim().slice(0, 300))
       if (stderrTail.length > 20) stderrTail = stderrTail.slice(-20)
     })
-    child.onGap?.(() => gapped(mine))
     const exited = child.exited.then((e) =>
       e.error ? (e.error.code === "ENOENT" ? `${program} was not found on ${machine.where}` : said(e.error)) : e.signal ? `it was ended (${e.signal})` : `it exited with code ${e.code}`,
     )
-    return { stream: ndJsonStream(Writable.toWeb(child.stdin) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>), exited, kill: child.kill }
+    return { stream: ndJsonStream(Writable.toWeb(child.stdin) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>), exited, kill: () => void child.kill(), ...(child.onGap ? { onGap: child.onGap } : {}) }
   }
 
   /** Some of what the agent said was lost on its way here (its computer could not be reached for
    *  long, and its helper kept only so much): what the conversations loaded in it show is read
-   *  again from the agent, at once for one at rest, after its run for one at work. */
+   *  again from the agent. A run under way may have lost its end, or a question for the reviewer,
+   *  which would leave it working for ever: the agent is asked to stop it, and it fails, saying
+   *  why (Retry sends it again); then its conversation is read again too. */
   function gapped(g: number) {
     for (const c of convs.values()) {
       if (c.attached !== g) continue
-      if (c.running) c.stale = true
-      else (c.attached = 0), emit({ type: "resync", session: c.id })
+      if (!c.running) {
+        c.attached = 0
+        emit({ type: "resync", session: c.id })
+        continue
+      }
+      const id = c.running.id
+      c.stale = true
+      for (const pending of [...permissionsPending.values()]) if (pending.session === c.id) pending.resolve({ outcome: { outcome: "cancelled" } })
+      for (const pending of [...questionsPending.values()]) if (pending.session === c.id) pending.resolve(undefined)
+      const p = proc
+      if (p?.gen === g) void (p.agent.notify as (m: string, params: unknown) => Promise<void>)("session/cancel", { sessionId: c.id }).catch((err) => warn("Could not cancel", said(err)))
+      finish(c, id, { failed: `some of what ${name} said was lost while ${machine.where} could not be reached, so this run was stopped` })
     }
+  }
+
+  /** setTimeout, where only the time the agent's computer can be reached counts: one that is away
+   *  does not answer, and is not late (this computer is always reached). Returns its cancel. */
+  function upTimer(ms: number, fire: () => void): () => void {
+    let left = ms
+    let since = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let off: (() => void) | undefined
+    const arm = () => {
+      since = Date.now()
+      timer = setTimeout(() => (off?.(), fire()), left)
+      timer.unref?.()
+    }
+    off = machine.onReach?.((r) => {
+      if (r.status === "down" && timer) {
+        clearTimeout(timer)
+        timer = undefined
+        left = Math.max(0, left - (Date.now() - since))
+      } else if (r.status === "up" && !timer) arm()
+    })
+    if (machine.reach().status === "up") arm()
+    return () => (clearTimeout(timer), off?.())
   }
 
   /** The agent's process, started if it is not running. One start at a time. */
@@ -405,6 +439,7 @@ export function createAcp(opts: AcpOptions): Acp {
       throw new Error(`Can't start ${name}: ${said(err)}`)
     }
     const mine = ++gen
+    transport.onGap?.(() => gapped(mine))
     const app = client({ name: "bicycle42" })
       .onNotification("session/update", ({ params }) => onUpdate(mine, params.sessionId, rec(params.update)))
       .onRequest("session/request_permission", ({ params, signal }) => askPermission(rec(params), signal) as never)
@@ -417,6 +452,7 @@ export function createAcp(opts: AcpOptions): Acp {
       return `${name} stopped: ${reason}${last ? ` (${clip(last, 200)})` : ""}`
     }
     let init: Raw
+    let cancelLate: (() => void) | undefined
     try {
       init = rec(
         await Promise.race([
@@ -432,13 +468,15 @@ export function createAcp(opts: AcpOptions): Acp {
             clientInfo: { name: "bicycle42", title: "bicycle 42", version: VERSION },
           }),
           ended.then((r) => Promise.reject(new Error(why(r)))),
-          new Promise((_, reject) => setTimeout(() => reject(new Error(`${name} did not answer in ${timing.start / 1000} s`)), timing.start).unref()),
+          new Promise((_, reject) => (cancelLate = upTimer(timing.start, () => reject(new Error(`${name} did not answer in ${timing.start / 1000} s`))))),
         ]),
       )
     } catch (err) {
       transport.kill()
       conn.close()
       throw new Error(`Can't start ${name}: ${err instanceof Error ? err.message.replace(`${name} stopped: `, "") : said(err)}`)
+    } finally {
+      cancelLate?.()
     }
     if (closed) {
       transport.kill()
@@ -528,12 +566,17 @@ export function createAcp(opts: AcpOptions): Acp {
   async function call(method: string, params: unknown, ms: number | undefined = timing.request): Promise<Raw> {
     const p = await ensure()
     const req = (p.agent.request as (m: string, params: unknown) => Promise<unknown>)(method, params)
+    // Only the time its computer can be reached counts: a request in flight when the connection
+    // drops is answered once it is back.
+    let cancel: (() => void) | undefined
     try {
-      return rec(ms ? await Promise.race([req, new Promise((_, reject) => setTimeout(() => reject(new Error(`${name} did not answer in ${ms / 1000} s`)), ms).unref())]) : await req)
+      return rec(ms ? await Promise.race([req, new Promise((_, reject) => (cancel = upTimer(ms, () => reject(new Error(`${name} did not answer in ${ms / 1000} s`)))))]) : await req)
     } catch (err) {
       if (needsSignIn(err))
         throw Object.assign(new Error(`${name} needs you to sign in first: run it once in a terminal and log in. (${said(err)})`), { code: code(err) })
       throw Object.assign(new Error(said(err)), { code: code(err) })
+    } finally {
+      cancel?.()
     }
   }
 
@@ -1451,14 +1494,16 @@ export function createAcp(opts: AcpOptions): Acp {
       const running = c.running
       // An agent that does not end its turn when asked: after a while the turn is ended here, and
       // so is the agent's process (nothing else stops what it is doing); it is started again.
-      setTimeout(() => {
+      // The while counts only once its computer can be reached (the cancel waits there until it
+      // is): an agent out of reach is not one that would not stop.
+      upTimer(timing.stopGrace, () => {
         if (c.running !== running || proc !== p) return
         const why = `${name} did not stop when asked, so it was ended and started again`
         finish(c, running.id, { interrupted: true })
         log("warn", why)
         p.ending = why
         p.transport.kill()
-      }, timing.stopGrace).unref()
+      })
       await (p.agent.notify as (m: string, params: unknown) => Promise<void>)("session/cancel", { sessionId: id }).catch((err) => warn("Could not cancel", said(err)))
       return true
     },
