@@ -14,6 +14,12 @@ test("startPrompt says what the agent cannot know, and no more", () => {
   assert.match(far, /I expected it at http:\/\/box:4242\/, which did not answer\.\n/)
   assert.match(far, /another computer, so localhost will not open/)
   assert.ok(far.split(/\s+/).length < 80, "short: it is the reviewer's message in the conversation")
+  assert.match(near, /so I can stop it from here\./)
+  // An ACP agent's background command can't be listed or stopped from the app: it ends with the agent.
+  const acp = startPrompt("", false, false)
+  assert.match(acp, /background command of your shell tool \(not nohup, & or tmux\), so it ends when this session does\./)
+  assert.doesNotMatch(acp, /stop it from here/)
+  assert.deepEqual(parseAsk(acp), { title: "Get the site running" })
 })
 
 test("commitPrompt carries the message word for word", () => {

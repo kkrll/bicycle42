@@ -3188,6 +3188,12 @@ details[open] > summary > .caret {
   flex: none;
 }
 
+/* Another ACP agent's command: the field takes the row, its Start keeps its width. */
+.connect-local-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
 .connect-saved-actions {
   flex: none;
   display: flex;

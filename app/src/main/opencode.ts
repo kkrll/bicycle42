@@ -11,9 +11,10 @@
 // reorders anything.
 //
 // Server payloads are untrusted: every field is read through rec/str/num/list, and anything
-// unknown is skipped and logged once.
+// unknown is skipped and logged once. What is not this wire's own (a user message as an item,
+// the line a run ends with, reading untrusted JSON) is in chat-items.ts, shared with acp.ts.
 import { posix } from "node:path"
-import { parseAsk } from "./asks"
+import { clip, defined, DROPPED, endMarker, list, num, parseNote, rec, str, userItem, type Raw, type Warn } from "./chat-items"
 import type { PictureSource, Wire } from "./pictures"
 import type {
   ContextUse,
@@ -45,6 +46,8 @@ import type {
   ToolStatus,
 } from "../shared/types"
 
+export { parseNote }
+
 /** The OpenCode client: a Backend, plus the helper agents a message can `@`-name. Those are not
  *  in the Backend contract (its `agents()` lists the ones a person can switch to), so the
  *  controller reaches them through this wider type. */
@@ -60,7 +63,6 @@ export type OpenCode = Backend & {
 export type NamePicture = (src: PictureSource, mime: string, data?: string) => string
 
 type Log = (level: "info" | "warn" | "error", msg: string, data?: unknown) => void
-type Warn = (msg: string, data?: unknown) => void
 
 /** Exported so tests can shorten them. Milliseconds. */
 export const timing = {
@@ -139,60 +141,6 @@ const SUMMARY_EVENTS = new Set([
   "session.revert.committed",
 ])
 
-// ── reading untrusted JSON ──────────────────────────────────────────────────────────────────────
-
-type Raw = Record<string, unknown>
-
-const rec = (v: unknown): Raw => (v !== null && typeof v === "object" ? (v as Raw) : {})
-const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined)
-const num = (v: unknown): number | undefined => (typeof v === "number" ? v : undefined)
-const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
-
-/** Drops undefined fields, so an item built from events deep-equals the one built from a re-read. */
-function defined<T extends object>(o: T): T {
-  for (const k in o) if (o[k] === undefined) delete o[k]
-  return o
-}
-
-const clip = (s: string, max: number) => (s.length > max ? s.slice(0, max - 1) + "…" : s)
-
-// ── wire → chat ─────────────────────────────────────────────────────────────────────────────────
-
-const NOTE_HEAD = /^UI review note (\d+) on /
-/** The lines notePrompt (overlay/prompt.js) can put after the note's text. */
-const NOTE_END =
-  /^(Elements \(page-provided |Marked area: |The reviewer drew \d|Canvas edits, made on the live page |Image 1 is the |The attached screenshot shows |Purple outlines mark |An outline marks |Make the smallest change |Template \/[a-z-]+: )/
-
-/** Finds the reviewer's own words in a review-note prompt, so the chat can show those instead of
- *  the whole prompt. The note may span lines: it runs until the next line the prompt adds. */
-export function parseNote(text: string): { n: number; text: string } | undefined {
-  const lines = text.split("\n")
-  const head = NOTE_HEAD.exec(lines[0] ?? "")
-  if (!head || !lines[1]?.startsWith("Note: ")) return undefined
-  let end = 2
-  while (end < lines.length && !NOTE_END.test(lines[end]!)) end++
-  return { n: Number(head[1]), text: lines.slice(1, end).join("\n").slice("Note: ".length) }
-}
-
-/** A file whose data this client dropped after naming it (see `transcript`): still a picture. */
-const DROPPED = "\u0000dropped"
-
-/** `payload` is a user message or an inbox item's payload: both are `{ text, files? }`. With
- *  `named`, a picture is shown by the address it gives (`file` is its place in the files). */
-function userItem(id: string, time: number, payload: Raw, pending: boolean, named?: (file: number, mime: string, data?: string) => string): ChatUser {
-  const text = str(payload.text) ?? ""
-  const images: ChatImage[] = []
-  for (const [i, raw] of list(payload.files).entries()) {
-    const file = rec(raw)
-    const mime = str(file.mime)
-    const data = str(file.data)
-    if (!mime?.startsWith("image/") || !data) continue
-    const src = named ? named(i, mime, data === DROPPED ? undefined : data) : `data:${mime};base64,${data}`
-    images.push({ name: str(file.name) ?? "image", src })
-  }
-  return defined({ kind: "user", id, time, text, images, note: parseNote(text), ask: parseAsk(text), pending: pending || undefined })
-}
-
 function fileChanges(metadata: unknown): FileChange[] | undefined {
   const changes: FileChange[] = []
   for (const raw of list(rec(metadata).files)) {
@@ -263,14 +211,6 @@ function assistantItem(id: string, time: number, m: Raw, dir: string | undefined
     ended: num(rec(m.time).completed),
     error: str(rec(m.error).message),
   })
-}
-
-/** The end of a run. A run that succeeded leaves no line. */
-function endMarker(id: string, time: number, outcome: unknown, error: unknown): ChatMarker | undefined {
-  if (outcome === "interrupted") return { kind: "marker", id, time, text: "Stopped", tone: "error" }
-  if (outcome === "failed")
-    return { kind: "marker", id, time, text: `Failed: ${str(rec(error).message) ?? "unknown error"}`, tone: "error", failed: true }
-  return undefined
 }
 
 function modelMarker(id: string, time: number, model: unknown): ChatMarker {
@@ -1061,7 +1001,9 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
   const lastRead = new Map<string, { messages: unknown[]; undone: string | undefined }>()
 
   return {
+    // Everything: the server keeps the queue, steers, undoes, lists its shells, summarises.
     can: { undo: true, queue: true, steer: true, running: true, compact: true, fork: true, archive: true },
+
     info: () => info(),
 
     async projects() {

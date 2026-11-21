@@ -1,7 +1,7 @@
 // Connecting to the server that does the work. One form, used twice: full-window before the
 // first connection, and inside the settings dialog afterwards.
 import { For, Show, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js"
-import type { ConnectionState, ModelInfo, ModelRef } from "../shared/types"
+import type { ConnectionState, LocalAgent, ModelInfo, ModelRef } from "../shared/types"
 import { Icon } from "./icons"
 import { soundOn, toggleSound } from "./sound"
 import { act, host, message, b42, setNotice, state } from "./store"
@@ -28,6 +28,9 @@ export function connectionText(c: ConnectionState): string {
 /** What the server is called: the reviewer's name for it, or else its address. */
 export const serverLabel = (url: string) => state.serverName || host(url)
 
+/** An agent the app runs on this computer over ACP (connectAgent): its "address" is acp://<id>. */
+export const isAgent = (url: string) => url.startsWith("acp://")
+
 /** The server's name, and the field that changes it. Empty goes back to the address. */
 function ServerName(props: { url: string; version: string }) {
   const [editing, setEditing] = createSignal(false)
@@ -44,7 +47,7 @@ function ServerName(props: { url: string; version: string }) {
           <>
             <span class="server-title">{serverLabel(props.url)}</span>
             <span class="dialog-sub">
-              {state.serverName ? `${host(props.url)} · ` : ""}OpenCode {props.version}
+              {isAgent(props.url) ? `On this computer, over ACP · ${props.version}` : `${state.serverName ? `${host(props.url)} · ` : ""}OpenCode ${props.version}`}
             </span>
             <button class="text-btn" data-action="rename-server" onClick={() => setEditing(true)}>
               {state.serverName ? "Rename" : "Name it"}
@@ -123,7 +126,7 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
   // has no form to land in, so a failure goes to the notice strip.
   let gone = false
   onCleanup(() => (gone = true))
-  const known = () => ("url" in state.connection ? state.connection.url : "")
+  const known = () => ("url" in state.connection && !isAgent(state.connection.url) ? state.connection.url : "")
   const [url, setUrl] = createSignal(known())
   const [password, setPassword] = createSignal("")
   const [error, setError] = createSignal("")
@@ -132,9 +135,14 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
   const [local] = createResource(() => b42.invoke("localServer").catch(() => null))
   onMount(() => props.autofocus && !local() && first.focus())
   const here = () => state.connection.status === "online" && local()?.url === state.connection.url
-  // The servers connected to before, on other computers: one click, no password again.
+  // The ACP agents this computer can run, each said installed or not.
+  const [agents] = createResource(() => b42.invoke("localAgents").catch(() => [] as LocalAgent[]))
+  const using = (id: string) => state.connection.status === "online" && state.connection.url === `acp://${id}`
+  const [custom, setCustom] = createSignal("")
+  // The servers connected to before, on other computers, and agents run by a command typed by
+  // hand: one click, no password again. (A known agent has its own row above.)
   const [saved, { refetch: reloadSaved }] = createResource(() => b42.invoke("servers").catch(() => []))
-  const others = () => (saved() ?? []).filter((s) => !s.local && !(s.current && state.connection.status === "online"))
+  const others = () => (saved() ?? []).filter((s) => !s.local && !(s.agent && (agents() ?? []).some((a) => a.id === s.agent)) && !(s.current && state.connection.status === "online"))
   const useSaved = (id: string, label: string) => {
     if (connecting()) return
     setConnecting(true)
@@ -150,6 +158,17 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
       .invoke("forgetServer", id)
       .then(() => reloadSaved())
       .catch((err) => setError(message(err)))
+
+  const useAgent = (agent: { id: string; command?: string }, label: string) => {
+    if (connecting()) return
+    setConnecting(true)
+    setError("")
+    b42
+      .invoke("connectAgent", agent)
+      .then(() => gone || props.onDone?.())
+      .catch((err) => (gone ? setNotice(`Could not start ${label}. ${message(err)}`) : setError(message(err))))
+      .finally(() => setConnecting(false))
+  }
 
   const useLocal = () => {
     if (connecting()) return
@@ -175,8 +194,49 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
   }
   return (
     <form class="connect-form" onSubmit={submit}>
+      <section class="connect-local connect-agents">
+        <h3 class="label">Agents on this computer</h3>
+        <p class="form-help">The app runs the agent itself, over ACP, with your own login of it. It works in this computer's folders.</p>
+        <For each={agents() ?? []}>
+          {(a) => (
+            <div class="connect-local-row" data-agent={a.id}>
+              <p class="form-help connect-saved-what" title={a.installed ? a.command : a.needs}>
+                <span class="connect-saved-name">{a.name}</span>
+                <Show when={a.installed} fallback={<span>{a.needs}</span>}>
+                  <code>{a.command}</code>
+                </Show>
+              </p>
+              <button class="btn primary" type="button" data-start={a.id} disabled={connecting() || !a.installed || using(a.id)} onClick={() => useAgent({ id: a.id }, a.name)}>
+                {using(a.id) ? "Connected" : "Start"}
+              </button>
+            </div>
+          )}
+        </For>
+        <div class="connect-local-row">
+          <input
+            class="input mono"
+            type="text"
+            aria-label="Another agent's command"
+            placeholder="Another ACP agent: its command"
+            spellcheck={false}
+            autocomplete="off"
+            disabled={connecting()}
+            value={custom()}
+            onInput={(e) => setCustom(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              // Enter here starts this command; the form's own Enter is for the server address.
+              if (e.key !== "Enter") return
+              e.preventDefault()
+              if (custom().trim()) useAgent({ id: "custom", command: custom().trim() }, custom().trim())
+            }}
+          />
+          <button class="btn" type="button" disabled={connecting() || !custom().trim()} onClick={() => useAgent({ id: "custom", command: custom().trim() }, custom().trim())}>
+            Start
+          </button>
+        </div>
+      </section>
       <section class="connect-local">
-        <h3 class="label">This computer</h3>
+        <h3 class="label">OpenCode server on this computer</h3>
         <Show
           when={local()}
           fallback={
@@ -204,11 +264,11 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
           <For each={others()}>
             {(s) => (
               <div class="connect-local-row">
-                <p class="form-help connect-saved-what" title={s.url}>
+                <p class="form-help connect-saved-what" title={s.command ?? s.url}>
                   <Show when={s.name}>
                     <span class="connect-saved-name">{s.name}</span>
                   </Show>
-                  <code>{host(s.url)}</code>
+                  <code>{s.command ?? host(s.url)}</code>
                 </p>
                 <span class="connect-saved-actions">
                   <button class="text-btn" type="button" disabled={connecting()} title="Forgets this server and its password on this computer" onClick={() => forget(s.id)}>
@@ -223,7 +283,7 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
           </For>
         </section>
       </Show>
-      <h3 class="label connect-remote">Another computer</h3>
+      <h3 class="label connect-remote">OpenCode server on another computer</h3>
       <label class="form-row">
         <span class="label">Server address</span>
         <input
@@ -284,10 +344,10 @@ export function ConnectScreen() {
     <div class="connect-screen">
       <div class="connect-card">
         <SetupSteps at={1} />
-        <h1>Connect to OpenCode</h1>
+        <h1>Connect an agent</h1>
         <p class="connect-lead">
-          Your notes go to an OpenCode server next to the site's code: on this computer, or on another one. It makes
-          the changes; you keep reviewing.
+          Your notes go to a coding agent next to the site's code: one this computer runs (Claude Code, Codex, Gemini
+          CLI, OpenCode), or an OpenCode server here or on another computer. It makes the changes; you keep reviewing.
         </p>
         <ConnectForm autofocus onBusy={setFirstRunConnecting} />
       </div>

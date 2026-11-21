@@ -539,7 +539,8 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
-      send(mod(e))
+      // mod+Enter steers only where the agent can take a message into the run under way.
+      send(mod(e) && !!state.can?.steer)
     }
   }
 
@@ -670,7 +671,7 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
           >
           <button
             class="icon-btn send"
-            title={busy() ? `Send when it's free (${keys("enter")}) · ${keys("mod", "enter")} interrupts now` : `Send (${keys("enter")})`}
+            title={busy() ? `Send when it's free (${keys("enter")})${state.can?.steer ? ` · ${keys("mod", "enter")} interrupts now` : ""}` : `Send (${keys("enter")})`}
             aria-label="Send"
             disabled={!text().trim() || !!blocked()}
             onClick={() => {

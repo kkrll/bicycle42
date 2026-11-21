@@ -5,7 +5,8 @@
 //
 //   page.ts      the site under review, a native view with the overlay injected
 //   review.ts    the notes of a site and their status
-//   opencode.ts  the agent backend (sessions, queue, event stream)
+//   opencode.ts  the agent backend: an OpenCode server (sessions, queue, event stream), or
+//   acp.ts       an ACP agent this computer runs (Claude Code, Codex, Gemini CLI, …)
 //   store.ts     settings and notes on disk
 //
 // Flow of a note:  overlay → "note" → screenshot → prompt → backend queue → inbox/run events →
@@ -21,9 +22,12 @@
 // one (`attach`), and gives back what the shell passes on (`Core`: the window's commands, its
 // state, the conversation's pictures). index.ts is that shell; the tests are another
 // (test/stubs/host.ts). All of the controller's state is inside one call of createCore.
+import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 import { notePrompt, noteWords, TEMPLATES } from "../../../overlay/prompt.js"
+import { createAcp } from "./acp"
+import { commandOf, customName, KNOWN_AGENTS, localAgents, splitCommand } from "./agents"
 import { commitPrompt, parseAsk, splitTold, startPrompt, takeBackPrompt, toldLine } from "./asks"
 import type {
   AgentInfo,
@@ -127,6 +131,10 @@ export type Core = {
   dispose(): Promise<void>
 }
 
+/** The backend in use, with what the controller asks of it beyond the contract (OpenCode's
+ *  helper agents and pictures). An ACP agent also says which messages its process lost. */
+type Client = Backend & Pick<OpenCode, "mentionAgents" | "picture"> & { lost?(session: string): string[] }
+
 /** Errors meant for the person at the screen; anything else gets a generic prefix. */
 const say = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
@@ -177,7 +185,7 @@ export function createCore(host: Host): Core {
   type Site = { origin: string; review: Review }
 
   let page: Page | undefined
-  let backend: OpenCode | undefined
+  let backend: Client | undefined
   let unlisten: (() => void) | undefined
   let connection: ConnectionState = { status: "unconfigured" }
   let models: ModelInfo[] = []
@@ -219,7 +227,7 @@ export function createCore(host: Host): Core {
     const model = session?.model ?? defaultModel()
     if (!measured || !session || measured.session !== session.id) return undefined
     if (model && measured.use.providerID && measured.use.providerID !== model.providerID) return undefined
-    const limit = model && models.find((m) => m.providerID === model.providerID && m.id === model.id)?.context
+    const limit = measured.use.limit ?? (model && models.find((m) => m.providerID === model.providerID && m.id === model.id)?.context)
     return { used: measured.use.used, ...(limit ? { limit } : {}) }
   }
 
@@ -321,6 +329,7 @@ export function createCore(host: Host): Core {
       ...(modelChoice && model ? { modelChoice: { suggested: model, ...(modelChoice.previous ? { previous: modelChoice.previous } : {}) } } : {}),
       permissions: [...permissions.values()],
       questions: [...questions.values()],
+      ...(backend ? { can: { ...backend.can } } : {}),
       ...(contextShown() ? { context: contextShown() } : {}),
     }
   }
@@ -471,19 +480,21 @@ export function createCore(host: Host): Core {
   /** A site's notes are kept per server: the same address (localhost:3000) on two machines is two sites. */
   const reviewKey = (origin: string) => (store.settings().prefix ?? "") + origin
 
-  /** The saved entry for a server, made the first time it is connected to; a remote one's password is kept up to date. */
-  function remember(kind: "remote" | "local", url: string, password: string, computer?: string): SavedServer {
+  /** The saved entry for a server, made the first time it is connected to; a remote one's
+   *  password is kept up to date, an agent's command too. */
+  function remember(kind: "remote" | "local", url: string, password: string, computer?: string, agent?: { agent: string; command: string[] }): SavedServer {
     const all = store.settings().servers ?? []
-    let found = all.find((x) => (kind === "local" ? "local" in x : "url" in x && x.url === url))
+    let found = all.find((x) => (agent ? "agent" in x && x.agent === agent.agent : kind === "local" ? "local" in x : "url" in x && x.url === url))
     store.update((s) => {
       s.servers ??= []
       if (!found) {
         const id = `srv_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
         // A server saved before servers were kept: the name it had then stays with it.
         const name = !s.current && s.server?.name ? { name: s.server.name } : {}
-        found = kind === "local" ? { id, local: true, ...name } : { id, url, password: seal(password), ...name }
+        found = agent ? { id, ...agent, ...name } : kind === "local" ? { id, local: true, ...name } : { id, url, password: seal(password), ...name }
         s.servers.push(found)
       } else if ("url" in found) found.password = seal(password)
+      else if ("agent" in found && agent) found.command = agent.command
       if (computer) found.computer = computer
     })
     return found!
@@ -531,18 +542,55 @@ export function createCore(host: Host): Core {
   async function connect(url: string, password: string, opts: { save?: "remote" | "local" }) {
     const next = createOpenCode({ url, password, log, pictures: chatPictures.name })
     const info = await next.info()
+    await use(next, url, info.version, () => {
+      // A local server is saved as "the one on this computer", not by address: its port and
+      // password are OpenCode's to change, and are read again from its own file each time.
+      // A name stays with its server: connecting to the same one again keeps it, another drops it.
+      // It is also kept among the servers connected to, with the name it was given there.
+      const kind = opts.save ?? (store.settings().server && "local" in store.settings().server! ? "local" : "remote")
+      const kept = remember(kind, url, password, info.computer)
+      const name = kept.name ? { name: kept.name } : {}
+      if (opts.save === "remote") store.update((s) => void (s.server = { url, password: seal(password), ...name }))
+      if (opts.save === "local") store.update((s) => void (s.server = { local: true, ...name }))
+      return kept
+    })
+  }
+
+  /** Runs an ACP agent on this computer (a known one by its id, or any `command`) and uses it as
+   *  the server. Rejects, leaving things as they were, when it can't be started. */
+  async function connectAgent(id: string, command?: string[]) {
+    const known = KNOWN_AGENTS.find((a) => a.id === id)
+    const line = command?.length ? command : await commandOf(id)
+    if (!line) throw new Error(known ? `${known.name} is not installed on this computer. ${known.install}.` : "Type the command that starts the agent.")
+    // A custom command is told apart by the command itself: two are two agents.
+    const agent = known ? id : `custom-${crypto.createHash("sha1").update(line.join("\0")).digest("hex").slice(0, 8)}`
+    const name = known?.name ?? customName(line)
+    const next = createAcp({
+      id: agent,
+      name,
+      command: line,
+      stateDir: path.join(host.dataDir, "agents"),
+      log,
+      pictures: chatPictures.name,
+      // The app sends each message itself here: its turn's "before" is taken before it goes.
+      beforeTurn: (id) => turnsOpen.get(id)?.before,
+    })
+    const info = await next.info()
+    const url = `acp://${agent}`
+    await use(next, url, info.version, () => {
+      const kept = remember("local", url, "", info.computer, { agent, command: line })
+      store.update((s) => void (s.server = { agent, command: line, ...(kept.name ? { name: kept.name } : {}) }))
+      return kept
+    })
+  }
+
+  /** Makes `next` the backend: what belonged to the one before goes, the server is remembered
+   *  (`save`) and its own repo, pages and conversations come back. */
+  async function use(next: Client, url: string, version: string, save: () => SavedServer) {
     drop()
     backend = next
-    connection = { status: "online", url, version: info.version }
-    // A local server is saved as "the one on this computer", not by address: its port and
-    // password are OpenCode's to change, and are read again from its own file each time.
-    // A name stays with its server: connecting to the same one again keeps it, another drops it.
-    // It is also kept among the servers connected to, with the name it was given there.
-    const kind = opts.save ?? (store.settings().server && "local" in store.settings().server! ? "local" : "remote")
-    const kept = remember(kind, url, password, info.computer)
-    const name = kept.name ? { name: kept.name } : {}
-    if (opts.save === "remote") store.update((s) => void (s.server = { url, password: seal(password), ...name }))
-    if (opts.save === "local") store.update((s) => void (s.server = { local: true, ...name }))
+    connection = { status: "online", url, version }
+    const kept = save()
     enter(kept.id)
     unlisten = next.listen(onBackend)
     push()
@@ -563,6 +611,7 @@ export function createCore(host: Host): Core {
     const saved = store.settings().server
     if (!saved) return
     clearTimeout(retryTimer)
+    if ("agent" in saved) return reconnectAgent(saved)
     const local = "local" in saved
     const found = local ? readLocal() : undefined
     const url = local ? (found?.url ?? LOCAL_NAME) : saved.url
@@ -584,6 +633,23 @@ export function createCore(host: Host): Core {
       push()
       // The machine may simply not be up yet. Once connected, the event stream reconnects by
       // itself; before the first success this timer is the only thing that tries again.
+      retryTimer = setTimeout(() => void reconnectSaved(), retryDelay)
+      retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS)
+    }
+  }
+  /** The saved agent, started again; tried again later while it cannot start (like a server
+   *  that is not up yet). */
+  async function reconnectAgent(saved: { agent: string; command: string[] }) {
+    const url = `acp://${saved.agent}`
+    if (connection.status !== "offline") connection = { status: "connecting", url }
+    push()
+    try {
+      await connectAgent(saved.agent, saved.command)
+      retryDelay = RETRY_FIRST_MS
+    } catch (err) {
+      if (backend || !store.settings().server) return
+      connection = { status: "offline", url, error: say(err) }
+      push()
       retryTimer = setTimeout(() => void reconnectSaved(), retryDelay)
       retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS)
     }
@@ -720,8 +786,8 @@ export function createCore(host: Host): Core {
 
   /** Whether `directory` is a folder on the server. Only a clear no counts: when the server
    *  can't be asked, the folder is taken to be there, as before. */
-  const folders = new WeakMap<OpenCode, Set<string>>()
-  async function folderExists(b: OpenCode, directory: string): Promise<boolean> {
+  const folders = new WeakMap<Client, Set<string>>()
+  async function folderExists(b: Client, directory: string): Promise<boolean> {
     const seen = folders.get(b) ?? folders.set(b, new Set()).get(b)!
     if (seen.has(directory) || directory === "/") return true
     try {
@@ -735,7 +801,7 @@ export function createCore(host: Host): Core {
   }
 
   /** What a saved server is called: the reviewer's name, its computer's own, or its address. */
-  const serverCalled = (x: SavedServer) => x.name ?? x.computer ?? ("url" in x ? x.url.replace(/^https?:\/\//, "") : "this computer")
+  const serverCalled = (x: SavedServer) => x.name ?? x.computer ?? ("url" in x ? x.url.replace(/^https?:\/\//, "") : "agent" in x ? x.agent : "this computer")
 
   /** The site's conversations as the list shows them: the ones not put away, the pinned first,
    *  each with the count and the words of the notes it was sent (the background conversation's
@@ -878,7 +944,11 @@ export function createCore(host: Host): Core {
       try {
         const info = await b.session(id)
         if (info === null) touched = s.review.gone(id) || touched
-        else if (!info.busy) touched = s.review.settled(id, await b.waiting(id)) || touched
+        else if (!info.busy) {
+          // What an agent's process lost when it ended (an ACP agent the app ran): stopped, with Retry.
+          for (const message of b.lost?.(id) ?? []) touched = s.review.inbox(id, message, "cancelled") || touched
+          touched = s.review.settled(id, await b.waiting(id)) || touched
+        }
       } catch (err) {
         // Unreachable right now: leave the notes as they are; the next reconnect asks again.
         log("warn", "can't check a conversation's notes", say(err))
@@ -1010,7 +1080,29 @@ export function createCore(host: Host): Core {
       case "question-done":
         if (questions.delete(e.id)) push()
         return
+      case "agent":
+        return void offered()
     }
+  }
+
+  /** What the agent offers changed (an ACP agent says its models, modes and commands per
+   *  conversation): read again, and the "/" list asked anew. The model is asked for once, when
+   *  the first list arrives after connecting. */
+  async function offered() {
+    const b = backend
+    if (!b) return
+    lookups.delete(b)
+    try {
+      const [m, a] = await Promise.all([b.models(), b.agents()])
+      if (backend !== b) return
+      const first = !models.length && m.length > 0
+      models = m
+      agents = a
+      if (first) settleDefaultModel()
+    } catch (err) {
+      log("warn", "can't list models", say(err))
+    }
+    push()
   }
 
   // ── what is left running ────────────────────────────────────────────────────────────────────────
@@ -1038,6 +1130,8 @@ export function createCore(host: Host): Core {
     const b = backend
     clearTimeout(runningTimer)
     if (!b) return
+    // An ACP agent can't say what its shell runs: nothing is listed, and nothing asked again.
+    if (!b.can.running) return void (running.length && ((running = []), push()))
     const here = site && siteSettings(site.origin)?.directory
     try {
       const where = everywhere ? [...new Set([...(here ? [here] : []), ...(await Promise.resolve(commands.projects()).catch(() => [] as string[]))])] : here ? [here] : []
@@ -1058,7 +1152,7 @@ export function createCore(host: Host): Core {
   /** The app and the server are on one computer, so an address on localhost opens here too. */
   function sameComputer() {
     const saved = store.settings().server
-    if (saved && "local" in saved) return true
+    if (saved && ("local" in saved || "agent" in saved)) return true
     try {
       return /^(localhost|127(\.\d+){3}|\[::1\]|::1)$/.test(new URL("url" in connection ? connection.url : "").hostname)
     } catch {
@@ -1661,7 +1755,7 @@ export function createCore(host: Host): Core {
   }
 
   /** Whether a conversation is running: what the stream said, or the server when it said nothing. */
-  async function isBusy(b: OpenCode, id: string): Promise<boolean> {
+  async function isBusy(b: Client, id: string): Promise<boolean> {
     const known = busy.get(id)
     if (known !== undefined) return known
     const epoch = busyEpoch
@@ -1809,6 +1903,9 @@ export function createCore(host: Host): Core {
     { name: "fork", description: "Go on in a copy of this conversation", builtin: true },
     { name: "checkpoint", description: "Mark this point to come back to: /checkpoint name", builtin: true },
   ]
+
+  /** A built-in the backend can't do is not offered: an agent's own command of that name is. */
+  const allowed = (b: Backend, name: string) => (name === "compact" ? !!b.can.compact : name === "fork" ? !!b.can.fork : true)
 
   /** What "/undo yes" is: the word that confirms. */
   const UNDO_CONFIRM = "yes"
@@ -1977,8 +2074,8 @@ export function createCore(host: Host): Core {
 
   /** Per connection, so a new server (or the same one reconnected) is asked again. Failed reads
    *  are not kept. */
-  const lookups = new WeakMap<OpenCode, Map<string, Promise<unknown>>>()
-  function cached<T>(b: OpenCode, key: string, read: () => Promise<T>): Promise<T> {
+  const lookups = new WeakMap<Client, Map<string, Promise<unknown>>>()
+  function cached<T>(b: Client, key: string, read: () => Promise<T>): Promise<T> {
     let map = lookups.get(b)
     if (!map) lookups.set(b, (map = new Map()))
     let hit = map.get(key) as Promise<T> | undefined
@@ -2240,17 +2337,34 @@ export function createCore(host: Host): Core {
       if (!found) throw new Error(NO_LOCAL)
       await connect(found.url, found.password, { save: "local" })
     },
+    localAgents: () => localAgents(),
+    async connectAgent(input) {
+      const id = typeof input?.id === "string" ? input.id : ""
+      if (typeof input?.command === "string" && input.command.trim()) return connectAgent(id || "custom", splitCommand(input.command.trim()))
+      if (!KNOWN_AGENTS.some((a) => a.id === id)) throw new Error("Type the command that starts the agent.")
+      await connectAgent(id)
+    },
     servers() {
       const s = store.settings()
       const here = readLocal()?.url ?? ""
       return (s.servers ?? [])
-        .map((x): ServerInfo => ({ id: x.id, ...((x.name ?? x.computer) ? { name: x.name ?? x.computer } : {}), url: "local" in x ? here : x.url, local: "local" in x, current: !!s.server && x.id === s.current }))
+        .map(
+          (x): ServerInfo => ({
+            id: x.id,
+            ...((x.name ?? x.computer) ? { name: x.name ?? x.computer } : {}),
+            url: "local" in x ? here : "agent" in x ? `acp://${x.agent}` : x.url,
+            local: "local" in x,
+            current: !!s.server && x.id === s.current,
+            ...("agent" in x ? { agent: x.agent, command: x.command.join(" ") } : {}),
+          }),
+        )
         .sort((a, b) => Number(b.current) - Number(a.current))
     },
     async useServer(id) {
       const saved = store.settings().servers?.find((x) => x.id === id)
       if (!saved) throw new Error("That server is no longer saved.")
       if ("local" in saved) return void (await commands.connectLocal())
+      if ("agent" in saved) return void (await connectAgent(saved.agent, saved.command))
       const password = unseal(saved.password)
       if (password === undefined) throw new Error("Its saved password can't be read. Enter the address and password again.")
       await connect(saved.url, password, { save: "remote" })
@@ -2357,6 +2471,7 @@ export function createCore(host: Host): Core {
     },
     async stopRunning(directory, id) {
       const b = need()
+      if (!b.can.running) throw new Error("This agent can't stop what it left running: it ends when the agent does.")
       const which = runningShown().filter((r) => (directory === undefined || r.directory === directory) && (id === undefined || r.id === id))
       const failed: string[] = []
       await Promise.all(which.map((r) => b.kill(r.directory, r.id).catch((err) => void failed.push(say(err)))))
@@ -2371,7 +2486,7 @@ export function createCore(host: Host): Core {
       starting = true
       push()
       try {
-        await startsRun(current.id, () => telling(current.id, startPrompt(p?.error ? p.url : "", !sameComputer()), (text) => b.prompt(current.id, { text })))
+        await startsRun(current.id, () => telling(current.id, startPrompt(p?.error ? p.url : "", !sameComputer(), !!b.can.running), (text) => b.prompt(current.id, { text })))
       } catch (err) {
         siteAsked = undefined
         starting = false
@@ -2399,13 +2514,14 @@ export function createCore(host: Host): Core {
         log("warn", "can't list the server's commands", say(err))
         return [] as SlashCommand[]
       })
-      return [...BUILTINS, ...theirs.filter((c) => !(c.name in builtins))]
+      const ours = BUILTINS.filter((c) => allowed(b, c.name))
+      return [...ours, ...theirs.filter((c) => !ours.some((x) => x.name === c.name))]
     },
     async runCommand(name, args, images, options) {
       const b = need()
       const current = needSession()
       if (typeof name !== "string" || !name.trim()) throw new Error("Which command? Type its name after the slash.")
-      const builtin = builtins[name.trim()]
+      const builtin = allowed(b, name.trim()) ? builtins[name.trim()] : undefined
       if (builtin) return builtin(b, current, typeof args === "string" ? args.trim() : "", options)
       const files = pictures(images)
       await startsRun(current.id, () =>
@@ -2492,7 +2608,7 @@ export function createCore(host: Host): Core {
     },
     async archivedSessions() {
       const directory = site && siteSettings(site.origin)?.directory
-      return directory ? await need().sessions(directory, true) : []
+      return directory && need().can.archive ? await need().sessions(directory, true) : []
     },
     async renameSession(id, title) {
       if (typeof id !== "string" || !id || typeof title !== "string") return
@@ -2510,6 +2626,7 @@ export function createCore(host: Host): Core {
     },
     async archiveSession(id, archived) {
       if (typeof id !== "string" || !id) return
+      if (!need().can.archive) throw new Error("This agent can't put a conversation away.")
       await need().archive(id, !!archived)
       if (!archived) return void (await refreshSessions())
       unpin(id)
