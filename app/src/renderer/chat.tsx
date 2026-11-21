@@ -1027,7 +1027,8 @@ function CheckpointLine(props: { id: string; name: string }) {
           </>
         }
       >
-        <span>Everything after it goes.</span>
+        {/* What goes depends on the agent: one that can cut the conversation takes it back too. */}
+        <span>{state.can?.undo ? "Everything after it goes, files too." : "The agent's file changes since go back; the conversation stays."}</span>
         <button class="text-btn danger" disabled={busy()} onClick={back}>
           Return
         </button>
