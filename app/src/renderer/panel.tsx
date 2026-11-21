@@ -4,7 +4,7 @@
 import { For, Match, Show, Switch, createEffect, createMemo, createResource, createSelector, createSignal, on, onCleanup } from "solid-js"
 import type { NoteRow } from "../shared/types"
 import { Chat } from "./chat"
-import { AgentSwitch, MiddlePath, harnessNow, homePath, whereOf } from "./agents"
+import { AgentSwitch, MiddlePath, harnessNow, homePath, ownHome, whereOf } from "./agents"
 import { SetupSteps, serverLabel, setSettingsAt } from "./connect"
 import { AgentMark, Icon } from "./icons"
 import { NoteView } from "./note-detail"
@@ -20,6 +20,7 @@ import {
   openedNote,
   setOpenedNote,
   offline,
+  awayHost,
   b42,
   recall,
   remember,
@@ -348,6 +349,18 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
                             {noteWord(note)}
                           </span>
                         </Show>
+                        {/* The agent's computer out of reach: what the note waits on. */}
+                        <Show when={!note.takenBack && (shown() === "queued" || shown() === "working") && awayHost()}>
+                          {(where) => (
+                            <span
+                              class="note-status"
+                              data-status={shown()}
+                              title={shown() === "queued" ? `Goes to the agent once ${where()} can be reached again` : `The agent works on it on ${where()}; what it says shows once ${where()} can be reached again`}
+                            >
+                              {shown() === "queued" ? `waits for ${where()}` : `on ${where()}`}
+                            </span>
+                          )}
+                        </Show>
                       </button>
                       {/* A failed note's two ways out sit in its own row, not behind a hover. */}
                       <Show when={note.status === "failed"}>
@@ -453,6 +466,8 @@ export function RepoScreen() {
 export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void; open?: (directory: string) => Promise<unknown>; browse?: boolean }) {
   const h = () => harnessNow()
   const here = () => !!h()?.here
+  /** Where the agent works, in words: "this computer", the other computer it runs on, or the server. */
+  const on = () => (here() ? "on this computer" : h()?.host && h()?.kind !== "opencode-server" ? `on ${h()!.host}` : `on ${h()?.name ?? "your server"}`)
   /** The agent's own folders first; on this computer, then those another agent or server here
    *  worked in, which are this computer's folders too. */
   const [recent, { refetch: reloadRecent }] = createResource(async () => {
@@ -464,7 +479,7 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
   // Reading a failed resource throws; the error has its own branch below.
   const recentList = () => (recent.error ? undefined : recent())
   /** Where browsing starts with no project to start beside: the home folder, on this computer. */
-  const start = () => (here() && state.home ? state.home : "/")
+  const start = () => (ownHome(h()) && state.home ? state.home : "/")
   // Browsing starts beside the most recent project: that is where the next one usually is.
   const [path, setPath] = createSignal<string | null>(props.browse ? parent(state.site?.directory ?? start()) : null)
   const [folders, { refetch: reloadFolders }] = createResource(path, (p) => b42.invoke("listFolders", p))
@@ -498,7 +513,9 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
             {(a) => (
               <>
                 <AgentMark kind={a().kind} size={20} />
-                <span>Where should {a().name} work?</span>
+                <span>
+                  Where should {a().name} work{a().host && a().kind !== "opencode-server" ? ` on ${a().host}` : ""}?
+                </span>
               </>
             )}
           </Show>
@@ -506,14 +523,14 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
         <p class="folder-lead">
           <Show when={!props.open && state.missingFolder}>
             <span class="folder-missing">
-              <code>{state.missingFolder}</code> is not a folder on {here() ? "this computer" : "this server"}: it was moved, or it is another computer's.{" "}
+              <code>{state.missingFolder}</code> is not a folder {here() ? "on this computer" : h()?.host && h()?.kind !== "opencode-server" ? on() : "on this server"}: it was moved, or it is another computer's.{" "}
             </span>
           </Show>
           <Show
             when={!props.open && state.site?.origin}
-            fallback={<>Pick the folder {here() ? "on this computer" : `on ${h()?.name ?? "your server"}`} that holds the site's code.</>}
+            fallback={<>Pick the folder {on()} that holds the site's code.</>}
           >
-            Pick the folder {here() ? "on this computer" : `on ${h()?.name ?? "your server"}`} that holds the code of <strong>{host(state.site?.origin ?? "")}</strong>.
+            Pick the folder {on()} that holds the code of <strong>{host(state.site?.origin ?? "")}</strong>.
           </Show>
         </p>
       </div>
@@ -550,7 +567,7 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
                           <span class="row-main">{tail(dir)}</span>
                           {/* Long paths lose their start, not the folder's own name. */}
                           <span class="row-sub" title={dir}>
-                            <bdi>{homePath(dir, here())}</bdi>
+                            <bdi>{homePath(dir, ownHome(h()))}</bdi>
                           </span>
                         </button>
                       </li>
@@ -648,7 +665,13 @@ function ConnectionBanner(props: { openSettings: () => void }) {
             <Icon name="alert" />
             <div class="banner-body">
               <p>
-                Can't reach {serverLabel(c().url)}. {c().error} Notes wait until it is back.
+                <Show when={c().away && harnessNow()} fallback={<>Can't reach {serverLabel(c().url)}. {c().error} Notes wait until it is back.</>}>
+                  {(a) => (
+                    <>
+                      {c().error} {a().name} keeps working on {a().host ?? "it"}, and the app connects again by itself. Notes wait until it is back.
+                    </>
+                  )}
+                </Show>
               </p>
               <div class="banner-actions">
                 {/* The window never holds the password: main tries again with the one it saved. */}
@@ -739,6 +762,8 @@ function Place(props: { openSettings: () => void }) {
           <span class="dot" data-status={status()} />
         </span>
         <span class="place-agent-name">{h()?.name}</span>
+        {/* An agent the app runs on another computer: which one. */}
+        <Show when={h()?.host && h()?.kind !== "opencode-server" && h()?.host}>{(where) => <span class="place-host">{where()}</span>}</Show>
         <Show when={word()}>
           <span class="place-word" data-status={status()}>
             {word()}
@@ -758,7 +783,7 @@ function Place(props: { openSettings: () => void }) {
             disabled={state.connection.status !== "online"}
             onClick={() => setSwitcherOpen("projects")}
           >
-            <MiddlePath class="place-folder-name" path={homePath(dir(), h()?.here)} />
+            <MiddlePath class="place-folder-name" path={homePath(dir(), ownHome(h()))} />
             <Icon name="down" />
           </button>
         )}

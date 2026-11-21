@@ -895,12 +895,30 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     async connectAgent(agent) {
       await new Promise((r) => setTimeout(r, 600))
       const known = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", opencode: "OpenCode" }[agent.id]
+      const id = known ? agent.id : "custom-1a2b3c4d"
       Object.assign(state, base(), {
-        connection: { status: "online", url: `acp://${known ? agent.id : "custom-1a2b3c4d"}`, version: "0.109.1" },
-        harness: { kind: known ? agent.id : "custom", name: known ?? agent.command?.split(" ")[0]?.split("/").pop() ?? "agent", here: true },
+        connection: { status: "online", url: agent.host ? `acp://${id}@${encodeURIComponent(agent.host)}` : `acp://${id}`, version: "0.109.1" },
+        harness: { kind: known ? agent.id : "custom", name: known ?? agent.command?.split(" ")[0]?.split("/").pop() ?? "agent", here: !agent.host, ...(agent.host ? { host: agent.host } : {}) },
+        ...(agent.host ? { home: "/home/dev" } : {}),
         can: { queue: true, steer: true, fork: true },
       })
       push()
+    },
+    // Another computer over ssh: "dev-box" answers, with Claude Code ready and Codex not installed; any other name is not known.
+    async connectSsh(host) {
+      await new Promise((r) => setTimeout(r, 700))
+      if (!/dev-box$/.test(host)) throw new Error(`There is no computer called ${host} that this one can find. Check the name, or the Host in your ~/.ssh/config.`)
+      return {
+        host,
+        computer: "dev-box",
+        home: "/home/dev",
+        agents: [
+          { id: "claude", name: "Claude Code", command: "claude-agent-acp", installed: true },
+          { id: "codex", name: "Codex", command: "npx -y @agentclientprotocol/codex-acp", installed: false, needs: "Install Codex and sign in: npm install -g @openai/codex, then codex login", install: "npm install -g @openai/codex" },
+          { id: "gemini", name: "Gemini CLI", command: "gemini --experimental-acp", installed: false, needs: "Install Gemini CLI and sign in: npm install -g @google/gemini-cli, then gemini", install: "npm install -g @google/gemini-cli" },
+          { id: "opencode", name: "OpenCode", command: "opencode acp", installed: true },
+        ],
+      }
     },
     // `&returning`: no agent is known any more but these were connected to before.
     servers: () => {

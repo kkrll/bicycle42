@@ -6,7 +6,8 @@
 //   page.ts      the site under review, a native view with the overlay injected
 //   review.ts    the notes of a site and their status
 //   opencode.ts  the agent backend: an OpenCode server (sessions, queue, event stream), or
-//   acp.ts       an ACP agent this computer runs (Claude Code, Codex, Gemini CLI, …)
+//   acp.ts       an ACP agent the app runs (Claude Code, Codex, Gemini CLI, …), on this
+//                computer or on another one over ssh (ssh.ts: its Machine, machine.ts)
 //   store.ts     settings and notes on disk
 //
 // Flow of a note:  overlay → "note" → screenshot → prompt → backend queue → inbox/run events →
@@ -23,7 +24,6 @@
 // state, the conversation's pictures). index.ts is that shell; the tests are another
 // (test/stubs/host.ts). All of the controller's state is inside one call of createCore.
 import crypto from "node:crypto"
-import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { notePrompt, noteWords, TEMPLATES } from "../../../overlay/prompt.js"
@@ -79,6 +79,7 @@ import { createOutbox, type Outgoing } from "./outbox"
 import { createShots } from "./shots"
 import { createPictures } from "./pictures"
 import { thisMachine, type Machine } from "./machine"
+import { checkHost, connectSsh, type RemoteMachine } from "./ssh"
 import { createSnapshots, EMPTY_TREE, Refused, type Restore, type Snapshots, type Turn } from "./snapshots"
 import { createStore, type SavedServer, type Settings } from "./store"
 
@@ -143,6 +144,7 @@ const say = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
 export function createCore(host: Host): Core {
   const { log } = host
+  const host_ = host
   const store = createStore(host.dataDir, { log })
   const noteShots = createShots(host.dataDir, log)
   /** What each unfinished note sends, on disk: a note waiting its turn, or one to retry, outlives a restart. */
@@ -159,6 +161,43 @@ export function createCore(host: Host): Core {
     return made
   }
   let snapshots = snapshotsOf(machine)
+  /** Other computers connected to over ssh, by host as typed: one connection (and one helper
+   *  there) each, whichever of its agents is in use. */
+  const remotes = new Map<string, Promise<RemoteMachine>>()
+  function remoteOf(host: string): Promise<RemoteMachine> {
+    let m = remotes.get(host)
+    if (!m) {
+      m = connectSsh({ host, dataDir: host_.dataDir, log })
+      remotes.set(host, m)
+      // Not connected: the next try starts over.
+      m.catch(() => remotes.delete(host))
+    }
+    return m
+  }
+  /** Lets go of another computer no agent in use is on: its connection and forwards end. */
+  function letGo(m: Machine) {
+    if (m.local || m === machine) return
+    for (const [h, p] of remotes) void p.then((r) => r === m && (remotes.delete(h), void r.close()), () => undefined)
+  }
+  /** The address an agent on another computer said its site is at, opened here: a port on its
+   *  localhost is forwarded over the ssh connection (the same number here when it is free). */
+  async function hereFor(address: string): Promise<string> {
+    const m = machine
+    if (m.local || !("forward" in m)) return address
+    try {
+      const u = new URL(address)
+      if (!/^(localhost|127(\.\d+){3}|0\.0\.0\.0|\[::1\]|::1)$/.test(u.hostname)) return address
+      const port = Number(u.port || (u.protocol === "https:" ? 443 : 80))
+      const there = u.hostname === "0.0.0.0" ? "127.0.0.1" : u.hostname.replace(/^\[|\]$/g, "")
+      const local = await (m as RemoteMachine).forward(port, there)
+      u.hostname = "localhost"
+      u.port = String(local)
+      return u.toString().replace(/\/$/, address.endsWith("/") ? "/" : "")
+    } catch (err) {
+      log("warn", "can't forward the site's port", say(err))
+      return address
+    }
+  }
 
   /** The conversation's pictures, served to the window by address (pictures.ts). A note's own
    *  first picture is on disk already; anything else comes from what the server sent, or from the
@@ -506,9 +545,9 @@ export function createCore(host: Host): Core {
 
   /** The saved entry for a server, made the first time it is connected to; a remote one's
    *  password is kept up to date, an agent's command too. */
-  function remember(kind: "remote" | "local", url: string, password: string, computer?: string, agent?: { agent: string; command: string[] }): SavedServer {
+  function remember(kind: "remote" | "local", url: string, password: string, computer?: string, agent?: { agent: string; command: string[]; host?: string }): SavedServer {
     const all = store.settings().servers ?? []
-    let found = all.find((x) => (agent ? "agent" in x && x.agent === agent.agent : kind === "local" ? "local" in x : "url" in x && x.url === url))
+    let found = all.find((x) => (agent ? "agent" in x && x.agent === agent.agent && x.host === agent.host : kind === "local" ? "local" in x : "url" in x && x.url === url))
     store.update((s) => {
       s.servers ??= []
       if (!found) {
@@ -583,23 +622,27 @@ export function createCore(host: Host): Core {
 
   /** Runs an ACP agent on this computer (a known one by its id, or any `command`) and uses it as
    *  the server. Rejects, leaving things as they were, when it can't be started. */
-  async function connectAgent(id: string, command?: string[]) {
+  async function connectAgent(id: string, command?: string[], where?: string) {
     const known = KNOWN_AGENTS.find((a) => a.id === id)
-    const line = command?.length ? command : await commandOf(id)
-    if (!line) throw new Error(known ? `${known.name} is not installed on this computer. ${known.install}.` : "Type the command that starts the agent.")
+    // On another computer: its connection first (made once, kept while one of its agents is in use).
+    const m: Machine = where ? await remoteOf(where) : thisMachine()
+    const line = command?.length ? command : await commandOf(id, m)
+    if (!line) throw new Error(known ? `${known.name} is not installed on ${m.where}. ${known.install}.` : "Type the command that starts the agent.")
     // A custom command is told apart by the command itself: two are two agents.
     const agent = known ? id : `custom-${crypto.createHash("sha1").update(line.join("\0")).digest("hex").slice(0, 8)}`
     const name = known?.name ?? customName(line)
-    const url = `acp://${agent}`
+    const url = acpUrl(agent, where)
     // The same agent again (Retry, or its command changed): the one in use lets go of the agent's
     // ledger first, saying what it loses, so the new one reads that and is its only writer.
     const saved = store.settings().server
-    const same = !!backend && !!saved && "agent" in saved && saved.agent === agent
+    const same = !!backend && !!saved && "agent" in saved && saved.agent === agent && saved.host === where
     if (same) drop()
     const options: AcpOptions = {
-      id: agent,
+      // One ledger per agent and computer.
+      id: where ? `${agent}@${where}` : agent,
       name,
       command: line,
+      machine: m,
       stateDir: path.join(host.dataDir, "agents"),
       log,
       pictures: chatPictures.name,
@@ -621,17 +664,30 @@ export function createCore(host: Host): Core {
       throw err
     }
     serverComputer = undefined
-    await use(next, url, info.version, () => {
-      const kept = remember("local", url, "", info.computer, { agent, command: line })
-      store.update((s) => void (s.server = { agent, command: line, ...(kept.name ? { name: kept.name } : {}) }))
-      return kept
-    })
+    await use(
+      next,
+      url,
+      info.version,
+      () => {
+        const kept = remember("local", url, "", info.computer, { agent, command: line, ...(where ? { host: where } : {}) })
+        store.update((s) => void (s.server = { agent, command: line, ...(where ? { host: where } : {}), ...(kept.name ? { name: kept.name } : {}) }))
+        return kept
+      },
+      m,
+    )
   }
+
+  /** An agent's address: acp://claude, or acp://claude@dev-box for one on another computer. */
+  const acpUrl = (agent: string, where?: string) => (where ? `acp://${agent}@${encodeURIComponent(where)}` : `acp://${agent}`)
 
   /** Makes `next` the backend: what belonged to the one before goes, the server is remembered
    *  (`save`) and its own repo, pages and conversations come back. */
-  async function use(next: Client, url: string, version: string, save: () => SavedServer) {
+  async function use(next: Client, url: string, version: string, save: () => SavedServer, on: Machine = thisMachine()) {
     drop()
+    const was = machine
+    machine = on
+    snapshots = snapshotsOf(on)
+    letGo(was)
     backend = next
     connection = { status: "online", url, version }
     const kept = save()
@@ -647,6 +703,16 @@ export function createCore(host: Host): Core {
     agents = a
     settleDefaultModel()
     push()
+    // An agent on another computer: the sites it serves on its localhost are forwarded here
+    // before one opens (after a restart the forwards are gone), and a page that failed for want
+    // of one loads again.
+    if (!on.local) {
+      const addresses = [store.settings().lastUrl ?? "", ...Object.keys(store.settings().sites).map(addressOf)].filter(Boolean)
+      await Promise.all([...new Set(addresses.map((a) => originOf(a)).filter(Boolean))].slice(0, 10).map((o) => hereFor(o!)))
+      if (backend !== next) return
+      const p = page?.state()
+      if (p?.error && p.url) page?.reload()
+    }
     await openSite()
     void refreshRunning(true)
   }
@@ -683,12 +749,12 @@ export function createCore(host: Host): Core {
   }
   /** The saved agent, started again; tried again later while it cannot start (like a server
    *  that is not up yet). */
-  async function reconnectAgent(saved: { agent: string; command: string[] }) {
-    const url = `acp://${saved.agent}`
+  async function reconnectAgent(saved: { agent: string; command: string[]; host?: string }) {
+    const url = acpUrl(saved.agent, saved.host)
     if (connection.status !== "offline") connection = { status: "connecting", url }
     push()
     try {
-      await connectAgent(saved.agent, saved.command)
+      await connectAgent(saved.agent, saved.command, saved.host)
       retryDelay = RETRY_FIRST_MS
     } catch (err) {
       if (backend || !store.settings().server) return
@@ -852,7 +918,7 @@ export function createCore(host: Host): Core {
   function describe(x: NonNullable<Settings["server"]> & { computer?: string }): Harness {
     if ("agent" in x) {
       const known = KNOWN_AGENTS.find((a) => a.id === x.agent)
-      return { kind: known ? (known.id as Harness["kind"]) : "custom", name: x.name ?? known?.name ?? x.computer ?? customName(x.command), here: true }
+      return { kind: known ? (known.id as Harness["kind"]) : "custom", name: x.name ?? known?.name ?? x.computer ?? customName(x.command), here: !x.host, ...(x.host ? { host: x.host } : {}) }
     }
     if ("local" in x) return { kind: "opencode-server", name: x.name ?? "OpenCode server", here: true }
     const host = x.url.replace(/^https?:\/\//, "").replace(/\/+$/, "")
@@ -1041,10 +1107,19 @@ export function createCore(host: Host): Core {
 
   function onBackend(e: BackendEvent) {
     switch (e.type) {
-      case "connection":
+      case "connection": {
+        // The agent's computer out of reach, or back, with the agent at work there all along:
+        // nothing was missed (what it said meanwhile comes now), so nothing is forgotten, and
+        // the notes that waited go.
+        const away = (e.state.status === "offline" && !!e.state.away) || (e.state.status === "online" && connection.status === "offline" && !!connection.away)
+        connection = e.state
+        if (away) {
+          if (connection.status === "online") for (const s of sites.values()) pumpSite(s)
+          if (site) page?.send({ type: "pins", pins: pinsOf(site.review) })
+          return push()
+        }
         // The first "online" came from connect(); later ones follow a dropped stream, which may
         // have missed runs starting and ending.
-        connection = e.state
         forgetBusy()
         forgetTurns()
         // Whether what was on its way got there may have been missed: it is said again next time.
@@ -1052,6 +1127,7 @@ export function createCore(host: Host): Core {
         // Pins follow the connection too: working ones read as paused while it is down.
         if (site) page?.send({ type: "pins", pins: pinsOf(site.review) })
         return push()
+      }
       case "resync":
         forgetBusy(e.session)
         forgetTurns(e.session)
@@ -1217,6 +1293,7 @@ export function createCore(host: Host): Core {
   /** The app and the server are on one computer, so an address on localhost opens here too. */
   function sameComputer() {
     const saved = store.settings().server
+    if (saved && "agent" in saved && saved.host) return false
     if (saved && ("local" in saved || "agent" in saved)) return true
     try {
       return /^(localhost|127(\.\d+){3}|\[::1\]|::1)$/.test(new URL("url" in connection ? connection.url : "").hostname)
@@ -1259,8 +1336,11 @@ export function createCore(host: Host): Core {
       const said = last?.kind === "assistant" ? last.parts.map((p) => (p.kind === "text" ? p.text : "")).join("\n") : ""
       const url = [...said.matchAll(SITE_LINE)].pop()?.[1]
       if (!url || !originOf(url) || backend !== b || siteAsked !== id || works()) return
+      // An agent on another computer: its localhost is forwarded here first.
+      const here = await hereFor(url)
+      if (backend !== b || siteAsked !== id || works()) return
       siteAsked = undefined
-      page?.load(url)
+      page?.load(here)
     } catch (err) {
       log("warn", "can't read where the agent started the site", say(err))
     }
@@ -1688,7 +1768,8 @@ export function createCore(host: Host): Core {
    *  whatever the last word from it was: those pins show as paused, like their rows. */
   function pinsOf(review: Review) {
     const pins = review.pins()
-    return connection.status === "offline" ? pins.map((p) => (p.status === "working" ? { ...p, status: "paused" as const } : p)) : pins
+    // (An agent on another computer out of reach works on there: its notes stay working.)
+    return connection.status === "offline" && !connection.away ? pins.map((p) => (p.status === "working" ? { ...p, status: "paused" as const } : p)) : pins
   }
 
   /** What the note card offers after "/": names and one-line hints. The prompts stay in main. */
@@ -2545,9 +2626,22 @@ export function createCore(host: Host): Core {
     localAgents: () => localAgents(),
     async connectAgent(input) {
       const id = typeof input?.id === "string" ? input.id : ""
-      if (typeof input?.command === "string" && input.command.trim()) return connectAgent(id || "custom", splitCommand(input.command.trim()))
+      const where = typeof input?.host === "string" && input.host.trim() ? checkHost(input.host) : undefined
+      if (typeof input?.command === "string" && input.command.trim()) return connectAgent(id || "custom", splitCommand(input.command.trim()), where)
       if (!KNOWN_AGENTS.some((a) => a.id === id)) throw new Error("Type the command that starts the agent.")
-      await connectAgent(id)
+      await connectAgent(id, undefined, where)
+    },
+    async connectSsh(input) {
+      const where = checkHost(typeof input === "string" ? input : "")
+      // A connection that was dropped by hand or never made: made now.
+      const m = await remoteOf(where)
+      if (m.reach().status !== "up") {
+        remotes.delete(where)
+        void m.close()
+        throw new Error(m.reach().status === "down" ? (m.reach() as { error: string }).error : `Can't reach ${where}.`)
+      }
+      const agents = await localAgents(m)
+      return { host: where, computer: m.hostname(), home: m.home, agents }
     },
     servers() {
       const s = store.settings()
@@ -2557,10 +2651,10 @@ export function createCore(host: Host): Core {
           (x): ServerInfo => ({
             id: x.id,
             ...((x.name ?? x.computer) ? { name: x.name ?? x.computer } : {}),
-            url: "local" in x ? here : "agent" in x ? `acp://${x.agent}` : x.url,
+            url: "local" in x ? here : "agent" in x ? acpUrl(x.agent, x.host) : x.url,
             local: "local" in x,
             current: !!s.server && x.id === s.current,
-            ...("agent" in x ? { agent: x.agent, command: x.command.join(" ") } : {}),
+            ...("agent" in x ? { agent: x.agent, command: x.command.join(" "), ...(x.host ? { host: x.host } : {}) } : {}),
             kind: describe(x).kind,
             here: describe(x).here,
           }),
@@ -2571,7 +2665,7 @@ export function createCore(host: Host): Core {
       const saved = store.settings().servers?.find((x) => x.id === id)
       if (!saved) throw new Error("That server is no longer saved.")
       if ("local" in saved) return void (await commands.connectLocal())
-      if ("agent" in saved) return void (await connectAgent(saved.agent, saved.command))
+      if ("agent" in saved) return void (await connectAgent(saved.agent, saved.command, saved.host))
       const password = unseal(saved.password)
       if (password === undefined) throw new Error("Its saved password can't be read. Enter the address and password again.")
       await connect(saved.url, password, { save: "remote" })
@@ -2587,10 +2681,17 @@ export function createCore(host: Host): Core {
       push()
     },
     async reconnect() {
+      // Another computer that can't be reached: its connection is tried again, and its agent,
+      // which works on there, is left as it is.
+      if (connection.status === "offline" && connection.away && "retry" in machine) return void (machine as RemoteMachine).retry()
       await reconnectSaved()
     },
     disconnect() {
       drop()
+      const was = machine
+      machine = thisMachine()
+      snapshots = snapshotsOf(machine)
+      letGo(was)
       store.update((s) => void delete s.server)
       connection = { status: "unconfigured" }
       toChat({ type: "reset", session: "", items: [] })
@@ -2694,7 +2795,7 @@ export function createCore(host: Host): Core {
       starting = true
       push()
       try {
-        await startsRun(current.id, () => telling(current.id, startPrompt(p?.error ? p.url : "", !sameComputer(), !!b.can.running), (text, mid) => b.prompt(current.id, { ...(mid ? { id: mid } : {}), text })))
+        await startsRun(current.id, () => telling(current.id, startPrompt(p?.error ? p.url : "", !sameComputer() && machine.local, !!b.can.running), (text, mid) => b.prompt(current.id, { ...(mid ? { id: mid } : {}), text })))
       } catch (err) {
         siteAsked = undefined
         starting = false
@@ -2959,7 +3060,18 @@ export function createCore(host: Host): Core {
       unlisten?.()
       settleChanges()
       store.flush()
-      return Promise.all([outboxFiles.idle(), noteShots.idle(), Promise.all(finishing).then(() => snapshots.idle())]).then(() => undefined)
+      // Another computer's connection ends once what the app writes there is written (the agent's
+      // process there was ended by unlisten, as one here is).
+      const sn = snapshots
+      const away = [...remotes.values()]
+      remotes.clear()
+      return Promise.all([
+        outboxFiles.idle(),
+        noteShots.idle(),
+        Promise.all(finishing)
+          .then(() => sn.idle())
+          .then(() => Promise.all(away.map((m) => m.then((r) => r.close(), () => undefined)))),
+      ]).then(() => undefined)
     },
   }
 }

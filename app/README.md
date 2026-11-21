@@ -61,6 +61,8 @@ src/main/queue.ts       one file operation at a time per key (outbox, shots)
 src/main/opencode.ts    a backend: an OpenCode server, fetch + one SSE stream → BackendEvents (no Electron)
 src/main/acp.ts         a backend: an ACP agent this computer runs, JSON-RPC over its stdio → BackendEvents
 src/main/machine.ts     where the code is: commands, files, the agent's process and PATH of a computer (Machine); this one's (LocalMachine)
+src/main/ssh.ts         another computer over ssh as a Machine: ControlMaster, the helper put there and attached to, reconnecting, port forwards
+src/helper/helper.ts    the app's helper on that computer (dist/helper.cjs): Machine's calls as JSON-RPC, and the agent's process kept with its output while the app is away
 src/main/agents.ts      the ACP agents the app knows (Claude Code, Codex, Gemini CLI, OpenCode), how each starts and installs, whether a sign-in is found
 src/main/chat-items.ts  what both backends build a conversation with: a user message, a run's end, parseNote
 src/main/patch.ts       an edit's old and new text as a unified diff (ACP says edits that way)
@@ -386,13 +388,32 @@ conversations; its address is `acp://<id>`.
   `/compact` is the agent's own command when it has one (`can.compact`).
 - **Done here, not by the agent**: folders (`listFolders`), `@`-files (`git ls-files`, else a
   walk), the branch and its changes (`git status`, `git diff --numstat HEAD`), projects (the
-  folders of the conversations the ledger and `session/list` know).
+  folders of the conversations the ledger and `session/list` know). "Here" is the agent's
+  computer (`AcpOptions.machine`): this one, or the one it runs on over ssh.
+- **An agent on another computer** (`connectSsh`, then `connectAgent` with `host`; saved as
+  `{ agent, command, host }`, its ledger `<id>@<host>.json` here) is the same backend over a
+  `RemoteMachine` (`ssh.ts`): the system's ssh with the reviewer's own config and keys, never a
+  password (BatchMode), one ControlMaster connection per host for every call and forward, and the
+  app's helper (`src/helper/helper.ts`) as a daemon there, attached to over that connection. The
+  helper is `Machine` (`machine.ts`, the same code as here) as JSON-RPC plus a host for the
+  agent's process, which outlives the connection: its output is kept until read (8 MB, then the
+  oldest lines go and the app re-reads the conversations: `Child.onGap`), its stdin numbered, so a
+  reconnect reads and writes nothing twice. While the computer can't be reached the connection is
+  `offline` with `away`: nothing is failed, cancelled or forgotten (turns under way stay), notes
+  wait, working ones stay working, and Retry (`reconnect`) tries the connection, not the agent.
+  The app's file history of its folders is kept there (`~/.bicycle42/snapshots`) and git runs
+  there: `filesHere` is true, and `localDir`, snapshots and take-backs all go through that
+  computer's `Machine`, never this computer's disk. The address the agent reports (`SITE:` on its
+  localhost) is forwarded here (`ssh -O forward`, the same port when it is free) and opened; the
+  request to start the site says nothing of binding to the network or of a tunnel for it.
+  Tested against a fake ssh (`test/fake-ssh.ts`), whose "other computer" is this one under a home
+  of its own, and with `unshare` a folder of its own at the same path.
 
 | `Backend` | ACP |
 |---|---|
 | `info` | `initialize` (starts the process) |
 | `projects` | `session/list` without a folder, and the ledger's folders |
-| `listFolders`, `findFiles`, `vcs` | this computer's fs and git |
+| `listFolders`, `findFiles`, `vcs` | the agent's computer's fs and git (`Machine`) |
 | `models`, `agents` | config options (model, thought_level, mode), else `session/options` |
 | `sessions`, `session` | `session/list` with the folder, and the ledger |
 | `createSession` | `session/new`, then `session/set_title` and the model's options |

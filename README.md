@@ -18,7 +18,8 @@ It is for designers who work with a coding agent, and it is open source.
 
 - An agent: one of Claude Code, Codex, Gemini CLI or OpenCode installed and signed in on this
   computer (Claude Code and Codex are reached through their ACP adapters, which `npx` fetches the
-  first time), or an OpenCode server on this computer or another one.
+  first time), or on another computer you reach with `ssh` (it needs Node 18 or newer there), or
+  an OpenCode server on this computer or another one.
 - Node 22 or newer with npm, or Bun.
 - git, for the repo's branch and changes when the agent runs on this computer.
 
@@ -43,6 +44,16 @@ its own name and icon. It is not signed with a developer certificate, and there 
    agent works too: type the command that starts it. Such an agent can't undo a message, show what one message changed, or
    list the commands it left running (a dev server it starts ends with it, when the app quits or
    uses another agent); the app leaves out what it can't do.
+   Under **Another computer (ssh)**, type the computer your code is on: `user@host`, or a name
+   from your `~/.ssh/config` (a Tailscale name works the same), and press **Connect**. The app uses
+   your own `ssh`, keys and config, and never asks for a password: if that computer's key is not
+   known here yet, or it wants a password, it says so, and running `ssh <host>` once in a terminal
+   sorts it out. It puts a small helper in `~/.bicycle42` there (with that computer's `node`), and
+   lists the agents installed there, each with how it stands; **Start** runs one there, in that
+   computer's folders. When this computer sleeps or the network drops, the agent keeps working
+   there: the banner says the computer can't be reached, notes wait, and the app connects again by
+   itself (**Retry** tries at once) and shows what the agent did meanwhile. The site the agent
+   starts there on its `localhost` is forwarded over the same connection and opens here.
    Under **OpenCode server**, if one is running on this computer the app finds it: press
    **Connect**. (`opencode service start` starts one.) For a server on another machine, press
    **Enter address** and give its address and password: `opencode service status` there shows the address (the
@@ -53,11 +64,13 @@ its own name and icon. It is not signed with a developer certificate, and there 
    **Connected before**, and going back to one needs no password and brings back its repo, page
    and notes.
 2. **Open the repo**: the folder that holds the site's code ("Where should Claude Code
-   work?"). The agent's own recent folders come first; on this computer, also those another
+   work?", or "… work on dev-box?" for an agent on another computer, whose folders you browse
+   then). The agent's own recent folders come first; on this computer, also those another
    agent here worked in. The agent works there, and you can talk to it from then on.
 
 The panel's top row says who works where: the agent's mark with the connection's dot, its name
-(an OpenCode server's computer name or address), and the repo's path, `~` for your home folder
+(an OpenCode server's computer name or address, and after it the computer an agent runs on over
+ssh), and the repo's path, `~` for your home folder (that computer's, for an agent there)
 and cut in the middle when the panel is narrow. Pressing the agent's name lists the agents and
 servers to switch to, the one in use checked, and **Connect another agent**; pressing the path
 lists the projects; the sliders at the end open the settings.

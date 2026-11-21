@@ -1,7 +1,7 @@
 // Connecting to the server that does the work. One form, used twice: full-window before the
 // first connection, and inside the settings dialog afterwards.
 import { For, Match, Show, Switch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js"
-import type { ConnectionState, LocalAgent, ModelInfo, ModelRef } from "../shared/types"
+import type { ConnectionState, LocalAgent, ModelInfo, ModelRef, RemoteInfo } from "../shared/types"
 import { harnessNow, kindOfAgent } from "./agents"
 import { CopyButton } from "./copy"
 import { AgentMark, Icon } from "./icons"
@@ -22,7 +22,7 @@ export function connectionText(c: ConnectionState): string {
   const h = harnessNow()
   switch (c.status) {
     case "online":
-      return `Connected to ${serverLabel(c.url)}${h?.here ? " on this computer" : ""} · version ${c.version}`
+      return `Connected to ${serverLabel(c.url)}${h?.here ? " on this computer" : h?.host && isAgent(c.url) ? ` on ${h.host}` : ""} · version ${c.version}`
     case "offline":
       return `Cannot reach ${serverLabel(c.url)}. ${c.error}`
     case "connecting":
@@ -36,7 +36,8 @@ export function connectionText(c: ConnectionState): string {
  *  the server's computer or address. Never an acp:// id. */
 export const serverLabel = (url: string) => state.harness?.name || state.serverName || host(url)
 
-/** An agent the app runs on this computer over ACP (connectAgent): its "address" is acp://<id>. */
+/** An agent the app runs over ACP (connectAgent): its "address" is acp://<id>, or
+ *  acp://<id>@<host> on another computer over ssh. */
 export const isAgent = (url: string) => url.startsWith("acp://")
 
 /** The server's name, and the field that changes it. Empty goes back to the address. */
@@ -59,7 +60,7 @@ function ServerName(props: { url: string; version: string }) {
             </span>
             <span class="dialog-sub">
               {isAgent(props.url)
-                ? `On this computer, over ACP · ${props.version}`
+                ? `${state.harness?.host ? `On ${state.harness.host}, over ssh and ACP` : "On this computer, over ACP"} · ${props.version}`
                 : `${state.harness?.here ? "On this computer · " : state.harness?.name !== host(props.url) ? `${host(props.url)} · ` : ""}OpenCode ${props.version}`}
             </span>
             <button class="text-btn" data-action="rename-server" onClick={() => setEditing(true)}>
@@ -135,13 +136,13 @@ type AgentState = "using" | "missing" | "signin" | "ready"
 /** One agent the app knows, as a row: its mark, its name, how it stands in plain words, and the
  *  one thing to do about it (Start, or copy what installs it). The command that starts it is
  *  there on request. */
-function AgentRow(props: { agent: LocalAgent; using: boolean; busy: boolean; error?: string; onStart: () => void }) {
+function AgentRow(props: { agent: LocalAgent; using: boolean; busy: boolean; error?: string; onStart: () => void; where?: string }) {
   const [how, setHow] = createSignal(false)
   const a = () => props.agent
   const st = (): AgentState => (props.using ? "using" : !a().installed ? "missing" : a().signIn || /sign in/i.test(props.error ?? "") ? "signin" : "ready")
   const login = () => a().signIn ?? (a().id === "codex" ? "codex login" : a().id === "opencode" ? "opencode auth login" : a().id)
   return (
-    <li class="agent-row" data-agent={a().id} data-state={st()}>
+    <li class="agent-row" data-agent={a().id} data-host={props.where} data-state={st()}>
       <AgentMark kind={kindOfAgent(a().id)} size={20} />
       <div class="agent-text">
         <span class="agent-name">{a().name}</span>
@@ -156,7 +157,7 @@ function AgentRow(props: { agent: LocalAgent; using: boolean; busy: boolean; err
             <Match when={st() === "signin"}>
               Needs you to sign in: run <code>{login()}</code> in a terminal
             </Match>
-            <Match when={true}>Ready</Match>
+            <Match when={true}>{props.where ? `Ready on ${props.where}` : "Ready"}</Match>
           </Switch>
         </span>
         <Show when={props.error && st() !== "signin"}>
@@ -220,8 +221,26 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
   // The servers connected to before, on other computers, and agents run by a command typed by
   // hand: one click, no password again. (A known agent has its own row above.)
   const [saved, { refetch: reloadSaved }] = createResource(() => b42.invoke("servers").catch(() => []))
-  const others = () => (saved() ?? []).filter((s) => !s.local && !(s.agent && (agents() ?? []).some((a) => a.id === s.agent)) && !(s.current && state.connection.status === "online"))
+  const others = () => (saved() ?? []).filter((s) => !s.local && !(s.agent && !s.host && (agents() ?? []).some((a) => a.id === s.agent)) && !(s.current && state.connection.status === "online"))
   const fail = (at: string, err: unknown) => (setError(message(err)), setErrorAt(at))
+  // Another computer over ssh: its host, and once connected, the agents installed there.
+  const [sshHost, setSshHost] = createSignal(state.harness?.host && isAgent("url" in state.connection ? state.connection.url : "") ? state.harness.host : "")
+  const [there, setThere] = createSignal<RemoteInfo>()
+  const [reaching, setReaching] = createSignal(false)
+  const usingThere = (id: string, where: string) => state.connection.status === "online" && state.connection.url === `acp://${id}@${encodeURIComponent(where)}`
+  const reach = () => {
+    const where = sshHost().trim()
+    if (!where || connecting()) return
+    setConnecting(true)
+    setReaching(true)
+    setError("")
+    setThere(undefined)
+    b42
+      .invoke("connectSsh", where)
+      .then((info) => setThere(info))
+      .catch((err) => (gone ? setNotice(`Could not connect to ${where}. ${message(err)}`) : fail("ssh", err)))
+      .finally(() => (setConnecting(false), setReaching(false)))
+  }
   const useSaved = (id: string, label: string) => {
     if (connecting()) return
     setConnecting(true)
@@ -238,14 +257,14 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
       .then(() => reloadSaved())
       .catch((err) => fail(id, err))
 
-  const useAgent = (agent: { id: string; command?: string }, label: string) => {
+  const useAgent = (agent: { id: string; command?: string; host?: string }, label: string) => {
     if (connecting()) return
     setConnecting(true)
     setError("")
     b42
       .invoke("connectAgent", agent)
       .then(() => gone || props.onDone?.())
-      .catch((err) => (gone ? setNotice(`Could not start ${label}. ${message(err)}`) : fail(agent.command ? "custom" : agent.id, err)))
+      .catch((err) => (gone ? setNotice(`Could not start ${label}. ${message(err)}`) : fail(agent.host ? `ssh:${agent.id}` : agent.command ? "custom" : agent.id, err)))
       .finally(() => setConnecting(false))
   }
   const startCustom = () => custom().trim() && useAgent({ id: "custom", command: custom().trim() }, custom().trim())
@@ -322,6 +341,60 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
             </div>
             <RowError at="custom" />
           </li>
+        </ul>
+      </section>
+      <section class="connect-section connect-ssh">
+        <h3 class="label">Another computer (ssh)</h3>
+        <p class="form-help">
+          The app connects with your own ssh (its keys, <code>~/.ssh/config</code>, Tailscale) and runs the agent there, in that computer's folders. It needs
+          Node 18 or newer there, and puts a small helper in <code>~/.bicycle42</code>.
+        </p>
+        <ul class="agent-list">
+          <li class="agent-row agent-custom" data-state={sshHost().trim() ? "ready" : "empty"}>
+            <AgentMark kind="custom" size={20} />
+            <input
+              class="input mono"
+              type="text"
+              aria-label="The other computer: user@host, or a name from your ssh config"
+              placeholder="user@host, or a name from ~/.ssh/config"
+              spellcheck={false}
+              autocomplete="off"
+              disabled={connecting()}
+              value={sshHost()}
+              onInput={(e) => setSshHost(e.currentTarget.value)}
+              onKeyDown={(e) => {
+                // Enter here connects to this computer; the form's own Enter is for the server address.
+                if (e.key !== "Enter") return
+                e.preventDefault()
+                reach()
+              }}
+            />
+            <div class="agent-acts">
+              <button class="btn" type="button" data-action="ssh" disabled={connecting() || !sshHost().trim()} onClick={reach}>
+                <Show when={reaching()}>
+                  <Icon name="spinner" />
+                </Show>
+                {reaching() ? "Connecting" : "Connect"}
+              </button>
+            </div>
+            <RowError at="ssh" />
+          </li>
+          <Show when={there()}>
+            {(r) => (
+              <For each={r().agents}>
+                {(a) => (
+                  <AgentRow
+                    agent={a}
+                    where={r().host}
+                    using={usingThere(a.id, r().host)}
+                    busy={connecting()}
+                    error={errorOf(`ssh:${a.id}`)}
+                    onStart={() => useAgent({ id: a.id, host: r().host }, `${a.name} on ${r().host}`)}
+                  />
+                )}
+              </For>
+            )}
+          </Show>
         </ul>
       </section>
       <section class="connect-section">
@@ -435,7 +508,7 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
                   <AgentMark kind={s.kind} size={20} />
                   <div class="agent-text" title={s.command ?? s.url}>
                     <span class="agent-name">{s.name ?? host(s.url)}</span>
-                    <span class="agent-status">{s.here ? "this computer" : host(s.url)}</span>
+                    <span class="agent-status">{s.here ? "this computer" : (s.host ?? host(s.url))}</span>
                   </div>
                   <div class="agent-acts">
                     <button class="text-btn saved-forget" type="button" disabled={connecting()} title="Forgets it on this computer, with its password" onClick={() => forget(s.id)}>

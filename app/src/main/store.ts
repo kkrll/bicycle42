@@ -30,15 +30,17 @@ export type Space = { folder?: string; lastUrl?: string; defaultModel?: ModelRef
  *  settings' own fields. */
 /** `projects`: the folders it last listed, so its projects can be offered while another server is in use.
  *  `computer`: what the machine calls itself, as it last said; the server goes by it until it is given a `name`. */
-/** `agent`: an ACP agent this computer runs for the app (`connectAgent` in core.ts): which one
- *  ("claude", or "custom-…" for a command typed by hand) and the command that starts it. */
-export type SavedServer = ({ url: string; password: string } | { local: true } | { agent: string; command: string[] }) & { id: string; name?: string; computer?: string; space?: Space; projects?: string[] }
+/** `agent`: an ACP agent the app runs (`connectAgent` in core.ts): which one ("claude", or
+ *  "custom-…" for a command typed by hand) and the command that starts it; with `host`, on that
+ *  computer over ssh (as the reviewer typed it: "me@dev-box", an alias of their ~/.ssh/config),
+ *  else on this one. */
+export type SavedServer = ({ url: string; password: string } | { local: true } | { agent: string; command: string[]; host?: string }) & { id: string; name?: string; computer?: string; space?: Space; projects?: string[] }
 
 export type Settings = {
   version: 1
   /** `password` is already encrypted by the caller; here it is an opaque string. */
   /** `name` is the reviewer's own for it ("Studio Mac"); without one it is called by its address. */
-  server?: ({ url: string; password: string } | { local: true } | { agent: string; command: string[] }) & { name?: string }
+  server?: ({ url: string; password: string } | { local: true } | { agent: string; command: string[]; host?: string }) & { name?: string }
   /** Every server connected to so far, and which of them the fields below belong to. */
   servers?: SavedServer[]
   current?: string

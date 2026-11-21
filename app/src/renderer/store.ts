@@ -265,6 +265,9 @@ export function setFactsMarks(on: boolean): void {
 
 /** The server is unreachable: nothing moves until it is back. */
 export const offline = () => state.connection.status === "offline"
+/** The computer an agent runs on over ssh can't be reached, and the agent works on there: its
+ *  host, while that lasts. */
+export const awayHost = (): string | undefined => (state.connection.status === "offline" && state.connection.away ? (state.harness?.host ?? "its computer") : undefined)
 
 /** The reviewer asked for the notes list while the panel is too cramped to open it by default
  *  (a pin was clicked, the top bar's counts, the list's own header). Lasts until the app restarts. */
@@ -291,7 +294,7 @@ export type NoteShown = AppState["review"]["notes"][number]["status"] | "paused"
 export const noteShown = (note: AppState["review"]["notes"][number]): NoteShown =>
   note.status === "failed" && note.stopped
     ? "stopped"
-    : note.status === "working" && offline()
+    : note.status === "working" && offline() && !awayHost()
       ? "paused"
       : note.status
 

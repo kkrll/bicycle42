@@ -307,7 +307,11 @@ export type ProjectInfo = { directory: string; server?: string; on: string; kind
  *  this computer the app runs itself (an ACP agent: `connectAgent`): which one (an id in
  *  `localAgents`, or "custom-…"), with `command` the line that starts it. `local` is this
  *  computer's OpenCode server; `here` is anything on this computer (it and every ACP agent). */
-export type ServerInfo = { id: string; name?: string; url: string; local: boolean; current: boolean; agent?: string; command?: string; kind: AgentKind; here: boolean }
+export type ServerInfo = { id: string; name?: string; url: string; local: boolean; current: boolean; agent?: string; command?: string; kind: AgentKind; here: boolean; host?: string }
+
+/** Another computer connected to over ssh (`connectSsh`): the host as typed, what it calls itself,
+ *  its home folder, and the agents installed there, as `localAgents` says this computer's. */
+export type RemoteInfo = { host: string; computer: string; home: string; agents: LocalAgent[] }
 
 /** An agent this computer can run for the app over ACP (the Agent Client Protocol), as the
  *  connect screen offers it. `installed`: what it needs was found on this computer's PATH;
@@ -506,8 +510,14 @@ export type Commands = {
    *  whether each is installed. */
   localAgents(): LocalAgent[]
   /** Runs one of them (or `command`, for "custom") and uses it as the server: its folders are
-   *  this computer's. Remembered like a server. */
-  connectAgent(agent: { id: string; command?: string }): void
+   *  this computer's, or with `host` that computer's (connected with `connectSsh`), where it runs.
+   *  Remembered like a server. */
+  connectAgent(agent: { id: string; command?: string; host?: string }): void
+  /** Connects to another computer over ssh (`user@host`, an alias of ~/.ssh/config) with the
+   *  system's ssh and the reviewer's own keys, puts the app's helper there, and says which agents
+   *  are installed there. Rejects with a sentence (a host key not known yet, no key accepted, no
+   *  node there). */
+  connectSsh(host: string): RemoteInfo
   /** Every server connected to so far, the one in use first. Passwords stay in main. */
   servers(): ServerInfo[]
   /** Connects to one of them. Its own repo, page and conversations come back with it. */

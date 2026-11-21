@@ -74,6 +74,13 @@ const SHOTS = [
     run: [click("[data-action=remote]"), type("input[name=url]", "http://my-box.example:4096"), type("input[name=password]", "wrong"), click(".connect-form button[type=submit]"), `document.querySelector(".agent-remote-form").scrollIntoView({ block: "end" })`],
     wait: 300,
   },
+  // Another computer over ssh: its host typed, connected, the agents installed there.
+  {
+    name: "connect-ssh",
+    mock: "connect",
+    run: [type('input[aria-label^="The other computer"]', "me@dev-box"), click("[data-action=ssh]"), pause(1000), `document.querySelector(".connect-ssh").scrollIntoView({ block: "center" })`],
+    wait: 300,
+  },
   // The second step with an agent on this computer: who will work there, its folders under ~.
   { name: "repo-agent", mock: "repo", query: "&agent=claude" },
   // The panel's top row: the agent (mark, name, the connection's dot) and the repo's path.

@@ -1518,6 +1518,16 @@ details[open] > summary > .caret {
   color: var(--ink-bad);
 }
 
+/* The other computer an agent runs on over ssh, after its name: quieter, and the first to give
+   way when the row is short. */
+.place-host {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
 /* The project's path, cut in the middle when the row is short (MiddlePath); it reads as the text
    it was, the mark that it opens something comes with the pointer or the keyboard. */
 .place-folder {

@@ -12,10 +12,15 @@ export const whereOf = (h: { here: boolean; host?: string }) => (h.here ? "this 
 /** The agent in use, or what the window can say of it before main has: its address. */
 export function harnessNow(): Harness | undefined {
   if (state.harness) return state.harness
-  return "url" in state.connection ? { kind: state.connection.url.startsWith("acp://") ? "custom" : "opencode-server", name: state.serverName || host(state.connection.url), here: state.connection.url.startsWith("acp://") } : undefined
+  return "url" in state.connection ? { kind: state.connection.url.startsWith("acp://") ? "custom" : "opencode-server", name: state.serverName || host(state.connection.url), here: /^acp:\/\/[^@]*$/.test(state.connection.url) } : undefined
 }
 
-/** A path on this computer with its home folder as "~"; another computer's as it is. */
+/** Whether `state.home` is the home folder of the computer the agent works on: this computer, or
+ *  another one whose agent the app runs over ssh (an OpenCode server elsewhere says none). */
+export const ownHome = (h: Harness | undefined) => !!h && (h.here || (!!h.host && h.kind !== "opencode-server"))
+
+/** A path with its computer's home folder as "~", where that home is known (`ownHome`); another
+ *  computer's as it is. */
 export const homePath = (path: string, here: boolean | undefined) => (here ? atHome(path, state.home) : path)
 
 /** A known agent's name and mark, for an agent that is not one of the saved servers yet. */
@@ -67,12 +72,12 @@ export function AgentSwitch(props: { anchor: () => HTMLElement | undefined; onCl
       key: s.id,
       kind: s.kind,
       name: s.name ?? (s.local ? "OpenCode server" : s.agent ? s.agent : host(s.url)),
-      where: s.here ? "this computer" : host(s.url),
+      where: s.here ? "this computer" : (s.host ?? host(s.url)),
       current: s.current && state.connection.status !== "unconfigured",
       go: () => b42.invoke("useServer", s.id),
     }))
     for (const a of agents() ?? [])
-      if (a.installed && !saved.some((s) => s.agent === a.id))
+      if (a.installed && !saved.some((s) => s.agent === a.id && !s.host))
         out.push({ key: `agent:${a.id}`, kind: kindOfAgent(a.id), name: a.name, where: a.signIn ? "sign in first" : "this computer", current: false, fresh: true, go: () => b42.invoke("connectAgent", { id: a.id }) })
     return out
   }
