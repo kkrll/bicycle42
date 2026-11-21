@@ -21,8 +21,11 @@ export type TestShell = {
     sent: { type: string; [k: string]: unknown }[]
     /** Set by a test that wants screenshots: returns the next picture. */
     capture?: () => Frame
-    /** [what, value] for each call the controller or the shell made on the page: "bounds", "load", "device" and "admit". */
+    /** [what, value] for each call the controller or the shell made on the page: "bounds", "load", "device", "admit" and "partition" (when it changed). */
     calls: [string, unknown][]
+    /** The session the page is in (Page.setPartition): the one the shell made it in, then each
+     *  the controller moved it to. */
+    partition: string
     /** Set by a test whose page has an overlay that answers "frame": the window it says it has. */
     viewport?: { w: number; h: number; dpr: number; scrollX: number; scrollY: number }
   }
@@ -49,6 +52,8 @@ export function testShell(dataDir: string, opts: { docks?: Pane[]; agent?: (comm
     message: (msg) => core.pageEvents.onMessage(msg as PageMessage),
     sent: [],
     calls: [],
+    // As the shell makes it: in the session of the saved agent's computer.
+    partition: core.partition(),
   }
   const page: Page = {
     state,
@@ -77,6 +82,15 @@ export function testShell(dataDir: string, opts: { docks?: Pane[]; agent?: (comm
     holdFrames: () => () => {},
     focus: () => void stub.calls.push(["focus", null]),
     openDevTools() {},
+    setPartition(name) {
+      if (name === stub.partition) return false
+      stub.partition = name
+      stub.calls.push(["partition", name])
+      // A page made again: nothing loaded in it yet.
+      url = ""
+      core.pageEvents.onChange()
+      return true
+    },
     dispose() {},
   }
   core.attach(page)

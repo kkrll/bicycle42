@@ -758,6 +758,11 @@ details[open] > summary > .caret {
   color: var(--foreground);
 }
 
+/* Not an error: the page was stopped from opening an app, and that is all. */
+.page-refused {
+  color: var(--muted);
+}
+
 .status-btn {
   flex: none;
 }
@@ -1090,6 +1095,12 @@ details[open] > summary > .caret {
   margin: 0;
   font-size: var(--text-lead);
   overflow-wrap: anywhere;
+}
+
+.page-elsewhere-url {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 
 .page-failed-detail {

@@ -349,3 +349,76 @@ test("the site the agent starts there opens here on 127.0.0.1; after a restart t
     await t.close()
   }
 })
+
+test("an address the agent there says its site is at that is not on that computer is offered, never opened by itself; Open it here opens it", async () => {
+  // A name that resolves to 127.0.0.1 on this computer: it would load this computer's own site.
+  process.env.B42_FAKE_SITE = "http://localtest.me:3000/"
+  const t = boot()
+  try {
+    await t.ready({ page: false })
+    await t.cmd("startSite")
+    await until(() => !!t.snap().page.elsewhere)
+    const loads = () => t.shell().page.calls.filter(([k]) => k === "load").map(([, v]) => String(v))
+    assert.deepEqual(t.snap().page.elsewhere, { url: "http://localtest.me:3000/", computer: "dev-box" })
+    assert.equal(t.snap().page.url, "")
+    assert.ok(!loads().some((u) => u.includes("localtest.me")), "not opened by itself")
+    assert.ok(!loads().some((u) => u.includes("127.0.0.1")), "nothing forwarded for it")
+    await t.cmd("navigate", "http://localtest.me:3000/")
+    assert.equal(loads().at(-1), "http://localtest.me:3000/")
+    assert.equal(t.snap().page.elsewhere, undefined)
+  } finally {
+    delete process.env.B42_FAKE_SITE
+    await t.close()
+  }
+})
+
+test("each computer's sites are in a session of their own: the page moves to another computer's before anything of it loads, and back to this computer's (the one sites were always in)", async () => {
+  const t = boot()
+  try {
+    const page = () => t.shell().page
+    assert.equal(page().partition, "persist:review", "this computer's, before any agent")
+    await t.ready()
+    const box = page().partition
+    assert.match(box, /^persist:review-[0-9a-f]{16}$/)
+    // Moved before the address of the agent's computer loads (the test's page load comes after).
+    const calls = page().calls.map(([k, v]) => `${k} ${String(v)}`)
+    assert.ok(calls.indexOf(`partition ${box}`) >= 0 && calls.indexOf(`partition ${box}`) < calls.lastIndexOf(`load ${SITE}/`), calls.join(", "))
+    // Started again: the page is made in that computer's session from the first, and not moved.
+    await t.restart()
+    assert.equal(page().partition, box)
+    await until(() => t.snap().connection.status === "online")
+    assert.ok(!page().calls.some(([k]) => k === "partition"), "not moved")
+    // The same computer by another name is another session (the host as typed).
+    await t.cmd("connectSsh", "k@dev-box")
+    await t.cmd("connectAgent", { id: "custom", command: `"${process.execPath}" "${path.join(__dirname, "acp-agent.cjs")}" "${path.join(t.h.root, "fake-agent.json")}"`, host: "k@dev-box" })
+    await until(() => page().partition !== box)
+    assert.match(page().partition, /^persist:review-[0-9a-f]{16}$/)
+    // No agent: this computer's again.
+    await t.cmd("disconnect")
+    assert.equal(page().partition, "persist:review")
+  } finally {
+    await t.close()
+  }
+})
+
+test("the agent's own loopback however it is written (IPv4-mapped IPv6) is that computer's: forwarded from there, never this computer's", async () => {
+  const site = http.createServer((_, res) => res.end("from there"))
+  await new Promise<void>((r) => site.listen(0, "127.0.0.1", r))
+  const port = (site.address() as net.AddressInfo).port
+  process.env.B42_FAKE_SITE = `http://[::ffff:127.0.0.1]:${port}/`
+  const t = boot()
+  try {
+    await t.ready({ page: false })
+    await t.cmd("startSite")
+    const loads = () => t.shell().page.calls.filter(([k]) => k === "load").map(([, v]) => String(v))
+    await until(() => loads().some((u) => /^http:\/\/127\.0\.0\.1:\d+\/$/.test(u)))
+    const opened = loads().find((u) => /^http:\/\/127\.0\.0\.1:\d+\/$/.test(u))!
+    assert.notEqual(Number(new URL(opened).port), port)
+    assert.equal(await (await fetch(opened)).text(), "from there")
+    assert.ok(!loads().some((u) => u.includes("::ffff")), "the address as said never opened")
+  } finally {
+    delete process.env.B42_FAKE_SITE
+    site.close()
+    await t.close()
+  }
+})

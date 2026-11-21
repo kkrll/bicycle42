@@ -56,6 +56,7 @@ src/shared/types.ts     the contract: AppState, ChatEvent, Commands, Backend. Re
 src/main/core.ts        controller: owns AppState, wires the parts below; createCore(host), with nothing of Electron in it
 src/main/index.ts       the Electron shell around it: window, menu, the bridge's IPC, start and quit
 src/main/page.ts        the page: a WebContentsView with the overlay as its preload, in its own script world
+src/main/site-address.ts where an agent's `SITE:` address points, from the address alone: its computer's loopback, or elsewhere
 src/page-preload.ts     the overlay's way into the page and back to main (IPC), built with the overlay inside
 src/main/review.ts      a site's notes and their status rules (pure, no Electron)
 src/main/outbox.ts      what each unfinished note sends (prompt, pictures), on disk until it is done
@@ -92,6 +93,18 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   `Core`: the window's `commands` (and `invoke` by name), `snapshot`, `chat`, `picture`,
   `pageEvents`, `start`, `dispose`. `index.ts` is the Electron shell; the controller tests are
   another, in plain Node (`test/stubs/host.ts`), with no module swapped at build time.
+- **The page is a stranger's.** The site may be another computer's, forwarded here. Its sessions
+  refuse every permission and every check of one (geolocation, camera, clipboard, notifications,
+  MIDI, devices, and `openExternal`, which would hand an app's link to the system), and it may go
+  to web addresses only: any other scheme, by a link, a script, a frame, `window.open` or a
+  server's redirect, is stopped and said quietly by the address (`PageState.refused`). The review
+  needs none of it: the overlay talks to main over IPC, pictures are taken by main, a pasted
+  picture comes with the paste. Each computer's sites are in a session of their own
+  (`partitionOf` in `core.ts`: `persist:review` for this computer's, as always, and
+  `persist:review-<hash of host and this install's id>` for another's), since forwarded sites of
+  two computers share addresses (`127.0.0.1:3000`) and so would share storage, cookies and
+  service workers. Another computer's session makes the page again (`Page.setPartition`): a
+  WebContents cannot change its session.
 - **Main writes no script into the page.** What it wants of the page it asks the overlay for,
   by message (`../overlay/protocol.ts`): `frame` for a note's picture once the agent is done
   (the layer out of the picture, the page scrolled to where the note was made, both given back,
@@ -445,7 +458,12 @@ can also be moved by hand (the date `tested` then goes, unless you ran the check
   there: `localDir`, snapshots and take-backs all go through that computer's `Machine`, never
   this computer's disk. The address the agent reports (`SITE:` on its
   localhost) is forwarded here (`ssh -O forward`, the same port when it is free) and opened; the
-  request to start the site says nothing of binding to the network or of a tunnel for it.
+  request to start the site says nothing of binding to the network or of a tunnel for it. Which
+  addresses are that computer's is read from the address alone, parsed as the browser does, with
+  no DNS (`site-address.ts`): its loopback however written (`[::ffff:127.0.0.1]`, `0x7f.1`), its
+  unspecified address, `localhost` and names under it. Anything else (`localtest.me`, a LAN
+  address, the web) would load from this computer, so it is offered (`AppState.page.elsewhere`,
+  "Open it here"), never opened by itself.
   Tested against a fake ssh (`test/fake-ssh.ts`), whose "other computer" is this one under a home
   of its own, and with `unshare` a folder of its own at the same path.
 

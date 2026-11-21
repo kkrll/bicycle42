@@ -52,7 +52,9 @@ its own name and icon. It is not signed with a developer certificate, and there 
    computer's folders. When this computer sleeps or the network drops, the agent keeps working
    there: the banner says the computer can't be reached, notes wait, and the app connects again by
    itself (**Retry** tries at once) and shows what the agent did meanwhile. The site the agent
-   starts there on its `localhost` is forwarded over the same connection and opens here.
+   starts there on its `localhost` is forwarded over the same connection and opens here; an
+   address that is not that computer's own is shown with **Open it here**, never opened by
+   itself. Each computer's sites keep their logins and storage apart from every other's.
    If the agent offers more than one model, you then choose the one new conversations start
    with; it can be changed any time under the chat box.
    Every agent you start is remembered: the connect screen lists the ones on other computers and

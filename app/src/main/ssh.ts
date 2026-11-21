@@ -134,7 +134,7 @@ export function privateDir(dir: string) {
 }
 
 /** This install of the app's id: what it starts on another computer is known as its own there. */
-function ownerOf(dataDir: string) {
+export function ownerOf(dataDir: string) {
   const dir = path.join(dataDir, "ssh")
   privateDir(dir)
   const file = path.join(dir, "owner")

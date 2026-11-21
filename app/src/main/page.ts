@@ -10,7 +10,7 @@
 // offers load / capture / send. `Page` is what the controller has of it: what a page under review
 // does, with no word of Electron in it. What is made of Electron (the view) is on `PageView`,
 // which the shell that makes the page keeps; every script run in the page is in this file.
-import { WebContentsView, type BrowserWindow, type IpcMainEvent, type NativeImage } from "electron"
+import { WebContentsView, type BrowserWindow, type IpcMainEvent, type NativeImage, type Session, type WebContents } from "electron"
 import type { HostMessage, PageMessage } from "../../../overlay/protocol"
 import { PHONE, type Device, type Phone, type Rect } from "../shared/types"
 import type { Frame } from "./images"
@@ -22,6 +22,9 @@ export type PageState = {
   /** The page's renderer is gone (it crashed, or the system killed it): nothing of the page is
    *  there, its overlay included, until it is loaded again. */
   crashed?: true
+  /** The page tried to leave the web for another scheme and was stopped (see "what the page may
+   *  do" below): the scheme, with its colon. Until the next document. */
+  refused?: string
   canGoBack: boolean
   canGoForward: boolean
   hmr: boolean
@@ -64,6 +67,11 @@ export type Page = {
   focus(): void
   /** The browser's developer tools for the page, in a window of their own. */
   openDevTools(): void
+  /** The session the page's sites keep their storage, cookies and service workers in, by name
+   *  (one per computer, core.ts). Another one than the page is in makes the page again in it,
+   *  where it is, at its size, with the placeholder loaded: nothing of a site of one session is
+   *  ever shown in another. True when it changed. */
+  setPartition(name: string): boolean
   dispose(): void
 }
 
@@ -74,7 +82,7 @@ export type PageView = Page & { readonly view: WebContentsView }
 type Options = {
   /** The path of page-preload.cjs: the overlay, and the lookup that runs among the page's own scripts. */
   preload: string
-  /** Default "persist:review". */
+  /** The session the page starts in (setPartition changes it). Default "persist:review". */
   partition?: string
   /** overlay → host. */
   onMessage(msg: PageMessage): void
@@ -125,29 +133,85 @@ const frameOf = (image: NativeImage): Frame => ({
 /** The placeholder and the blank first page are ours, not the reviewer's: no overlay, no URL to show. */
 const internal = (url: string) => /^(data|about):/.test(url)
 
+// ── what the page may do ─────────────────────────────────────────────────────────────────────────
+// The page is a site under review, and the site may be another computer's (an agent's over ssh,
+// forwarded here): content the reviewer did not write, inside the reviewer's computer. Electron
+// grants a page every permission it asks for unless told otherwise, and hands a link of a scheme
+// it does not know (an app's, "mailto:") to the system, which opens the app it names. So the
+// page's sessions refuse every permission and every check of one, and the page may only go to
+// web addresses: anything else is stopped, and the reviewer told which scheme it was.
+//
+// Nothing the review needs is a permission: the overlay runs in the preload's world and reaches
+// the app over IPC; a note's picture is taken by main (capturePage); a picture pasted into a note
+// comes with the paste event (no clipboard-read); the developer tools are opened by the app.
+
+/** Where a frame may go: the top one to web pages only; one inside it also to what never leaves
+ *  the page (about:blank, srcdoc, data:, blob:), which a site's own frames are made of. */
+const WEB = /^https?:/i
+const IN_PAGE = /^(https?|about|data|blob):/i
+/** The scheme of an address the page tried, for the line that says so: "mailto:". */
+const schemeOf = (to: string) => `${/^([a-z][a-z0-9+.-]{0,30}):/i.exec(to)?.[1]?.toLowerCase() ?? "unknown"}:`
+
+/** Each page's view, for the session's handlers: which page a request is from. */
+const refusers = new WeakMap<WebContents, (to: string) => void>()
+const guarded = new WeakSet<Session>()
+/** A session the page is made in refuses everything, once and for every view in it. */
+function guard(session: Session) {
+  if (guarded.has(session)) return
+  guarded.add(session)
+  session.setPermissionRequestHandler((contents, permission, callback, details) => {
+    // A link of another scheme, by whatever way it came (a frame, a redirect): the system would open it.
+    if (permission === "openExternal") refusers.get(contents)?.((details as { externalURL?: string }).externalURL ?? "")
+    callback(false)
+  })
+  session.setPermissionCheckHandler(() => false)
+  // USB, HID and serial devices (WebUSB, WebHID, Web Serial): Electron's default is no, said here too.
+  session.setDevicePermissionHandler(() => false)
+}
+
 export async function createPage(window: BrowserWindow, opts: Options): Promise<PageView> {
   const { log } = opts
   // The pane the window draws around the page has a 10 px radius and a 1 px border.
   const PAGE_RADIUS = 9
-  const view = new WebContentsView({
-    webPreferences: {
-      partition: opts.partition ?? "persist:review",
-      // The overlay, in a world of its own; top frame only (no nodeIntegrationInSubFrames).
-      preload: opts.preload,
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-      // Throttled while the window is hidden or minimised, like a background tab; a picture and
-      // a note on its way lift that for as long as they need frames (holdFrames).
-      backgroundThrottling: true,
-      // A page that loads (or reloads after a note) must not pull focus out of the chat box.
-      focusOnNavigation: false,
-    },
-  })
+  let partition = opts.partition ?? "persist:review"
+  const make = () =>
+    new WebContentsView({
+      webPreferences: {
+        partition,
+        // The overlay, in a world of its own; top frame only (no nodeIntegrationInSubFrames).
+        preload: opts.preload,
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+        // Throttled while the window is hidden or minimised, like a background tab; a picture and
+        // a note on its way lift that for as long as they need frames (holdFrames).
+        backgroundThrottling: true,
+        // A page that loads (or reloads after a note) must not pull focus out of the chat box.
+        focusOnNavigation: false,
+      },
+    })
+  let view = make()
   view.setBorderRadius(PAGE_RADIUS)
-  const wc = view.webContents
-  const history = wc.navigationHistory
+  let wc = view.webContents
+  let history = wc.navigationHistory
   window.contentView.addChildView(view)
+  /** What every view the page is in listens to (`each` below), wired to the next one made too. */
+  const wiring: Array<(w: WebContents) => void> = []
+  const each = (f: (w: WebContents) => void) => {
+    wiring.push(f)
+    f(wc)
+  }
+  /** A handler of one view's: nothing once the page is in another (a view being closed still
+   *  says things: its unload, its renderer ending). */
+  const mine =
+    <A extends unknown[]>(w: WebContents, fn: (...a: A) => void) =>
+    (...a: A): void => {
+      if (w === wc) fn(...a)
+    }
+  each((w) => {
+    guard(w.session)
+    refusers.set(w, (to) => w === wc && refuse(to))
+  })
 
   let url = ""
   let loading = false
@@ -164,6 +228,12 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   /** When a note was last refused here (see below): at most one answer a second. */
   let refusedAt = 0
   let forgeryLogged = false
+  /** The scheme the page last tried to leave for, until the next document (PageState.refused). */
+  let refused: string | undefined
+  /** The load now under way was redirected to such a scheme by its server, and so failed: why,
+   *  for its error (a load fails as ERR_FAILED, which says nothing). */
+  let redirectedOut: string | undefined
+  const failure = (fallback: string) => (redirectedOut ? `The site sent the page on to an address that is not a web page's ("${redirectedOut}"), which is not allowed.` : fallback)
   let reloadTimer: ReturnType<typeof setTimeout> | undefined
   let probeTimer: ReturnType<typeof setTimeout> | undefined
   /** How many holds keep the page drawing (holdFrames), and the one an Enter or a click takes. */
@@ -213,10 +283,10 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       wc.enableDeviceEmulation({ screenPosition: "mobile", screenSize: size, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: size, scale: fitted })
     } else wc.disableDeviceEmulation()
   }
-  wc.on("did-navigate", () => {
+  each((w) => w.on("did-navigate", mine(w, () => {
     committed = true
     if (device === "phone") emulate()
-  })
+  })))
   // A new document is not a phone's until it is told (emulation goes with the document before
   // it), and by then the page's own scripts may have had it laid out: as a desktop's, where
   // scrollbars take room (Linux, Windows, a Mac set to always show them) 15 px narrower. The zoom
@@ -226,11 +296,12 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   // one with a scrollbar that takes no room (page-preload.ts), until it has loaded or is made a
   // desktop's (setDevice says so on the same channel). It has to know at once: asked and
   // answered in one go, the one such question in the app.
-  wc.ipc.on(IS_PHONE, (event) => void (event.returnValue = device === "phone"))
+  // (Answered whatever view asks: a renderer waits on the answer, a view being closed too.)
+  each((w) => w.ipc.on(IS_PHONE, (event) => void (event.returnValue = w === wc && device === "phone")))
 
   // ── overlay → main: window.__review in the preload's world, over IPC ─────────────────────────
   // The preload runs in the top frame only, and the placeholder gets no overlay (page-preload.ts).
-  wc.ipc.on(FROM_OVERLAY, (event: IpcMainEvent, payload: unknown) => {
+  each((w) => w.ipc.on(FROM_OVERLAY, mine(w, (event: IpcMainEvent, payload: unknown) => {
     // Only the document now in the top frame speaks for the overlay; not one that just left.
     if (event.senderFrame !== wc.mainFrame || typeof payload !== "string") return
     let msg: unknown
@@ -272,13 +343,13 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     } catch (err) {
       log("error", "page: handling an overlay message failed", { type: (msg as PageMessage).type, error: String(err) })
     }
-  })
+  })))
   // A preload that fails (a missing file, an error in it) leaves the page without the overlay.
-  wc.on("preload-error", (_event, file, err) => {
+  each((w) => w.on("preload-error", mine(w, (_event, file, err) => {
     overlayError = `Review overlay unavailable: ${String(err)}`
     log("error", "page: the overlay's preload failed, pages load without it", { file, error: String(err) })
     opts.onChange()
-  })
+  })))
 
   // ── frames ───────────────────────────────────────────────────────────────────────────────────
   function holdFrames(): () => void {
@@ -314,6 +385,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       loading,
       ...(shown ? { error: shown } : {}),
       ...(wc.isCrashed() ? { crashed: true as const } : {}),
+      ...(refused ? { refused } : {}),
       canGoBack: before !== undefined && !internal(before),
       canGoForward: history.canGoForward(),
       hmr,
@@ -321,7 +393,8 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   }
 
   async function probeHmr() {
-    if (gone()) return
+    // (A renderer that just died says it stopped loading: nothing is asked of it.)
+    if (gone() || wc.isCrashed()) return
     const at = wc.getURL()
     const found = internal(at) ? false : !!(await wc.executeJavaScript(HMR_PROBE, false).catch(() => false))
     if (gone() || wc.getURL() !== at || found === hmr) return
@@ -329,19 +402,20 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     opts.onChange()
   }
 
-  wc.on("did-start-loading", () => {
+  each((w) => w.on("did-start-loading", mine(w, () => {
     loading = true
     error = undefined
+    redirectedOut = undefined
     opts.onChange()
-  })
-  wc.on("did-stop-loading", () => {
+  })))
+  each((w) => w.on("did-stop-loading", mine(w, () => {
     loading = false
     opts.onChange()
     // Dev clients often attach a moment after load; look twice.
     void probeHmr()
     clearTimeout(probeTimer)
     probeTimer = setTimeout(() => void probeHmr(), 1500)
-  })
+  })))
   // Only the document now in the top frame can fail the page. A failed load leaves Chromium's
   // error page (chrome-error://chromewebdata/) in a frame of its own, still loading; a good load
   // started before it finishes replaces that frame, and the frame it left then reports its own
@@ -350,16 +424,16 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     const main = wc.mainFrame
     return !main || (main.processId === processId && main.routingId === routingId)
   }
-  wc.on("did-fail-load", (_e, code, desc, failed, isMain, processId, routingId) => {
+  each((w) => w.on("did-fail-load", mine(w, (_e, code, desc, failed, isMain, processId, routingId) => {
     if (!isMain || code === -3 || !current(processId, routingId)) return // -3: aborted by a newer navigation
-    error = `${desc} (${code}) ${failed}`
+    error = failure(`${desc} (${code}) ${failed}`)
     opts.onChange()
-  })
-  wc.on("render-process-gone", (_e, details) => {
+  })))
+  each((w) => w.on("render-process-gone", mine(w, (_e, details) => {
     error = `The page crashed (${details.reason}). Reload to try again.`
     log("error", "page: renderer gone", { reason: details.reason, exitCode: details.exitCode, url })
     opts.onChange()
-  })
+  })))
   const navigated = (to: string) => {
     if (!internal(to) && to !== url) {
       url = to
@@ -367,28 +441,65 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     }
     opts.onChange() // back/forward may have changed even when the URL didn't
   }
-  wc.on("did-navigate", (_e, to) => {
+  each((w) => w.on("did-navigate", mine(w, (_e, to) => {
     forgeryLogged = false // a new document (not a hash change, which a page can do in a loop)
+    refused = undefined
     navigated(to)
-  })
-  wc.on("did-navigate-in-page", (_e, to, isMain) => isMain && navigated(to))
+  })))
+  each((w) => w.on("did-navigate-in-page", mine(w, (_e, to, isMain) => void (isMain && navigated(to)))))
   // One page under review: links that want a new window open here instead.
-  wc.setWindowOpenHandler(({ url: to }) => {
-    // The page picks this URL, not the reviewer: web pages only, as a browser would allow.
-    if (/^https?:/i.test(to)) load(to)
-    else log("info", "page: ignored window.open for a non-web URL", { url: to.slice(0, 200) })
-    return { action: "deny" }
-  })
+  each((w) =>
+    w.setWindowOpenHandler(({ url: to }) => {
+      // The page picks this URL, not the reviewer: web pages only, as a browser would allow.
+      if (w === wc) {
+        if (WEB.test(to)) load(to)
+        else refuse(to)
+      }
+      return { action: "deny" }
+    }),
+  )
+  // Anywhere but the web is stopped (see "what the page may do"): a link, a script's
+  // `location.href`, a form, in the top frame or one inside it. (Not what the app itself loads.)
+  each((w) =>
+    w.on(
+      "will-frame-navigate",
+      mine(w, (event) => {
+        if ((event.isMainFrame ? WEB : IN_PAGE).test(event.url)) return
+        event.preventDefault()
+        refuse(event.url)
+      }),
+    ),
+  )
+  // A server's redirect to another scheme, also of a load the app started.
+  each((w) =>
+    w.on(
+      "will-redirect",
+      mine(w, (event) => {
+        if ((event.isMainFrame ? WEB : IN_PAGE).test(event.url)) return
+        event.preventDefault()
+        if (event.isMainFrame) redirectedOut = schemeOf(event.url)
+        refuse(event.url)
+      }),
+    ),
+  )
+  /** The page tried to go to `to`, of a scheme it may not: said once per scheme and document. */
+  function refuse(to: string) {
+    const scheme = schemeOf(to)
+    if (refused === scheme) return
+    refused = scheme
+    log("warn", "page: stopped the page from opening an address that is not a web page's", { scheme, url: url.slice(0, 200) })
+    opts.onChange()
+  }
 
-  wc.on("before-mouse-event", (_event, mouse) => {
+  each((w) => w.on("before-mouse-event", mine(w, (_event, mouse) => {
     if (mouse.type !== "mouseUp" || mouse.button !== "left") return
     clickAt = Date.now()
     holdForInput()
-  })
+  })))
 
   // ── keys while the page has focus ────────────────────────────────────────────────────────────
   // mod+U/P/O/I and mod+shift+P (the modes, the brush) are the overlay's own: they reach the page, and it sends "toggle" or "mode".
-  wc.on("before-input-event", (event, input) => {
+  each((w) => w.on("before-input-event", mine(w, (event, input) => {
     if (input.type !== "keyDown") return
     // Enter sends a note (alt+Enter to the background); remembered for the check in the message handler.
     if (input.key === "Enter") {
@@ -410,7 +521,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     else if (key === "k") opts.onShortcut("focus-chat")
     else return
     event.preventDefault()
-  })
+  })))
 
   // ── navigation ───────────────────────────────────────────────────────────────────────────────
   function load(to: string) {
@@ -420,6 +531,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     url = to
     hmr = false
     error = undefined
+    refused = undefined
     clearTimeout(reloadTimer)
     navigate(() => {
       wc.loadURL(to || `data:text/html,${encodeURIComponent(EMPTY)}`).catch((err: unknown) => {
@@ -428,7 +540,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
         // the description can be empty: the error page's own aborted load (see did-fail-load)
         // rejects the good load's promise as `errno: -3, code: ""`. So the number decides.
         if (error || (err as { errno?: number }).errno === -3 || gone()) return
-        error = String(err)
+        error = failure(String(err))
         opts.onChange()
       })
     })
@@ -481,8 +593,39 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     reloadTimer = setTimeout(() => void tryNow(), RELOAD_DELAY)
   }
 
+  function setPartition(name: string): boolean {
+    if (disposed || name === partition) return false
+    partition = name
+    const old = view
+    const at = window.isDestroyed() ? -1 : window.contentView.children.indexOf(old)
+    const bounds = old.getBounds()
+    const visible = old.getVisible()
+    view = make()
+    wc = view.webContents
+    history = wc.navigationHistory
+    for (const f of wiring) f(wc)
+    // Where the old one was, as it was: the same size, shown or hidden, its frames held or not.
+    if (at >= 0) window.contentView.addChildView(view, at)
+    view.setBounds(bounds)
+    view.setVisible(visible)
+    if (holds > 0) wc.setBackgroundThrottling(false)
+    // Nothing of the page before is this one's: a phone's is made so again once it has a document.
+    committed = false
+    fitted = 1
+    overlayError = undefined
+    clearTimeout(probeTimer)
+    enterAt = clickAt = 0
+    shape()
+    if (!window.isDestroyed()) window.contentView.removeChildView(old)
+    if (!old.webContents.isDestroyed()) old.webContents.close()
+    load("")
+    return true
+  }
+
   return {
-    view,
+    get view() {
+      return view
+    },
     state,
     load,
     reload,
@@ -518,6 +661,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     focus: () => void (gone() || wc.focus()),
     // The overlay is the page's preload, not a debugger's: open or closed, the tools leave it be.
     openDevTools: () => void (gone() || wc.openDevTools({ mode: "detach" })),
+    setPartition,
     dispose() {
       disposed = true
       clearTimeout(reloadTimer)

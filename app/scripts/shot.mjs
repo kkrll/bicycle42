@@ -184,6 +184,10 @@ const SHOTS = [
   { name: "noconversation", mock: "noconversation" },
   { name: "offline", mock: "offline" },
   { name: "pageerror", mock: "pageerror" },
+  // The page tried to open an app (a scheme not the web's): stopped, said quietly by its address.
+  { name: "page-refused", mock: "refused" },
+  // An agent on another computer said its site is at an address that is not on that computer.
+  { name: "site-elsewhere", mock: "elsewhere" },
   { name: "settings", mock: "review", run: [click("[data-action=settings]")], wait: 500 },
   { name: "settings-agents", mock: "review", run: [click("[data-action=settings]"), pause(300), click(".dialog .disclosure summary")], wait: 500 },
   { name: "settings-rename", mock: "review", run: [click("[data-action=settings]"), pause(300), click("[data-action=rename-server]")], wait: 500 },

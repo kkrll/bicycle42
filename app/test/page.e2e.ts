@@ -41,6 +41,11 @@ async function until<T>(fn: () => T | Promise<T>, ms = 5000): Promise<T> {
 /** A page that scrolls, with something 900 px wide in it: wider than any phone. */
 const WIDE_PAGE = `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>wide</title><style>body { margin: 0 } #wide { width: 900px; height: 40px } #tall { height: 3000px }</style><div id="wide"></div><div id="tall"></div>`
 
+/** A site's service worker that answers /who itself, as the security review's site A's did. */
+const SERVICE_WORKER = `self.addEventListener("install", () => self.skipWaiting())
+self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()))
+self.addEventListener("fetch", (e) => { if (new URL(e.request.url).pathname === "/who") e.respondWith(new Response("SERVED BY SITE A'S SERVICE WORKER")) })`
+
 function serve(): Promise<http.Server> {
   const server = http.createServer((req, res) => {
     const asked = decodeURIComponent(new URL(req.url ?? "/", "http://x").pathname)
@@ -52,6 +57,11 @@ function serve(): Promise<http.Server> {
     }
     if (asked === "/hang.html") return void res.writeHead(200, { "content-type": "text/html", "cache-control": "no-store" }).end(`${WIDE_PAGE}<img src="/never.png" alt="">`)
     if (asked === "/wide.html") return void res.writeHead(200, { "content-type": "text/html", "cache-control": "no-store" }).end(WIDE_PAGE)
+    // What a site's service worker can answer in its place (the session checks below).
+    if (asked === "/who") return void res.writeHead(200, { "content-type": "text/plain", "cache-control": "no-store" }).end("SERVED BY THE SERVER")
+    if (asked === "/sw.js") return void res.writeHead(200, { "content-type": "text/javascript", "cache-control": "no-store" }).end(SERVICE_WORKER)
+    // A redirect out of the web, to an app's scheme.
+    if (asked === "/to-app") return void res.writeHead(302, { location: "b42probe://redirected", "cache-control": "no-store" }).end()
     const file = path.normalize(path.join(overlayDir, asked))
     if (!file.startsWith(overlayDir)) return void res.writeHead(403).end()
     fs.readFile(file, (err, body) => {
@@ -919,6 +929,86 @@ async function main() {
   const earlyWidth = () => early.view.webContents.executeJavaScript("document.body && (document.body.style.minHeight = '3000px'); document.documentElement.clientWidth") as Promise<number>
   check("a page told it is a phone's before its first load is one once it has loaded", (await until(async () => !early.state().loading && (await earlyWidth()) === 390, 5000)) === true, String(await earlyWidth().catch(String)))
   early.dispose()
+
+  // ── what the page may do: no permissions, no other schemes, a session per computer ─────────
+  // A page of its own, in a session of its own (in memory: nothing is kept between runs).
+  {
+    // (The first server is gone by now: the one after it.)
+    const base = `http://127.0.0.1:${(again.address() as { port: number }).port}`
+    let changed = 0
+    const g = await createPage(win, {
+      preload: path.join(__dirname, "../page-preload.cjs"),
+      partition: "page-e2e-computer-a",
+      onMessage: () => {},
+      onChange: () => void changed++,
+      onShortcut: () => {},
+      log: () => {},
+    })
+    g.setBounds({ x: 0, y: 0, width: 800, height: 600 })
+    const gjs = (code: string) => g.view.webContents.executeJavaScript(code, true)
+    const loaded = async (to: string) => {
+      g.load(to)
+      return until(() => !g.state().loading && g.view.webContents.getURL() === to, 5000)
+    }
+    await loaded(`${base}/wide.html`)
+
+    // Every permission the review's probe was granted, asked of the page's own APIs.
+    const asked = (await gjs(`Promise.all(["geolocation", "notifications", "camera", "microphone", "midi", "clipboard-read"].map((name) =>
+      navigator.permissions.query({ name }).then((r) => name + "=" + r.state, (e) => name + "=" + e.name))).then((a) => a.join(" "))`)) as string
+    check("a page is refused every permission it looks at: geolocation, notifications, camera, microphone, midi, clipboard", asked.split(" ").every((a) => a.endsWith("=denied")), asked)
+    const requested = (await gjs(`Promise.all([
+      Notification.requestPermission(),
+      new Promise((done) => navigator.geolocation.getCurrentPosition(() => done("position"), (e) => done("geolocation " + e.code), { timeout: 3000 })),
+      navigator.requestMIDIAccess().then(() => "midi granted", (e) => "midi " + e.name),
+    ]).then((a) => a.join(", "))`)) as string
+    // (Geolocation's code 1 is PERMISSION_DENIED; granted, headless, it would be 2 or a position.)
+    check("…and every one it asks for", requested === "denied, geolocation 1, midi NotAllowedError", requested)
+
+    // Another scheme than the web's, by each way a page has: stopped, and said once per scheme.
+    const at = g.view.webContents.getURL()
+    void gjs(`location.href = "b42probe://from-a-script"`)
+    check("a script sending the page to an app's scheme is stopped, and the scheme said", (await until(() => g.state().refused === "b42probe:", 3000)) === true, JSON.stringify(g.state()))
+    await sleep(300)
+    check("…and the page stays where it was", g.view.webContents.getURL() === at && g.state().url === at, g.view.webContents.getURL())
+    void gjs(`document.body.appendChild(Object.assign(document.createElement("iframe"), { src: "b42frame://in-a-frame" }))`)
+    check("a frame's is stopped too", (await until(() => g.state().refused === "b42frame:", 3000)) === true, JSON.stringify(g.state()))
+    void gjs(`window.open("b42window://a-window")`)
+    check("a window.open's too", (await until(() => g.state().refused === "b42window:", 3000)) === true, JSON.stringify(g.state()))
+    void gjs(`Object.assign(document.createElement("a"), { href: "b42link://a-link" }).click()`)
+    check("a link's too", (await until(() => g.state().refused === "b42link:", 3000)) === true, JSON.stringify(g.state()))
+    g.load(`${base}/to-app`)
+    check("a server's redirect to one is stopped, also of a load the app started, and its failure says why", (await until(() => g.state().refused === "b42probe:" && /not a web page's \("b42probe:"\)/.test(g.state().error ?? ""), 3000)) === true, JSON.stringify(g.state()))
+    await loaded(`${base}/wide.html`)
+    check("the next page says nothing of it", g.state().refused === undefined, JSON.stringify(g.state()))
+    void gjs(`location.href = "/wide.html?again"`)
+    check("a web page's own link still goes", (await until(() => g.view.webContents.getURL() === `${base}/wide.html?again`, 3000)) === true, g.view.webContents.getURL())
+
+    // Site A's service worker, at the address another computer's site will have.
+    const who = () => gjs(`fetch("/who").then((r) => r.text(), (e) => String(e))`) as Promise<string>
+    await gjs(`navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready).then(() => true)`)
+    await until(() => gjs("!!navigator.serviceWorker.controller"), 5000)
+    check("(a site's service worker answers in its session)", (await who()) === "SERVED BY SITE A'S SERVICE WORKER", await who())
+
+    const before = win.contentView.children.length
+    const oldView = g.view
+    const changes = changed
+    const switched = g.setPartition("page-e2e-computer-b")
+    const swapped = g.view
+    check("another computer's session makes the page again: the same place, the same size, nothing loaded", switched && swapped !== oldView && win.contentView.children.length === before && win.contentView.children.includes(swapped) && !win.contentView.children.includes(oldView) && JSON.stringify(swapped.getBounds()) === JSON.stringify({ x: 0, y: 0, width: 800, height: 600 }) && swapped.getVisible() && g.state().url === "" && changed > changes, `${switched} ${JSON.stringify(swapped.getBounds())} ${JSON.stringify(g.state())}`)
+    check("…and the same name again changes nothing", g.setPartition("page-e2e-computer-b") === false && g.view === swapped)
+    await loaded(`${base}/wide.html`)
+    const there = (await gjs(`navigator.serviceWorker.getRegistrations().then((r) => r.length + " " + !!navigator.serviceWorker.controller)`)) as string
+    check("in it, the same address has no service worker of the other computer's site", there === "0 false" && (await who()) === "SERVED BY THE SERVER", `${there} ${await who()}`)
+    check("…and is guarded the same way", ((await gjs(`navigator.permissions.query({ name: "geolocation" }).then((r) => r.state)`)) as string) === "denied")
+    void gjs(`location.href = "b42probe://from-b"`)
+    check("…its view too", (await until(() => g.state().refused === "b42probe:", 3000)) === true, JSON.stringify(g.state()))
+
+    g.setPartition("page-e2e-computer-a")
+    await loaded(`${base}/wide.html`)
+    await until(() => gjs("!!navigator.serviceWorker.controller"), 5000)
+    check("back in the first computer's session, its site's service worker is there as it was", (await who()) === "SERVED BY SITE A'S SERVICE WORKER", await who())
+    g.dispose()
+  }
 
   // ── the page's renderer dies ───────────────────────────────────────────────────────────────
   // (Killed from outside, as the system does to a renderer out of memory.) Nothing is sent to a

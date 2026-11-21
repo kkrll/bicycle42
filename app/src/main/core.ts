@@ -76,7 +76,8 @@ import { createOutbox, type Outgoing } from "./outbox"
 import { createShots } from "./shots"
 import { createPictures } from "./pictures"
 import { thisMachine, type Machine } from "./machine"
-import { checkHost, connectSsh, type RemoteMachine } from "./ssh"
+import { siteAt } from "./site-address"
+import { checkHost, connectSsh, ownerOf, type RemoteMachine } from "./ssh"
 import { createSnapshots, EMPTY_TREE, Refused, type Restore, type Snapshots, type Turn } from "./snapshots"
 import { createStore, type SavedServer, type Settings } from "./store"
 
@@ -120,6 +121,9 @@ export type Core = {
   detach(): void
   /** The address the page was last at ("" for none): what the shell loads first. */
   lastUrl(): string
+  /** The page's session (an Electron partition's name) for the computer of the saved agent:
+   *  what the shell makes the page in, so it is in the right one before anything loads. */
+  partition(): string
   /** Where the window last put the page, if a rectangle was kept: the shell lays the page out
    *  there while it loads, hidden, before the window can say where it goes. */
   lastPageBounds(): Rect | undefined
@@ -182,20 +186,34 @@ export function createCore(host: Host): Core {
     if (m.local || m === machine) return
     for (const [h, p] of remotes) void p.then((r) => r === m && (remotes.delete(h), void r.close()), () => undefined)
   }
+  /** The page's session for a computer's sites (an Electron partition, `persist:` so a login on
+   *  a site survives a restart). This computer's are in the one every site was in before
+   *  computers had their own, so the logins there stay. Each other computer has one of its own,
+   *  named by its host as typed and this install's id: its sites are forwarded to this
+   *  computer's 127.0.0.1, often at the port another computer's had, and an origin's storage,
+   *  cookies and service workers would otherwise be the other computer's site's. */
+  function partitionOf(where?: string): string {
+    if (!where) return "persist:review"
+    return `persist:review-${crypto.createHash("sha256").update(`${where}\0${ownerOf(host.dataDir)}`).digest("hex").slice(0, 16)}`
+  }
+  /** The page is put in the session of the computer `m`'s sites: when that is another than the
+   *  one it is in, the page is made again there, with nothing loaded (page.ts). */
+  const sessionFor = (m: Machine) => page?.setPartition(partitionOf(m.local ? undefined : (m as RemoteMachine).host)) ?? false
+
   /** The address an agent on another computer said its site is at, opened here: a port on its
-   *  localhost is forwarded over the ssh connection to one on this computer's 127.0.0.1 (the
-   *  same number when it is free here), which is what the page opens, never `localhost` (a
-   *  server of this computer's on [::1] would answer it first). The two ports are kept
-   *  (settings.forwards). Throws a sentence when it can't be forwarded: the address as the agent
-   *  said it would open this computer's own site, if any. */
-  async function hereFor(address: string): Promise<string> {
+   *  loopback is forwarded over the ssh connection to one on this computer's 127.0.0.1 (the same
+   *  number when it is free here), which is what the page opens, never `localhost` (a server of
+   *  this computer's on [::1] would answer it first). The two ports are kept (settings.forwards).
+   *  Any other address is not that computer's (site-address.ts): undefined, and the reviewer is
+   *  asked. Throws a sentence when it can't be forwarded: the address as the agent said it would
+   *  open this computer's own site, if any. An agent on this computer: the address as it is. */
+  async function hereFor(address: string): Promise<string | undefined> {
     const m = machine
     if (m.local || !("forward" in m)) return address
     const r = m as RemoteMachine
-    const u = new URL(address)
-    if (!/^(localhost|127(\.\d+){3}|0\.0\.0\.0|\[::1\]|::1)$/.test(u.hostname)) return address
-    const port = Number(u.port || (u.protocol === "https:" ? 443 : 80))
-    const there = u.hostname === "0.0.0.0" ? "127.0.0.1" : u.hostname.replace(/^\[|\]$/g, "")
+    const at = siteAt(address)
+    if (at.on !== "computer") return undefined
+    const { port, there } = at
     let local: number
     try {
       local = await r.forward(port, there)
@@ -203,6 +221,7 @@ export function createCore(host: Host): Core {
       throw new Error(`The site on ${r.host} (port ${port}) can't be opened here: ${say(err)}`)
     }
     store.update((s) => void ((s.forwards ??= {})[r.host] = { ...s.forwards[r.host], [String(local)]: { port, host: there } }))
+    const u = new URL(address)
     u.hostname = "127.0.0.1"
     u.port = String(local)
     return u.toString().replace(/\/$/, address.endsWith("/") ? "/" : "")
@@ -224,6 +243,9 @@ export function createCore(host: Host): Core {
   /** A site of the agent's computer that could not be opened here, said where the page would be
    *  (its "Try again" forwards it again). The page itself shows nothing meanwhile. */
   let blocked: { url: string; error: string; again(): Promise<void> } | undefined
+  /** An address an agent on another computer said its site is at that is not on that computer:
+   *  offered to the reviewer, never opened by itself (hereFor). */
+  let elsewhere: { url: string; computer: string } | undefined
   function block(url: string, error: string, again: () => Promise<void>) {
     log("warn", "can't open a site of the agent's computer", error)
     blocked = { url, error, again }
@@ -422,6 +444,7 @@ export function createCore(host: Host): Core {
       page: {
         ...(p ?? { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }),
         ...(blocked && !p?.url ? { url: blocked.url, error: blocked.error, loading: false } : {}),
+        ...(elsewhere && !blocked && !p?.url ? { elsewhere } : {}),
         device: device(),
         phone: phone().id,
       },
@@ -633,6 +656,7 @@ export function createCore(host: Host): Core {
     toChat({ type: "reset", session: "", items: [] })
     chatPictures.clear()
     blocked = undefined
+    elsewhere = undefined
     // A site of another computer's opens once it is forwarded again (use): before, its address
     // could open whatever this computer has at that port.
     const last = store.settings().lastUrl ?? ""
@@ -716,12 +740,19 @@ export function createCore(host: Host): Core {
     drop()
     const was = machine
     machine = on
+    // Before anything of this computer's loads: its sites are in a session of their own.
+    const moved = sessionFor(on)
     snapshots = snapshotsOf(on)
     letGo(was)
     backend = next
     connection = { status: "online", url, version }
     const kept = save()
     enter(kept.id)
+    // The same agent as before (enter loaded nothing) in another session: the page it was on.
+    if (moved && !page?.state().url) {
+      const last = store.settings().lastUrl ?? ""
+      page?.load(forwardedAt(last) ? "" : last)
+    }
     unlisten = next.listen(onBackend)
     push()
     const [m, a] = await Promise.all([next.models(), next.agents()]).catch((err) => {
@@ -1293,7 +1324,12 @@ export function createCore(host: Host): Core {
         if (backend !== b || works()) return
         siteAsked = undefined
         blocked = undefined
-        page?.load(here)
+        if (here !== undefined) return page?.load(here)
+        // Not on the agent's computer: it would load on this one, so the reviewer says.
+        log("warn", "the agent's site is not on its computer, so it is not opened by itself", { url: url.slice(0, 200) })
+        elsewhere = { url, computer: (machine as RemoteMachine).host }
+        page?.load("")
+        push()
       }
       const tryOpen = (): Promise<void> => open().catch((err) => void (backend === b && !works() && block(url, say(err), tryOpen)))
       await tryOpen()
@@ -1740,7 +1776,7 @@ export function createCore(host: Host): Core {
   /** The page's state changed: it loads, it is somewhere else. */
   function onPageChange() {
     const url = page?.state().url ?? ""
-    if (url) blocked = undefined
+    if (url) (blocked = undefined), (elsewhere = undefined)
     if (url && url !== store.settings().lastUrl) store.update((s) => void (s.lastUrl = url))
     const before = site?.origin
     switchSite(placeOf(url))
@@ -2293,6 +2329,7 @@ export function createCore(host: Host): Core {
   const commands: Core["commands"] = {
     navigate(url) {
       blocked = undefined
+      elsewhere = undefined
       page?.load(url)
     },
     reload() {
@@ -2607,6 +2644,7 @@ export function createCore(host: Host): Core {
       drop()
       const was = machine
       machine = thisMachine()
+      sessionFor(machine)
       snapshots = snapshotsOf(machine)
       letGo(was)
       store.update((s) => void delete s.server)
@@ -2959,6 +2997,10 @@ export function createCore(host: Host): Core {
         } catch {}
       }
       return last
+    },
+    partition() {
+      const saved = store.settings().server
+      return partitionOf(saved && "agent" in saved ? saved.host : undefined)
     },
     lastPageBounds() {
       // From disk: only a rectangle if it has the four numbers of one.

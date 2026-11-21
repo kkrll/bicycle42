@@ -396,6 +396,14 @@ export type AppState = {
     /** The page's renderer is gone (`error` says so): no overlay is there, so nothing it said of
      *  its panes holds. The window drops those views; loaded again, the overlay sends new ones. */
     crashed?: true
+    /** The page tried to leave the web for another scheme (an app's link, "mailto:", one a
+     *  program on this computer registered) and was stopped: that scheme, with its colon. Until
+     *  the next page. */
+    refused?: string
+    /** An agent on another computer said its site is at an address that is not on that computer
+     *  (it would load on this one): shown with a way to open it here, never opened by itself.
+     *  Only while no page is there. */
+    elsewhere?: { url: string; computer: string }
     canGoBack: boolean
     canGoForward: boolean
     /** The page hot-reloads by itself, so the app leaves reloading to it. */

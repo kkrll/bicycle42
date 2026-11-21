@@ -111,6 +111,8 @@ async function createWindow() {
 
   page = await createPage(win, {
     preload: path.join(__dirname, "page-preload.cjs"),
+    // The session of the saved agent's computer's sites: the page loads in it before the agent is back.
+    partition: core.partition(),
     ...core.pageEvents,
     onShortcut(key) {
       if (key === "toggle-review") return void core.commands.toggleReview()

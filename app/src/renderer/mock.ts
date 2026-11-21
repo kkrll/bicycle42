@@ -822,6 +822,17 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     case "offline":
       state.connection = { status: "offline", url: "acp://claude@dev-box", error: "dev-box can't be reached: the connection was refused.", away: true }
       break
+    case "elsewhere":
+      // The agent on dev-box said its site is at an address that is not on dev-box: asked, not opened.
+      Object.assign(state, { site: { origin: "", directory: DIRECTORY } })
+      state.page = { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false, device: "desktop", phone: PHONE.id, elsewhere: { url: "http://localtest.me:3000/", computer: "dev-box" } }
+      state.review = { enabled: false, mode: "preview", brush: false, autoReload: false, notes: [], unplaced: 0, docks: [] }
+      items = []
+      break
+    case "refused":
+      // The page tried to open an app's link, and was stopped.
+      state.page.refused = "zoommtg:"
+      break
     case "pageerror":
       state.page.url = "http://a-very-long-development-hostname.some-team.example:3000/products/category/shoes?sort=price&direction=ascending&page=4"
       state.page.error = "The connection was refused (ERR_CONNECTION_REFUSED)."

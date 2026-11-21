@@ -336,6 +336,7 @@ function TopBar(props: {
         <UrlField ref={props.urlRef} />
         <DeviceSwitch disabled={!state.page.url} />
         <PageError />
+        <PageRefused />
         <div class="tools">
           <Hint />
           <button
@@ -382,6 +383,23 @@ function PageError() {
           <button class="text-btn" onClick={() => act("reload")}>
             Try again
           </button>
+        </div>
+      )}
+    </Show>
+  )
+}
+
+/** The page tried to leave the web for another scheme (an app's link, "mailto:") and was stopped
+ *  (main/page.ts). Said quietly beside its address, until the next page: nothing is wrong with
+ *  the page, and nothing is to be done. */
+function PageRefused() {
+  return (
+    <Show when={!overlayError() && state.page.refused}>
+      {(scheme) => (
+        <div class="page-error page-refused" role="status">
+          <span class="page-error-text">
+            The page tried to open “{scheme()}” and was not allowed
+          </span>
         </div>
       )}
     </Show>
@@ -874,7 +892,26 @@ export function App() {
               </Show>
             </div>
           </Show>
-          <Show when={state.page.url === ""}>
+          <Show when={state.page.url === "" && state.page.elsewhere}>
+            {(at) => (
+              <div class="page-failed page-elsewhere" role="alert">
+                <Icon name="alert" size={20} />
+                <p class="chat-empty-lead">
+                  The agent says the site is at <span class="page-elsewhere-url">{at().url}</span>, which is not on{" "}
+                  {at().computer}. Open it here?
+                </p>
+                <p class="page-failed-why">
+                  It would load from this computer, not from {at().computer}: from your network, or the web.
+                </p>
+                <div class="page-actions">
+                  <button class="btn primary" onClick={() => act("navigate", at().url)}>
+                    Open it here
+                  </button>
+                </div>
+              </div>
+            )}
+          </Show>
+          <Show when={state.page.url === "" && !state.page.elsewhere}>
             <div class="page-empty">
               <SetupSteps at={3} />
               <p class="chat-empty-lead">Open your site.</p>
