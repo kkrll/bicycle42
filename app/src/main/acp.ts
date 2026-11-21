@@ -22,13 +22,12 @@
 // agent left running. `can` says so, and those calls throw a sentence for the person.
 //
 // Agent payloads are untrusted: what is read beyond the SDK's own checks goes through rec/str/num/list.
-import { execFile, spawn, type ChildProcess } from "node:child_process"
 import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 import { Readable, Writable } from "node:stream"
 import { client, ndJsonStream, type ClientContext, type Stream } from "@agentclientprotocol/sdk/unstable"
-import { agentEnv, agentHome, which } from "./agents"
+import { thisMachine, type Machine } from "./machine"
 import { clip, defined, endMarker, list, num, rec, str, userItem, type Raw } from "./chat-items"
 import type { NamePicture } from "./opencode"
 import { unifiedPatch } from "./patch"
@@ -93,6 +92,8 @@ export type AcpOptions = {
   stateDir?: string
   log?: Log
   pictures?: NamePicture
+  /** The computer the agent runs on, and its folders are: this one unless said. */
+  machine?: Machine
   /** For tests: instead of starting `command`. */
   connect?: () => Transport | Promise<Transport>
   /** Waited for after a message's turn is announced (the `run` and `inbox` events) and before
@@ -228,17 +229,7 @@ const AUTH_REQUIRED = -32000
 const SIGN_IN = /\b(authentication required|auth(entication)? method|not (logged|signed) in|(log|sign) ?in (first|required|again)|please (run \/?login|(log|sign) ?in)|run \/login|login required|invalid api key|api key (is )?(missing|not (set|found))|no api key|unauthori[sz]ed)\b/i
 export const needsSignIn = (err: unknown) => code(err) === AUTH_REQUIRED || SIGN_IN.test(said(err))
 
-/** A command line for cmd.exe: each word quoted when it needs to be. A word with a character
- *  cmd.exe would act on even inside quotes (`"`, `%`, `!`, `^`, a line break) is refused: the
- *  command was typed by a person, and is run as one program with its arguments, nothing more. */
-export function cmdLine(words: string[]): string {
-  return words
-    .map((w) => {
-      if (/["%!^\r\n]/.test(w)) throw new Error(`Can't start a command with ${JSON.stringify(w)} in it on Windows: it has a character cmd.exe would act on.`)
-      return w && /^[\w.\-/\\:=@+,]+$/.test(w) ? w : `"${w}"`
-    })
-    .join(" ")
-}
+export { cmdLine } from "./machine"
 
 /** When a file was last written; now when it can't be told. */
 function fileTime(file: string): number {
@@ -267,6 +258,7 @@ export function createAcp(opts: AcpOptions): Acp {
     log("warn", msg, data)
   }
   const name = opts.name
+  const machine = opts.machine ?? thisMachine()
 
   // ── the ledger on disk ──────────────────────────────────────────────────────────────────────
 
@@ -364,53 +356,20 @@ export function createAcp(opts: AcpOptions): Acp {
   let promptCaps: Raw = {}
 
   async function spawnAgent(): Promise<Transport> {
-    const env = await agentEnv()
+    const env = await machine.agentEnv()
     const [program, ...args] = opts.command
     if (!program) throw new Error(`No command to start ${name} with.`)
-    const exe = (await which(program, env)) ?? program
-    const windows = process.platform === "win32"
-    // Windows runs a .cmd or .bat (npx is one) only through cmd.exe, which reads the whole line:
-    // it is given one line, quoted, and refused when a word could make cmd.exe do anything else.
-    const viaCmd = windows && /\.(cmd|bat)$/i.test(exe)
-    const child: ChildProcess = viaCmd
-      ? spawn(cmdLine([exe, ...args]), [], { cwd: agentHome(), env, stdio: ["pipe", "pipe", "pipe"], shell: true, windowsHide: true })
-      : spawn(exe, args, {
-          cwd: agentHome(),
-          env,
-          stdio: ["pipe", "pipe", "pipe"],
-          // Its own process group, so what it starts (a dev server) ends with it.
-          detached: !windows,
-          windowsHide: true,
-        })
+    const exe = (await machine.which(program, env)) ?? program
+    const child = machine.spawn(exe, args, { cwd: machine.home, env })
     stderrTail = []
-    child.stderr?.on("data", (d: Buffer) => {
+    child.stderr.on("data", (d: Buffer) => {
       for (const line of String(d).split("\n")) if (line.trim()) stderrTail.push(line.trim().slice(0, 300))
       if (stderrTail.length > 20) stderrTail = stderrTail.slice(-20)
     })
-    const exited = new Promise<string>((resolve) => {
-      child.on("error", (err) => resolve(rec(err).code === "ENOENT" ? `${program} was not found on this computer` : said(err)))
-      child.on("exit", (exitCode, signal) => resolve(signal ? `it was ended (${signal})` : `it exited with code ${exitCode}`))
-    })
-    // What it started is ended too, also when the agent itself has ended already (a crash leaves
-    // its dev server running otherwise): the whole group, or on Windows the tree under it.
-    const kill = () => {
-      const pid = child.pid
-      if (!pid) return
-      if (windows) {
-        execFile("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true }, () => {})
-        return
-      }
-      const group = (signal: NodeJS.Signals) => {
-        try {
-          process.kill(-pid, signal)
-        } catch {
-          // ESRCH: nothing of it is left
-        }
-      }
-      group("SIGTERM")
-      setTimeout(() => group("SIGKILL"), 2000).unref()
-    }
-    return { stream: ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>), exited, kill }
+    const exited = child.exited.then((e) =>
+      e.error ? (e.error.code === "ENOENT" ? `${program} was not found on ${machine.where}` : said(e.error)) : e.signal ? `it was ended (${e.signal})` : `it exited with code ${e.code}`,
+    )
+    return { stream: ndJsonStream(Writable.toWeb(child.stdin) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>), exited, kill: child.kill }
   }
 
   /** The agent's process, started if it is not running. One start at a time. */
@@ -1235,13 +1194,13 @@ export function createAcp(opts: AcpOptions): Acp {
       return [...new Set(folders)].filter((f) => f && f !== "/")
     },
 
-    listFolders: (dir) => listFolders(dir),
+    listFolders: (dir) => listFolders(machine, dir),
 
     async models() {
       // What the agent can be asked is known once it has started.
       if (!optionsOf().length) await ensure()
       if (!optionsOf().length && has("options")) {
-        const res = await call("session/options", { cwd: agentHome() }).catch(() => ({}) as Raw)
+        const res = await call("session/options", { cwd: machine.home }).catch(() => ({}) as Raw)
         // A conversation of none: what it is told goes into the ledger alone.
         configured(blank(""), res)
       }
@@ -1376,7 +1335,7 @@ export function createAcp(opts: AcpOptions): Acp {
       return []
     },
 
-    findFiles: (directory, query) => findFiles(directory, query),
+    findFiles: (directory, query) => findFiles(machine, directory, query),
 
     async compact(id) {
       if (!hasCompact()) throw cannot("summarise the conversation")
@@ -1406,7 +1365,7 @@ export function createAcp(opts: AcpOptions): Acp {
       told(conv(id))
     },
 
-    vcs: (directory) => vcs(directory),
+    vcs: (directory) => vcs(machine, directory),
 
     async archive(id, archived) {
       if (!has("archive")) throw cannot("put a conversation away")
@@ -1651,56 +1610,51 @@ export function toolPart(key: string, raw: Raw, dir: string | undefined): ChatPa
   }) as ChatPart
 }
 
-// ── this computer's folders, files and repository ───────────────────────────────────────────────
+// ── the agent's computer's folders, files and repository ───────────────────────────────────────
 
-async function listFolders(dir: string): Promise<DirEntry[]> {
-  let entries: fs.Dirent[]
+async function listFolders(m: Machine, dir: string): Promise<DirEntry[]> {
+  let entries: Awaited<ReturnType<Machine["readdir"]>>
   try {
-    entries = await fs.promises.readdir(dir, { withFileTypes: true })
+    entries = await m.readdir(dir)
   } catch (err) {
     const e = rec(err)
     // The same words as OpenCode's answer, which the controller knows (folderExists).
     if (e.code === "ENOENT" || e.code === "ENOTDIR") throw Object.assign(new Error(`Directory not found: ${dir}`), { status: 404 })
     throw new Error(`Can't read ${dir}: ${str(e.code) ?? said(err)}`)
   }
-  const folders = entries.filter((e) => e.isDirectory() || (e.isSymbolicLink() && isDir(path.join(dir, e.name)))).map((e) => ({ name: e.name, path: path.join(dir, e.name) }))
+  const isDir = (p: string) => m.stat(p).then((s) => s.kind === "dir", () => false)
+  const kept = await Promise.all(entries.map(async (e) => e.kind === "dir" || (e.kind === "link" && (await isDir(m.path.join(dir, e.name))))))
+  const folders = entries.filter((_, i) => kept[i]).map((e) => ({ name: e.name, path: m.path.join(dir, e.name) }))
   const hidden = (e: DirEntry) => e.name.startsWith(".")
   return folders.sort((a, b) => Number(hidden(a)) - Number(hidden(b)) || a.name.localeCompare(b.name))
 }
 
-function isDir(p: string) {
-  try {
-    return fs.statSync(p).isDirectory()
-  } catch {
-    return false
-  }
+async function git(m: Machine, dir: string, args: string[], maxBuffer = 16 * 1024 * 1024): Promise<string> {
+  const r = await m.run("git", ["-C", dir, ...args], { timeout: 10_000, maxBuffer })
+  if (r.error) throw new Error(r.error.message)
+  if (r.code !== 0) throw new Error(`git ${args[0]}: ${r.signal ? `killed (${r.signal})` : r.err.trim() || `exit ${r.code}`}`)
+  return r.out
 }
 
-function git(dir: string, args: string[], maxBuffer = 16 * 1024 * 1024): Promise<string> {
-  return new Promise((resolve, reject) =>
-    execFile("git", ["-C", dir, ...args], { timeout: 10_000, maxBuffer, encoding: "utf8" }, (err, out) => (err ? reject(err) : resolve(out))),
-  )
-}
-
-async function vcs(dir: string): Promise<{ branch?: string; changes: RepoChange[] } | undefined> {
+async function vcs(m: Machine, dir: string): Promise<{ branch?: string; changes: RepoChange[] } | undefined> {
   try {
-    if ((await git(dir, ["rev-parse", "--is-inside-work-tree"])).trim() !== "true") return undefined
+    if ((await git(m, dir, ["rev-parse", "--is-inside-work-tree"])).trim() !== "true") return undefined
   } catch {
     return undefined
   }
-  const branch = (await git(dir, ["symbolic-ref", "--short", "-q", "HEAD"]).catch(() => "")).trim() || undefined
-  const status = await git(dir, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]).catch(() => "")
+  const branch = (await git(m, dir, ["symbolic-ref", "--short", "-q", "HEAD"]).catch(() => "")).trim() || undefined
+  const status = await git(m, dir, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]).catch(() => "")
   const counts = new Map<string, { additions: number; deletions: number }>()
-  const numstat = await git(dir, ["diff", "--numstat", "-z", "HEAD"]).catch(() => "")
+  const numstat = await git(m, dir, ["diff", "--numstat", "-z", "HEAD"]).catch(() => "")
   // -z: "<add>\t<del>\t<path>\0", or for a rename "<add>\t<del>\t\0<from>\0<to>\0".
   const parts = numstat.split("\0")
   for (let i = 0; i < parts.length; i++) {
-    const m = /^(\d+|-)\t(\d+|-)\t(.*)$/.exec(parts[i]!)
-    if (!m) continue
-    const file = m[3] || parts[(i += 2)] || ""
-    counts.set(file, { additions: Number(m[1]) || 0, deletions: Number(m[2]) || 0 })
+    const match = /^(\d+|-)\t(\d+|-)\t(.*)$/.exec(parts[i]!)
+    if (!match) continue
+    const file = match[3] || parts[(i += 2)] || ""
+    counts.set(file, { additions: Number(match[1]) || 0, deletions: Number(match[2]) || 0 })
   }
-  const changes: RepoChange[] = []
+  const found: Array<{ file: string; status: RepoChange["status"]; untracked: boolean }> = []
   const entries = status.split("\0")
   for (let i = 0; i < entries.length; i++) {
     const e = entries[i]!
@@ -1711,62 +1665,69 @@ async function vcs(dir: string): Promise<{ branch?: string; changes: RepoChange[
     // A rename's old path follows it.
     if (x === "R" || x === "C") i++
     const untracked = x === "?"
-    const kind: RepoChange["status"] = untracked || x === "A" ? "added" : x === "D" || y === "D" ? "deleted" : "modified"
-    let n = counts.get(file) ?? { additions: 0, deletions: 0 }
-    if (untracked) n = { additions: await lineCount(path.join(dir, file)), deletions: 0 }
-    changes.push({ file, ...n, status: kind })
+    found.push({ file, untracked, status: untracked || x === "A" ? "added" : x === "D" || y === "D" ? "deleted" : "modified" })
   }
+  // The lines of new files are counted side by side: on another computer each is a round trip.
+  const changes = await Promise.all(
+    found.map(async ({ file, status: kind, untracked }): Promise<RepoChange> => {
+      const n = untracked ? { additions: await lineCount(m, m.path.join(dir, file)), deletions: 0 } : (counts.get(file) ?? { additions: 0, deletions: 0 })
+      return { file, ...n, status: kind }
+    }),
+  )
   return defined({ branch, changes })
 }
 
-async function lineCount(file: string): Promise<number> {
+async function lineCount(m: Machine, file: string): Promise<number> {
   try {
-    const stat = await fs.promises.stat(file)
-    if (!stat.isFile() || stat.size > 2 * 1024 * 1024) return 0
-    const text = await fs.promises.readFile(file, "utf8")
+    const stat = await m.stat(file)
+    if (stat.kind !== "file" || stat.size > 2 * 1024 * 1024) return 0
+    const text = await m.readFile(file)
     return text ? text.split("\n").length - (text.endsWith("\n") ? 1 : 0) : 0
   } catch {
     return 0
   }
 }
 
-const fileLists = new Map<string, { at: number; files: Promise<string[]> }>()
+/** Per machine: the same path on two computers is two folders. */
+const fileLists = new WeakMap<Machine, Map<string, { at: number; files: Promise<string[]> }>>()
 const SKIPPED = new Set(["node_modules", ".git", "dist", "build", ".next", ".turbo", ".cache", "target", "vendor", ".venv"])
 
 /** The folder's files, relative: what git tracks or would (ignored ones left out), else a walk
  *  that skips what is never source. Kept a few seconds: a mention is typed a letter at a time. */
-function filesOf(dir: string): Promise<string[]> {
-  const known = fileLists.get(dir)
+function filesOf(m: Machine, dir: string): Promise<string[]> {
+  let lists = fileLists.get(m)
+  if (!lists) fileLists.set(m, (lists = new Map()))
+  const known = lists.get(dir)
   if (known && Date.now() - known.at < FILES_FRESH_MS) return known.files
-  const files = git(dir, ["ls-files", "-co", "--exclude-standard", "-z"], 64 * 1024 * 1024)
+  const files = git(m, dir, ["ls-files", "-co", "--exclude-standard", "-z"], 64 * 1024 * 1024)
     .then((out) => out.split("\0").filter(Boolean).slice(0, FILES_MAX))
     .catch(async () => {
       const out: string[] = []
       const walk = async (rel: string) => {
         if (out.length >= FILES_MAX) return
-        let entries: fs.Dirent[]
+        let entries: Awaited<ReturnType<Machine["readdir"]>>
         try {
-          entries = await fs.promises.readdir(path.join(dir, rel), { withFileTypes: true })
+          entries = await m.readdir(rel ? m.path.join(dir, rel) : dir)
         } catch {
           return
         }
         for (const e of entries) {
           const p = rel ? `${rel}/${e.name}` : e.name
-          if (e.isDirectory()) !SKIPPED.has(e.name) && !e.name.startsWith(".") && (await walk(p))
-          else if (e.isFile()) out.push(p)
+          if (e.kind === "dir") !SKIPPED.has(e.name) && !e.name.startsWith(".") && (await walk(p))
+          else if (e.kind === "file") out.push(p)
           if (out.length >= FILES_MAX) return
         }
       }
       await walk("")
       return out
     })
-  fileLists.set(dir, { at: Date.now(), files })
-  if (fileLists.size > 8) fileLists.delete(fileLists.keys().next().value!)
+  lists.set(dir, { at: Date.now(), files })
+  if (lists.size > 8) lists.delete(lists.keys().next().value!)
   return files
 }
 
-async function findFiles(dir: string, query: string): Promise<MentionOption[]> {
-  const files = await filesOf(dir)
+async function findFiles(m: Machine, dir: string, query: string): Promise<MentionOption[]> {
+  const files = await filesOf(m, dir)
   const q = query.trim().toLowerCase()
   const folders = new Set<string>()
   for (const f of files) for (let at = f.indexOf("/"); at > 0; at = f.indexOf("/", at + 1)) folders.add(f.slice(0, at))

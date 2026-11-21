@@ -27,13 +27,13 @@
 // turn "added" that was on disk before the turn began (it was ignored then, and a .gitignore
 // edit let it in) is not deleted by taking the turn back.
 //
-// Only for a folder on this computer: the caller says when the files are elsewhere.
-import { spawn } from "node:child_process"
+// On the computer the folder is on (`Machine`): this one, or the one an agent runs on over ssh,
+// where the shadow repositories are kept too (~/.bicycle42/snapshots) and git runs. The caller
+// says which; a folder whose files are on neither is not the app's to keep.
 import { createHash, randomBytes } from "node:crypto"
-import fs from "node:fs"
-import os from "node:os"
 import path from "node:path"
 import type { FileChange } from "../shared/types"
+import { thisMachine, type Machine } from "./machine"
 import { createQueue } from "./queue"
 
 type Log = (level: "info" | "warn" | "error", msg: string, data?: unknown) => void
@@ -127,9 +127,13 @@ export function parseDiff(numstat: string, patch: string): FileChange[] {
   return stats.map((s, i) => ({ ...s, patch: (chunks[i] ?? "").replace(/\n$/, "") }))
 }
 
-export function createSnapshots(dataDir: string, opts: { log?: Log } = {}): Snapshots {
+/** `machine`: the computer the folders are on (this one unless said); `root`: where on it the
+ *  shadow repositories are kept (`<dataDir>/snapshots` unless said). */
+export function createSnapshots(dataDir: string, opts: { log?: Log; machine?: Machine; root?: string } = {}): Snapshots {
   const log: Log = opts.log ?? (() => {})
-  const root = path.join(dataDir, "snapshots")
+  const m = opts.machine ?? thisMachine()
+  const P = m.path
+  const root = opts.root ?? path.join(dataDir, "snapshots")
   /** One git operation at a time per folder: they share the shadow's index. */
   const queue = createQueue()
   const histories = new Map<string, Promise<History>>()
@@ -139,37 +143,33 @@ export function createSnapshots(dataDir: string, opts: { log?: Log } = {}): Snap
   const pruning = new Set<Promise<void>>()
 
   const shadowOf = (dir: string) => {
-    const name = path.basename(dir).replace(/[^\w.-]+/g, "_").slice(0, 40) || "root"
-    return path.join(root, `${name}-${createHash("sha1").update(path.resolve(dir)).digest("hex").slice(0, 16)}.git`)
+    const name = P.basename(dir).replace(/[^\w.-]+/g, "_").slice(0, 40) || "root"
+    return P.join(root, `${name}-${createHash("sha1").update(P.resolve(dir)).digest("hex").slice(0, 16)}.git`)
   }
 
   /** git, in the folder, on the shadow: none of the person's own git settings or environment
    *  (a pager, colour, an external diff, a hook's index) gets in the way. */
-  function git(dir: string, args: string[], o: { input?: string; index?: string } = {}): Promise<{ code: number | null; signal: string | null; out: string; err: string }> {
-    const env: NodeJS.ProcessEnv = {}
-    for (const [k, v] of Object.entries(process.env)) if (!k.startsWith("GIT_")) env[k] = v
-    Object.assign(env, {
-      GIT_DIR: shadowOf(dir),
-      GIT_WORK_TREE: dir,
-      GIT_CONFIG_GLOBAL: os.devNull,
-      GIT_CONFIG_NOSYSTEM: "1",
-      GIT_TERMINAL_PROMPT: "0",
-      GIT_OPTIONAL_LOCKS: "0",
-      LC_ALL: "C",
-      ...(o.index ? { GIT_INDEX_FILE: o.index } : {}),
+  async function git(dir: string, args: string[], o: { input?: string; index?: string } = {}): Promise<{ code: number | null; signal: string | null; out: string; err: string }> {
+    const r = await m.run("git", args, {
+      cwd: dir,
+      clearPrefix: "GIT_",
+      env: {
+        GIT_DIR: shadowOf(dir),
+        GIT_WORK_TREE: dir,
+        GIT_CONFIG_GLOBAL: m.devNull,
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_OPTIONAL_LOCKS: "0",
+        LC_ALL: "C",
+        ...(o.index ? { GIT_INDEX_FILE: o.index } : {}),
+      },
+      input: o.input ?? "",
+      timeout: GIT_TIMEOUT,
     })
-    return new Promise((resolve, reject) => {
-      const child = spawn("git", args, { cwd: dir, env, stdio: ["pipe", "pipe", "pipe"], timeout: GIT_TIMEOUT })
-      const out: Buffer[] = []
-      const err: Buffer[] = []
-      child.stdout.on("data", (b: Buffer) => out.push(b))
-      child.stderr.on("data", (b: Buffer) => err.push(b))
-      child.on("error", reject)
-      // A timeout or a signal is `code: null`: never read as one of git's own exit codes.
-      child.on("close", (code, signal) => resolve({ code, signal, out: Buffer.concat(out).toString("utf8"), err: Buffer.concat(err).toString("utf8") }))
-      child.stdin.on("error", () => undefined)
-      child.stdin.end(o.input ?? "")
-    })
+    // Not started at all (no git): as spawn's error was, a rejection.
+    if (r.error && r.code === null && !r.signal) throw new Error(r.error.message)
+    // A timeout or a signal is `code: null`: never read as one of git's own exit codes.
+    return r
   }
   async function must(dir: string, args: string[], o?: { input?: string; index?: string }) {
     const r = await git(dir, args, o)
@@ -183,8 +183,8 @@ export function createSnapshots(dataDir: string, opts: { log?: Log } = {}): Snap
     if (!made) {
       made = (async () => {
         const shadow = shadowOf(dir)
-        if (!fs.existsSync(path.join(shadow, "HEAD"))) {
-          fs.mkdirSync(shadow, { recursive: true })
+        if (!(await exists(P.join(shadow, "HEAD")))) {
+          await m.mkdir(shadow)
           await must(dir, ["init", "--quiet", "--template="])
         }
         for (const [k, v] of [
@@ -199,12 +199,12 @@ export function createSnapshots(dataDir: string, opts: { log?: Log } = {}): Snap
           await must(dir, ["config", k!, v!])
         let own = ""
         try {
-          own = fs.readFileSync(path.join(dir, ".git", "info", "exclude"), "utf8")
+          own = await m.readFile(P.join(dir, ".git", "info", "exclude"))
         } catch {
           // Not a repository, or one without excludes.
         }
-        fs.mkdirSync(path.join(shadow, "info"), { recursive: true })
-        fs.writeFileSync(path.join(shadow, "info", "exclude"), [...EXCLUDE, "", own].join("\n"))
+        await m.mkdir(P.join(shadow, "info"))
+        await m.writeFile(P.join(shadow, "info", "exclude"), [...EXCLUDE, "", own].join("\n"))
         return shadow
       })()
       ready.set(dir, made)
@@ -214,14 +214,15 @@ export function createSnapshots(dataDir: string, opts: { log?: Log } = {}): Snap
     return made
   }
 
-  const logFile = (dir: string) => path.join(shadowOf(dir), "b42.json")
+  const exists = (p: string) => m.stat(p).then(() => true, () => false)
+  const logFile = (dir: string) => P.join(shadowOf(dir), "b42.json")
 
   function history(dir: string): Promise<History> {
     let h = histories.get(dir)
     if (!h) {
       h = (async () => {
         try {
-          const raw = JSON.parse(await fs.promises.readFile(logFile(dir), "utf8")) as Partial<History>
+          const raw = JSON.parse(await m.readFile(logFile(dir))) as Partial<History>
           return {
             turns: Array.isArray(raw.turns) ? raw.turns.filter((t) => t && typeof t.before === "string" && typeof t.after === "string" && typeof t.session === "string") : [],
             restores: Array.isArray(raw.restores) ? raw.restores.filter((r) => r && typeof r.from === "string" && typeof r.to === "string" && Array.isArray(r.turns)) : [],
@@ -242,10 +243,10 @@ export function createSnapshots(dataDir: string, opts: { log?: Log } = {}): Snap
       const h = await history(dir)
       edit(h)
       const file = logFile(dir)
-      await fs.promises.mkdir(path.dirname(file), { recursive: true })
+      await m.mkdir(P.dirname(file))
       const tmp = `${file}.${process.pid}.tmp`
-      await fs.promises.writeFile(tmp, JSON.stringify(h))
-      await fs.promises.rename(tmp, file)
+      await m.writeFile(tmp, JSON.stringify(h))
+      await m.rename(tmp, file)
     })
   }
 
@@ -326,21 +327,24 @@ export function createSnapshots(dataDir: string, opts: { log?: Log } = {}): Snap
       if (t.start === undefined) continue
       for (const p of await namesOf(dir, t.before, t.after, "A")) since.set(p, Math.max(since.get(p) ?? 0, t.start))
     }
-    return deleted.filter((p) => {
-      const start = since.get(p)
-      if (start === undefined) return false
-      try {
-        return fs.lstatSync(path.join(dir, p)).mtimeMs < start
-      } catch {
-        return false
-      }
-    })
+    const kept = await Promise.all(
+      deleted.map(async (p) => {
+        const start = since.get(p)
+        if (start === undefined) return false
+        try {
+          return (await m.lstat(P.join(dir, p))).mtimeMs < start
+        } catch {
+          return false
+        }
+      }),
+    )
+    return deleted.filter((_, i) => kept[i])
   }
 
   return {
     async snapshot(dir) {
       try {
-        if (!fs.statSync(dir).isDirectory()) return undefined
+        if ((await m.stat(dir)).kind !== "dir") return undefined
         await open(dir)
         const tree = await queue.run(dir, () => snap(dir))
         if (!pruneSeen.has(dir)) pruneSeen.add(dir), prune(dir)
@@ -365,7 +369,7 @@ export function createSnapshots(dataDir: string, opts: { log?: Log } = {}): Snap
       return queue.run(dir, async () => {
         const now = await snap(dir)
         // A scratch index of the files as they are now; the turns come out of it newest first.
-        const index = path.join(shadowOf(dir), `index.${randomBytes(4).toString("hex")}`)
+        const index = P.join(shadowOf(dir), `index.${randomBytes(4).toString("hex")}`)
         try {
           await must(dir, ["read-tree", now], { index })
           for (const t of [...turns].reverse()) {
@@ -387,7 +391,7 @@ export function createSnapshots(dataDir: string, opts: { log?: Log } = {}): Snap
           if (dry) return done
           return (await move(dir, now, to)) ? done : undefined
         } finally {
-          fs.rmSync(index, { force: true })
+          await m.rm(index).catch(() => undefined)
         }
       })
     },

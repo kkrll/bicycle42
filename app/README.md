@@ -60,6 +60,7 @@ src/main/images.ts      a captured Frame → area crop + viewport thumbnail, eac
 src/main/queue.ts       one file operation at a time per key (outbox, shots)
 src/main/opencode.ts    a backend: an OpenCode server, fetch + one SSE stream → BackendEvents (no Electron)
 src/main/acp.ts         a backend: an ACP agent this computer runs, JSON-RPC over its stdio → BackendEvents
+src/main/machine.ts     where the code is: commands, files, the agent's process and PATH of a computer (Machine); this one's (LocalMachine)
 src/main/agents.ts      the ACP agents the app knows (Claude Code, Codex, Gemini CLI, OpenCode), how each starts and installs, whether a sign-in is found
 src/main/chat-items.ts  what both backends build a conversation with: a user message, a run's end, parseNote
 src/main/patch.ts       an edit's old and new text as a unified diff (ACP says edits that way)

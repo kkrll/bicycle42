@@ -1,4 +1,5 @@
-// The ACP agents this computer can run for the app, and how each is started.
+// The ACP agents a computer can run for the app (this one, or another over ssh: `Machine`), and
+// how each is started.
 //
 // An agent here is a program that speaks ACP (the Agent Client Protocol) on its stdin and
 // stdout; acp.ts starts it and talks to it. Some speak it themselves (`opencode acp`, `gemini
@@ -8,11 +9,19 @@
 // What is on the PATH of an app started from the desktop is often not what a terminal has
 // (mise, nvm, npm's global folder are set up by the shell's profile), so a command is looked
 // for on both: this process's PATH, then the one the person's login shell has.
-import { execFile } from "node:child_process"
-import fs from "node:fs"
-import os from "node:os"
 import path from "node:path"
 import type { LocalAgent } from "../shared/types"
+import { thisMachine, type Machine } from "./machine"
+
+/** What a check of a sign-in looks at, on the computer the agent is on. */
+type Probe = {
+  env: Record<string, string | undefined>
+  home(...parts: string[]): string
+  exists(file: string): Promise<boolean>
+  read(file: string): Promise<string>
+  platform: NodeJS.Platform
+  join(...parts: string[]): string
+}
 
 type Known = {
   id: string
@@ -27,27 +36,22 @@ type Known = {
   installCommand: string
   /** How to sign in to it, in a terminal; absent when it needs no sign-in of its own. */
   login?: string
-  /** Whether a sign-in of it is on this computer: true when one is found, false when none is,
+  /** Whether a sign-in of it is on that computer: true when one is found, false when none is,
    *  undefined when it can't be told from here (a macOS keychain, a keyring). */
-  signedIn?: () => boolean | undefined
+  signedIn?: (p: Probe) => Promise<boolean | undefined>
 }
 
-const home = (...parts: string[]) => path.join(os.homedir(), ...parts)
-const exists = (file: string) => {
-  try {
-    return fs.statSync(file).isFile()
-  } catch {
-    return false
+function probe(m: Machine, env: Record<string, string | undefined>): Probe {
+  return {
+    env,
+    home: (...parts) => m.path.join(m.home, ...parts),
+    exists: (file) => m.stat(file).then((s) => s.kind === "file", () => false),
+    read: (file) => m.readFile(file).catch(() => ""),
+    platform: m.platform,
+    join: (...parts) => m.path.join(...parts),
   }
 }
-const read = (file: string) => {
-  try {
-    return fs.readFileSync(file, "utf8")
-  } catch {
-    return ""
-  }
-}
-const anyEnv = (...names: string[]) => names.some((n) => !!process.env[n])
+const anyEnv = (p: Probe, ...names: string[]) => names.some((n) => !!p.env[n])
 
 /** Checked on 2026-11-21: Claude Code's adapter is @agentclientprotocol/claude-agent-acp (the
  *  @zed-industries one is deprecated), Codex's is @agentclientprotocol/codex-acp (it brings its
@@ -63,10 +67,10 @@ export const KNOWN_AGENTS: readonly Known[] = [
     installCommand: "npm install -g @anthropic-ai/claude-code",
     login: "claude",
     // Linux keeps the login in a file; macOS in the keychain, which is not looked into.
-    signedIn: () => {
-      const dir = process.env.CLAUDE_CONFIG_DIR || home(".claude")
-      if (anyEnv("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN") || exists(path.join(dir, ".credentials.json")) || read(home(".claude.json")).includes('"oauthAccount"')) return true
-      return process.platform === "darwin" ? undefined : false
+    signedIn: async (p) => {
+      const dir = p.env.CLAUDE_CONFIG_DIR || p.home(".claude")
+      if (anyEnv(p, "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN") || (await p.exists(p.join(dir, ".credentials.json"))) || (await p.read(p.home(".claude.json"))).includes('"oauthAccount"')) return true
+      return p.platform === "darwin" ? undefined : false
     },
   },
   {
@@ -77,11 +81,11 @@ export const KNOWN_AGENTS: readonly Known[] = [
     install: "Install Codex and sign in: npm install -g @openai/codex, then codex login",
     installCommand: "npm install -g @openai/codex",
     login: "codex login",
-    signedIn: () => {
-      const dir = process.env.CODEX_HOME || home(".codex")
-      if (anyEnv("OPENAI_API_KEY", "CODEX_API_KEY") || exists(path.join(dir, "auth.json"))) return true
+    signedIn: async (p) => {
+      const dir = p.env.CODEX_HOME || p.home(".codex")
+      if (anyEnv(p, "OPENAI_API_KEY", "CODEX_API_KEY") || (await p.exists(p.join(dir, "auth.json")))) return true
       // A login kept in the system's keyring leaves no file.
-      return /credentials_store\s*=\s*"(keyring|auto)"/.test(read(path.join(dir, "config.toml"))) ? undefined : false
+      return /credentials_store\s*=\s*"(keyring|auto)"/.test(await p.read(p.join(dir, "config.toml"))) ? undefined : false
     },
   },
   {
@@ -92,10 +96,10 @@ export const KNOWN_AGENTS: readonly Known[] = [
     install: "Install Gemini CLI and sign in: npm install -g @google/gemini-cli, then gemini",
     installCommand: "npm install -g @google/gemini-cli",
     login: "gemini",
-    signedIn: () => {
-      if (anyEnv("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI") || exists(home(".gemini", "oauth_creds.json"))) return true
+    signedIn: async (p) => {
+      if (anyEnv(p, "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI") || (await p.exists(p.home(".gemini", "oauth_creds.json")))) return true
       // A key in its own .env, or a choice of Vertex in its settings: can't be told from here.
-      return exists(home(".gemini", ".env")) || /"selected(Auth)?Type"/.test(read(home(".gemini", "settings.json"))) ? undefined : false
+      return (await p.exists(p.home(".gemini", ".env"))) || /"selected(Auth)?Type"/.test(await p.read(p.home(".gemini", "settings.json"))) ? undefined : false
     },
   },
   {
@@ -111,69 +115,32 @@ export const KNOWN_AGENTS: readonly Known[] = [
 /** A command typed by hand, as the connect screen's "Other" field takes it. */
 export const CUSTOM = "custom"
 
-let loginPath: Promise<string> | undefined
-
-/** The PATH the person's login shell sets up, asked once. Empty when there is no such shell
- *  (Windows) or it does not answer in time. */
-function shellPath(): Promise<string> {
-  if (process.platform === "win32") return Promise.resolve("")
-  loginPath ??= new Promise((resolve) => {
-    const shell = process.env.SHELL || "/bin/sh"
-    // -i too: a PATH set in .bashrc or .zshrc only reaches an interactive shell.
-    execFile(shell, ["-ilc", 'printf "\\n%s\\n" "$PATH"'], { timeout: 5000, env: { ...process.env, TERM: "dumb" } }, (err, out) => {
-      if (err) return resolve("")
-      // What a profile prints before the PATH (a greeting) is above the line it is on.
-      resolve(String(out).trim().split("\n").pop() ?? "")
-    })
-  })
-  return loginPath
-}
-
-/** This process's PATH with the login shell's after it: what a started agent is given, so an
- *  adapter that runs `claude` or `node` finds them too. */
-export async function agentEnv(): Promise<NodeJS.ProcessEnv> {
-  const extra = await shellPath()
-  const own = process.env.PATH ?? ""
-  const seen = new Set<string>()
-  const joined = [...own.split(path.delimiter), ...extra.split(path.delimiter)].filter((d) => d && !seen.has(d) && seen.add(d)).join(path.delimiter)
-  return { ...process.env, PATH: joined }
-}
+/** This computer's environment with its login shell's PATH: what a started agent is given. */
+export const agentEnv = () => thisMachine().agentEnv()
 
 /** Where `program` is on that PATH, or undefined. */
-export async function which(program: string, env?: NodeJS.ProcessEnv): Promise<string | undefined> {
-  if (program.includes("/")) return fs.existsSync(program) ? program : undefined
-  const dirs = ((env ?? (await agentEnv())).PATH ?? "").split(path.delimiter)
-  const names = process.platform === "win32" ? [program, `${program}.cmd`, `${program}.exe`] : [program]
-  for (const dir of dirs)
-    for (const name of names) {
-      const file = path.join(dir || ".", name)
-      try {
-        fs.accessSync(file, fs.constants.X_OK)
-        if (fs.statSync(file).isFile()) return file
-      } catch {
-        // not here
-      }
-    }
-  return undefined
-}
+export const which = (program: string, env?: Record<string, string | undefined>) => thisMachine().which(program, env)
 
-/** How to start a known agent on this computer: its own adapter if one is installed, else the
- *  first way whose program is there. Undefined when what it needs is not installed. */
-export async function commandOf(id: string): Promise<string[] | undefined> {
+/** How to start a known agent on a computer (this one unless said): its own adapter if one is
+ *  installed, else the first way whose program is there. Undefined when what it needs is not
+ *  installed. */
+export async function commandOf(id: string, m: Machine = thisMachine()): Promise<string[] | undefined> {
   const known = KNOWN_AGENTS.find((a) => a.id === id)
   if (!known) return undefined
-  const env = await agentEnv()
-  if (!(await which(known.needs, env))) return undefined
-  for (const command of known.commands) if (await which(command[0]!, env)) return command
+  const env = await m.agentEnv()
+  if (!(await m.which(known.needs, env))) return undefined
+  for (const command of known.commands) if (await m.which(command[0]!, env)) return command
   return undefined
 }
 
-/** The known agents, each with whether it can run here, for the connect screen. */
-export async function localAgents(): Promise<LocalAgent[]> {
+/** The known agents, each with whether it can run on that computer, for the connect screen. */
+export async function localAgents(m: Machine = thisMachine()): Promise<LocalAgent[]> {
+  const env = await m.agentEnv()
+  const p = probe(m, env)
   return Promise.all(
     KNOWN_AGENTS.map(async (a) => {
-      const command = await commandOf(a.id)
-      const signIn = command && a.login && a.signedIn?.() === false ? { signIn: a.login } : {}
+      const command = await commandOf(a.id, m)
+      const signIn = command && a.login && (await a.signedIn?.(p)) === false ? { signIn: a.login } : {}
       return { id: a.id, name: a.name, command: (command ?? a.commands.at(-1)!).join(" "), installed: !!command, ...(command ? signIn : { needs: a.install, install: a.installCommand }) }
     }),
   )
@@ -209,5 +176,6 @@ export function splitCommand(line: string): string[] {
 /** A short name for a custom command: its program's name ("my-agent" for /opt/my-agent --acp). */
 export const customName = (command: string[]) => path.basename(command[0] ?? "agent") || "agent"
 
-/** The folder an agent is started in: the person's home. Its conversations each say their own. */
-export const agentHome = () => os.homedir()
+/** The folder an agent is started in: the person's home (on this computer unless said). Its
+ *  conversations each say their own. */
+export const agentHome = (m: Machine = thisMachine()) => m.home

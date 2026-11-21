@@ -28,7 +28,7 @@ import os from "node:os"
 import path from "node:path"
 import { notePrompt, noteWords, TEMPLATES } from "../../../overlay/prompt.js"
 import { createAcp, type AcpOptions } from "./acp"
-import { agentHome, commandOf, customName, KNOWN_AGENTS, localAgents, splitCommand } from "./agents"
+import { commandOf, customName, KNOWN_AGENTS, localAgents, splitCommand } from "./agents"
 import { commitPrompt, parseAsk, splitTold, startPrompt, takeBackPrompt, toldLine } from "./asks"
 import type {
   AgentInfo,
@@ -78,7 +78,8 @@ import { createReview, imageUri, pageNote, type PageNote, type Review } from "./
 import { createOutbox, type Outgoing } from "./outbox"
 import { createShots } from "./shots"
 import { createPictures } from "./pictures"
-import { createSnapshots, EMPTY_TREE, Refused, type Restore, type Turn } from "./snapshots"
+import { thisMachine, type Machine } from "./machine"
+import { createSnapshots, EMPTY_TREE, Refused, type Restore, type Snapshots, type Turn } from "./snapshots"
 import { createStore, type SavedServer, type Settings } from "./store"
 
 type Level = "info" | "warn" | "error"
@@ -146,8 +147,18 @@ export function createCore(host: Host): Core {
   const noteShots = createShots(host.dataDir, log)
   /** What each unfinished note sends, on disk: a note waiting its turn, or one to retry, outlives a restart. */
   const outboxFiles = createOutbox(host.dataDir, log)
-  /** The app's own file history of each folder on this computer (snapshots.ts). */
-  const snapshots = createSnapshots(host.dataDir, { log })
+  /** The computer the agent in use works on: this one, or another reached over ssh. Its folders
+   *  are what `localDir` looks at, its files what the app's own history keeps. */
+  let machine: Machine = thisMachine()
+  /** The app's own file history of each folder (snapshots.ts), one per computer: this one's
+   *  under the data folder, another's on it (ssh.ts). */
+  const histories = new Map<Machine, Snapshots>()
+  const snapshotsOf = (m: Machine): Snapshots => {
+    let made = histories.get(m)
+    if (!made) histories.set(m, (made = m.local ? createSnapshots(host.dataDir, { log }) : createSnapshots(host.dataDir, { log, machine: m, root: m.path.join(m.home, ".bicycle42", "snapshots") })))
+    return made
+  }
+  let snapshots = snapshotsOf(machine)
 
   /** The conversation's pictures, served to the window by address (pictures.ts). A note's own
    *  first picture is on disk already; anything else comes from what the server sent, or from the
@@ -317,7 +328,7 @@ export function createCore(host: Host): Core {
       connection,
       ...(serverName() ? { serverName: serverName() } : {}),
       ...(harness() ? { harness: harness() } : {}),
-      home: agentHome(),
+      home: machine.home,
       page: { ...(p ?? { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }), device: device(), phone: phone().id },
       review: {
         enabled: review?.enabled ?? true,
@@ -800,7 +811,7 @@ export function createCore(host: Host): Core {
       if (backend !== b || site !== s) return
       owners.set(current.id, s.origin)
       session = current
-      warm(saved.directory)
+      void warm(saved.directory)
       push()
       void refreshRunning()
       void refreshRepo()
@@ -1384,26 +1395,22 @@ export function createCore(host: Host): Core {
   /** Folders snapshot once already in this run: their shadow index is warm, so the snapshots at
    *  turn boundaries read only what changed. */
   const warmed = new Set<string>()
-  function warm(directory: string | undefined) {
-    const dir = localDir(directory)
-    if (!dir || warmed.has(dir)) return
-    warmed.add(dir)
-    void snapshots.snapshot(dir)
+  async function warm(directory: string | undefined) {
+    const sn = snapshots
+    const dir = await localDir(directory)
+    if (!dir || warmed.has(`${machine.where}\0${dir}`)) return
+    warmed.add(`${machine.where}\0${dir}`)
+    void sn.snapshot(dir)
   }
 
   /** A real path, or the path as it is when it can't be read. */
-  const real = (p: string) => {
-    try {
-      return fs.realpathSync(p)
-    } catch {
-      return path.resolve(p)
-    }
-  }
+  const real = (m: Machine, p: string) => m.realpath(p).catch(() => m.path.resolve(p))
   /** Two folders share files: one is the other, or inside it. */
-  function overlap(a: string, b: string) {
-    const x = real(a)
-    const y = real(b)
-    return x === y || x.startsWith(y.endsWith(path.sep) ? y : y + path.sep) || y.startsWith(x.endsWith(path.sep) ? x : x + path.sep)
+  async function overlap(a: string, b: string) {
+    const m = machine
+    const sep = m.path.sep
+    const [x, y] = await Promise.all([real(m, a), real(m, b)])
+    return x === y || x.startsWith(y.endsWith(sep) ? y : y + sep) || y.startsWith(x.endsWith(sep) ? x : x + sep)
   }
 
   /** The folder a conversation works in, as far as known without asking: a site's, or one the
@@ -1424,11 +1431,12 @@ export function createCore(host: Host): Core {
       () => undefined,
     )
   }
-  /** The folder, when its files are on this computer: only then does the app keep a history. */
-  function localDir(dir: string | undefined): string | undefined {
+  /** The folder, when its files are where the app can keep a history of them (this computer, or
+   *  the one the agent runs on over ssh) and it is there. */
+  async function localDir(dir: string | undefined): Promise<string | undefined> {
     if (!dir || !filesHere()) return undefined
     try {
-      return fs.statSync(dir).isDirectory() ? dir : undefined
+      return (await machine.stat(dir)).kind === "dir" ? dir : undefined
     } catch {
       return undefined
     }
@@ -1443,7 +1451,8 @@ export function createCore(host: Host): Core {
     const dir = was?.span.dir ?? dirOf(session)
     // Only a site's conversations are snapshot; any other is followed for what overlaps.
     const asked = Date.now()
-    const shot: Shot | undefined = owners.has(session) ? { tree: dir.then((d) => (localDir(d) ? snapshots.snapshot(d!) : undefined)) } : undefined
+    const sn = snapshots
+    const shot: Shot | undefined = owners.has(session) ? { tree: dir.then(async (d) => ((await localDir(d)) ? sn.snapshot(d!) : undefined)) } : undefined
     // The backend gave the agent the message without waiting for this: a slow one may hold the
     // agent's first changes. (Known before the turn that ends here is written down.)
     if (shot && kind !== "end" && !(backend && waitsForBefore.has(backend)))
@@ -1472,15 +1481,17 @@ export function createCore(host: Host): Core {
   /** A turn has ended: its two trees go into the folder's log, with whether another conversation
    *  was at work in the folder meanwhile. */
   async function finishTurn(session: string, t: OpenTurn, after: Shot | undefined, messages: string[], others: Span[]) {
+    // The history of the computer the turn ran on, should another agent be in use by the time it is written.
+    const sn = snapshots
     try {
       const [dir, before, done] = await Promise.all([t.span.dir, t.before?.tree, after?.tree])
       if (!dir || !before || !done || (before === done && !messages.length)) return
       // An empty "before" of a folder that has files is a snapshot that went wrong: kept, it
       // would read as every file added.
       if (before === EMPTY_TREE && done !== EMPTY_TREE) return log("warn", "a turn began with an empty snapshot of a folder with files; not kept", dir)
-      const shared = (await Promise.all(others.map((o) => o.dir))).some((d) => !!d && overlap(d, dir))
+      const shared = (await Promise.all((await Promise.all(others.map((o) => o.dir))).map((d) => !!d && overlap(d, dir)))).some(Boolean)
       const untrusted = !!(t.before?.late || after?.late)
-      await snapshots.addTurn(dir, {
+      await sn.addTurn(dir, {
         session,
         start: t.start,
         before,
@@ -1508,7 +1519,7 @@ export function createCore(host: Host): Core {
   async function folderBusy(dir: string) {
     for (const t of turnsOpen.values()) {
       const d = await t.span.dir
-      if (d && overlap(d, dir)) return true
+      if (d && (await overlap(d, dir))) return true
     }
     return false
   }
@@ -1516,7 +1527,7 @@ export function createCore(host: Host): Core {
   /** The note's turn in the app's history, when it can be taken back from there: on this
    *  computer, not shared with another conversation, not taken back already. */
   async function noteTurn(s: Site, note: { session: string; message: string }) {
-    const dir = localDir(siteSettings(s.origin)?.directory)
+    const dir = await localDir(siteSettings(s.origin)?.directory)
     if (!dir) return undefined
     await Promise.all(finishing)
     const h = await snapshots.history(dir)
@@ -1588,7 +1599,7 @@ export function createCore(host: Host): Core {
    *  as it was before them, and that was before the app's take-back. Without `since`: whether the
    *  app took back anything there that no message has followed yet. The app's own way is used then. */
   async function undoClobbers(directory: string | undefined, since?: number) {
-    const dir = localDir(directory)
+    const dir = await localDir(directory)
     if (!dir) return false
     return (await snapshots.history(dir)).restores.some((r) => (since === undefined ? !r.told : r.time > since))
   }
@@ -1615,7 +1626,7 @@ export function createCore(host: Host): Core {
    *  the agent has the message, by its id, which `send` must send it with. */
   async function telling<T extends { id: string } | void>(session: string, text: string, send: (text: string, id?: string) => Promise<T>, id?: string): Promise<T> {
     // Where the app keeps no history, the message goes as it is, at once.
-    const dir = localDir(knownDir(session))
+    const dir = await localDir(knownDir(session))
     if (!dir) return send(text, id)
     const h = await snapshots.history(dir)
     const untold = h.restores.filter((r) => r.session === session && !r.told)
@@ -1643,7 +1654,7 @@ export function createCore(host: Host): Core {
    *  first, alone, when there is one to say, so the agent is not left believing what was taken
    *  back is still there, and a summary does not lose what was. */
   async function tellFirst(session: string) {
-    const dir = localDir(knownDir(session))
+    const dir = await localDir(knownDir(session))
     if (!dir || !(await snapshots.history(dir)).restores.some((r) => r.session === session && !r.told)) return
     const b = need()
     await startsRun(session, () => telling(session, "", (text, id) => b.prompt(session, { ...(id ? { id } : {}), text })))
@@ -2111,7 +2122,7 @@ export function createCore(host: Host): Core {
    *  not taken back already, from the app's history, files only. The conversation stays as it is;
    *  the agent is told with the next message. */
   async function undoFiles(current: SessionSummary, args: string): Promise<CommandResult> {
-    const dir = localDir(knownDir(current.id) ?? current.directory)
+    const dir = await localDir(knownDir(current.id) ?? current.directory)
     if (!dir) throw new Error("This agent can't undo, and the files are on another computer, where the app keeps no history of them.")
     await Promise.all(finishing)
     const h = await snapshots.history(dir)
@@ -2174,7 +2185,7 @@ export function createCore(host: Host): Core {
       const now = b.can?.undo ? await b.session(current.id) : undefined
       if (!now?.undone) {
         // What the app took back by itself, the newest first, until the agent is told.
-        const dir = localDir(knownDir(current.id) ?? current.directory)
+        const dir = await localDir(knownDir(current.id) ?? current.directory)
         const r = dir && (await lastRestore(dir, current.id))
         if (!dir || !r) throw new Error("Nothing to redo.")
         if (onItsWay(r)) throw new Error("Nothing to redo: your last message tells the agent what was taken back. Remove it from the queue first.")
@@ -2475,7 +2486,7 @@ export function createCore(host: Host): Core {
       // took back since): the files go back from the app's history, every turn of the agent's
       // since the checkpoint that is not taken back already.
       if (!b.can?.undo || (await undoClobbers(knownDir(cp.session) ?? info.directory, cp.time))) {
-        const dir = localDir(knownDir(cp.session) ?? info.directory)
+        const dir = await localDir(knownDir(cp.session) ?? info.directory)
         if (!dir) throw new Error("This agent can't go back, and the files are on another computer, where the app keeps no history of them.")
         await Promise.all(finishing)
         const h = await snapshots.history(dir)
