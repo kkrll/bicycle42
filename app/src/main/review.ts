@@ -220,6 +220,13 @@ function edit(raw: unknown): Edit | undefined {
     out.to = now
     return out
   }
+  if (text) {
+    // Which of its words, on an element with elements inside: after one of them, or before the first.
+    const after = line(raw.textAfter, MAX_NAME)
+    const before = after ? undefined : line(raw.textBefore, MAX_NAME)
+    if (after) out.textAfter = after
+    else if (before) out.textBefore = before
+  }
   const bare = kind === "move" || kind === "hide" || kind === "duplicate"
   if (prop && !bare && !text) out.prop = prop
   if (from !== undefined && !bare) out.from = from

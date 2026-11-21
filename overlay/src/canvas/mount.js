@@ -2,6 +2,7 @@ import { S } from "../state.js";
 import { icon } from "../ui.js";
 import { C } from "./state.js";
 import { cursorOf } from "./select.js";
+import { checkEdit, guardEdit } from "./text.js";
 import { drawBar, setPop } from "./bar.js";
 import { setMode } from "../mode.js";
 import { isOurs } from "../input.js";
@@ -48,6 +49,12 @@ export function mountCanvas() {
   // While text is edited in place, or the pointer works the canvas, the page's own handlers
   // must not see the typing. (keydown has its own path: keys.js.)
   for (const t of ["keyup", "keypress", "beforeinput", "input", "paste", "cut", "copy", "compositionstart", "compositionupdate", "compositionend"])
-    window.addEventListener(t, (e) => S.enabled && C.on && !isOurs(e) && e.stopImmediatePropagation(), true);
+    window.addEventListener(t, (e) => {
+      if (!S.enabled || !C.on || isOurs(e)) return;
+      // (text edited in place keeps the elements inside it: text.js)
+      if (t === "beforeinput") guardEdit(e);
+      else if (t === "input") checkEdit();
+      e.stopImmediatePropagation();
+    }, true);
   drawBar();
 }

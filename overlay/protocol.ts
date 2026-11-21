@@ -112,6 +112,11 @@ export type Edit = {
   copyOf?: number
   /** The element is in a copy that an earlier note asked for: the label of what it copies. */
   inCopy?: string
+  /** text only, on an element with elements inside (`Read the <a>docs</a> first`): `from` and `to`
+   *  are one run of its own words, the one right after the child with this label… */
+  textAfter?: string
+  /** …or, for the words before its first child, that child's label. */
+  textBefore?: string
 }
 
 /** One animation, changed in motion mode (or only talked about, for a transition or a script's

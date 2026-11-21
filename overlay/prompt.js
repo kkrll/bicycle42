@@ -171,7 +171,9 @@ export function editWords(e) {
     case "gap":
       return `${capital(prop(e, "gap").replace("-", " "))} in ${el}: ${change(e)}.`;
     case "text":
-      return `${el}: text ${e.from !== undefined ? `${quote(e.from, 400)} → ` : "→ "}${quote(e.to, 400)}.`;
+      // (on an element with elements inside, one run of its own words: said by the element beside it)
+      return `${el}: text ${e.from !== undefined ? `${quote(e.from, 400)} → ` : "→ "}${quote(e.to, 400)}${
+        e.textAfter ? ` (its words after ${quote(e.textAfter)}; what is inside it stays)` : e.textBefore ? ` (its words before ${quote(e.textBefore)}; what is inside it stays)` : ""}.`;
     case "hide":
       return `Removed ${el}.`;
     case "duplicate":

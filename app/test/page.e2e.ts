@@ -183,6 +183,12 @@ async function main() {
     wc.sendInputEvent({ type: "keyDown", keyCode: "Enter" })
     wc.sendInputEvent({ type: "keyUp", keyCode: "Enter" })
   }
+  /** The same with the mod key: what sends in edit mode, where Enter alone goes into the selection. */
+  const modEnter = () => {
+    const modifiers: Array<"meta" | "control"> = [process.platform === "darwin" ? "meta" : "control"]
+    wc.sendInputEvent({ type: "keyDown", keyCode: "Enter", modifiers })
+    wc.sendInputEvent({ type: "keyUp", keyCode: "Enter", modifiers })
+  }
   const click = async (selector: string) => {
     const at = (await js(`(() => { const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`)) as { x: number; y: number }
     await mouse("mouseMoved", at.x, at.y, { button: "none" })
@@ -620,7 +626,7 @@ async function main() {
     wc.sendInputEvent({ type: "keyDown", keyCode: "O", modifiers: [mod] })
     check("mod+O reaches the page and turns canvas mode on: the host's inspector gets its view", (await until(() => inCanvas() && !!view(), 2000)) === true)
 
-    // ── a gap drag and a hide, sent with Enter from the page ──────────────────────────────────
+    // ── a gap drag and a hide, sent with mod+Enter from the page ──────────────────────────────────
     await clickPt(centre(await pageBox(SECOND)))
     const card = await pageBox(SECOND)
     await drag({ x: card.x + card.width + 8, y: card.y + 40 }, { x: card.x + card.width + 8 + 17, y: card.y + 40 })
@@ -640,9 +646,9 @@ async function main() {
     await sleep(200)
     check("a canvas note no Enter came with (edits, no words) is dropped", count("note") === had)
 
-    const raw = await nextNote(enter)
+    const raw = await nextNote(modEnter)
     const cn = pageNote(raw)
-    check("Enter sends the batch as one note, with no words", !!cn && cn.text === "" && cn.edits?.map((e) => e.kind).join() === "style,hide", JSON.stringify(cn?.edits?.map((e) => e.kind)))
+    check("mod+Enter sends the batch as one note, with no words", !!cn && cn.text === "" && cn.edits?.map((e) => e.kind).join() === "style,hide", JSON.stringify(cn?.edits?.map((e) => e.kind)))
     if (!raw || !cn?.edits) return finish(again)
     check("the host keeps every edit exactly as the overlay sent it", same(pageEdits(raw.edits), raw.edits) && same(cn.edits, raw.edits), JSON.stringify(raw.edits).slice(0, 300))
     const gap = cn.edits[0]!
@@ -768,7 +774,7 @@ async function main() {
     check("…and they are back from the draft, canvas mode still on", (await until(async () => (await order()) === "Scale,Free,Pro" && (await js("document.querySelector('#title').textContent")) === 'Say "hi"' && inCanvas() && view()?.batch.edits === 2, 3000)) === true, `${await order()} / ${await js("document.querySelector('#title').textContent")}`)
     draft = null
     await clickPt(centre(await pageBox("h2")))
-    const moved2 = pageNote(await nextNote(enter))
+    const moved2 = pageNote(await nextNote(modEnter))
     const mv = moved2?.edits?.find((e) => e.kind === "move")
     const tx = moved2?.edits?.find((e) => e.kind === "text")
     check("a move says where from, where to and in what layout", moved2?.edits?.length === 2 && mv?.parent?.selector === "#plans" && mv.parent.layout === "flex-row" && mv.fromIndex === 2 && mv.toIndex === 0 && mv.repeated === 3 && /^Card · Free/.test(mv.before?.label ?? ""), JSON.stringify(mv))

@@ -19,6 +19,7 @@ export function select(el) {
   C.geo = null;
   C.geoKey = "";
   C.zone = null;
+  C.trail = C.deep = null; // (cvWalk and a mod+click say theirs again after this)
   if (el) reveal(el);
   syncFields(true);
   kick();
@@ -211,9 +212,19 @@ export function hideSel() {
   commit();
 }
 
+/** Out to the parent, or in: to the child the way out came through, else to the first one there
+ *  is to see (a line break is none). False when there is no further that way. */
 export function cvWalk(up) {
-  let next = up ? C.sel.parentElement : treeKids(C.sel).find((k) => k.getClientRects().length) || null;
-  if (next === document.documentElement) next = null;
-  if (next) select(next);
+  const from = C.sel, trail = C.trail;
+  let next = from.parentElement;
+  if (!up) {
+    const inside = treeKids(from).filter((k) => !/^W?BR$/.test(k.tagName) && k.getClientRects().length);
+    next = (trail && inside.find((k) => k.contains(trail))) || inside[0] || null;
+  }
+  if (!next || next === document.documentElement) return false;
+  select(next);
+  // The deepest element the way out started from: the way back in ends there.
+  C.trail = up && !(trail && from.contains(trail)) ? from : trail;
+  return true;
 }
 

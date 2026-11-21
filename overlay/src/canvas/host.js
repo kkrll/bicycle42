@@ -5,7 +5,7 @@ import { problems, setDecl, supports, topProps } from "./css.js";
 import { applyAll } from "./apply.js";
 import { commit, countEdits, redo, reset, undo } from "./batch.js";
 import { submitCanvas } from "./send.js";
-import { hideSel, select } from "./select.js";
+import { cvWalk, hideSel, select } from "./select.js";
 import { draftCopy, dropCopy, duplicateSel } from "./copies.js";
 import { editRows, removeEdit } from "./edits.js";
 import { elOf } from "./stamps.js";
@@ -430,6 +430,9 @@ function act(a) {
     }
     case "walk":
       if (/^Arrow(Up|Down|Left|Right)$/.test(a.key)) treeKey(a.key);
+      break;
+    case "step":
+      if (C.sel) cvWalk(!!a.out);
       break;
     case "global":
       C.pin = !!a.on;

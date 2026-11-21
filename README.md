@@ -146,7 +146,9 @@ targets under 44 px, inputs that make iOS zoom) and the files the agent changed.
 | drag an element / an edge / a gap | Move it among its siblings (in flex, grid or a stack of blocks) / resize it / change the gap |
 | drag a padding or margin band | Change that side (`shift`: the opposite side too). A side without any shows a short bar to grab |
 | hold `mod` while dragging | No snapping |
-| double-click text | Edit it in place |
+| `Enter` / `shift+Enter` | Into the selection (the child the way out came through, else its first) / out to its parent, as in Figma. `↑` and `↓` do the same. On an element with words and nothing further in, `Enter` edits the words |
+| `mod`+click | Select what is under the pointer whatever is in the way: the selection's own handles and bands, or the page keeping the pointer off it (an icon in a button, a disabled control). Again at the same place: the one behind it (what a link stretched over its card covers). With `mod` held, the hover shows which |
+| double-click text | Edit it in place. With elements inside (`Read the <a>docs</a> first`, an image, a line break), the words around them: what is inside stays, and each run of words is its own edit |
 | `Delete` | Hide the selection (a copy made in this batch is taken out, with the copies made of it) |
 | `mod+D` | Duplicate the selection: a copy right after it (without its ids), selected, to edit like any element. The note asks the agent for the copy, and edits made in it say so |
 | `↑` / `↓` in a computed value | Step the number at the caret by 1, as in DevTools (`shift`: 10, `alt`: 0.1, `mod`: 100); on a keyword (`center`), the property's keyword before / after it. `Tab` / `shift+Tab` go from one computed value to the next |
@@ -157,7 +159,7 @@ targets under 44 px, inputs that make iOS zoom) and the files the agent changed.
 | double-click a `var(--space-4)` in the style boxes, then `↑` `↓` | The next step of that token's scale (`--space-1`, `--space-2`, … by size), live; it stops at either end. The note then names the token: `gap: 16px → 24px (var(--space-6))`, and the agent is told to use it |
 | `↑` `↓` in that list, then `Enter`, `Tab` or a click | Show each value on the page / take it; `Esc` closes the list and puts back what was typed |
 | `mod+Z` / `mod+shift+Z` | Undo / redo |
-| `Enter` (`mod+Enter` in a text box), or **Send** | Send all the edits as one note |
+| `mod+Enter` (`Enter` in the note's field), or **Send** | Send all the edits as one note (`alt` too: to the background conversation) |
 
 | Motion mode | |
 |---|---|

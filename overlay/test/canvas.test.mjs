@@ -144,7 +144,7 @@ const sendNow = (f, bg) => act(f, { type: "send", ...(bg ? { bg: true } : {}) })
 const sentNotes = (page) => page.evaluate(() => window.__harness.notes.map(({ prompt, ...n }) => n));
 const waitNotes = (page, count) => page.waitForFunction((c) => window.__harness.notes.length >= c, count);
 const send = async (page, count = 1) => {
-  await page.keyboard.press("Enter");
+  await page.keyboard.press(`${MOD}+Enter`);
   await waitNotes(page, count);
   return (await sentNotes(page))[count - 1];
 };
@@ -1041,7 +1041,7 @@ test("Esc cancels a drag; nothing is ever sent without Enter", async () => {
   // Enter with nothing to send says so and sends nothing
   await act(f, { type: "reset" });
   await clickAt(page, f, "#title");
-  await page.keyboard.press("Enter");
+  await page.keyboard.press(`${MOD}+Enter`);
   await page.waitForTimeout(200);
   assert.match(await said(f), /Nothing to send/);
   assert.equal(await page.evaluate(() => window.__harness.notes.length), 0);
@@ -1150,7 +1150,7 @@ test("U3 a refusal never outlives the next thing done; in notes mode unsent canv
   const { page, f } = await open();
   const msg = async () => (await shown(f)).batch.msg;
   await clickAt(page, f, "#title");
-  await page.keyboard.press("Enter");
+  await page.keyboard.press(`${MOD}+Enter`);
   await frames(f);
   assert.equal(await msg(), "Nothing to send yet: edit something first");
   await clickAt(page, f, "#cta");
@@ -1343,7 +1343,7 @@ test("notes mode's “?” is a bubble of its own in the corner: its keys above 
   await page.evaluate(() => { const fw = document.getElementById("page").contentWindow; const real = fw.__b42.receive; fw.__b42.receive = (m) => (m.type === "captured" ? 0 : real(m)); });
   await clickAt(page, f, "#title");
   await page.keyboard.type("hello");
-  await page.keyboard.press("Enter");
+  await page.keyboard.press(`${MOD}+Enter`);
   await waitNotes(page, 1);
   assert.equal(await ui(f, (r) => r.querySelector(".corner").hidden), true);
   await page.close();
@@ -1389,7 +1389,7 @@ test("a canvas note the host refuses is the unsent batch again: its edits, its w
   await field(f, "free").fill(".tile { color: red; }");
   await act(f, { type: "note", text: "wider, and red tiles" });
   await clickAt(page, f, "#title");
-  await page.keyboard.press("Enter");
+  await page.keyboard.press(`${MOD}+Enter`);
   await page.waitForFunction(() => /^Not sent/.test(window.__harness.view("canvas").batch.msg));
   await frames(f);
   let v = await shown(f);
@@ -1429,7 +1429,7 @@ test("a text edit too long for the host is said before sending, and stays to be 
   await page.keyboard.press("Enter");
   await frames(f);
   assert.equal(await count(f), "1 edit");
-  await page.keyboard.press("Enter");
+  await page.keyboard.press(`${MOD}+Enter`);
   await page.waitForTimeout(200);
   assert.match(await said(f), /^Too long to send: a text edit holds 2000 characters at most/);
   assert.equal(await page.evaluate(() => window.__harness.notes.length), 0);
@@ -1604,5 +1604,217 @@ test("a move and a hide follow their elements too: the page adds a card in front
   });
   await settle(f);
   assert.deepEqual(await seen(), ["Trial", "Scale", "Free"]);
+  await page.close();
+});
+
+// ── the layers, walked as in Figma ──────────────────────────────────────────────────────────
+/** Where the selection's outline is, to tell one card from another. */
+const selBox = (f) => ui(f, (r) => {
+  const b = r.querySelector(".box.csel")?.getBoundingClientRect();
+  return b ? { x: Math.round(b.x), y: Math.round(b.y) } : null;
+});
+const near = (f, sel) => f.evaluate((s) => {
+  const b = document.querySelector(s).getBoundingClientRect();
+  return { x: Math.round(b.x), y: Math.round(b.y) };
+}, sel);
+
+test("Enter goes into the selection and shift+Enter out of it, back in by the way out; on words it edits them; alone it never sends", async () => {
+  const { page, f, errors } = await open();
+  await clickAt(page, f, `${SECOND} h3`);
+  await page.keyboard.press("Shift+Enter");
+  assert.equal(await selTag(f), "article.card");
+  await page.keyboard.press("Shift+Enter");
+  assert.equal(await selTag(f), "section#plans.row");
+  // in again: not to the first card but to the one the way out came through, and on to the heading
+  await page.keyboard.press("Enter");
+  assert.equal(await selTag(f), "article.card");
+  assert.deepEqual(await selBox(f), await near(f, SECOND));
+  await page.keyboard.press("Enter");
+  assert.equal(await selTag(f), "h3");
+  // the arrows are the same walk
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowDown");
+  assert.equal(await selTag(f), "h3");
+  // no further in: the heading's words are edited, and Enter keeps them
+  await page.keyboard.press("Enter");
+  assert.equal(await f.evaluate((s) => document.querySelector(s).getAttribute("contenteditable"), `${SECOND} h3`), "plaintext-only");
+  await page.keyboard.type("Team");
+  await page.keyboard.press("Enter");
+  await frames(f);
+  assert.equal(await f.evaluate((s) => document.querySelector(s).outerHTML.replace(/ data-b42e="[a-z0-9]+"/, ""), `${SECOND} h3`), "<h3>Team</h3>");
+  assert.equal(await count(f), "1 edit");
+  // a selection made any other way forgets the way: in is the first child
+  await act(f, { type: "select", id: await rowId(f, "#plans") });
+  await frames(f);
+  await page.keyboard.press("Enter");
+  assert.deepEqual(await selBox(f), await near(f, "#plans article:nth-of-type(1)"));
+  // the host's Enter outside a field is the same step
+  await act(f, { type: "select", id: await rowId(f, "#grid") });
+  await act(f, { type: "step" });
+  assert.equal(await selTag(f), "div.tile");
+  await act(f, { type: "step", out: true });
+  assert.equal(await selTag(f), "section#grid.grid");
+  // Enter alone sends nothing, with a selection or without: without, it says what does
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Enter");
+  assert.match(await said(f), /Enter goes into the selection: .*Enter sends/);
+  await page.waitForTimeout(200);
+  assert.equal(await page.evaluate(() => window.__harness.notes.length), 0);
+  assert.equal(await f.evaluate(() => window.pageKeys), 0, "the page saw no keys");
+  const n = await send(page);
+  assert.deepEqual(n.edits.map((e) => [e.kind, e.from, e.to]), [["text", "Pro", "Team"]]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("text beside elements: the words around an image, a link or a line break are edited, each run its own edit; what is inside stays the same nodes", async () => {
+  const { page, f, errors } = await open();
+  const HTML = 'Hello world <img id="pic" alt="Logo" width="20" height="20" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="> and <a id="lnk" href="#x">docs</a>';
+  await f.evaluate((html) => {
+    const p = document.createElement("p");
+    p.id = "mix";
+    p.innerHTML = html;
+    const q = document.createElement("p");
+    q.id = "two";
+    q.innerHTML = "line one<br>line two";
+    document.querySelector("header").after(p, q);
+    window.kept = [...p.childNodes, ...q.childNodes];
+    window.same = () => [...p.childNodes, ...q.childNodes].every((n, i) => n === window.kept[i]) && p.childNodes.length + q.childNodes.length === window.kept.length;
+  }, HTML);
+  await frames(f);
+  /** Double-click the words of one text node of an element. */
+  const dblWords = async (sel, i) => {
+    const r = await f.evaluate(([s, k]) => {
+      const t = [...document.querySelector(s).childNodes].filter((n) => n.nodeType === 3)[k];
+      const range = document.createRange();
+      range.selectNodeContents(t);
+      const b = [...range.getClientRects()].find((q) => q.width > 4);
+      return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+    }, [sel, i]);
+    const fb = await (await f.frameElement()).boundingBox();
+    await page.mouse.click(fb.x + r.x, fb.y + r.y);
+    await page.mouse.click(fb.x + r.x, fb.y + r.y);
+    await frames(f);
+  };
+  const html = (sel) => f.evaluate((s) => document.querySelector(s).innerHTML, sel);
+  // the first run: what is inside is kept out of the typing while it goes on
+  await dblWords("#mix", 0);
+  assert.deepEqual(await f.evaluate(() => [document.getElementById("mix").getAttribute("contenteditable"), document.getElementById("pic").getAttribute("contenteditable"), getSelection().toString()]),
+    ["plaintext-only", "false", "Hello world "]);
+  await page.keyboard.type("Hi there");
+  await page.keyboard.press("Enter");
+  await frames(f);
+  assert.equal(await html("#mix"), HTML.replace("Hello world", "Hi there"));
+  assert.ok(await f.evaluate(() => window.same()), "the same nodes");
+  // the run after the image; Backspace at its start would take the image: it stays, and it is said
+  await dblWords("#mix", 1);
+  assert.equal(await f.evaluate(() => getSelection().toString()), " and ");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Backspace");
+  assert.ok(await f.evaluate(() => !!document.getElementById("pic")?.isConnected));
+  assert.match(await said(f), /Only the words are edited here/);
+  await page.keyboard.press("Escape");
+  await frames(f);
+  assert.equal(await html("#mix"), HTML.replace("Hello world", "Hi there"));
+  await dblWords("#mix", 1);
+  await page.keyboard.type("or the");
+  await page.keyboard.press("Enter");
+  await frames(f);
+  assert.equal(await html("#mix"), HTML.replace("Hello world", "Hi there").replace(" and ", " or the "));
+  // a line break is an element inside too
+  await dblWords("#two", 1);
+  await page.keyboard.type("second");
+  await page.keyboard.press("Enter");
+  await frames(f);
+  assert.equal(await html("#two"), "line one<br>second");
+  assert.ok(await f.evaluate(() => window.same() && !document.querySelector("[contenteditable]")), "the same nodes, and nothing left editable");
+  assert.equal(await count(f), "3 edits");
+  // undo, all the way: as it began
+  for (let i = 0; i < 3; i++) await act(f, { type: "undo" });
+  await frames(f);
+  assert.deepEqual([await html("#mix"), await html("#two"), await f.evaluate(() => window.same())], [HTML, "line one<br>line two", true]);
+  for (let i = 0; i < 3; i++) await act(f, { type: "redo" });
+  await frames(f);
+  // the note says which words: by the element beside them
+  const n = await send(page);
+  assert.deepEqual(n.edits.map(({ kind, selector, from, to, textBefore, textAfter }) => ({ kind, selector, from, to, textBefore, textAfter })), [
+    { kind: "text", selector: "#mix", from: "Hello world", to: "Hi there", textBefore: "Image · Logo", textAfter: undefined },
+    { kind: "text", selector: "#mix", from: "and", to: "or the", textBefore: undefined, textAfter: "Image · Logo" },
+    { kind: "text", selector: "#two", from: "line two", to: "second", textBefore: undefined, textAfter: n.edits[2].textAfter },
+  ]);
+  assert.ok(n.edits[2].textAfter, "after the line break");
+  assert.match(await page.evaluate(() => window.__harness.notes[0].prompt), /text "and" → "or the" \(its words after "Image · Logo"; what is inside it stays\)/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("mod+click selects what is under the pointer through whatever is in the way; again, the one behind it; the hover says which", async () => {
+  const { page, f, errors } = await open();
+  await f.evaluate(() => {
+    const d = document.createElement("div");
+    d.id = "deep";
+    d.innerHTML = `<button id="ib" style="padding: 12px 16px"><span id="ico" style="pointer-events: none; display: inline-block; width: 20px; height: 20px">★</span> Save</button>
+      <div id="cardx" style="position: relative; width: 240px; height: 60px; margin-top: 12px"><h4 id="hx" style="margin: 0">Title</h4><a id="cover" href="#x" style="position: absolute; inset: 0"></a></div>`;
+    document.querySelector("header").after(d);
+  });
+  await frames(f);
+  const at = async (sel) => {
+    const b = await box(f, sel);
+    return [b.x + b.width / 2, b.y + b.height / 2];
+  };
+  const deep = async (x, y) => {
+    await page.keyboard.down(MOD);
+    await page.mouse.click(x, y);
+    await page.keyboard.up(MOD);
+    await frames(f);
+  };
+  // an icon the page keeps the pointer off: a click gets the button, mod+click the icon
+  const ico = await at("#ico");
+  await page.mouse.click(...ico);
+  await frames(f);
+  assert.equal(await selTag(f), "button#ib");
+  await page.keyboard.press("Escape");
+  await page.keyboard.down(MOD);
+  await page.mouse.move(ico[0] + 1, ico[1] + 1);
+  await frames(f, 3);
+  const hov = await ui(f, (r) => {
+    const b = r.querySelector(".box.hover")?.getBoundingClientRect();
+    return b ? { x: Math.round(b.x), y: Math.round(b.y) } : null;
+  });
+  await page.keyboard.up(MOD);
+  assert.deepEqual(hov, await near(f, "#ico"), "with the key held, the hover is what the click would select");
+  await deep(...ico);
+  assert.equal(await selTag(f), "span#ico");
+  await deep(...ico);
+  assert.equal(await selTag(f), "button#ib", "again: the one behind it");
+  await deep(...ico);
+  assert.equal(await selTag(f), "div#deep");
+  await deep(...ico);
+  assert.equal(await selTag(f), "span#ico", "and round again");
+  // a link stretched over its card: what it covers
+  const hx = await at("#hx");
+  await page.mouse.click(...hx);
+  await frames(f);
+  assert.equal(await selTag(f), "a#cover");
+  await deep(...hx);
+  assert.equal(await selTag(f), "a#cover");
+  await deep(...hx);
+  assert.equal(await selTag(f), "h4#hx");
+  await deep(...hx);
+  assert.equal(await selTag(f), "div#cardx");
+  // through the selection's own bands: a click on the gap beside a selected card changes nothing
+  await clickAt(page, f, SECOND, 4, 4);
+  assert.equal(await selTag(f), "article.card");
+  const c = await box(f, SECOND);
+  await page.mouse.move(c.x + c.width + 8, c.y + 30);
+  await frames(f);
+  await page.mouse.click(c.x + c.width + 8, c.y + 30);
+  await frames(f);
+  assert.equal(await selTag(f), "article.card");
+  await deep(c.x + c.width + 8, c.y + 30);
+  assert.equal(await selTag(f), "section#plans.row");
+  assert.equal(await count(f), "No edits");
+  assert.equal(await f.evaluate(() => window.pageClicks), 0, "the page saw no clicks");
+  assert.deepEqual(errors, []);
   await page.close();
 });

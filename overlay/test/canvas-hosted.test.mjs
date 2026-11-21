@@ -304,7 +304,7 @@ test("not hosted: no inspector and no bar, on the page or in views; canvas mode 
   await page.mouse.up();
   await frames(f);
   assert.equal(Math.round((await f.locator(SECOND).boundingBox()).width), 260);
-  await page.keyboard.press("Enter");
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
   await page.waitForFunction(() => window.__harness.notes.length === 1);
   assert.deepEqual(await page.evaluate(() => window.__harness.panel.filter((m) => m.panel === "canvas").length), 0, "no view was sent");
   assert.equal(await f.evaluate(() => getComputedStyle(document.documentElement).paddingBottom), "0px", "and no room made");

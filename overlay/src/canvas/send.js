@@ -1,10 +1,10 @@
 import { S, send } from "../state.js";
-import { adopt, describe, editSel, line, rectOf, round, union, vp } from "../page.js";
+import { adopt, describe, editSel, line, plainLabel, rectOf, round, union, vp } from "../page.js";
 import { dispatch } from "../sent.js";
 import { C, EMPTY, MAX_CLASS, MAX_CSS, MAX_SHEET, MAX_TEXT, newBatch } from "./state.js";
 import { elOf, stableSel } from "./stamps.js";
 import { topProps, varsIn } from "./css.js";
-import { applyAll } from "./apply.js";
+import { applyAll, runsOf } from "./apply.js";
 import { commit, countEdits } from "./batch.js";
 import { select } from "./select.js";
 import { copyAround, dropInside } from "./copies.js";
@@ -93,7 +93,13 @@ export function submitCanvas(background) {
   for (const op of B.ops) {
     who.push({ rs: op.rs, op });
     const out = { kind: op.kind, ...tidy(op, sel(op)) };
-    if (op.kind === "text") Object.assign(out, { from: line(op.from), to: line(op.to) });
+    if (op.kind === "text") {
+      Object.assign(out, { from: line(op.from), to: line(op.to) });
+      // Beside elements, which of its words: those after one of them, or before the first.
+      const el = elOf(op.rs), runs = el ? runsOf(el) : [], i = op.run || 0;
+      const by = runs.length > 1 && (i ? runs[i - 1] : runs[0])?.end;
+      if (by) out[i ? "textAfter" : "textBefore"] = line(plainLabel(by));
+    }
     if (op.kind === "move")
       Object.assign(out, {
         parent: { selector: sel(op.parent), label: op.parent.label, layout: op.parent.layout },

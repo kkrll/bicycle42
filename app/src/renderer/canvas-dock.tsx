@@ -655,6 +655,7 @@ export function CanvasDock() {
     }
     if (e.key === "Enter" && !e.isComposing) {
       // In a field Enter is a new line (in the class line and a value: "done"); mod+Enter sends.
+      // Outside a field it is the page's Enter: into the selection, with shift out of it.
       if (modKey(e)) {
         e.preventDefault()
         if (valueRow && f) {
@@ -669,9 +670,9 @@ export function CanvasDock() {
         e.preventDefault()
         const row = rowOf(valueRow)
         if (row) setValue(row, f.value)
-      } else if (!f && !t.closest("button") && !e.shiftKey) {
+      } else if (!f && !t.closest("button")) {
         e.preventDefault()
-        send({ type: "send", ...(e.altKey ? { bg: true } : {}) })
+        send({ type: "step", ...(e.shiftKey ? { out: true } : {}) })
       }
       return
     }
@@ -882,7 +883,7 @@ export function CanvasDock() {
   }
   const sendTitle = () => {
     const n = edits()
-    return n ? `Send ${n === 1 ? "this edit" : `these ${n} edits`} as one note (${keys("enter")} in the note, ${keys("mod", "enter")} in a field)` : "Nothing to send yet"
+    return n ? `Send ${n === 1 ? "this edit" : `these ${n} edits`} as one note (${keys("enter")} in the note, ${keys("mod", "enter")} anywhere else)` : "Nothing to send yet"
   }
 
   // ── the keys list: from the "?", inside the inspector's box ──

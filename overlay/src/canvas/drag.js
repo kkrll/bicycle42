@@ -1,5 +1,5 @@
 import { DRAG_PX, mod } from "../state.js";
-import { BOOST, editSel, line, pick, plainLabel, readView, rectOf, VP } from "../page.js";
+import { BOOST, editSel, line, pick, pickDeep, plainLabel, readView, rectOf, VP } from "../page.js";
 import * as Notes from "../notes/api.js";
 import { C, kids, MAX_CSS, num, px } from "./state.js";
 import { entry, meta, stableSel, stamp } from "./stamps.js";
@@ -30,11 +30,12 @@ export function cvDown(e, z) {
   if (!document.hasFocus()) window.focus();
   const x = e.clientX, y = e.clientY, r = C.r;
   const body = !z && r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
-  C.drag = { x0: x, y0: y, x, y, zone: z || (body ? { t: "body" } : null), mode: null, free: mod(e), both: e.shiftKey, sx: window.scrollX, sy: window.scrollY };
+  C.drag = { x0: x, y0: y, x, y, zone: z || (body ? { t: "body" } : null), mode: null, deep: mod(e), free: mod(e), both: e.shiftKey, sx: window.scrollX, sy: window.scrollY };
 }
 
 export function cvMove(e) {
   const d = C.drag;
+  C.mod = mod(e);
   if (!d) {
     const z = zoneOf(e);
     const ours = !z && isOurs(e);
@@ -68,13 +69,27 @@ export function cvUp(e) {
     if (d.mode !== "none") stepDrag(d);
   }
   if (d.mode) return endDrag(d, true);
+  if (d.deep) return deepClick(d.x0, d.y0);
   if (d.zone && d.zone.t !== "body") return; // a click on a handle or a gap changes nothing
   const el = pick(d.x0, d.y0);
   const now = performance.now();
   const twice = C.last && el && el === C.sel && now - C.last.t < 400 && Math.hypot(d.x0 - C.last.x, d.y0 - C.last.y) < 5;
   C.last = twice ? null : { t: now, x: d.x0, y: d.y0 };
-  if (twice) startEdit(el);
+  if (twice) startEdit(el, { x: d.x0, y: d.y0 });
   else if (el !== C.sel) select(el);
+}
+
+/** mod+click, as in Figma: what is under the pointer, whatever is in the way: the selection's own
+ *  handles and bands, and the page keeping the pointer off it (an icon in a button, a disabled
+ *  control). Again at the same place: the one behind it, and so on down, then round again; so
+ *  what a link stretched over its card covers can be reached too. */
+function deepClick(x, y) {
+  const under = pickDeep(x, y), was = C.deep;
+  const again = was && was.el === C.sel && Math.hypot(x - was.x, y - was.y) < DRAG_PX;
+  const el = under[again ? (under.indexOf(C.sel) + 1) % under.length : 0] || null;
+  C.last = null; // (not half of a double-click)
+  if (el !== C.sel) select(el);
+  C.deep = el && { el, x, y };
 }
 
 export function cancelDrag() {

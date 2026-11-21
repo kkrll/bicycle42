@@ -858,6 +858,15 @@ test("pageEdits: a duplicate names what it copies; copyOf points at a duplicate 
   assert.deepEqual(pageEdits([DUP, { ...TEXT, copyOf: 0, inCopy: "x" }]).map((e) => [e.copyOf, e.inCopy]), [[undefined, undefined], [0, undefined]])
 })
 
+test("pageEdits: a text edit beside elements says which words, by the element after or before them: one of the two, a label, text edits only", () => {
+  const TEXT = { kind: "text", selector: "p", tag: "p", label: "Text · Read the docs first", from: "first", to: "at once" }
+  assert.equal(pageEdits([{ ...TEXT, textAfter: "Link · docs" }])[0]?.textAfter, "Link · docs")
+  assert.equal(pageEdits([{ ...TEXT, textBefore: "Link · docs" }])[0]?.textBefore, "Link · docs")
+  assert.deepEqual(pageEdits([{ ...TEXT, textAfter: "a", textBefore: "b" }]).map((e) => [e.textAfter, e.textBefore]), [["a", undefined]])
+  for (const bad of [3, "", "x\ny", "x".repeat(301)]) assert.deepEqual(pageEdits([{ ...TEXT, textAfter: bad }]), [TEXT], String(bad).slice(0, 8))
+  assert.equal(pageEdits([{ ...HIDE, textAfter: "Link · docs" }])[0]?.textAfter, undefined)
+})
+
 test("pageEdits: a change keeps the page's variables it was set with, names only, four at most", () => {
   const change = (tokens: unknown) => pageEdits([{ ...STYLE, changes: [{ prop: "gap", from: "16px", to: "24px", tokens }] }])[0]?.changes
   assert.deepEqual(change(["--space-6"]), [{ prop: "gap", from: "16px", to: "24px", tokens: ["--space-6"] }])

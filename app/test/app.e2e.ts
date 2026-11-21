@@ -612,7 +612,7 @@ async function main() {
   await paste("#cd-css", "width: 300px;")
   await ui(`document.querySelector('#cd-css').blur()`)
   foot = (await until(async () => ((await footer()).count === "1 edit" ? footer() : null))) ?? (await footer())
-  check("…with an edit: undo, Reset and Send, which names the keys that do the same", !foot.undo && foot.redo && !foot.reset && !foot.send && /in the note, .*in a field\)$/.test(foot.sendTitle) && foot.sendX === sendX, JSON.stringify(foot))
+  check("…with an edit: undo, Reset and Send, which names the keys that do the same", !foot.undo && foot.redo && !foot.reset && !foot.send && /in the note, .*anywhere else\)$/.test(foot.sendTitle) && foot.sendX === sendX, JSON.stringify(foot))
   await ui(`document.querySelector('.cd-undo').click()`)
   foot = (await until(async () => ((await footer()).count === "No edits" ? footer() : null))) ?? (await footer())
   check("…undo takes it back and lights redo", foot.count === "No edits" && !foot.redo && foot.sendX === sendX && (await pageStyle("#plans", "width")) !== "300px", JSON.stringify(foot))
@@ -624,7 +624,11 @@ async function main() {
   await keyW("Enter")
   await sleep(200)
   foot = await footer()
-  check("…Enter (outside a field) with nothing edited says so, sends nothing, and the footer stays where it is", state().review.notes.length === notesBefore && foot.sendX === sendX && /^Nothing to send yet/.test(foot.msg), JSON.stringify(foot))
+  check("…Enter (outside a field) is a step into the selection: it sends nothing and refuses nothing", state().review.notes.length === notesBefore && foot.sendX === sendX && !/^Nothing to send yet/.test(foot.msg), JSON.stringify(foot))
+  await keyW("Enter", MODK)
+  await sleep(200)
+  foot = await footer()
+  check("…mod+Enter there with nothing edited says so, sends nothing, and the footer stays where it is", state().review.notes.length === notesBefore && foot.sendX === sendX && /^Nothing to send yet/.test(foot.msg), JSON.stringify(foot))
   check("…a refusal is cut with an ellipsis where it is too long, whole in its title; the header has no send hint of its own", (await ui(`(() => { const m = document.querySelector('.cd-msg'); return m.title === m.textContent && getComputedStyle(m).textOverflow === "ellipsis" && !/send/i.test(document.querySelector('.cd-head').textContent) })()`)) === true)
 
   // The keys list: from the "?", inside the inspector's box; Escape shuts it.

@@ -124,11 +124,53 @@ function blockRules(prs, stack, L, kidsNow) {
   return rules;
 }
 
-export const setText = (el, s) => {
-  const t = el.firstChild;
-  if (el.childNodes.length === 1 && t.nodeType === 3) t.data = s; // the same text node: a framework keeps its reference
-  else el.textContent = s;
-};
+// An element's own words are the runs of text between its child elements: one run more than it
+// has children (`hello <img> world` has two, a paragraph of plain words one), each the text nodes
+// it is made of now. A text edit is on one run, so what is inside the element stays as it is.
+// (A copy we put in is not the page's child: it parts no run.)
+export function runsOf(el) {
+  const ours = C.copies.size ? new Set(C.copies.values()) : null;
+  const out = [{ nodes: [], end: null }];
+  for (let n = el.firstChild; n; n = n.nextSibling) {
+    if (n.nodeType === 3) out[out.length - 1].nodes.push(n);
+    else if (n.nodeType === 1 && n !== hostEl && !(ours && ours.has(n))) {
+      out[out.length - 1].end = n; // (the element the run ends at; none after the last)
+      out.push({ nodes: [], end: null });
+    }
+  }
+  return out;
+}
+export const runText = (run) => run.nodes.map((n) => n.data).join("");
+
+/** Write a run's words: into its first text node (the node a framework holds stays the one on the
+ *  page), the others emptied; a run without one gets one. Returns what each node held, to put the
+ *  run back exactly (null for a node made here). */
+function writeRun(el, run, to) {
+  const was = run.nodes.map((n) => [n, n.data]);
+  run.nodes.forEach((n, k) => {
+    const s = k ? "" : to;
+    if (n.data !== s) n.data = s;
+  });
+  if (!run.nodes.length && to) {
+    const t = document.createTextNode(to);
+    el.insertBefore(t, run.end);
+    was.push([t, null]);
+  }
+  return was;
+}
+
+/** A run as it was before our edit: the same nodes with what each held, while they are still the
+ *  run's; after the page built them anew, the words. */
+function restoreRun(el, i, st) {
+  const run = runsOf(el)[i];
+  if (!run) return;
+  if (st.was && st.was.length === run.nodes.length && st.was.every(([n]) => run.nodes.includes(n)))
+    for (const [n, d] of st.was) {
+      if (d === null) n.remove();
+      else if (n.data !== d) n.data = d;
+    }
+  else if (runText(run) !== st.from) writeRun(el, run, st.from);
+}
 const setClass = (el, v) => (v === null ? el.removeAttribute("class") : el.setAttribute("class", v));
 
 /** Make the page show every batch that is not hidden. Idempotent: it writes only what differs,
@@ -219,8 +261,8 @@ export function applyAll() {
       else {
         const el = elOf(op.rs);
         if (!el) continue;
-        const w = need(el);
-        w.text = { from: w.text ? w.text.from : op.from, to: op.to };
+        const w = need(el), i = op.run || 0, runs = w.text || (w.text = {});
+        runs[i] = { from: runs[i] ? runs[i].from : op.from, to: op.to };
       }
     }
     const sheet = b.B.sheet;
@@ -279,10 +321,14 @@ export function applyAll() {
         delete st.cls;
         dirty = true;
       }
-      if ("text" in st && !(w && w.text)) {
-        if (el.textContent !== st.text) setText(el, st.text);
-        delete st.text;
-        dirty = true;
+      if ("text" in st) {
+        for (const i in st.text) {
+          if (w && w.text && w.text[i]) continue;
+          restoreRun(el, +i, st.text[i]);
+          delete st.text[i];
+          dirty = true;
+        }
+        if (!Object.keys(st.text).length) delete st.text;
       }
     }
     if (!el.isConnected || !("cls" in st || "text" in st)) C.applied.delete(el);
@@ -298,11 +344,17 @@ export function applyAll() {
       st.cls = w.cls.from;
     }
     if (w.text) {
-      if (el.textContent !== w.text.to) {
-        setText(el, w.text.to);
-        dirty = true;
+      const runs = runsOf(el), had = st.text || {};
+      for (const i in w.text) {
+        const run = runs[i], t = w.text[i];
+        if (!run) continue; // (the page has fewer elements in it now: no such run)
+        if (runText(run) !== t.to) {
+          const was = writeRun(el, run, t.to);
+          if (!had[i]) had[i] = { from: t.from, was };
+          dirty = true;
+        } else if (!had[i]) had[i] = { from: t.from };
       }
-      st.text = w.text.from;
+      if (Object.keys(had).length) st.text = had;
     }
     C.applied.set(el, st);
   }

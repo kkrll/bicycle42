@@ -1,5 +1,5 @@
 import { S } from "../state.js";
-import { pick, q, rectOf, VP } from "../page.js";
+import { pick, pickDeep, q, rectOf, VP } from "../page.js";
 import { C } from "./state.js";
 import { elOf, stampOf } from "./stamps.js";
 import { between, boxBand, buildGeo, layoutHit, select } from "./select.js";
@@ -92,12 +92,13 @@ export function cvFrame(capturing) {
   if (C.moved && !d) {
     C.moved = false;
     if (!C.over) {
-      const h = C.zone ? null : pick(C.px, C.py);
+      // (with the mod key held: what a mod+click would select, a band of the selection or not)
+      const h = C.mod ? pickDeep(C.px, C.py)[0] || null : C.zone ? null : pick(C.px, C.py);
       if (h !== C.hover) C.hover = h;
     }
   }
 
-  const z = live ? d.zone : d ? null : C.zone;
+  const z = live ? d.zone : d || C.mod ? null : C.zone;
   const boxes = [];
   if (C.hover && C.hover.isConnected && C.hover !== C.sel && !d && !C.edit && !z) boxes.push([rectOf(C.hover), "hover"]);
   const seen = !!r && (r.w > 0 || r.h > 0);

@@ -34,7 +34,7 @@ export const C = {
   snap: EMPTY, // the draft batch as last committed; past and future are the undo stacks
   past: [],
   future: [],
-  applied: new Map(), // Element → { cls?: original class attribute, text?: original text } written by us
+  applied: new Map(), // Element → { cls?: original class attribute, text?: { run: { from, was } }, its words before } written by us
   found: new Map(), // stable selector → Element
   paths: new Map(), // an element's stamp (as a selector) → { path, tag }: where it last was
   pathsDirty: false, pathsAt: 0,
@@ -53,6 +53,9 @@ export const C = {
   geo: null,
   geoKey: "",
   edit: null, // text being edited in place
+  trail: null, // the element the walk out (shift+Enter, ↑) started from: Enter and ↓ go back in to it
+  deep: null, // the last mod+click: { el, x, y }; another at that place selects what is behind
+  mod: false, // the mod key is held over the page: the hover is what a mod+click would select
   rev: 0,
   px: 0, py: 0, moved: false, over: false, last: null,
   drawn: false, msg: "", msgTimer: 0, typeTimer: 0, typeRaf: 0, hideTimer: 0,

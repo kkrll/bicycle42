@@ -249,6 +249,26 @@ export function pick(x, y) {
   return el;
 }
 
+/** Everything under a point, the one on top first: for a click that goes through (canvas mode's
+ *  mod+click). What pick gives, then what is behind it, its parents among them; and before all of
+ *  those, what is in it that the page keeps the pointer off (`pointer-events: none`: the icon in a
+ *  button, a disabled control), down to the deepest whose box holds the point. */
+export function pickDeep(x, y) {
+  const all = document.elementsFromPoint(x, y).filter((n) => n !== hostEl && n !== document.documentElement && n !== document.body);
+  let el = all[0];
+  for (let next = el; next; ) {
+    el = next;
+    next = null;
+    for (const c of el.children) {
+      if (SKIP.test(c.tagName) || getComputedStyle(c).pointerEvents !== "none") continue;
+      const r = c.getBoundingClientRect();
+      // (a later child is drawn over an earlier one)
+      if (r.width > 0 && r.height > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom && c.checkVisibility({ opacityProperty: true, visibilityProperty: true })) next = c;
+    }
+  }
+  return el && el !== all[0] ? [el, ...all] : all;
+}
+
 /** Elements fully inside a viewport rect, reduced to the outermost ones: the first 20 in
  *  document order. The tree is walked, and what is inside an element that is itself inside is
  *  not looked at. (Children can overflow a parent that lies outside, so those are all visited.) */

@@ -151,6 +151,9 @@ export type CanvasAct =
   | { type: "hover"; id: number }
   /** An arrow on the tree: up and down the rows, right opens or goes in, left closes or goes out. */
   | { type: "walk"; key: "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight" }
+  /** Enter outside a field: into the selection (the child it came out of, else its first), or
+   *  with `out` (shift+Enter) out to its parent. As on the page, where Enter is the same. */
+  | { type: "step"; out?: boolean }
   /** Element | Global. */
   | { type: "global"; on: boolean }
   /** A field's whole text, as typed. The page follows within a frame; the undo step closes when
