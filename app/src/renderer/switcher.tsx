@@ -1,4 +1,5 @@
 // The list behind "+": start a new conversation in this project, or open another project.
+// The project's name in the panel opens it too, for another project only: no conversation row.
 // Type to narrow, ↑/↓ to move, Enter to choose; the first nine projects also answer to mod+1…9.
 // A project is a folder on the server (the repo). Opening one brings its site back as it was
 // last open, or, when it has none yet, the step where a site is opened or started.
@@ -13,7 +14,7 @@ const tail = (path: string) => path.replace(/\/+$/, "").split("/").slice(-2).joi
 
 type Row = { kind: "new" } | { kind: "project"; project: ProjectInfo; n?: number } | { kind: "path"; directory: string } | { kind: "browse" }
 
-export function Switcher(props: { onClose: () => void }) {
+export function Switcher(props: { projectsOnly?: boolean; onClose: () => void }) {
   const [projects] = createResource(() => b42.invoke("allProjects"))
   const [query, setQuery] = createSignal("")
   const [at, setAt] = createSignal(0)
@@ -35,7 +36,7 @@ export function Switcher(props: { onClose: () => void }) {
     const found = known.filter((p) => !q || p.directory.toLowerCase().includes(q) || p.on.toLowerCase().includes(q))
     const typed = query().trim().replace(/(.)\/+$/, "$1")
     return [
-      ...(state.session && (!q || "new conversation".includes(q)) ? [{ kind: "new" as const }] : []),
+      ...(!props.projectsOnly && state.session && (!q || "new conversation".includes(q)) ? [{ kind: "new" as const }] : []),
       ...found.map((project, i) => ({ kind: "project" as const, project, ...(i < 9 ? { n: i + 1 } : {}) })),
       // A folder the server has not worked in yet can be opened by its path.
       ...(typed.startsWith("/") && typed.length > 1 && !known.some((p) => !p.server && p.directory === typed) ? [{ kind: "path" as const, directory: typed }] : []),
@@ -73,7 +74,7 @@ export function Switcher(props: { onClose: () => void }) {
   }
 
   return (
-    <dialog class="dialog switcher" ref={dialog} aria-label="New conversation, or another project" onClose={props.onClose} onClick={(e) => e.target === dialog && dialog.close()} onKeyDown={onKey}>
+    <dialog class="dialog switcher" ref={dialog} aria-label={props.projectsOnly ? "Another project" : "New conversation, or another project"} onClose={props.onClose} onClick={(e) => e.target === dialog && dialog.close()} onKeyDown={onKey}>
       <Show
         when={!browsing()}
         fallback={<FolderPicker browse open={open} onCancel={() => setBrowsing(false)} onDone={() => dialog.close()} />}

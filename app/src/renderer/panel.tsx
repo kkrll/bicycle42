@@ -702,7 +702,7 @@ function Place(props: { openSettings: () => void }) {
             aria-haspopup="dialog"
             data-action="projects"
             disabled={state.connection.status !== "online"}
-            onClick={() => setSwitcherOpen(true)}
+            onClick={() => setSwitcherOpen("projects")}
           >
             <span class="place-folder-name">{tail(dir())}</span>
             <Icon name="down" />

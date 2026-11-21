@@ -278,8 +278,9 @@ export function expandNotes(): void {
 /** Something of the window's needs the whole window (a picture opened large): the page view,
  *  which paints over the window, is taken away meanwhile. */
 export const [pageCovered, setPageCovered] = createSignal(false)
-/** The list opened with "+": a new conversation, or another project. */
-export const [switcherOpen, setSwitcherOpen] = createSignal(false)
+/** The list of projects, and what it was opened for: "all" from the conversation's "+" (a new
+ *  conversation, or another project), "projects" from the project's name (another project). */
+export const [switcherOpen, setSwitcherOpen] = createSignal<false | "all" | "projects">(false)
 /** The list of what the server is still running, opened from the address line. */
 export const [runningOpen, setRunningOpen] = createSignal(false)
 

@@ -535,7 +535,7 @@ export function App() {
   }
   const canStart = () => state.connection.status === "online" && !!state.session && !state.startingSite
   // A page that failed to load is replaced by a card saying so, in the same place.
-  const pageHidden = () => setup() || settings() || switcherOpen() || runningOpen() || resizing() || state.page.url === "" || loadFailed() || pageCovered()
+  const pageHidden = () => setup() || settings() || !!switcherOpen() || runningOpen() || resizing() || state.page.url === "" || loadFailed() || pageCovered()
 
   // ── page bounds: one call per frame at most, none when nothing moved ──
   let sent: Rect | null | undefined
@@ -834,7 +834,7 @@ export function App() {
         </Show>
         {/* While a dialog is open or the panel is resized the page view is away: a quiet surface
             stands in for it, so the window does not go black. */}
-        <div class="page" ref={pageEl} classList={{ veiled: settings() || switcherOpen() || runningOpen() || resizing() }}>
+        <div class="page" ref={pageEl} classList={{ veiled: settings() || !!switcherOpen() || runningOpen() || resizing() }}>
           <Show when={resizing() && state.page.url !== "" && !loadFailed()}>
             <p class="page-size" aria-hidden="true">
               {sizeSaid()}
@@ -942,7 +942,7 @@ export function App() {
         <RunningList onClose={() => setRunningOpen(false)} />
       </Show>
       <Show when={switcherOpen() && !setup()}>
-        <Switcher onClose={() => setSwitcherOpen(false)} />
+        <Switcher projectsOnly={switcherOpen() === "projects"} onClose={() => setSwitcherOpen(false)} />
       </Show>
     </div>
   )

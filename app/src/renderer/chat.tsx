@@ -1233,7 +1233,7 @@ function Conversations(props: { openSettings: () => void }) {
         aria-haspopup="dialog"
         data-action="switcher"
         disabled={state.connection.status !== "online"}
-        onClick={() => setSwitcherOpen(true)}
+        onClick={() => setSwitcherOpen("all")}
       >
         <Icon name="plus" />
       </button>
