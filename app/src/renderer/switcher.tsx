@@ -1,7 +1,7 @@
 // The list behind "+": start a new conversation in this project, or open another project.
 // The project's name in the panel opens it too, for another project only: no conversation row.
 // Type to narrow, ↑/↓ to move, Enter to choose; the first nine projects also answer to mod+1…9.
-// A project is a folder on the server (the repo). Opening one brings its site back as it was
+// A project is a folder on the agent (the repo). Opening one brings its site back as it was
 // last open, or, when it has none yet, the step where a site is opened or started.
 import { For, Match, Show, Switch, createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js"
 import { homePath } from "./agents"
@@ -31,15 +31,15 @@ export function Switcher(props: { projectsOnly?: boolean; onClose: () => void })
   const current = () => state.site?.directory
   const rows = createMemo((): Row[] => {
     const q = query().trim().toLowerCase()
-    // The open project first, the server's others in its own order (most recently used first),
-    // then those of the servers connected to before. A server's name narrows the list too.
+    // The open project first, the agent's others in its own order (most recently used first),
+    // then those of the agents connected to before. An agent's name narrows the list too.
     const known = projects.error ? [] : (projects() ?? [])
     const found = known.filter((p) => !q || p.directory.toLowerCase().includes(q) || p.on.toLowerCase().includes(q))
     const typed = query().trim().replace(/(.)\/+$/, "$1")
     return [
       ...(!props.projectsOnly && state.session && (!q || "new conversation".includes(q)) ? [{ kind: "new" as const }] : []),
       ...found.map((project, i) => ({ kind: "project" as const, project, ...(i < 9 ? { n: i + 1 } : {}) })),
-      // A folder the server has not worked in yet can be opened by its path.
+      // A folder the agent has not worked in yet can be opened by its path.
       ...(typed.startsWith("/") && typed.length > 1 && !known.some((p) => !p.server && p.directory === typed) ? [{ kind: "path" as const, directory: typed }] : []),
       ...(!q || "browse folders".includes(q) ? [{ kind: "browse" as const }] : []),
     ]

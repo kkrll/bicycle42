@@ -19,20 +19,16 @@ const head = (s: string, max = 120) => {
 const START_PROMPT = "Get this project's site running so I can review it in bicycle 42."
 
 /** What the agent is asked when the reviewer has a repo and no running site. It says only what
- *  the agent cannot know: that the app stops what runs through the server's shell (a detached
- *  process is not there, see `refreshRunning` in core.ts), that localhost does not open on
- *  another computer (`remote`), and the line the app reads the address from (SITE_LINE in
- *  core.ts). `failed` is an address that did not answer. `stoppable`: the app can list and stop
- *  what the agent's shell runs (an OpenCode server); an ACP agent's background command can't be
- *  seen from here, and ends with the agent's process, so that is what is said instead. */
-export function startPrompt(failed: string, remote: boolean, stoppable = true) {
+ *  the agent cannot know: that what it starts as a background command of its shell tool ends
+ *  with this session (ACP gives the app no way to list or stop it, and a detached process would
+ *  outlive the agent), and the line the app reads the address from (SITE_LINE in core.ts). An
+ *  agent on another computer serves on its own localhost, which the app forwards here, so it is
+ *  not told where the app is. `failed` is an address that did not answer. */
+export function startPrompt(failed: string) {
   return [
     [START_PROMPT, ...(failed ? [`I expected it at ${failed}, which did not answer.`] : [])].join(" "),
     "",
-    [
-      `Run it as a background command of your shell tool (not nohup, & or tmux), ${stoppable ? "so I can stop it from here" : "so it ends when this session does"}.`,
-      ...(remote ? ["I am on another computer, so localhost will not open: bind it to the network, and ask before a tunnel makes it public."] : []),
-    ].join(" "),
+    "Run it as a background command of your shell tool (not nohup, & or tmux), so it ends when this session does.",
     "",
     "When it answers, end your reply with one line: SITE: <address>",
   ].join("\n")

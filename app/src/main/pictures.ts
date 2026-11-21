@@ -17,8 +17,12 @@ const HOST = "pic"
 /** Where a picture is: the conversation, the message (or queued item), and the file's place in
  *  the message's list of files. */
 export type PictureSource = { session: string; message: string; file: number }
-/** A picture as the server sends it. */
+/** A picture as the agent sent it: its type and base64. */
 export type Wire = { mime: string; data: string }
+
+/** Names a message's picture for the window (`Pictures.name`). Without one, a picture goes to
+ *  the window as a data URL. */
+export type NamePicture = (src: PictureSource, mime: string, data?: string) => string
 
 export type Pictures = {
   /** The address the window shows the picture by. `data` (base64), when given, is kept a while,

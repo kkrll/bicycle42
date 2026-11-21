@@ -25,18 +25,21 @@ Settings and notes live in the app's user-data folder (`~/.config/bicycle42` on 
 ## Test
 
 ```bash
-bun run test         # unit and controller tests in Node, then the page view and the whole app in headless Electron against a fake server
+bun run test         # unit and controller tests in Node, then the page view and the whole app in headless Electron with a fake ACP agent
 bun run test:unit    # the Node part alone
 bun run check:design # the window's styles against the design system's rules
 ```
 
-The Electron parts load the pages in `../overlay/harness/`. None of these needs an OpenCode server.
+The Electron parts load the pages in `../overlay/harness/`. None of these needs a real agent: the
+controller's tests and the whole app's (`test/app.e2e.ts`) play the fake ACP agent of
+`test/fake-agent.ts` in their own process, a turn at a time (`test/played-agent.ts`, reached
+through `Host.agentTransport`); `test/controller-acp.test.ts` and `controller-ssh.test.ts` run it
+as a program of its own (`test/acp-agent.ts`), here and over a fake ssh.
 
-`bun run test:real` is the one that does, and it is not part of `bun run test`: it drives the
-app against the OpenCode server running on this computer with a real agent (three one-line CSS
-notes in a throwaway repository, then their pictures, diff, take back, a checkpoint and a
-commit), so it spends model tokens. It uses a free model unless `B42_REAL_MODEL=provider/model`
-names another, and deletes its conversation and its folder when it ends.
+`bun run test:real` is the one that does, and it is not part of `bun run test`: it drives a real
+ACP agent on this computer through `main/acp.ts` (`test/acp.real.ts`: a note-like turn that writes
+a file, the queue, Stop, steer, a re-read from a new process), so it spends the agent's tokens.
+It runs OpenCode (`opencode acp`) unless told another: `bun run test:real -- claude haiku`.
 
 `scripts/shot.mjs` takes screenshots of the window in every state from the renderer's mock
 (`src/renderer/mock.ts`); they go to `shots/` or `$SHOT_DIR`:
@@ -51,25 +54,23 @@ node scripts/build.mjs && node_modules/.bin/electron --ozone-platform=headless -
 src/shared/types.ts     the contract: AppState, ChatEvent, Commands, Backend. Read this first.
 ../overlay/protocol.ts  the page's side of it: the overlay's messages and a note's shape, shared with the overlay
 src/main/core.ts        controller: owns AppState, wires the parts below; createCore(host), with nothing of Electron in it
-src/main/index.ts       the Electron shell around it: window, menu, keychain, the bridge's IPC, start and quit
+src/main/index.ts       the Electron shell around it: window, menu, the bridge's IPC, start and quit
 src/main/page.ts        the page: a WebContentsView with the overlay as its preload, in its own script world
 src/page-preload.ts     the overlay's way into the page and back to main (IPC), built with the overlay inside
 src/main/review.ts      a site's notes and their status rules (pure, no Electron)
 src/main/outbox.ts      what each unfinished note sends (prompt, pictures), on disk until it is done
 src/main/images.ts      a captured Frame → area crop + viewport thumbnail, each frame scaled once, yielding between steps
 src/main/queue.ts       one file operation at a time per key (outbox, shots)
-src/main/opencode.ts    a backend: an OpenCode server, fetch + one SSE stream → BackendEvents (no Electron)
-src/main/acp.ts         a backend: an ACP agent this computer runs, JSON-RPC over its stdio → BackendEvents
+src/main/acp.ts         the backend: an ACP agent the app runs, here or over ssh, JSON-RPC over its stdio → BackendEvents
 src/main/machine.ts     where the code is: commands, files, the agent's process and PATH of a computer (Machine); this one's (LocalMachine)
 src/main/ssh.ts         another computer over ssh as a Machine: ControlMaster, the helper put there and attached to, reconnecting, port forwards
 src/helper/helper.ts    the app's helper on that computer (dist/helper.cjs): Machine's calls as JSON-RPC, and the agent's process kept with its output while the app is away
 src/main/agents.ts      the ACP agents the app knows (Claude Code, Codex, Gemini CLI, OpenCode), how each starts and installs, whether a sign-in is found
-src/main/chat-items.ts  what both backends build a conversation with: a user message, a run's end, parseNote
+src/main/chat-items.ts  what a conversation is built with: a user message, a run's end, parseNote, reading untrusted JSON
 src/main/patch.ts       an edit's old and new text as a unified diff (ACP says edits that way)
 src/main/asks.ts        what the app itself asks the agent (site, commit, take back), what it tells it, and the line the chat shows for it
 src/main/snapshots.ts   the app's own file history: a shadow git repository per folder, outside it; snapshots, diffs, exact take-backs
 src/main/pictures.ts    the conversation's pictures by address (b42-img:), served to the window by main
-src/main/local.ts       finds the OpenCode server running on this computer
 src/main/store.ts       settings and notes on disk, versioned, atomic writes off the main thread (flushed at quit)
 src/preload.ts          window.b42: the only door between the window and main
 src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/design tokens)
@@ -78,11 +79,11 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
 ```
 
 - **Main owns everything durable.** The page hot-reloads under you and the window is a view of
-  `AppState`; neither can lose a note. The window never sees the password or a raw server payload.
+  `AppState`; neither can lose a note. The window never sees a raw agent payload.
 - **The controller is a core without a window.** `createCore(host)` in `core.ts` holds all of
   the app's state in one call and imports nothing of Electron. What it needs of the shell it
-  runs in is `Host`: the data folder, the keychain (`secrets`), `emit` to the window's three
-  streams (state, chat, note), a `dialog`, a `log`. The shell makes the page and hands it over
+  runs in is `Host`: the data folder, `emit` to the window's three streams (state, chat, note),
+  a `dialog`, a `log` (and, for tests, `agentTransport`: an agent in the same process). The shell makes the page and hands it over
   (`attach`); `Page` is what a page under review does (load, send, capture, busy, …) with no
   view, no script text and no Electron type in it, and a capture is a `Frame` (`images.ts`:
   size, crop, resize, JPEG), which `page.ts` makes from the view's. What the shell gets back is
@@ -100,34 +101,34 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   repo, not an address: a port is whoever's dev server took it, so the same origin in another
   repo is another place, with its own entry in `settings.sites`, notes file and conversation
   (`placeOf`: a place is found by its folder and address; its name is the origin and a mark,
-  or the origin alone for one made before this). A folder that is not on the server is asked
+  or the origin alone for one made before this). A folder that is not there is asked
   for again and nothing saved is taken away for it: the place keeps its conversation, what was
   pinned and its notes until a folder is chosen or the folder is back. With a repo and no
   page, the app is at a place of the repo's own (`HOME`, one for each repo) that has a
   conversation like any site, so the agent can be asked to
-  get the site running (`startSite`): the prompt is short, and says that the app is on another computer
-  when it is, and asks for a last line `SITE: <address>`, which is opened when the run ends and no page
-  works yet. The first site opened takes that conversation over.
+  get the site running (`startSite`): the prompt is short, says that what it starts as a background
+  command of its shell tool ends with the session, and asks for a last line `SITE: <address>`,
+  which is opened when the run ends and no page works yet (for an agent on another computer, its
+  localhost forwarded here first). The first site opened takes that conversation over.
 - **What the app asks in the reviewer's name is one line in the chat.** Getting the site
   running, a commit and a note taken back are messages the app writes (`main/asks.ts`); each
   says only what the agent cannot know by itself. `parseAsk` reads back what one asks
   (`ChatUser.ask`), and the chat shows that line with the whole text folded under it, as a
   note's message shows the note's words and not its prompt.
-- **What is left running is the server's to say.** `Backend.running` lists the shell commands
-  still running in a folder (`GET /api/shell`), `kill` ends one. Main reads the open repo's
-  every 20 s and after each run, and every project's on connecting and when the list is opened
-  (`refreshRunning`); a command younger than 15 s is taken for a step under way and not shown.
-  `startSite` asks for a background command of the shell tool, not a detached process, which
-  the server would not know about.
-- **Every server connected to is kept** (`servers` in `settings.json`, passwords encrypted as
-  before), and each has its own repo, pages, conversations and default model: a folder or a
-  conversation of one server means nothing on another. The one in use has these in the
-  settings' own fields; the others carry theirs in `space` (`enter` in `core.ts` swaps them).
-  Notes files of every server but the first have its id before the site's origin, so the same
-  address on two machines is two sites. The window never names one by its address when it has
-  a better word: `describe` in `core.ts` gives each its kind (the mark), its name ("Claude
-  Code", "OpenCode server", a computer's name) and whether it is on this computer, as
-  `AppState.harness` for the one in use and in `servers()` and `allProjects()` for the others.
+- **What the agent leaves running ends with it.** ACP gives the app no list of what the agent's
+  shell runs and no way to stop it, so a dev server the agent starts lives as long as the
+  agent's process, which the app ends (with its process group) when it quits or uses another
+  agent. `startSite` asks for a background command of the shell tool, not a detached process,
+  which would outlive it.
+- **Every agent started is kept** (`servers` in `settings.json`: which agent, the command that
+  starts it, the computer over ssh), and each has its own repo, pages, conversations and default
+  model: a folder or a conversation of one means nothing to another. The one in use has these in
+  the settings' own fields; the others carry theirs in `space` (`enter` in `core.ts` swaps them).
+  Notes files of every one but the first have its id before the site's origin, so the same
+  address on two machines is two sites. `describe` in `core.ts` gives each its kind (the mark),
+  its name ("Claude Code", the reviewer's own, a custom command's program) and whether it is on
+  this computer, as `AppState.harness` for the one in use and in `servers()` and `allProjects()`
+  for the others.
 - **An OpenCode server is no longer connected to.** The app runs an agent over ACP, here or on
   another computer over ssh (OpenCode too: `opencode acp`). A server saved by an earlier version
   (`{ url, password }` or `{ local: true }`) is put aside when the controller is made, before
@@ -142,15 +143,13 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   behind the project's name, where it has no row for a new conversation.
 - **One site = one folder = one conversation** (plus a background one for `alt+Enter` notes).
   Stored in `settings.json` under the app's user-data folder; notes are in `reviews/`.
-- **The chat is rebuilt from the server's step, text and tool events**, and the same code path
-  re-reads it after a reconnect, so a dropped connection can't duplicate or reorder messages.
-  After a gap in one conversation's events (a step whose start was not seen), only its newest
-  messages are read, back to one read before that had settled by then; a reconnect, an undo, a
-  redo or a summary reads the whole list.
+- **The chat is built by one path** (`apply` in `acp.ts`) from the agent's live updates and from
+  the replay `session/load` sends, so a re-read after the agent's process starts again gives the
+  same items with the same ids and never duplicates or reorders anything.
 - **A conversation's pictures are not in the chat.** Each is a `b42-img://pic/<conversation>/<message>/<file>`
   address (`pictures.ts`), served by main through `protocol.handle` in the app window's session
-  only: from the note's own picture on disk, else from the bytes the message list brought (decoded
-  on the first look, kept in a bounded cache), else from the server again (`GET …/message/{id}`).
+  only: from the note's own picture on disk, else from the bytes the message carried (decoded on
+  the first look, kept in a bounded cache), else from the agent's conversation again.
   An address main did not hand out is refused. A re-read of 150 notes is 0.1 MB, not 45.
 - **A note remembers the conversation it was sent to**, and carries a message id chosen here.
   Switching conversations, a restart or a dropped connection can't mark it done by mistake, and
@@ -158,22 +157,16 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   (`NoteRow.session`), so the note's view can name one that is not open and Follow up can open
   it first; a background note's follow-up stays in the open conversation, since the background
   one is not a conversation to talk in.
-- **Take back says its way before it goes.** `takeBackWay` answers "undone" (the note is the
-  newest message of an idle conversation and the backend can undo: an exact undo, conversation
-  and files), "restored" (the app reverses the note's turn from its own file history, below) or
-  "asked" (the agent is asked to reverse it); the view puts that in its question and hands it to
+- **Take back says its way before it goes.** `takeBackWay` answers "restored" (the app reverses
+  the note's turn from its own file history, below) or "asked" (the agent is asked to reverse it); the view puts that in its question and hands it to
   `takeBackNote`, which does nothing when things have moved to another way meanwhile.
   `takeBackPlan` is the same with, for "restored", the files the reversal would change (from a dry
   run): the question names them and says that what anyone changed in them during that turn (the
   reviewer in their editor too) goes back with it, since the turn's diff is the folder's.
-- **The app keeps its own file history** (`snapshots.ts`), so a note is taken back exactly when it
-  is not the newest message, and a backend with no undo (`Backend.can.undo` unset) still has
-  `/undo`, `/redo` and checkpoints. Only where the files are on this computer (`filesHere`: an ACP
-  agent the app runs, the OpenCode server saved as this computer's, or one on localhost whose
-  `info.computer` is this computer's name, since a server elsewhere reached through `ssh -L` is
-  on localhost too; and the folder exists here); with a server on another computer nothing
-  changes. Each folder has a
-  shadow git repository under the data folder (`snapshots/<name>-<hash>.git`), used with
+- **The app keeps its own file history** (`snapshots.ts`): it is what takes a note back exactly,
+  and what `/undo`, `/redo` and checkpoints do (ACP has no undo). It is kept on the computer the
+  agent works on: this one's under the data folder, another's in `~/.bicycle42/snapshots/<id>`
+  there, over ssh. Each folder has a shadow git repository (`snapshots/<name>-<hash>.git`), used with
   `GIT_DIR` and `GIT_WORK_TREE` and none of the person's git configuration; the folder's own `.git`
   is never touched, and it need not be a repository. A snapshot is `git add -A` + `git write-tree`
   (the folder's `.gitignore` counts; `node_modules` never goes in). A `git add` that was killed
@@ -183,7 +176,7 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   (`Refused`, with a sentence), and a file a turn "added" that was on disk before the turn began
   (a `.gitignore` edit let it in) is kept when the turn is reversed. The folder's shadow index is
   warmed when its site opens, so boundary snapshots read only what changed. Core snapshots a site's
-  conversation's folder at each turn boundary (`turnEdge`: a run starts, the server hands the agent
+  conversation's folder at each turn boundary (`turnEdge`: a run starts, the agent is handed
   the next message, the run ends); the notes that finished at a boundary ran in the turn it ends,
   and the turn's two trees, with those notes' message ids, go into the folder's log (`b42.json` in
   the shadow), so they outlive a restart. A note's diff is `git diff before after` of its turn.
@@ -201,18 +194,14 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   untold restores outlive the log's 30-day cut. Before `/compact` or an agent's own command the
   line goes alone, as a message of its own ("Told the agent what was taken back"). A turn during
   which another conversation ran in the same folder, or one inside it or around it (by real path;
-  a background one, another client of the server: run events come for every folder, and a
-  conversation of no site's is asked for its folder) is `shared`: its diff may hold the other's
+  the background one, another project's: run events come for every folder, and a conversation
+  of no site's is asked for its folder) is `shared`: its diff may hold the other's
   changes, so it is never reversed by itself. A turn whose "before" may hold its own first
-  changes is `untrusted` and goes to the agent too: where the backend does not wait for the
-  snapshot (OpenCode) one that took over a second, and with ACP one the adapter sent without
-  (`AcpOptions.turnUntrusted`). So is a turn that changed nothing the app sees (the agent worked in
+  changes is `untrusted` and goes to the agent too: one whose message went before its snapshot was
+  taken (`AcpOptions.turnUntrusted`: it took longer than `timing.beforeTurn`). So is a turn that changed nothing the app sees (the agent worked in
   a nested repository, an ignored file, outside the folder), and a reversal that throws (a stale
   `index.lock`). A note whose turn was never kept has no diff to show (`noteDiff` is null, "No
-  record of what changed"), which is not "No file changed". OpenCode's own undo puts every
-  file it touched back whole, as it was before the turn, which would bring back a note the app took
-  back since; then the app's way is used for that take-back, `/undo` or checkpoint
-  (`undoClobbers`). Turns older than 30 days leave the log once a day, and git's gc (off
+  record of what changed"), which is not "No file changed". Turns older than 30 days leave the log once a day, and git's gc (off
   otherwise) lets their trees go.
 - **The page is untrusted.** The overlay and its way to the app (`window.__review`, which
   sends over IPC) are the view's preload (`page-preload.ts`), which Electron runs before the
@@ -236,7 +225,7 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   CSS typed in the inspector has a length limit and goes into the prompt inside a fence longer
   than any run of backticks in it, so it cannot end its own block.
 - **Three sounds, decided in one place.** `renderer/cues.ts` compares two state snapshots and
-  names at most one cue: a question or permission that was not there (`ascend`), the server
+  names at most one cue: a question or permission that was not there (`ascend`), the agent
   lost, a note or the run failed (`descend`), the agent finished with nothing still on its way
   (`f-staccato`). What the reviewer did themselves (Stop, a note removed, another conversation) is
   silent. `renderer/sound.ts` plays them; the settings dialog turns them off.
@@ -264,19 +253,19 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   select by that. So the edit stays put when the page adds, removes or reorders the elements
   around it, and the note names the element by the selector it has when it is sent. Only when
   the page builds the element anew (or reloads) is it found by where the old one last was.
-- **One note is one turn.** The server makes a turn of everything that reaches a conversation
-  while it is busy, and a turn is what it can show the changes of and take back. So the app
+- **One note is one turn.** A turn is what the app can show the changes of and take back (its
+  snapshots are taken at turn boundaries). So the app
   sends a lane's notes one at a time (`enqueue`, `pump` in `core.ts`): a note made while
   another is with the agent, or while a typed message runs, is held in the app (`held` in
   `review.ts`: "queued", with no conversation) and goes when that run ends. A stop or an
   agent's error leaves the rest waiting until something is sent again. Whether a conversation
-  is busy is what the event stream last said of its runs (`busy` in `core.ts`); the server is
-  asked only when the stream has said nothing since it connected, reconnected or had a gap, and
-  a message typed in the chat counts as a run from the moment it is sent. What a held note sends
+  is busy is what the backend last said of its runs (`busy` in `core.ts`); the conversation is
+  asked only when nothing has been said since the agent started, and a message typed in the
+  chat counts as a run from the moment it is sent. What a held note sends
   is on disk (`outbox.ts`), so it is still sent after a restart; a note goes only once that
   file has its message id.
-- **A waiting note is said once.** The server's queue holds notes and typed messages alike, and
-  the conversation gets both as waiting items; the window leaves out the ones that are notes on
+- **A waiting note is said once.** A conversation's queue (in `acp.ts`) holds notes and typed
+  messages alike, and the conversation gets both as waiting items; the window leaves out the ones that are notes on
   the list (`ordered` in `renderer/chat.tsx`), so only a typed message waits there, with its
   Cancel. A note's Cancel is in its own view and goes by the note (`cancelNote`): a held
   note is simply stopped, one already in a conversation's queue is taken out of it there,
@@ -288,53 +277,36 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   works while one is open.
 - **The model new conversations start with is the person's choice**, saved in `settings.json`
   (`defaultModel`). Main asks for it once (`AppState.modelChoice`, answered by
-  `setDefaultModel`) when a server lists several models and none is saved, or the saved one has
+  `setDefaultModel`) when an agent offers several models and none is saved, or the saved one has
   left its list, and makes no new conversation until it has the answer. One model is saved
-  without asking; no models, or a list that cannot be read, asks nothing and leaves the choice
-  to the server. The picker under the chat box changes the open conversation and the default
-  together; the server dialog's "Default model" changes only the default.
-- **The backend is one interface** (`Backend` in `types.ts`), with two implementations: an
-  OpenCode server (`opencode.ts`) and an ACP agent on this computer (`acp.ts`, below). What a
-  backend can do beyond the basics is `Backend.can` (`BackendCan`), which reaches the window as
-  `AppState.can`: what it can't do is not offered (Steer, the running commands and their Stop,
-  Compact, Fork, Archive), and the controller refuses it with a sentence.
+  without asking; no models asks nothing and leaves the choice to the agent. The picker under
+  the chat box changes the open conversation and the default together; the settings' "Default
+  model" changes only the default.
+- **The backend is one interface** (`Backend` in `types.ts`), and its implementation is an ACP
+  agent (`acp.ts`, below), on this computer or another. What it can do beyond the basics is
+  `Backend.can` (`BackendCan`), which reaches the window as `AppState.can`: what it can't do is
+  not offered (Steer, Compact, Fork, Archive), and the controller refuses it with a sentence.
 - **The app's own slash commands live in main** (`BUILTINS` in `core.ts`). The window asks
-  `commands()` for the list (the app's first, then the server's for the site's folder; a
-  built-in wins over a server command of the same name) and sends every `/name` through
-  `runCommand`, which either does it here or passes it to the server. Each is one `Backend` call:
+  `commands()` for the list (the app's first, then the agent's; a built-in wins over an agent's
+  command of the same name) and sends every `/name` through `runCommand`, which either does it
+  here or passes it to the agent as a message:
 
-  | Command | `Backend` | OpenCode route |
-  |---|---|---|
-  | `/compact` | `compact` | `POST /api/session/{id}/compact` |
-  | `/new` | `createSession` | `POST /api/session` |
-  | `/undo` | `lastTurn`, `undo` | `GET …/message`, `POST …/revert/stage` |
-  | `/redo` | `redo` | `DELETE …/revert` |
-  | `/rename name` | `rename` | `PATCH /api/session/{id}` |
-  | `/fork` | `fork` | `POST …/fork` |
+  | Command | What it does |
+  |---|---|
+  | `/compact` | the agent's own `/compact`, as a message (`Backend.compact`; offered only when the agent has it) |
+  | `/new` | `createSession` |
+  | `/undo` | the agent's last turn here, files only, from the app's history (`undoFiles`) |
+  | `/redo` | brings back the newest take-back the agent was not told of yet |
+  | `/rename name` | `rename` |
+  | `/fork` | `fork` (where the agent offers it) |
 
-  A summary (asked for with `/compact`, or written by the server when the context fills) arrives
-  as `session.compaction.*` events and shows as a folded step in the conversation; "nothing to
-  compact yet" is a line there too. It moves no note: notes follow their own message ids.
-  How full the context is comes from the server's own counts (`AppState.context`). "Used" is
-  everything the agent's last finished step read and wrote: `tokens.input + cache.read +
-  cache.write + output + reasoning` of the newest assistant message that has counts and no
-  error (`GET …/message`, and `session.step.ended` as it happens). The limit is the model's
-  window, `limit.input` or `limit.context` of `GET /api/model`, the smaller when it has both.
-  That is the sum and the window the server itself uses to decide when to summarise, which it
-  does at the window less a reserve (15% unless configured). After a summary nothing is known
-  until the next step ends, and a count made by another provider's model is not used, as on the
-  server. The window shows it in the message box's bottom row (`renderer/meter.tsx`, arithmetic
-  in `renderer/context.ts`): nothing under half, a percentage from there (with the word
-  "Compact" while the agent is idle and no note waits), the warning colour
-  from 80%, and behind it one confirmed action, Compact, which is `runCommand("compact")`.
-  `/undo` first says what it would take back and waits for Enter, because the server takes back
-  **everything from that message on**, the agent's file changes included (files only where the
-  folder is a git repository). What is undone stays out of the conversation until `/redo`, and
-  the next message sent makes it final. A note whose message was undone keeps the status it had.
-  The events for summaries and undo are asked for on top of the usual ones. A server that does
-  not know them refuses the whole stream (400); the app then asks again without them, once per
-  connection, and reads the conversation back after `/compact`, `/undo` and `/redo` instead:
-  the summary appears when it is written, without the streaming.
+  How full the context is comes from the agent's own count (its `usage_update`: `ContextUse`,
+  `AppState.context`), against the window it gives. The window shows it in the message box's
+  bottom row (`renderer/meter.tsx`, arithmetic in `renderer/context.ts`): nothing under half, a
+  percentage from there (with the word "Compact" while the agent is idle and no note waits, when
+  it offers `/compact`), the warning colour from 80%, and behind it one confirmed action,
+  Compact, which is `runCommand("compact")`. `/undo` first says what it would take back and
+  waits for Enter; the conversation stays as it is, and the agent is told with the next message.
 
 ## An agent on this computer (ACP)
 
@@ -342,9 +314,8 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
 and is the `Backend` for it (`@agentclientprotocol/sdk`, its `/unstable` entry, bundled into
 main). The connect screen lists the agents `main/agents.ts` knows, each said installed or not
 (looked for on this process's PATH and on the one the login shell sets up, since an app started
-from the desktop has less), and takes any other command (`connectAgent`). A saved agent is a
-server like the others (`{ agent, command }` in `settings.servers`), with its own repo, pages and
-conversations; its address is `acp://<id>`.
+from the desktop has less), and takes any other command (`connectAgent`). A saved agent is kept (`{ agent, command }` in
+`settings.servers`), with its own repo, pages and conversations; its address is `acp://<id>`.
 
 | Agent | Command |
 |---|---|
@@ -355,10 +326,10 @@ conversations; its address is `acp://<id>`.
 
 - **One process for all of an agent's conversations.** Started on the first call, in its own
   process group, and started again with a growing pause (1 s to 30 s) when it dies; the app
-  stops listening (quit, another server) by ending the group, so what it started ends with it.
+  stops listening (quit, another agent) by ending the group, so what it started ends with it.
   A dev server the agent starts is a background command of its own shell tool, which ACP gives
-  the client no way to list or stop (`can.running` is false): it lives as long as the agent's
-  process. The request to get the site running says so (`startPrompt`, third argument).
+  the client no way to list or stop: it lives as long as the agent's process. The request to get
+  the site running says so (`startPrompt`).
 - **One conversation model, two ways in.** Each conversation opened in the process is kept as
   ChatItems, built by one path (`apply`) from the live `session/update` notifications and from
   the replay `session/load` sends, so a re-read in a new process gives the same items, ids and
@@ -375,8 +346,8 @@ conversations; its address is `acp://<id>`.
   Claude Code's own `[Request interrupted by user]` message is left out of a replay: the chat
   has "Stopped".
 - **The queue is the adapter's.** ACP takes one prompt at a time; the rest wait in `acp.ts`
-  with the inbox and run events an OpenCode server sends (queued, working, the run started once
-  and ended when the queue is dry), so notes move as they do there. Stop is `session/cancel`,
+  with inbox and run events (queued, working, cancelled; the run started once and ended when the
+  queue is dry), which the notes move by. Stop is `session/cancel`,
   parks the queue, and answers the agent's open permission and question as cancelled; the next
   message wakes it. Steer is the agents' `_session/steering` extension (Claude Code's adapter and
   `opencode acp` advertise it in `initialize`): the message joins the turn under way and the rest
@@ -410,8 +381,8 @@ conversations; its address is `acp://<id>`.
   `offline` with `away`: nothing is failed, cancelled or forgotten (turns under way stay), notes
   wait, working ones stay working, and Retry (`reconnect`) tries the connection, not the agent.
   The app's file history of its folders is kept there (`~/.bicycle42/snapshots`) and git runs
-  there: `filesHere` is true, and `localDir`, snapshots and take-backs all go through that
-  computer's `Machine`, never this computer's disk. The address the agent reports (`SITE:` on its
+  there: `localDir`, snapshots and take-backs all go through that computer's `Machine`, never
+  this computer's disk. The address the agent reports (`SITE:` on its
   localhost) is forwarded here (`ssh -O forward`, the same port when it is free) and opened; the
   request to start the site says nothing of binding to the network or of a tunnel for it.
   Tested against a fake ssh (`test/fake-ssh.ts`), whose "other computer" is this one under a home
@@ -430,13 +401,11 @@ conversations; its address is `acp://<id>`.
 | `commands` | `available_commands_update` |
 | `skills`, mention agents | none |
 | `compact` | the agent's `/compact`, when it has one |
-| `lastTurn`, `undo`, `redo`, `diff` | none: they throw (`can.undo` is false) |
 | `rename` | `session/set_title` where offered, and the ledger |
 | `archive` | `session/archive` / `unarchive` where offered (`can.archive`) |
 | `remove`, `fork` | `session/delete`, `session/fork` where offered |
 | `cancelQueued`, `waiting` | the adapter's queue |
 | `stop` | `session/cancel` |
-| `running`, `kill` | none: an empty list, and a refusal |
 | `transcript` | the model; `session/load` (its replay) the first time in a process, else `session/resume` |
 | `replyPermission` | the answer to `session/request_permission`, as the option of that kind |
 | `answerQuestion`, `dismissQuestion` | the answer to `elicitation/create` (form): accept, decline |
@@ -614,17 +583,13 @@ on its pin and in the chat. A note may be new CSS rules and nothing else.
 ## Not done yet
 
 - Tabs and device widths (two tabs at 390 and 1440).
-- Taking back a note that is not the newest message is exact only where the files are on this
-  computer (the app's snapshots); with a server on another computer it is a request to the agent.
-  A note's diff is its turn's, and a message steered into a run while the agent is on a note
+- A note's diff is its turn's, and a message steered into a run while the agent is on a note
   joins that turn, so its changes show in the note's diff and go with it when it is taken back.
-  An agent the server does not know of (a terminal agent in the same folder) is not seen: what
-  it changes during a turn counts as that turn's.
+  Another agent the app does not run (a terminal agent in the same folder) is not seen: what it
+  changes during a turn counts as that turn's.
 - The picture after the agent is done is taken only while the page the note was made on is
   open at the same width; a note finished while the reviewer is elsewhere has none.
-- Slash commands OpenCode has that are not here: `/share` (this server has no route for it),
-  `/export`, `/copy`, `/timeline`, and choosing the message to fork from (a fork copies the
-  whole conversation).
+- Choosing the message to fork from (a fork copies the whole conversation).
   A canvas note does carry before and after pictures of the reviewer's own edits.
 - Canvas mode: moving an element into another container, adding new elements other than a copy
   of one, and editing HTML. A reorder in block flow is previewed by shifting the boxes

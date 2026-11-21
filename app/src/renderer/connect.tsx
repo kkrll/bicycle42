@@ -432,7 +432,7 @@ const FILTER_FROM = 12
 const sameModel = (a: { providerID: string; id: string } | undefined, b: { providerID: string; id: string }) =>
   !!a && a.providerID === b.providerID && a.id === b.id
 
-/** The list of the server's models with one of them chosen, an effort level if it has any, and
+/** The list of the agent's models with one of them chosen, an effort level if it has any, and
  *  one button that saves the choice. Used on the first-run step and in the settings dialog.
  *  The keyboard never has to leave the form: type to narrow, ↑/↓ to move, Enter to choose. */
 export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void; autofocus?: boolean }) {
@@ -453,7 +453,7 @@ export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void;
     for (const m of shown()) by.set(m.providerID, [...(by.get(m.providerID) ?? []), m])
     return [...by]
   })
-  /** The rows in the order they are drawn, which is by provider, not the server's order. */
+  /** The rows in the order they are drawn, which is by provider, not the agent's order. */
   const ordered = createMemo(() => groups().flatMap(([, models]) => models))
   // Narrowing the list keeps the choice when it is still there, else takes the first left.
   createEffect(on(shown, (models) => models.includes(picked()!) || setPicked(models[0])))
@@ -567,7 +567,7 @@ export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void;
   )
 }
 
-/** The second first-run step. Also comes back when the saved model has left the server's list. */
+/** The second first-run step. Also comes back when the saved model has left the agent's list. */
 export function ModelScreen() {
   const choice = () => state.modelChoice
   return (

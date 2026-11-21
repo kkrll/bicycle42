@@ -23,7 +23,6 @@ const EMPTY: AppState = {
   agents: [],
   permissions: [],
   questions: [],
-  running: [],
 }
 
 export let b42: Bridge
@@ -263,7 +262,7 @@ export function setFactsMarks(on: boolean): void {
   remember("facts.marks", on ? "1" : "0")
 }
 
-/** The server is unreachable: nothing moves until it is back. */
+/** The agent is unreachable: nothing moves until it is back. */
 export const offline = () => state.connection.status === "offline"
 /** The computer an agent runs on over ssh can't be reached, and the agent works on there: its
  *  host, while that lasts. */
@@ -284,10 +283,8 @@ export const [pageCovered, setPageCovered] = createSignal(false)
 /** The list of projects, and what it was opened for: "all" from the conversation's "+" (a new
  *  conversation, or another project), "projects" from the project's name (another project). */
 export const [switcherOpen, setSwitcherOpen] = createSignal<false | "all" | "projects">(false)
-/** The list of what the server is still running, opened from the address line. */
-export const [runningOpen, setRunningOpen] = createSignal(false)
 
-/** A note's state as the reviewer reads it: a "working" note is only working while the server
+/** A note's state as the reviewer reads it: a "working" note is only working while the agent
  *  is reachable. */
 export type NoteShown = AppState["review"]["notes"][number]["status"] | "paused" | "stopped"
 /** "stopped": it ended because the reviewer stopped the agent or set it aside, not a failure. */

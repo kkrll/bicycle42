@@ -817,7 +817,7 @@ export function Panel(props: {
   const [listHeight, setListHeight] = createSignal(Number(recall("notes.height")) || LIST_DEFAULT)
   // The conversation keeps at least 160px of messages, under its header and above the message box;
   // the notes header takes its line too. What is left can go to the list.
-  // (server row, notes header, conversation header, message box at its one empty line, the 160)
+  // (agent row, notes header, conversation header, message box at its one empty line, the 160)
   const room = () => props.size.height - 32 - 36 - 36 - 100 - 160
   const maxList = () => Math.max(LIST_MIN, room())
   // A narrow or short panel folds the list to its one-line summary, unless the reviewer opens it.

@@ -101,7 +101,7 @@ const MARKS = {
 export function AgentMark(props: { kind?: AgentKind; size?: 16 | 20; class?: string }): JSX.Element {
   const size = () => props.size ?? 16
   const d = () => {
-    const k = props.kind === "opencode-server" ? "opencode" : props.kind
+    const k = props.kind
     return k && k in MARKS ? MARKS[k as keyof typeof MARKS] : undefined
   }
   return (

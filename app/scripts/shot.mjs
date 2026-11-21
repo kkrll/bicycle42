@@ -101,7 +101,7 @@ const SHOTS = [
   { name: "note-detail", mock: "review", run: [click(".note:nth-of-type(3) .note-main"), pause(300), click(".note-diff-btn")], wait: 500 },
   // A note of another conversation names it at the end of its status line. Then Take back's
   // question, which says the way it will go: the agent asked (its conversation is at work), or
-  // an exact undo (the newest message of an idle one).
+  // its files put back from the app's own history (a note of an idle one).
   {
     name: "note-elsewhere",
     mock: "review",
@@ -120,7 +120,6 @@ const SHOTS = [
   { name: "ask", mock: "empty", run: [START_SITE], wait: 600 },
   { name: "ask-open", mock: "empty", run: [START_SITE, pause(400), click(".user-ask summary")], wait: 400 },
   { name: "empty", mock: "empty" },
-  { name: "running", mock: "review", run: [click('[data-action="running"]')], wait: 500 },
   { name: "switcher", mock: "review", run: [click('[data-action="switcher"]')], wait: 500 },
   // The project's name in the panel under the pointer (made so by hand: a headless window has no
   // :hover), and what it opens.
@@ -186,8 +185,8 @@ const SHOTS = [
   { name: "hint", mock: "review", run: [`document.querySelector('.mode[data-mode="edit"]').dispatchEvent(new PointerEvent("pointerenter"))`], wait: 900 },
   { name: "slash-menu", mock: "review", run: [typeIn("/")], wait: 300 },
   { name: "slash-filter", mock: "review", run: [typeIn("/re")], wait: 300 },
-  // The app's own commands: /compact leaves a folded summary in the conversation; /undo asks first.
-  { name: "slash-compact", mock: "review", run: [typeIn("/compact"), key("Escape"), key("Enter"), pause(1200), `document.querySelector("[data-summary]").open = true`], wait: 400, report: `document.querySelector("[data-summary=done] summary").textContent` },
+  // The app's own commands: /compact is the agent's own, a turn of its in the conversation; /undo asks first.
+  { name: "slash-compact", mock: "review", run: [typeIn("/compact"), key("Escape"), key("Enter"), pause(1200)], wait: 400, report: `[...document.querySelectorAll(".transcript .msg.assistant")].at(-1)?.textContent.slice(0, 80)` },
   { name: "slash-undo", mock: "review", run: [typeIn("/undo"), key("Escape"), key("Enter")], wait: 500, report: `[document.querySelector(".composer-hint").textContent, document.querySelector(".composer textarea").value]` },
   // The context meter: quiet from half full, the warning colour from 80% with its question
   // open, and the bottom row of a sidebar at its narrowest, while the agent works.

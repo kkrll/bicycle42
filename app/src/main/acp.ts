@@ -4,13 +4,13 @@
 //
 //   process    one agent process for all of its conversations: started on the first call,
 //              started again (with a growing pause) when it dies, ended with everything it
-//              started when the app stops listening (quit, or another server)
+//              started when the app stops listening (quit, or another agent)
 //   model      each conversation the app has opened in this process is kept here as ChatItems,
 //              built by one path (`apply`) from live session/update notifications and from the
 //              replay session/load sends, so a re-read gives the same items with the same ids
 //              and part keys and never duplicates anything
-//   queue      ACP takes one prompt at a time per conversation; the rest wait here, with the
-//              inbox and run events an OpenCode server gives, so notes move the same way
+//   queue      ACP takes one prompt at a time per conversation; the rest wait here, with inbox
+//              and run events (queued, working, cancelled; started, ended) the notes move by
 //   ledger     what ACP does not keep and the app needs (a file per agent in `stateDir`): the id
 //              the app gave each message it sent (ACP lets a client choose none, and the replay
 //              names messages its own way), how each turn ended, the folders and names of the
@@ -18,8 +18,10 @@
 //   local      folders, files for `@`, the branch and its changes: read here, since the agent
 //              runs on this computer too
 //
-// What ACP has no way to do (OpenCode's server does): undo, a diff of a turn, the commands the
-// agent left running. `can` says so, and those calls throw a sentence for the person.
+// What ACP has no way to ask for (a summary without the agent's own /compact, archiving, forking
+// where the agent has none): `can` says so, and those calls throw a sentence for the person.
+// Undo and a turn's diff are the app's own (snapshots.ts), and so is the list of conversations'
+// pins; a dev server the agent starts lives as long as its process.
 //
 // Agent payloads are untrusted: what is read beyond the SDK's own checks goes through rec/str/num/list.
 import crypto from "node:crypto"
@@ -29,9 +31,8 @@ import { Readable, Writable } from "node:stream"
 import { client, ndJsonStream, type ClientContext, type Stream } from "@agentclientprotocol/sdk/unstable"
 import { thisMachine, type Machine } from "./machine"
 import { clip, defined, endMarker, list, num, rec, str, userItem, type Raw } from "./chat-items"
-import type { NamePicture } from "./opencode"
 import { unifiedPatch } from "./patch"
-import type { PictureSource, Wire } from "./pictures"
+import type { NamePicture, PictureSource, Wire } from "./pictures"
 import type {
   AgentInfo,
   Answer,
@@ -1072,7 +1073,7 @@ export function createAcp(opts: AcpOptions): Acp {
     if (how.failed || how.interrupted) {
       if (sent) Object.assign(sent, defined({ end: how.failed ? ("failed" as const) : ("interrupted" as const), error: how.failed }))
       save()
-      // What waits stays waiting, until something is sent again (as on an OpenCode server).
+      // What waits stays waiting, until something is sent again.
       c.parked = true
       setBusy(c, false)
       emit(defined({ type: "run", session: c.id, status: how.failed ? "failed" : "interrupted", error: how.failed }) as BackendEvent)
@@ -1407,19 +1408,6 @@ export function createAcp(opts: AcpOptions): Acp {
       await backend.command(id, { name: "compact", text: "" })
     },
 
-    async lastTurn() {
-      throw cannot("take back a message")
-    },
-    async undo() {
-      throw cannot("take back a message")
-    },
-    async redo() {
-      throw cannot("bring back what was taken back")
-    },
-    async diff() {
-      throw cannot("show what one message changed")
-    },
-
     async rename(id, title) {
       const k = kept(id)
       if (!k) throw gone(id)
@@ -1482,8 +1470,8 @@ export function createAcp(opts: AcpOptions): Acp {
     async stop(id) {
       const c = convs.get(id)
       if (!c?.running) return false
-      // What waits stays waiting (the controller takes it out with cancelQueued, as it does on
-      // an OpenCode server); nothing of it starts while the run winds down.
+      // What waits stays waiting (the controller takes it out with cancelQueued); nothing of it
+      // starts while the run winds down.
       c.parked = true
       c.running.cancelled = true
       // ACP asks the client to answer what the agent still waits on as cancelled.
@@ -1506,16 +1494,6 @@ export function createAcp(opts: AcpOptions): Acp {
       })
       await (p.agent.notify as (m: string, params: unknown) => Promise<void>)("session/cancel", { sessionId: id }).catch((err) => warn("Could not cancel", said(err)))
       return true
-    },
-
-    async running() {
-      // ACP gives the client no list of what the agent's shell is running: a dev server it
-      // started lives as long as the agent's process, and ends with it (the app ends the
-      // process, and its process group, when it quits or uses another server).
-      return []
-    },
-    async kill() {
-      throw cannot("stop a command it left running")
     },
 
     async transcript(id) {
@@ -1693,7 +1671,7 @@ async function listFolders(m: Machine, dir: string): Promise<DirEntry[]> {
     entries = await m.readdir(dir)
   } catch (err) {
     const e = rec(err)
-    // The same words as OpenCode's answer, which the controller knows (folderExists).
+    // Words the controller knows (folderExists): a folder that is not there.
     if (e.code === "ENOENT" || e.code === "ENOTDIR") throw Object.assign(new Error(`Directory not found: ${dir}`), { status: 404 })
     throw new Error(`Can't read ${dir}: ${str(e.code) ?? said(err)}`)
   }

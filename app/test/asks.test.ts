@@ -5,21 +5,17 @@ import test from "node:test"
 import { commitPrompt, parseAsk, splitTold, startPrompt, takeBackPrompt, toldLine } from "../src/main/asks"
 
 test("startPrompt says what the agent cannot know, and no more", () => {
-  const near = startPrompt("", false)
+  const near = startPrompt("")
   assert.match(near, /^Get this project's site running so I can review it in bicycle 42\.\n/)
-  assert.match(near, /background command of your shell tool/)
   assert.doesNotMatch(near, /another computer|did not answer/)
   assert.match(near, /SITE: <address>$/)
-  const far = startPrompt("http://box:4242/", true)
-  assert.match(far, /I expected it at http:\/\/box:4242\/, which did not answer\.\n/)
-  assert.match(far, /another computer, so localhost will not open/)
-  assert.ok(far.split(/\s+/).length < 80, "short: it is the reviewer's message in the conversation")
-  assert.match(near, /so I can stop it from here\./)
+  const failed = startPrompt("http://box:4242/")
+  assert.match(failed, /I expected it at http:\/\/box:4242\/, which did not answer\.\n/)
+  assert.ok(failed.split(/\s+/).length < 80, "short: it is the reviewer's message in the conversation")
   // An ACP agent's background command can't be listed or stopped from the app: it ends with the agent.
-  const acp = startPrompt("", false, false)
-  assert.match(acp, /background command of your shell tool \(not nohup, & or tmux\), so it ends when this session does\./)
-  assert.doesNotMatch(acp, /stop it from here/)
-  assert.deepEqual(parseAsk(acp), { title: "Get the site running" })
+  assert.match(near, /background command of your shell tool \(not nohup, & or tmux\), so it ends when this session does\./)
+  assert.doesNotMatch(near, /stop it from here/)
+  assert.deepEqual(parseAsk(near), { title: "Get the site running" })
 })
 
 test("commitPrompt carries the message word for word", () => {
@@ -31,8 +27,8 @@ test("commitPrompt carries the message word for word", () => {
 })
 
 test("parseAsk: what each of the app's requests asks, in a line", () => {
-  assert.deepEqual(parseAsk(startPrompt("", false)), { title: "Get the site running" })
-  assert.deepEqual(parseAsk(startPrompt("http://box:4242/", true)), { title: "Get the site running" })
+  assert.deepEqual(parseAsk(startPrompt("")), { title: "Get the site running" })
+  assert.deepEqual(parseAsk(startPrompt("http://box:4242/")), { title: "Get the site running" })
   assert.deepEqual(parseAsk(commitPrompt("Tidy the hero\n\n- more air\n----\nmore")), { title: "Commit: Tidy the hero" })
   assert.deepEqual(parseAsk(takeBackPrompt(3, 'make the "CTA" bigger\nand bolder', [])), { title: 'Take back note 3: make the "CTA" bigger' })
   const diff = [{ file: "a.css", patch: "--- a/a.css\n+++ b/a.css\n----\n+x", additions: 1, deletions: 0 }]

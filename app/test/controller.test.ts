@@ -1,216 +1,180 @@
 // The controller's unhappy paths (src/main/core.ts), in plain Node: the real controller, review,
-// store and backend client, in a shell that is not Electron (test/stubs/host.ts) and with a fake
-// server that keeps a little state. Each test makes a fresh controller with its own profile.
+// store and ACP client (src/main/acp.ts), in a shell that is not Electron (test/stubs/host.ts),
+// with the fake ACP agent of test/fake-agent.ts in this process, whose every turn the test plays
+// (`h.agent`). The folders it works in are real ones, as an agent on this computer has. Each test
+// makes a fresh controller with its own profile.
 //
-// These are the sequences a review found note status lying in: a lost reply, Stop, a deleted
-// conversation, a new conversation with work in flight, a relaunch, a server that is down at
-// launch. Each asserts what the reviewer at the screen must see.
+// These are the sequences a review found note status lying in: Stop, a deleted conversation, a
+// new conversation with work in flight, a relaunch, an agent that does not start. Each asserts what
+// the reviewer at the screen must see.
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import crypto from "node:crypto"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { test } from "node:test"
+import { after, test } from "node:test"
+import { timing } from "../src/main/acp"
 import { HOSTED_PANES, PHONE, type AppState, type ChatEvent, type Pane } from "../src/shared/types"
-import { start, until, VERSION, type FakeReply, type FakeServer } from "./fake-server"
-import { testShell } from "./stubs/host"
+import { playedAgent, type Played } from "./played-agent"
+import { testShell, type TestShell } from "./stubs/host"
+
+timing.retryMin = 50
+timing.retryMax = 200
 
 const SITE = "http://site.test"
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-const gone: FakeReply = { status: 404, json: { _tag: "SessionNotFoundError", message: "Session not found" } }
-
-type World = {
-  sessions: Map<string, Record<string, unknown>>
-  /** Per session: ids the agent has not picked up. */
-  inbox: Map<string, string[]>
-  /** Every message the server holds, in arrival order. A repeated id is not added twice. */
-  prompts: { session: string; id: string; text: string }[]
-  creates: number
-  transcripts: number
-  /** Answers the next prompt (after recording it) with this instead of success. */
-  nextPromptReply?: FakeReply
-  /** A new conversation is called what the app asked for, as on the real server. (Off, it is
-   *  "t": a name somebody gave, which the app leaves alone.) */
-  named?: boolean
+async function until(what: () => unknown, ms = 8000) {
+  const end = Date.now() + ms
+  while (!what()) {
+    if (Date.now() > end) throw new Error("timed out")
+    await sleep(10)
+  }
 }
 
-async function fakeOpenCode() {
-  const server = await start()
-  const w: World = { sessions: new Map(), inbox: new Map(), prompts: [], creates: 0, transcripts: 0 }
-  const sid = (p: string) => p.split("/")[3] ?? ""
-  server.route("GET", "/api/model", { json: { data: [{ providerID: "anthropic", id: "sonnet", name: "Sonnet", capabilities: { input: ["text", "image"] }, variants: [], enabled: true, status: "active" }] } })
-  server.route("GET", "/api/agent", { json: { data: [] } })
-  const put = (s: Record<string, unknown>) => (s.time as { archived?: number }).archived !== undefined
-  server.route("GET", "/api/session", (req) => ({
-    json: { data: [...w.sessions.values()].filter((s) => !s.parentID && put(s) === (req.query.get("archived") === "true")).reverse(), cursor: { previous: null, next: null } },
-  }))
-  server.route("POST", "/api/session", (req) => {
-    const body = (req.body ?? {}) as { parentID?: string; title?: string }
-    const n = ++w.creates
-    const s = { id: `ses_${n}`, location: { directory: "/repo" }, title: w.named ? (body.title ?? "") : "t", time: { created: n, updated: n }, ...(body.parentID ? { parentID: body.parentID } : {}) }
-    w.sessions.set(s.id, s)
-    return { json: { data: s } }
-  })
-  server.route("GET", /^\/api\/session\/[^/]+$/, (req) => (w.sessions.has(sid(req.path)) ? { json: { data: w.sessions.get(sid(req.path)) } } : gone))
-  server.route("PATCH", /^\/api\/session\/[^/]+$/, (req) => {
-    const s = w.sessions.get(sid(req.path)) as { title: string; time: { archived?: number } } | undefined
-    if (!s) return gone
-    const body = req.body as { title?: string; archived?: boolean }
-    if (body.title !== undefined) s.title = body.title
-    if (body.archived === true) s.time.archived = 99
-    if (body.archived === false) delete s.time.archived
-    return { json: { data: s } }
-  })
-  server.route("DELETE", /^\/api\/session\/[^/]+$/, (req) => (w.sessions.delete(sid(req.path)) ? {} : gone))
-  server.route("GET", /^\/api\/session\/[^/]+\/diff$/, (req) => ({
-    json: { data: [{ file: "src/a.css", patch: `@@ -1 +1 @@\n-a\n+b ${req.query.get("from")}`, additions: 1, deletions: 1, status: "modified" }] },
-  }))
-  server.route("GET", "/api/vcs", { json: { data: { provider: "git", branch: { current: "polish", default: "main" } } } })
-  server.route("GET", "/api/vcs/status", { json: { data: [{ file: "src/a.css", additions: 1, deletions: 1, status: "modified" }, { file: "src/new.css", additions: 4, deletions: 0, status: "added" }] } })
-  server.route("GET", /^\/api\/session\/[^/]+\/(permission|form)$/, (req) => (w.sessions.has(sid(req.path)) ? { json: { data: [] } } : gone))
-  server.route("GET", /^\/api\/session\/[^/]+\/message$/, (req) => {
-    w.transcripts++
-    return w.sessions.has(sid(req.path)) ? { json: { data: [], cursor: { previous: null, next: null } } } : gone
-  })
-  server.route("GET", /^\/api\/session\/[^/]+\/inbox$/, (req) =>
-    w.sessions.has(sid(req.path))
-      ? { json: { data: (w.inbox.get(sid(req.path)) ?? []).map((id) => ({ id, type: "user", time: { created: 1 }, payload: { text: "x" }, delivery: "queue" })) } }
-      : gone,
-  )
-  server.route("POST", /^\/api\/session\/[^/]+\/prompt$/, (req) => {
-    const session = sid(req.path)
-    if (!w.sessions.has(session)) return gone
-    const body = req.body as { id?: string; text: string }
-    const id = body.id ?? `msg_server_${w.prompts.length + 1}`
-    // Like the real server: a message id it already has is not queued again.
-    if (!w.prompts.some((p) => p.id === id)) {
-      w.prompts.push({ session, id, text: body.text.split("\n")[1] ?? "" })
-      w.inbox.set(session, [...(w.inbox.get(session) ?? []), id])
-    }
-    const reply = w.nextPromptReply
-    w.nextPromptReply = undefined
-    return reply ?? { json: { data: { id, sessionID: session, type: "user", delivery: "queue" } } }
-  })
-  return { server, w }
+/** The folders the agent works in: real ones, since an agent on this computer works in this
+ *  computer's. `folder("repo")` makes one; one never made is a folder that is gone. */
+const ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bicycle42-ctl-folders-")))
+after(() => fs.rmSync(ROOT, { recursive: true, force: true }))
+const folder = (name: string) => {
+  const p = path.join(ROOT, name)
+  fs.mkdirSync(p, { recursive: true })
+  return p
 }
+const REPO = folder("repo")
+const GONE = path.join(ROOT, "gone")
 
-/** The agent takes the newest prompt and finishes it. One note is one turn: the next waiting
- *  note is sent only once this one's run has ended. */
-function turn(h: { w: World; agent: { starts(s: string): void; picksUp(s: string, id: string): void; finishes(s: string): void } }, s: string) {
-  h.agent.starts(s)
-  h.agent.picksUp(s, h.w.prompts.at(-1)!.id)
-  h.agent.finishes(s)
-}
+/** The command the app is given for the fake agent; another word makes another agent. */
+const FAKE = "fake-agent"
 
-async function boot(opts: { settings?: unknown; reviews?: Record<string, unknown>; outbox?: Record<string, unknown>; server?: { server: FakeServer; w: World }; docks?: Pane[] } = {}) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bicycle42-ctl-"))
+async function boot(opts: { settings?: Record<string, unknown>; reviews?: Record<string, unknown>; outbox?: Record<string, unknown>; docks?: Pane[]; agent?: (w: Played) => void; dir?: string } = {}) {
+  const dir = opts.dir ?? fs.mkdtempSync(path.join(os.tmpdir(), "bicycle42-ctl-"))
   // What a note sends, as the app left it on disk (src/main/outbox.ts), by the note's id.
   for (const [id, payload] of Object.entries(opts.outbox ?? {})) {
     fs.mkdirSync(path.join(dir, "outbox"), { recursive: true })
     fs.writeFileSync(path.join(dir, "outbox", `${crypto.createHash("sha1").update(id).digest("hex")}.json`), JSON.stringify(payload))
   }
-  if (opts.settings) fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify(opts.settings))
+  // A model is saved, so the app does not stop to ask which of the agent's two to start with.
+  const settings = opts.settings ?? { version: 1 }
+  if (settings.version === 1 && !("defaultModel" in settings)) settings.defaultModel = { providerID: "fake", id: "fake/alpha" }
+  if (opts.settings || !opts.dir) fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify(settings))
   for (const [origin, review] of Object.entries(opts.reviews ?? {})) {
     fs.mkdirSync(path.join(dir, "reviews"), { recursive: true })
     fs.writeFileSync(path.join(dir, "reviews", `${encodeURIComponent(origin)}.json`), JSON.stringify(review))
   }
-  const { server, w } = opts.server ?? (await fakeOpenCode())
+  /** The agents, by the command that starts them. */
+  const agents = new Map<string, Played>()
+  const agentOf = (command = FAKE) => {
+    let w = agents.get(command)
+    if (!w) agents.set(command, (w = playedAgent())), opts.agent?.(w)
+    return w
+  }
+  const w = agentOf()
   const quiet = { log: console.log, warn: console.warn, error: console.error }
   if (!process.env.V) console.log = console.warn = console.error = () => {}
-  const shell = testShell(dir, { docks: opts.docks })
-  const { core, page } = shell
-
-  const cmd = (name: string, ...args: unknown[]) => core.invoke(name, args)
-  const snap = () => core.snapshot()
+  const shells: TestShell[] = []
+  const shellOn = () => {
+    const s = testShell(dir, { docks: opts.docks, agent: (command) => agentOf(command.join(" ")).fa.connect() })
+    shells.push(s)
+    return s
+  }
+  let shell = shellOn()
+  const cmd = (name: string, ...args: unknown[]) => shell.core.invoke(name, args)
+  const snap = () => shell.core.snapshot()
   const notes = () => snap().review.notes.map((n) => `${n.n}:${n.status}`).join(" ")
   let k = 0
   const note = (text: string, id = `n${++k}`) => {
-    page.message({ type: "note", note: { id, text, url: `${SITE}/`, viewport: { w: 800, h: 600, dpr: 1, scrollX: 0, scrollY: 0 }, targets: [], area: null, strokes: [], bounds: { x: 1, y: 2, w: 3, h: 4 } } })
+    shell.page.message({ type: "note", note: { id, text, url: `${SITE}/`, viewport: { w: 800, h: 600, dpr: 1, scrollX: 0, scrollY: 0 }, targets: [], area: null, strokes: [], bounds: { x: 1, y: 2, w: 3, h: 4 } } })
     return id
   }
-  let seq = 0
-  const emit = (type: string, session: string, data: Record<string, unknown> = {}) =>
-    server.emit({ id: `evt_${++seq}`, created: Date.now(), type, data: { sessionID: session, ...data } })
-  let tick = 10
-  const clock = (s: string, key: "busy" | "idle") => {
-    const session = w.sessions.get(s) as { time: Record<string, number> } | undefined
-    if (session) session.time[key] = ++tick
-  }
   const agent = {
-    queued: (s: string, id: string) => emit("session.inbox.enqueued", s, { inboxID: id, item: { type: "user", payload: { text: "x" }, delivery: "queue" } }),
-    picksUp(s: string, id: string) {
-      w.inbox.set(s, (w.inbox.get(s) ?? []).filter((x) => x !== id))
-      emit("session.inbox.delivered", s, { inboxID: id })
+    /** The turn under way in `s` (in any conversation without), the oldest first: once the agent
+     *  has the message (a note reads "working" a moment before). */
+    async turn(s?: string) {
+      const find = () => w.live.find((x) => !x.ended && (!s || x.session === s))
+      await until(find).catch(() => {
+        throw new Error(`no turn under way${s ? ` in ${s}` : ""}`)
+      })
+      return find()!
     },
-    // Like the real server: a run sets time.busy when it starts and time.idle when it ends.
-    starts(s: string) {
-      clock(s, "busy")
-      emit("session.execution.started", s)
+    async finishes(s?: string) {
+      ;(await agent.turn(s)).end()
     },
-    finishes(s: string) {
-      clock(s, "idle")
-      emit("session.execution.succeeded", s)
-    },
-    isStopped(s: string) {
-      clock(s, "idle")
-      emit("session.execution.interrupted", s, { reason: "user" })
+    /** It says it was cancelled (stopped where it was). */
+    async isStopped(s?: string) {
+      ;(await agent.turn(s)).end("cancelled")
     },
   }
-  return {
-    dir, server, w, cmd, snap, notes, note, emit, agent, shell, core, page,
+  const h = {
+    dir,
+    w,
+    agents: agentOf,
+    cmd,
+    snap,
+    notes,
+    note,
+    agent,
+    get shell() {
+      return shell
+    },
+    get core() {
+      return shell.core
+    },
+    get page() {
+      return shell.page
+    },
     chat: () => shell.sent.filter((x) => x[0] === "chat").map((x) => x[1] as ChatEvent),
-    /** Connect, open the site, pick its folder; resolves once a conversation is open. */
-    async ready() {
-      await cmd("connect", { url: server.url, password: server.password })
-      page.load(`${SITE}/`)
-      await cmd("setDirectory", "/repo")
-      await until(() => !!snap().session && server.streams() === 1)
+    /** Starts the agent (the fake, or the one `command` names). */
+    connect: (command = FAKE) => cmd("connectAgent", { id: "custom", command }),
+    /** Start the agent, open the site, pick its folder; resolves once a conversation is open. */
+    async ready(at = REPO) {
+      await h.connect()
+      shell.page.load(`${SITE}/`)
+      await cmd("setDirectory", at)
+      await until(() => !!snap().session)
       await sleep(30)
       return snap().session!.id
     },
+    /** The app quits, and starts again on the same data. */
+    async relaunch() {
+      await shell.core.dispose()
+      shell = shellOn()
+    },
     async close() {
-      await Promise.resolve(cmd("disconnect")).catch(() => undefined)
-      await server.stop()
+      for (const s of shells) await Promise.resolve(s.core.invoke("disconnect", [])).catch(() => undefined)
+      for (const s of shells) await s.core.dispose()
       Object.assign(console, quiet)
       fs.rmSync(dir, { recursive: true, force: true })
     },
   }
+  return h
 }
+type H = Awaited<ReturnType<typeof boot>>
 
-const savedSite = (extra: Record<string, unknown> = {}) => ({ version: 1, lastUrl: `${SITE}/`, sites: { [SITE]: { directory: "/repo", ...extra } } })
+/** The agent finishes the turn under way. One note is one turn: the next waiting note is sent
+ *  only once this one's run has ended. */
+const turn = (h: H, s?: string) => h.agent.finishes(s)
+const lastPrompt = (h: H) => h.w.prompts.at(-1)!
+const savedSite = (extra: Record<string, unknown> = {}) => ({ version: 1, lastUrl: `${SITE}/`, sites: { [SITE]: { directory: REPO, ...extra } } })
 const savedNote = (id: string, n: number, status: string, message: string, session: string) => ({ id, n, text: id, status, lane: "main", message, session, anchor: {} })
-
-test("a reply lost on the way back: Retry does not queue the note twice", async () => {
-  const h = await boot()
+const settingsOf = (h: H) => {
   try {
-    await h.ready()
-    h.w.nextPromptReply = { status: 502, text: "<html>Bad Gateway</html>" }
-    const id = h.note("make it blue")
-    await until(() => h.notes() === "1:failed")
-    assert.equal(h.w.prompts.length, 1, "the server did take it")
-    await h.cmd("retryNote", id)
-    await until(() => h.notes() === "1:queued" && !!h.snap().review.notes[0]?.sent)
-    assert.equal(h.w.prompts.length, 1, "the retry carried the same message id")
-  } finally {
-    await h.close()
+    return JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8"))
+  } catch {
+    return {} // not written yet
   }
-})
+}
 
 test("Stop: the working note fails with a way forward, queued ones stay queued, Retry sends anew", async () => {
   const h = await boot()
   try {
     const s = await h.ready()
     const [a, b] = [h.note("a"), h.note("b"), h.note("c")]
-    // (A note held in the app reads "queued" too, so the first may still be on its way.)
-    await until(() => h.notes() === "1:queued 2:queued 3:queued" && h.w.prompts.length > 0)
+    await until(() => h.notes() === "1:working 2:queued 3:queued" && h.w.prompts.length > 0)
     await sleep(50)
     assert.equal(h.w.prompts.length, 1, "one note at a time: the others wait in the app")
-    const [m1] = h.w.prompts.map((p) => p.id)
-    h.agent.starts(s)
-    h.agent.picksUp(s, m1!)
-    await until(() => h.notes() === "1:working 2:queued 3:queued")
-    h.agent.isStopped(s)
+    // The agent stops where it is (it says its turn was cancelled).
+    await h.agent.isStopped(s)
     await until(() => h.notes() === "1:failed 2:queued 3:queued")
     assert.match(h.snap().review.notes[0]!.error ?? "", /Retry/, "the message says what to do")
     await sleep(100)
@@ -218,83 +182,40 @@ test("Stop: the working note fails with a way forward, queued ones stay queued, 
 
     await h.cmd("retryNote", a)
     await until(() => h.w.prompts.length === 2)
-    assert.equal(h.notes(), "1:queued 2:queued 3:queued")
-    assert.notEqual(h.w.prompts[1]!.id, m1, "an accepted note goes again as a new message")
+    assert.equal(h.notes(), "1:working 2:queued 3:queued")
     assert.deepEqual(h.snap().review.notes.map((n) => !!n.sent), [true, false, false], "and in its place, before the ones that waited behind it")
 
-    // The connection drops and comes back while the conversation sits idle with its queue full.
-    h.server.drop()
-    await until(() => h.server.streams() === 1, 8000)
-    await sleep(150)
-    assert.equal(h.notes(), "1:queued 2:queued 3:queued", "what still waits on the server is not called done")
-
     await h.cmd("removeNote", b)
-    assert.equal(h.notes(), "1:queued 3:queued", "any note can be taken off the list")
+    assert.equal(h.notes(), "1:working 3:queued", "any note can be taken off the list")
   } finally {
     await h.close()
   }
 })
 
-test("Stop from the app empties both queues: the notes waiting in the app and what waits on the server stop, and nothing goes on after a reconnect", async () => {
+test("Stop from the app empties both queues: the notes waiting in the app and what waits for the agent stop, and nothing goes on afterwards", async () => {
   const h = await boot()
   try {
     const s = await h.ready()
-    const interrupts: string[] = []
-    h.server.route("POST", /\/interrupt$/, (req) => {
-      interrupts.push(req.path)
-      h.agent.isStopped(s)
-      return { json: { interrupted: true } }
-    })
-    h.server.route("DELETE", /\/inbox\//, (req) => {
-      const item = decodeURIComponent(req.path.split("/").at(-1)!)
-      h.w.inbox.set(s, (h.w.inbox.get(s) ?? []).filter((x) => x !== item))
-      h.emit("session.inbox.cancelled", s, { inboxID: item })
-      return {}
-    })
     const [, b] = [h.note("a"), h.note("b"), h.note("c")]
-    await until(() => h.notes() === "1:queued 2:queued 3:queued" && h.w.prompts.length === 1)
-    const m1 = h.w.prompts[0]!.id
-    h.agent.starts(s)
-    h.agent.picksUp(s, m1)
     await until(() => h.notes() === "1:working 2:queued 3:queued" && h.snap().session?.busy === true)
-    // A message typed while it works waits on the server, not in the app.
+    // A message typed while it works waits for its turn, not in the app's lane.
     await h.cmd("send", "and this too", [], { delivery: "queue" })
-    assert.equal(h.w.prompts.length, 2)
-    assert.equal(h.w.inbox.get(s)?.length, 1)
+    await sleep(50)
+    assert.equal(h.w.prompts.length, 1)
 
     await h.cmd("stop")
-    assert.equal(interrupts.length, 1)
+    assert.equal(h.w.fa.calls.filter((c) => c.method === "session/cancel").length, 1)
     await until(() => h.notes() === "1:failed 2:failed 3:failed")
     assert.deepEqual(h.snap().review.notes.map((n) => !!n.stopped), [true, true, true], "each is stopped, with Retry")
-    assert.deepEqual(h.w.inbox.get(s), [], "the typed message is out of the server's queue")
-    assert.equal(h.snap().session?.busy, false)
-
-    // A reconnect (or a restart) used to pump the notes left waiting: the agent went on by itself.
-    h.server.drop()
-    await until(() => h.server.streams() === 1, 8000)
+    await until(() => h.snap().session?.busy === false)
     await sleep(150)
-    assert.equal(h.w.prompts.length, 2, "nothing goes by itself")
+    assert.equal(h.w.prompts.length, 1, "the typed message is out of the queue: nothing goes by itself")
     assert.equal(h.notes(), "1:failed 2:failed 3:failed")
 
     await h.cmd("retryNote", b)
-    await until(() => h.w.prompts.length === 3)
-    assert.equal(h.notes(), "1:failed 2:queued 3:failed", "Retry sends the one asked for, and only it")
-  } finally {
-    await h.close()
-  }
-})
-
-test("Stop when the server has nothing running: the busy shown was out of date, and is put right", async () => {
-  const h = await boot()
-  try {
-    const s = await h.ready()
-    h.server.route("POST", /\/interrupt$/, { json: { interrupted: false } })
-    h.agent.starts(s)
-    await until(() => h.snap().session?.busy === true)
-    // The run ended without the stream saying so.
-    ;(h.w.sessions.get(s) as { time: Record<string, number> }).time.idle = 1e9
-    await h.cmd("stop")
-    assert.equal(h.snap().session?.busy, false)
+    await until(() => h.w.prompts.length === 2)
+    assert.equal(h.notes(), "1:failed 2:working 3:failed", "Retry sends the one asked for, and only it")
+    assert.equal(lastPrompt(h).session, s)
   } finally {
     await h.close()
   }
@@ -306,12 +227,8 @@ test("the conversation is deleted while notes are in flight: they fail, and the 
     const s = await h.ready()
     h.note("a")
     h.note("b")
-    await until(() => h.notes() === "1:queued 2:queued" && h.w.prompts.length === 1)
-    h.agent.starts(s)
-    h.agent.picksUp(s, h.w.prompts[0]!.id)
     await until(() => h.notes() === "1:working 2:queued")
-    h.w.sessions.delete(s)
-    h.emit("session.deleted", s)
+    await h.cmd("deleteSession", s)
     await until(() => h.notes().startsWith("1:failed"))
     assert.match(h.snap().review.notes[0]!.error ?? "", /deleted/i)
     await until(() => !!h.snap().session && h.snap().session!.id !== s)
@@ -319,7 +236,7 @@ test("the conversation is deleted while notes are in flight: they fail, and the 
     await until(() => h.w.prompts.length === 2)
     assert.equal(h.w.prompts[1]!.session, h.snap().session!.id, "the waiting note goes to the new conversation")
     h.note("c")
-    await until(() => h.notes() === "1:failed 2:queued 3:queued")
+    await until(() => h.notes() === "1:failed 2:working 3:queued")
     assert.equal(h.w.prompts.length, 2, "and the next one waits behind it")
   } finally {
     await h.close()
@@ -332,9 +249,6 @@ test("a new conversation does not finish the old one's notes", async () => {
     const old = await h.ready()
     h.note("a")
     h.note("b")
-    await until(() => h.notes() === "1:queued 2:queued" && h.w.prompts.length === 1)
-    h.agent.starts(old)
-    h.agent.picksUp(old, h.w.prompts[0]!.id)
     await until(() => h.notes() === "1:working 2:queued")
 
     await h.cmd("newSession")
@@ -344,20 +258,19 @@ test("a new conversation does not finish the old one's notes", async () => {
     assert.equal(h.notes(), "1:working 2:queued", "opening an idle conversation settles nothing on the old one")
 
     // A run in the new conversation (a message typed there) is not about the old one's note.
-    h.agent.starts(neu)
-    h.agent.finishes(neu)
+    await h.cmd("send", "a question")
+    await until(() => h.w.prompts.length === 2)
+    await turn(h, neu)
     await sleep(100)
     assert.equal(h.notes(), "1:working 2:queued")
-    assert.equal(h.w.prompts.length, 1, "the waiting note still waits for the one before it")
+    assert.equal(h.w.prompts.length, 2, "the waiting note still waits for the one before it")
 
-    // The old conversation is still at it, and its events still land on its note. Then the
-    // waiting note goes, to the conversation that is open now.
-    h.agent.finishes(old)
-    await until(() => h.w.prompts.length === 2)
-    assert.equal(h.w.prompts[1]!.session, neu)
-    h.agent.starts(neu)
-    h.agent.picksUp(neu, h.w.prompts[1]!.id)
-    h.agent.finishes(neu)
+    // The old conversation is still at it, and its end lands on its note. Then the waiting note
+    // goes, to the conversation that is open now.
+    await turn(h, old)
+    await until(() => h.w.prompts.length === 3)
+    assert.equal(h.w.prompts[2]!.session, neu)
+    await turn(h, neu)
     await until(() => h.notes() === "1:done 2:done")
   } finally {
     await h.close()
@@ -373,7 +286,7 @@ test("the page sending one note twice makes one note", async () => {
     await until(() => h.w.prompts.length >= 1)
     await sleep(100)
     assert.equal(h.w.prompts.length, 1)
-    assert.equal(h.notes(), "1:queued")
+    assert.equal(h.notes(), "1:working")
   } finally {
     await h.close()
   }
@@ -382,17 +295,17 @@ test("the page sending one note twice makes one note", async () => {
 test("the repo comes before the site: its conversation opens with no page, and the first site takes it over", async () => {
   const h = await boot()
   try {
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await h.connect()
     assert.equal(h.snap().site, null, "no repo, no page: nowhere yet")
-    await h.cmd("setDirectory", "/repo")
+    await h.cmd("setDirectory", REPO)
     await until(() => !!h.snap().session)
     const first = h.snap().session!.id
-    assert.deepEqual([h.snap().site, h.w.creates], [{ origin: "", directory: "/repo" }, 1])
+    assert.deepEqual([h.snap().site, h.w.creates], [{ origin: "", directory: REPO }, 1])
 
     // The site opens: it works in the repo without being asked, in the same conversation.
     h.page.load(`${SITE}/`)
     await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
-    assert.deepEqual([h.snap().site, h.snap().session!.id, h.w.creates], [{ origin: SITE, directory: "/repo" }, first, 1])
+    assert.deepEqual([h.snap().site, h.snap().session!.id, h.w.creates], [{ origin: SITE, directory: REPO }, first, 1])
     h.note("a note")
     await until(() => h.w.prompts.length === 1)
     assert.equal(h.w.prompts[0]!.session, first)
@@ -400,7 +313,7 @@ test("the repo comes before the site: its conversation opens with no page, and t
     // Another site, later: the same repo, a conversation of its own.
     h.page.load("http://other.test/")
     await until(() => h.snap().site?.origin === "http://other.test" && !!h.snap().session)
-    assert.deepEqual([h.snap().site!.directory, h.snap().session!.id !== first, h.w.creates], ["/repo", true, 2])
+    assert.deepEqual([h.snap().site!.directory, h.snap().session!.id !== first, h.w.creates], [REPO, true, 2])
   } finally {
     await h.close()
   }
@@ -408,38 +321,32 @@ test("the repo comes before the site: its conversation opens with no page, and t
 
 test("openProject: another repo opens with no page and a conversation of its own; going back brings the site and its conversation", async () => {
   const h = await boot()
+  const OTHER = folder("other")
   try {
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
-    await h.cmd("setDirectory", "/repo")
+    await h.connect()
+    await h.cmd("setDirectory", REPO)
     h.page.load(`${SITE}/pricing`)
     await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
     const first = h.snap().session!.id
     h.note("a note")
     await until(() => h.snap().review.notes.length === 1)
 
-    await h.cmd("openProject", "/other")
-    await until(() => h.snap().site?.directory === "/other" && !!h.snap().session)
-    assert.deepEqual([h.snap().site, h.snap().page.url, h.snap().review.notes.length], [{ origin: "", directory: "/other" }, "", 0])
+    await h.cmd("openProject", OTHER)
+    await until(() => h.snap().site?.directory === OTHER && !!h.snap().session)
+    assert.deepEqual([h.snap().site, h.snap().page.url, h.snap().review.notes.length], [{ origin: "", directory: OTHER }, "", 0])
     assert.notEqual(h.snap().session!.id, first)
     // Saved a moment after the change: until then there may be no file, or the one before.
-    const settings = (): { folder?: string; lastUrl?: string } => {
-      try {
-        return JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8"))
-      } catch {
-        return {}
-      }
-    }
-    await until(() => settings().folder === "/other")
-    assert.equal(settings().lastUrl, undefined, "the next launch starts in this repo, not on the other one's page")
+    await until(() => settingsOf(h).folder === OTHER)
+    assert.equal(settingsOf(h).lastUrl, undefined, "the next launch starts in this repo, not on the other one's page")
 
     // Back: the page it was on, its notes and its conversation.
-    await h.cmd("openProject", "/repo")
+    await h.cmd("openProject", REPO)
     await until(() => h.snap().site?.origin === SITE && h.snap().session?.id === first)
-    assert.deepEqual([h.snap().page.url, h.snap().site!.directory, h.snap().review.notes.length], [`${SITE}/pricing`, "/repo", 1])
+    assert.deepEqual([h.snap().page.url, h.snap().site!.directory, h.snap().review.notes.length], [`${SITE}/pricing`, REPO, 1])
 
     // Opening the project that is open changes nothing.
     const creates = h.w.creates
-    await h.cmd("openProject", "/repo")
+    await h.cmd("openProject", REPO)
     assert.deepEqual([h.snap().page.url, h.snap().session!.id, h.w.creates], [`${SITE}/pricing`, first, creates])
     await assert.rejects(Promise.resolve(h.cmd("openProject", "relative/path")))
   } finally {
@@ -449,9 +356,10 @@ test("openProject: another repo opens with no page and a conversation of its own
 
 test("an address belongs to the project that is open: the same one in another project is another site, and each keeps its notes and conversation", async () => {
   const h = await boot()
+  const OTHER = folder("other")
   try {
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
-    await h.cmd("setDirectory", "/repo")
+    await h.connect()
+    await h.cmd("setDirectory", REPO)
     h.page.load(`${SITE}/pricing`)
     await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
     const first = h.snap().session!.id
@@ -460,30 +368,30 @@ test("an address belongs to the project that is open: the same one in another pr
 
     // Another project, and its server now answers at the address the first one's did (a port is
     // whoever's dev server took it): the address is this project's, not a way back to the first.
-    await h.cmd("openProject", "/other")
-    await until(() => h.snap().site?.directory === "/other" && !!h.snap().session)
+    await h.cmd("openProject", OTHER)
+    await until(() => h.snap().site?.directory === OTHER && !!h.snap().session)
     const second = h.snap().session!.id
     h.page.load(`${SITE}/`)
     await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
-    assert.deepEqual([h.snap().site, h.snap().session!.id, h.snap().review.notes.length], [{ origin: SITE, directory: "/other" }, second, 0])
+    assert.deepEqual([h.snap().site, h.snap().session!.id, h.snap().review.notes.length], [{ origin: SITE, directory: OTHER }, second, 0])
     h.note("the second project's note")
     await until(() => h.w.prompts.length === 2)
     assert.deepEqual([h.w.prompts[1]!.session, h.snap().review.notes.map((n) => n.text)], [second, ["the second project's note"]])
 
     // Each project opens on its own page at that address, with its own notes and conversation.
-    await h.cmd("openProject", "/repo")
+    await h.cmd("openProject", REPO)
     await until(() => h.snap().session?.id === first)
-    assert.deepEqual([h.snap().page.url, h.snap().site, h.snap().review.notes.map((n) => n.text)], [`${SITE}/pricing`, { origin: SITE, directory: "/repo" }, ["the first project's note"]])
-    await h.cmd("openProject", "/other")
+    assert.deepEqual([h.snap().page.url, h.snap().site, h.snap().review.notes.map((n) => n.text)], [`${SITE}/pricing`, { origin: SITE, directory: REPO }, ["the first project's note"]])
+    await h.cmd("openProject", OTHER)
     await until(() => h.snap().session?.id === second)
-    assert.deepEqual([h.snap().page.url, h.snap().site, h.snap().review.notes.map((n) => n.text)], [`${SITE}/`, { origin: SITE, directory: "/other" }, ["the second project's note"]])
+    assert.deepEqual([h.snap().page.url, h.snap().site, h.snap().review.notes.map((n) => n.text)], [`${SITE}/`, { origin: SITE, directory: OTHER }, ["the second project's note"]])
 
     // The same page in both: the project changes under it, and what is shown with it.
     h.page.load(`${SITE}/pricing`)
     await until(() => h.snap().page.url === `${SITE}/pricing`)
-    await h.cmd("openProject", "/repo")
+    await h.cmd("openProject", REPO)
     await until(() => h.snap().session?.id === first)
-    assert.deepEqual([h.snap().site!.directory, h.snap().review.notes.map((n) => n.text)], ["/repo", ["the first project's note"]])
+    assert.deepEqual([h.snap().site!.directory, h.snap().review.notes.map((n) => n.text)], [REPO, ["the first project's note"]])
   } finally {
     await h.close()
   }
@@ -491,99 +399,98 @@ test("an address belongs to the project that is open: the same one in another pr
 
 test("setDirectory: the site on screen goes to the folder with its notes, unless the folder has this address already", async () => {
   const h = await boot()
+  const [MOVED, OTHER] = [folder("moved"), folder("other")]
   try {
     await h.ready()
     const first = h.snap().session!.id
     h.note("made before the code moved")
     await until(() => h.snap().review.notes.length === 1)
     // The code moved (or the folder was the wrong one): the notes stay with the page.
-    await h.cmd("setDirectory", "/moved")
+    await h.cmd("setDirectory", MOVED)
     await until(() => !!h.snap().session && h.snap().session!.id !== first)
     const moved = h.snap().session!.id
-    assert.deepEqual([h.snap().site, h.snap().review.notes.length], [{ origin: SITE, directory: "/moved" }, 1])
+    assert.deepEqual([h.snap().site, h.snap().review.notes.length], [{ origin: SITE, directory: MOVED }, 1])
 
     // Another project at the address, then the first one's folder chosen from there: its own place opens, and this one is kept.
-    await h.cmd("openProject", "/other")
+    await h.cmd("openProject", OTHER)
     h.page.load(`${SITE}/`)
     await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
     const other = h.snap().session!.id
-    assert.deepEqual([h.snap().site!.directory, h.snap().review.notes.length], ["/other", 0])
-    await h.cmd("setDirectory", "/moved")
+    assert.deepEqual([h.snap().site!.directory, h.snap().review.notes.length], [OTHER, 0])
+    await h.cmd("setDirectory", MOVED)
     await until(() => h.snap().session?.id === moved)
-    assert.deepEqual([h.snap().site, h.snap().review.notes.length], [{ origin: SITE, directory: "/moved" }, 1])
-    await h.cmd("openProject", "/other")
+    assert.deepEqual([h.snap().site, h.snap().review.notes.length], [{ origin: SITE, directory: MOVED }, 1])
+    await h.cmd("openProject", OTHER)
     await until(() => h.snap().session?.id === other)
-    assert.deepEqual([h.snap().site, h.snap().review.notes.length], [{ origin: SITE, directory: "/other" }, 0])
+    assert.deepEqual([h.snap().site, h.snap().review.notes.length], [{ origin: SITE, directory: OTHER }, 0])
   } finally {
     await h.close()
   }
 })
 
 test("the next launch: the address is opened in the project that was open, though another project had it first", async () => {
-  const sites = { [SITE]: { directory: "/repo", session: "ses_repo" }, [`${SITE}#2`]: { directory: "/other", url: `${SITE}/about`, seen: 2 } }
-  const note = (id: string) => ({ version: 1, enabled: true, draft: null, notes: [savedNote(id, 1, "done", `msg_${id}`, "ses_gone")] })
-  const h = await boot({ settings: { version: 1, folder: "/other", lastUrl: `${SITE}/about`, sites }, reviews: { [SITE]: note("firsts"), [`${SITE}#2`]: note("seconds") } })
+  const OTHER = folder("other")
+  const sites = { [SITE]: { directory: REPO, session: "s_repo" }, [`${SITE}#2`]: { directory: OTHER, url: `${SITE}/about`, seen: 2 } }
+  const note = (id: string) => ({ version: 1, enabled: true, draft: null, notes: [savedNote(id, 1, "done", `msg_${id}`, "s_gone")] })
+  const h = await boot({ settings: { version: 1, folder: OTHER, lastUrl: `${SITE}/about`, sites }, reviews: { [SITE]: note("firsts"), [`${SITE}#2`]: note("seconds") } })
   try {
     // The shell loads the last address by itself (stubs/host.ts).
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await h.connect()
     await until(() => !!h.snap().session)
-    assert.deepEqual([h.snap().page.url, h.snap().site, h.snap().review.notes.map((n) => n.text)], [`${SITE}/about`, { origin: SITE, directory: "/other" }, ["seconds"]])
+    assert.deepEqual([h.snap().page.url, h.snap().site, h.snap().review.notes.map((n) => n.text)], [`${SITE}/about`, { origin: SITE, directory: OTHER }, ["seconds"]])
   } finally {
     await h.close()
   }
 })
 
 test("a project whose folder is gone, at an address another project had first: the folder is asked for, now and at the next launch, and nothing of the project is lost", async () => {
-  const sites = { [SITE]: { directory: "/repo" }, [`${SITE}#2`]: { directory: "/gone", session: "ses_x", pinned: ["ses_x"] } }
-  const note = (id: string) => ({ version: 1, enabled: true, draft: null, notes: [savedNote(id, 1, "done", `msg_${id}`, "ses_gone")] })
+  const sites = { [SITE]: { directory: REPO }, [`${SITE}#2`]: { directory: GONE, session: "s_x", pinned: ["s_x"] } }
+  const note = (id: string) => ({ version: 1, enabled: true, draft: null, notes: [savedNote(id, 1, "done", `msg_${id}`, "s_gone")] })
   const reviews = { [SITE]: note("firsts"), [`${SITE}#2`]: note("seconds") }
-  const gone = (h: { server: FakeServer }) =>
-    h.server.route("GET", "/api/fs/list", (req) => (req.query.get("path") === "/gone" ? { status: 404, json: { _tag: "FileNotFoundError", message: "Directory not found: /gone" } } : { json: { location: { directory: "/" }, data: [] } }))
   const shown = (h: { snap(): AppState }) => [h.snap().site, h.snap().missingFolder, h.snap().session, h.snap().review.notes.map((n) => n.text)]
-  let h = await boot({ settings: { version: 1, folder: "/gone", lastUrl: `${SITE}/about`, sites }, reviews })
+  let h = await boot({ settings: { version: 1, folder: GONE, lastUrl: `${SITE}/about`, sites }, reviews })
   let saved: { folder?: string; lastUrl?: string; sites: Record<string, { directory: string; pinned?: string[] }> }
   try {
-    gone(h)
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
-    await until(() => h.snap().missingFolder === "/gone")
+    await h.connect()
+    await until(() => h.snap().missingFolder === GONE)
     // The page goes on meanwhile (it finishes loading, a link is followed).
     h.page.load(`${SITE}/pricing`)
     await sleep(30)
-    assert.deepEqual(shown(h), [{ origin: SITE }, "/gone", null, ["seconds"]])
+    assert.deepEqual(shown(h), [{ origin: SITE }, GONE, null, ["seconds"]])
     // Quit before a folder was chosen: what the project had is still on disk.
     await sleep(400)
-    saved = JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8"))
+    saved = settingsOf(h)
     const kept = saved.sites[`${SITE}#2`] as { directory: string; session?: string; pinned?: string[] }
-    assert.deepEqual([saved.folder, kept.directory, kept.session, kept.pinned], ["/gone", "/gone", "ses_x", ["ses_x"]])
+    assert.deepEqual([saved.folder, kept.directory, kept.session, kept.pinned], [GONE, GONE, "s_x", ["s_x"]])
   } finally {
     await h.close()
   }
-  // The next launch, with what was saved (the server is another fake: only what the first one's space held is given).
+  // The next launch, with what was saved.
   h = await boot({ settings: { version: 1, folder: saved.folder, lastUrl: saved.lastUrl, sites: saved.sites }, reviews })
   try {
-    gone(h)
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
-    await until(() => h.snap().missingFolder === "/gone")
-    assert.deepEqual(shown(h), [{ origin: SITE }, "/gone", null, ["seconds"]])
-    await h.cmd("setDirectory", "/found")
+    await h.connect()
+    await until(() => h.snap().missingFolder === GONE)
+    assert.deepEqual(shown(h), [{ origin: SITE }, GONE, null, ["seconds"]])
+    const FOUND = folder("found")
+    await h.cmd("setDirectory", FOUND)
     await until(() => !!h.snap().session)
-    assert.deepEqual([h.snap().site, h.snap().review.notes.map((n) => n.text)], [{ origin: SITE, directory: "/found" }, ["seconds"]])
+    assert.deepEqual([h.snap().site, h.snap().review.notes.map((n) => n.text)], [{ origin: SITE, directory: FOUND }, ["seconds"]])
   } finally {
     await h.close()
   }
 })
 
 test("a project whose folder is gone leaves its notes to no one: another project at its address starts with none", async () => {
-  const note = { version: 1, enabled: true, draft: null, notes: [savedNote("the gone project's", 1, "done", "msg_1", "ses_gone")] }
-  const h = await boot({ settings: { version: 1, folder: "/gone", lastUrl: `${SITE}/`, sites: { [SITE]: { directory: "/gone" } } }, reviews: { [SITE]: note } })
+  const note = { version: 1, enabled: true, draft: null, notes: [savedNote("the gone project's", 1, "done", "msg_1", "s_gone")] }
+  const h = await boot({ settings: { version: 1, folder: GONE, lastUrl: `${SITE}/`, sites: { [SITE]: { directory: GONE } } }, reviews: { [SITE]: note } })
+  const NEW = folder("new")
   try {
-    h.server.route("GET", "/api/fs/list", (req) => (req.query.get("path") === "/gone" ? { status: 404, json: { _tag: "FileNotFoundError", message: "Directory not found: /gone" } } : { json: { location: { directory: "/" }, data: [] } }))
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
-    await until(() => h.snap().missingFolder === "/gone")
-    await h.cmd("openProject", "/new")
+    await h.connect()
+    await until(() => h.snap().missingFolder === GONE)
+    await h.cmd("openProject", NEW)
     h.page.load(`${SITE}/`)
     await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
-    assert.deepEqual([h.snap().site, h.snap().review.notes.length], [{ origin: SITE, directory: "/new" }, 0])
+    assert.deepEqual([h.snap().site, h.snap().review.notes.length], [{ origin: SITE, directory: NEW }, 0])
   } finally {
     await h.close()
   }
@@ -591,18 +498,19 @@ test("a project whose folder is gone leaves its notes to no one: another project
 
 test("a project with no page keeps its conversation while another project is open", async () => {
   const h = await boot()
+  const [A, B] = [folder("a"), folder("b")]
   try {
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
-    await h.cmd("setDirectory", "/a")
+    await h.connect()
+    await h.cmd("setDirectory", A)
     await until(() => !!h.snap().session)
     const a = h.snap().session!.id
-    await h.cmd("openProject", "/b")
+    await h.cmd("openProject", B)
     await until(() => !!h.snap().session && h.snap().session!.id !== a)
     const b = h.snap().session!.id
-    await h.cmd("openProject", "/a")
+    await h.cmd("openProject", A)
     await until(() => !!h.snap().session && h.snap().session!.id !== b)
-    assert.deepEqual([h.snap().site, h.snap().session!.id, h.w.creates], [{ origin: "", directory: "/a" }, a, 2])
-    await h.cmd("openProject", "/b")
+    assert.deepEqual([h.snap().site, h.snap().session!.id, h.w.creates], [{ origin: "", directory: A }, a, 2])
+    await h.cmd("openProject", B)
     await until(() => h.snap().session?.id === b)
     assert.equal(h.w.creates, 2)
   } finally {
@@ -612,30 +520,33 @@ test("a project with no page keeps its conversation while another project is ope
 
 test("openProject goes back to the site that was open last, though another one's address changed last", async () => {
   const h = await boot()
+  const ELSEWHERE = folder("elsewhere")
   try {
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
-    await h.cmd("setDirectory", "/repo")
+    await h.connect()
+    await h.cmd("setDirectory", REPO)
     for (const url of [`${SITE}/a`, "http://other.test/b", `${SITE}/a`]) {
       h.page.load(url)
       await until(() => h.snap().page.url === url && !!h.snap().session)
       await sleep(5) // the clock moves between visits
     }
-    await h.cmd("openProject", "/elsewhere")
-    await until(() => h.snap().site?.directory === "/elsewhere")
-    await h.cmd("openProject", "/repo")
-    await until(() => h.snap().site?.directory === "/repo")
+    await h.cmd("openProject", ELSEWHERE)
+    await until(() => h.snap().site?.directory === ELSEWHERE)
+    await h.cmd("openProject", REPO)
+    await until(() => h.snap().site?.directory === REPO)
     assert.equal(h.snap().page.url, `${SITE}/a`)
   } finally {
     await h.close()
   }
 })
 
-test("servers are remembered: a second one starts clean, and going back needs no password and brings the first one's repo, page and notes", async () => {
+type Info = { id: string; name?: string; url: string; current: boolean; agent?: string; command?: string }
+
+test("agents are remembered: a second one starts clean, and going back to the first brings its repo, page and notes", async () => {
   const h = await boot()
-  const second = await fakeOpenCode()
+  const ELSEWHERE = folder("elsewhere")
   try {
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
-    await h.cmd("setDirectory", "/repo")
+    await h.connect()
+    await h.cmd("setDirectory", REPO)
     h.page.load(`${SITE}/pricing`)
     await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
     const first = h.snap().session!.id
@@ -643,111 +554,63 @@ test("servers are remembered: a second one starts clean, and going back needs no
     await until(() => h.snap().review.notes.length === 1)
     await h.cmd("setServerName", "Studio")
 
-    // Another server: nothing of the first one's is here, and the same address is another site.
-    await h.cmd("connect", { url: second.server.url, password: second.server.password })
-    await until(() => h.snap().connection.status === "online" && (h.snap().connection as { url: string }).url === second.server.url)
-    assert.deepEqual([h.snap().site, h.snap().page.url, h.snap().session, h.snap().serverName], [null, "", null, "fake-box"])
-    await h.cmd("setDirectory", "/elsewhere")
+    // Another agent: nothing of the first one's is here, and the same address is another site.
+    await h.connect("fake-agent --second")
+    await until(() => h.snap().connection.status === "online" && h.snap().harness?.name === "fake-agent" && !h.snap().site)
+    assert.deepEqual([h.snap().site, h.snap().page.url, h.snap().session], [null, "", null])
+    await h.cmd("setDirectory", ELSEWHERE)
     h.page.load(`${SITE}/pricing`)
     await until(() => h.snap().site?.origin === SITE && !!h.snap().session)
-    assert.deepEqual([h.snap().site!.directory, h.snap().review.notes.length], ["/elsewhere", 0])
+    assert.deepEqual([h.snap().site!.directory, h.snap().review.notes.length], [ELSEWHERE, 0])
 
-    type Info = { id: string; name?: string; url: string; local: boolean; current: boolean }
     const list = (await h.cmd("servers")) as Info[]
-    assert.deepEqual(list.map((x) => [x.url, x.current, x.name]), [[second.server.url, true, "fake-box"], [h.server.url, false, "Studio"]])
-    assert.ok(!JSON.stringify(list).includes(h.server.password), "the window gets no password")
+    assert.deepEqual(list.map((x) => [x.command, x.current, x.name]), [["fake-agent --second", true, "fake-agent"], ["fake-agent", false, "Studio"]])
     await assert.rejects(Promise.resolve(h.cmd("forgetServer", list[0]!.id)), "not the one in use")
 
     // Back, by its id alone.
     await h.cmd("useServer", list[1]!.id)
     await until(() => h.snap().session?.id === first)
-    assert.deepEqual(
-      [h.snap().site, h.snap().page.url, h.snap().review.notes.length, h.snap().serverName],
-      [{ origin: SITE, directory: "/repo" }, `${SITE}/pricing`, 1, "Studio"],
-    )
+    assert.deepEqual([h.snap().site, h.snap().page.url, h.snap().review.notes.length, h.snap().serverName], [{ origin: SITE, directory: REPO }, `${SITE}/pricing`, 1, "Studio"])
 
     // Forgotten: gone from the list, and no longer to be connected to.
     await h.cmd("forgetServer", list[0]!.id)
-    assert.deepEqual(((await h.cmd("servers")) as Info[]).map((x) => x.url), [h.server.url])
+    assert.deepEqual(((await h.cmd("servers")) as Info[]).map((x) => x.command), ["fake-agent"])
     await assert.rejects(Promise.resolve(h.cmd("useServer", list[0]!.id)))
   } finally {
     await h.close()
-    await second.server.stop()
   }
 })
 
-test("a repo that is not a folder on this server is asked for again; projects of other servers are listed with their server and open there", async () => {
+test("a folder that is not there is not opened, nor offered; projects of other agents are listed with their agent and open there", async () => {
   const h = await boot()
-  const second = await fakeOpenCode()
-  const missing: FakeReply = { status: 404, json: { _tag: "FileNotFoundError", message: "Directory not found: /home/k/site" } }
-  const project = (directory: string) => ({ json: [{ id: "p", canonical: directory, time: { active: 1 } }] })
+  const [SITE_DIR, APP] = [folder("site"), folder("app")]
   try {
-    // The first server has /home/k/site; the second does not.
-    h.server.route("GET", "/api/project", project("/home/k/site"))
-    // The second server lists the other computer's folder too (a conversation was once started for it by mistake).
-    second.server.route("GET", "/api/project", { json: [{ id: "x", canonical: "/home/k/site", time: { active: 9 } }, { id: "p", canonical: "/Users/me/app", time: { active: 1 } }] })
-    second.server.route("GET", "/api/fs/list", (req) => (req.query.get("path") === "/home/k/site" ? missing : { json: { location: { directory: "/" }, data: [] } }))
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
-    await h.cmd("setDirectory", "/home/k/site")
+    await h.connect()
+    await h.cmd("setDirectory", SITE_DIR)
     await until(() => !!h.snap().session)
     const first = h.snap().session!.id
-    await h.cmd("projects")
+    // The agent once worked in a folder that is gone since: it is not offered.
+    h.w.fa.sessions.set("s_old", { id: "s_old", cwd: GONE, history: [], model: "fake/alpha", effort: "default", mode: "build" })
+    assert.deepEqual(await h.cmd("projects"), [SITE_DIR])
 
-    await h.cmd("connect", { url: second.server.url, password: second.server.password })
-    // A folder of the other computer, typed or kept from an older version: refused, and nothing is made for it.
-    await assert.rejects(Promise.resolve(h.cmd("openProject", "/home/k/site")), /not a folder on this server/)
-    const creates = second.w.creates
-    await h.cmd("setDirectory", "/home/k/site")
-    await until(() => h.snap().missingFolder === "/home/k/site")
-    assert.deepEqual([h.snap().site?.directory, h.snap().session, second.w.creates], [undefined, null, creates])
-    await h.cmd("setDirectory", "/Users/me/app")
+    await h.connect("fake-agent --second")
+    await assert.rejects(Promise.resolve(h.cmd("openProject", GONE)), /is not a folder/)
+    const creates = h.agents("fake-agent --second").creates
+    await h.cmd("setDirectory", GONE)
+    await until(() => h.snap().missingFolder === GONE)
+    assert.deepEqual([h.snap().site?.directory, h.snap().session, h.agents("fake-agent --second").creates], [undefined, null, creates])
+    await h.cmd("setDirectory", APP)
     await until(() => !!h.snap().session)
     assert.equal(h.snap().missingFolder, undefined)
-    assert.deepEqual(await h.cmd("projects"), ["/Users/me/app"], "a folder that is not there is not offered")
 
     type P = { directory: string; server?: string; on: string; open?: true }
     const all = (await h.cmd("allProjects")) as P[]
-    assert.deepEqual(all.map((p) => [p.directory, p.on, !!p.server, !!p.open]), [["/Users/me/app", "fake-box", false, true], ["/home/k/site", "fake-box", true, false]])
+    assert.deepEqual(all.map((p) => [p.directory, !!p.server, !!p.open]), [[APP, false, true], [SITE_DIR, true, false]])
 
-    // One choice: the other server, and its project.
-    await h.cmd("openProject", "/home/k/site", all[1]!.server)
+    // One choice: the other agent, and its project.
+    await h.cmd("openProject", SITE_DIR, all[1]!.server)
     await until(() => h.snap().session?.id === first)
-    assert.deepEqual([(h.snap().connection as { url: string }).url, h.snap().site], [h.server.url, { origin: "", directory: "/home/k/site" }])
-  } finally {
-    await h.close()
-    await second.server.stop()
-  }
-})
-
-test("what the server is still running shows once it has run for a while, the open repo's first, and can be stopped", async () => {
-  const h = await boot()
-  try {
-    const now = Date.now()
-    const shell = (id: string, ago: number, status = "running") => ({ id, status, command: `cmd  ${id}`, cwd: "/", shell: "sh", file: "", metadata: {}, time: { started: now - ago } })
-    const world: Record<string, ReturnType<typeof shell>[]> = {
-      "/repo": [shell("sh_dev", 60_000), shell("sh_step", 1_000), shell("sh_done", 90_000, "exited")],
-      "/other": [shell("sh_old", 3_600_000)],
-    }
-    const killed: string[] = []
-    h.server.route("GET", "/api/project", { json: [{ id: "a", canonical: "/other", time: { active: 2 } }, { id: "b", canonical: "/repo", time: { active: 1 } }] })
-    h.server.route("GET", "/api/shell", (req) => ({ json: { location: { directory: "/" }, data: world[req.query.get("location[directory]") ?? ""] ?? [] } }))
-    h.server.route("DELETE", /^\/api\/shell\/[^/]+$/, (req) => {
-      const id = req.path.split("/").pop()!
-      killed.push(`${req.query.get("location[directory]")} ${id}`)
-      for (const d of Object.keys(world)) world[d] = world[d]!.filter((x) => x.id !== id)
-      return { status: 204 }
-    })
-    await h.ready()
-    await h.cmd("refreshRunning")
-    // Not the command a second old (a step under way), not the one that has ended; the open repo's first.
-    assert.deepEqual(h.snap().running.map((r) => [r.directory, r.id, r.command]), [["/repo", "sh_dev", "cmd sh_dev"], ["/other", "sh_old", "cmd sh_old"]])
-
-    await h.cmd("stopRunning", "/repo", "sh_dev")
-    assert.deepEqual([killed, h.snap().running.map((r) => r.id)], [["/repo sh_dev"], ["sh_old"]])
-    // Without an id: all that is listed, and never the young one.
-    await h.cmd("stopRunning")
-    assert.deepEqual([killed, h.snap().running], [["/repo sh_dev", "/other sh_old"], []])
-    assert.equal(world["/repo"]!.some((x) => x.id === "sh_step"), true)
+    assert.deepEqual([(await h.cmd("servers") as Info[]).find((x) => x.current)!.command, h.snap().site], ["fake-agent", { origin: "", directory: SITE_DIR }])
   } finally {
     await h.close()
   }
@@ -756,50 +619,42 @@ test("what the server is still running shows once it has run for a while, the op
 test("startSite asks the agent in the repo's conversation, and opens the address its answer ends with", async () => {
   const h = await boot()
   try {
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await h.connect()
     await assert.rejects(Promise.resolve(h.cmd("startSite")), "no repo: nobody to ask")
-    await h.cmd("setDirectory", "/repo")
-    await until(() => !!h.snap().session && h.server.streams() === 1)
+    await h.cmd("setDirectory", REPO)
+    await until(() => !!h.snap().session)
     const id = h.snap().session!.id
-    let said = "Which of the two apps, web or docs?"
-    h.server.route("GET", /^\/api\/session\/[^/]+\/message$/, () => ({
-      json: { data: [{ id: "msg_a", type: "assistant", time: { created: 1, completed: 2 }, content: [{ type: "text", text: said }] }], cursor: { previous: null, next: null } },
-    }))
-    const sent: string[] = []
-    h.server.route("POST", /^\/api\/session\/[^/]+\/prompt$/, (req) => {
-      sent.push((req.body as { text: string }).text)
-      return { json: { data: { id: `msg_${sent.length}`, sessionID: id, type: "user", delivery: "queue" } } }
-    })
     await h.cmd("startSite")
-    assert.equal(sent.length, 1)
-    assert.match(sent[0]!, /^Get this project's site running/)
-    assert.doesNotMatch(sent[0]!, /another computer/, "the fake server is on this computer: localhost opens")
-    assert.match(sent[0]!, /background command of your shell tool/)
-    assert.match(sent[0]!, /SITE: <address>$/)
+    await until(() => h.w.prompts.length === 1)
+    const sent = h.w.prompts[0]!.text
+    assert.match(sent, /^Get this project's site running/)
+    assert.doesNotMatch(sent, /another computer/, "the agent is on this computer: localhost opens")
+    assert.match(sent, /background command of your shell tool/)
+    assert.match(sent, /SITE: <address>$/)
     assert.equal(h.snap().startingSite, true)
 
     // It asks instead of answering: nothing opens, and the app goes on waiting for an address.
-    h.agent.starts(id)
-    h.agent.finishes(id)
+    await (await h.agent.turn(id)).say("Which of the two apps, web or docs?")
+    await turn(h, id)
     await until(() => !h.snap().startingSite)
     await sleep(50)
     assert.equal(h.snap().page.url, "")
 
     // The answer to the question brings the address, on a line of its own; other addresses in the reply are not it.
-    said = "Started `npm run dev` (docs are at http://docs.test/).\n\nSITE: http://127.0.0.1:5173/\n"
-    h.agent.starts(id)
-    await until(() => h.snap().startingSite === true)
-    assert.equal(h.snap().startingSite, true)
-    h.agent.finishes(id)
+    await h.cmd("send", "web")
+    await until(() => h.w.prompts.length === 2)
+    await (await h.agent.turn(id)).say("Started `npm run dev` (docs are at http://docs.test/).\n\nSITE: http://127.0.0.1:5173/\n")
+    await turn(h, id)
     await until(() => h.snap().page.url !== "")
     assert.equal(h.snap().page.url, "http://127.0.0.1:5173/")
     await until(() => h.snap().site?.origin === "http://127.0.0.1:5173" && h.snap().session?.id === id)
-    assert.deepEqual(h.snap().site, { origin: "http://127.0.0.1:5173", directory: "/repo" })
+    assert.deepEqual(h.snap().site, { origin: "http://127.0.0.1:5173", directory: REPO })
 
     // Once a page is open, a later reply with such a line moves nothing.
-    said = "SITE: http://elsewhere.test/"
-    h.agent.starts(id)
-    h.agent.finishes(id)
+    await h.cmd("send", "and docs?")
+    await until(() => h.w.prompts.length === 3)
+    await (await h.agent.turn(id)).say("SITE: http://elsewhere.test/")
+    await turn(h, id)
     await sleep(80)
     assert.equal(h.snap().page.url, "http://127.0.0.1:5173/")
   } finally {
@@ -810,9 +665,9 @@ test("startSite asks the agent in the repo's conversation, and opens the address
 test("a note fired while the site's conversation is still opening does not create a second one", async () => {
   const h = await boot()
   try {
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await h.connect()
     h.page.load(`${SITE}/`)
-    const opening = h.cmd("setDirectory", "/repo") // not awaited: the reviewer is fast
+    const opening = h.cmd("setDirectory", REPO) // not awaited: the reviewer is fast
     h.note("first")
     await opening
     await until(() => h.w.prompts.length === 1)
@@ -825,34 +680,35 @@ test("a note fired while the site's conversation is still opening does not creat
 
 test("relaunch after the conversation was deleted: its notes fail, they are not called done", async () => {
   const h = await boot({
-    settings: savedSite({ session: "ses_gone" }),
-    reviews: { [SITE]: { version: 1, notes: [savedNote("a", 1, "working", "msg_a", "ses_gone"), savedNote("b", 2, "queued", "msg_b", "ses_gone")] } },
+    settings: savedSite({ session: "s_gone" }),
+    reviews: { [SITE]: { version: 1, notes: [savedNote("a", 1, "working", "msg_a", "s_gone"), savedNote("b", 2, "queued", "msg_b", "s_gone")] } },
   })
   try {
     assert.equal(h.notes(), "1:working 2:queued", "before connecting nothing is known")
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await h.connect()
     await until(() => !!h.snap().session)
     await until(() => h.notes() === "1:failed 2:failed")
-    assert.notEqual(h.snap().session!.id, "ses_gone")
+    assert.notEqual(h.snap().session!.id, "s_gone")
   } finally {
     await h.close()
   }
 })
 
-test("relaunch with an idle conversation: finished notes are done, a still-waiting one stays queued", async () => {
-  const fake = await fakeOpenCode()
-  fake.w.sessions.set("ses_live", { id: "ses_live", location: { directory: "/repo" }, title: "t", time: { created: 1, updated: 2, busy: 3, idle: 4 } })
-  fake.w.inbox.set("ses_live", ["msg_b"])
-  const h = await boot({
-    server: fake,
-    settings: savedSite({ session: "ses_live" }),
-    reviews: { [SITE]: { version: 1, notes: [savedNote("a", 1, "working", "msg_a", "ses_live"), savedNote("b", 2, "queued", "msg_b", "ses_live")] } },
-  })
+test("relaunch: the conversation is the one saved, finished notes stay done, and nothing is sent again", async () => {
+  const h = await boot()
   try {
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
-    await until(() => h.notes() === "1:done 2:queued")
-    assert.equal(h.snap().session!.id, "ses_live", "the saved conversation is reused")
-    assert.equal(h.w.creates, 0)
+    const s = await h.ready()
+    h.note("a")
+    await until(() => h.notes() === "1:working")
+    await turn(h, s)
+    await until(() => h.notes() === "1:done")
+    await sleep(400) // the store's debounce
+    await h.relaunch()
+    await h.connect()
+    await until(() => !!h.snap().session)
+    await sleep(100)
+    assert.equal(h.snap().session!.id, s, "the saved conversation is reused")
+    assert.deepEqual([h.notes(), h.w.creates, h.w.prompts.length], ["1:done", 1, 1])
   } finally {
     await h.close()
   }
@@ -865,115 +721,66 @@ test("one note is one turn: the next goes when the one before is done, and not w
     h.note("a")
     h.note("b")
     h.note("c")
-    await until(() => h.notes() === "1:queued 2:queued 3:queued" && h.w.prompts.length === 1)
+    await until(() => h.notes() === "1:working 2:queued 3:queued" && h.w.prompts.length === 1)
     assert.deepEqual(h.snap().review.notes.map((n) => !!n.sent), [true, false, false], "only the first is with the agent")
-    turn(h, s)
-    await until(() => h.w.prompts.length === 2 && h.notes() === "1:done 2:queued 3:queued")
-    turn(h, s)
+    await turn(h, s)
+    await until(() => h.w.prompts.length === 2 && h.notes() === "1:done 2:working 3:queued")
+    await turn(h, s)
     await until(() => h.w.prompts.length === 3)
-    turn(h, s)
+    await turn(h, s)
     await until(() => h.notes() === "1:done 2:done 3:done")
 
-    // The agent is on a message typed elsewhere: once the stream says so, a note made now waits
-    // for that run to end.
-    h.agent.starts(s)
-    await until(() => h.snap().session?.busy === true)
+    // A message typed in the chat starts a run: a note made right after waits, even before the
+    // agent has it.
+    const before = h.w.prompts.length
+    await h.cmd("send", "make the header blue")
     h.note("d")
     await until(() => h.notes() === "1:done 2:done 3:done 4:queued")
     await sleep(100)
-    assert.equal(h.w.prompts.length, 3, "nothing joins the running turn")
-    h.agent.finishes(s)
-    await until(() => h.w.prompts.length === 4)
-  } finally {
-    await h.close()
-  }
-})
-
-const sessionReads = (h: { server: FakeServer }, s: string) => h.server.requests.filter((r) => r.method === "GET" && r.path === `/api/session/${s}`).length
-
-test("a note goes on what the stream says: no question to the server while it says idle, none sent while it says busy", async () => {
-  const h = await boot()
-  try {
-    const s = await h.ready()
-    // Nothing said yet since the stream opened: the server is asked once, and that is kept.
-    h.note("a")
-    await until(() => h.w.prompts.length === 1)
-    turn(h, s)
-    await until(() => h.notes() === "1:done")
-    // The stream said the run ended: the next note goes without asking. (The stream's own
-    // re-reads of the conversation after run events are let finish first.)
-    await sleep(50)
-    const asked = sessionReads(h, s)
-    h.note("b")
-    await until(() => h.w.prompts.length === 2)
-    assert.equal(sessionReads(h, s), asked, "no GET /session before the note went")
-    turn(h, s)
-    await until(() => h.notes() === "1:done 2:done")
-
-    // A message typed in the chat starts a run: a note made right after waits, even before the
-    // stream says the run started.
-    let before = h.w.prompts.length
-    await h.cmd("send", "make the header blue")
-    h.note("c")
-    await until(() => h.notes() === "1:done 2:done 3:queued")
-    await sleep(100)
     assert.equal(h.w.prompts.length, before + 1, "only the typed message went; the note waits")
-    assert.equal(h.snap().review.notes[2]?.sent, undefined)
-    h.agent.starts(s)
-    h.agent.finishes(s)
+    assert.equal(h.snap().review.notes[3]?.sent, undefined)
+    await turn(h, s)
     await until(() => h.w.prompts.length === before + 2)
-    before = h.w.prompts.length
-    turn(h, s)
-    await until(() => h.notes() === "1:done 2:done 3:done")
-
-    // A reconnect forgets what was known: the next note asks the server first, and does not go
-    // while it says busy.
-    h.server.drop()
-    await until(() => h.snap().connection.status === "online" && h.server.streams() === 1, 10_000)
-    await sleep(50)
-    const w = h.w.sessions.get(s) as { time: Record<string, number> }
-    w.time.busy = (w.time.idle ?? 0) + 100
-    const reads0 = sessionReads(h, s)
-    h.note("d")
-    await until(() => h.notes() === "1:done 2:done 3:done 4:queued" && sessionReads(h, s) > reads0)
-    await sleep(100)
-    assert.equal(h.w.prompts.length, before, "busy on the server: the note waits")
-    h.agent.finishes(s)
-    await until(() => h.w.prompts.length === before + 1)
+    await turn(h, s)
+    await until(() => h.notes() === "1:done 2:done 3:done 4:done")
   } finally {
     await h.close()
   }
 })
 
-test("a prompt of the app's own holds a note like a typed one; a summary that finds nothing to do does not keep it waiting", async () => {
+test("a prompt of the app's own holds a note like a typed one, and so does the agent's /compact", async () => {
   const h = await boot()
   try {
     const s = await h.ready()
     h.note("a")
     await until(() => h.w.prompts.length === 1)
-    turn(h, s)
+    await turn(h, s)
     await until(() => h.notes() === "1:done")
     await sleep(50)
 
-    // Commit changes starts a run before the stream says so: the note made right after waits.
+    // Commit changes starts a run before the agent has it: the note made right after waits.
     const before = h.w.prompts.length
     await h.cmd("commitChanges", "Tidy the hero")
     h.note("b")
     await until(() => h.notes() === "1:done 2:queued")
     await sleep(100)
     assert.equal(h.w.prompts.length, before + 1, "only the commit prompt went; the note waits")
-    h.agent.starts(s)
-    h.agent.finishes(s)
+    await turn(h, s)
     await until(() => h.w.prompts.length === before + 2)
-    turn(h, s)
+    await turn(h, s)
     await until(() => h.notes() === "1:done 2:done")
     await sleep(50)
 
-    // A summary that starts no run leaves the conversation free: the next note goes.
-    h.server.route("POST", `/api/session/${s}/compact`, { json: { data: { id: "msg_c", type: "compaction", payload: {}, delivery: "steer" } } })
+    // The agent's own /compact is a turn of its: the note waits for it, then goes.
+    await until(() => h.snap().can?.compact === true)
     await h.cmd("runCommand", "compact", "")
     h.note("c")
     await until(() => h.w.prompts.length === before + 3)
+    assert.equal(lastPrompt(h).text, "/compact")
+    await sleep(100)
+    assert.equal(h.w.prompts.length, before + 3, "the note waits for the summary")
+    await turn(h, s)
+    await until(() => h.w.prompts.length === before + 4)
   } finally {
     await h.close()
   }
@@ -982,7 +789,7 @@ test("a prompt of the app's own holds a note like a typed one; a summary that fi
 test("the page is laid out where the window last put it, hidden, before it loads; the window's word is kept for the next start", async () => {
   const at = { x: 12, y: 60, width: 900, height: 700 }
   const h = await boot({ settings: { ...savedSite(), pageBounds: at } })
-  const saved = () => JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")).pageBounds as unknown
+  const saved = () => settingsOf(h).pageBounds as unknown
   try {
     // As the shell starts it (stubs/host.ts, like index.ts): its place of last time, out of sight, the last address.
     assert.deepEqual(h.core.lastPageBounds(), at)
@@ -1054,40 +861,23 @@ test("a first start, or a place on disk that is no rectangle: the page still loa
 })
 
 test("relaunch with a note that was waiting in the app: it is sent, pictures and all, from what was kept on disk", async () => {
-  const fake = await fakeOpenCode()
-  fake.w.sessions.set("ses_live", { id: "ses_live", location: { directory: "/repo" }, title: "t", time: { created: 1, updated: 2, busy: 3, idle: 4 } })
-  const held = { id: "b", n: 2, text: "b", status: "queued", lane: "main", held: true, anchor: {} }
-  const lost = { id: "c", n: 3, text: "c", status: "queued", lane: "main", held: true, anchor: {} }
+  const held = { id: "b", n: 1, text: "b", status: "queued", lane: "main", held: true, anchor: {} }
+  const lost = { id: "c", n: 2, text: "c", status: "queued", lane: "main", held: true, anchor: {} }
   const h = await boot({
-    server: fake,
-    settings: savedSite({ session: "ses_live" }),
-    reviews: { [SITE]: { version: 1, notes: [savedNote("a", 1, "working", "msg_a", "ses_live"), held, lost] } },
-    outbox: { b: { text: "UI review note 2\nNote: b", files: [{ name: "note-2.jpg", uri: "data:image/jpeg;base64,QUJD" }] } },
+    settings: savedSite(),
+    reviews: { [SITE]: { version: 1, notes: [held, lost] } },
+    outbox: { b: { text: "UI review note 1\nNote: b", files: [{ name: "note-1.jpg", uri: `data:image/jpeg;base64,${Buffer.from("ABC").toString("base64")}` }] } },
   })
   try {
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
-    // The idle conversation settles the first; the lane is free, so the waiting one goes.
+    await h.connect()
+    // The lane is free, so the waiting one goes.
     await until(() => h.w.prompts.length === 1)
-    const body = lastPrompt(h)!.body as Sent
-    assert.deepEqual([body.text, body.files!.map((f) => f.name)], ["UI review note 2\nNote: b", ["note-2.jpg"]])
-    await until(() => h.notes() === "1:done 2:queued 3:queued")
+    assert.deepEqual([lastPrompt(h).text, lastPrompt(h).images], ["UI review note 1\nNote: b", ["ABC"]])
+    await until(() => h.notes() === "1:working 2:queued")
     // The one after it has nothing on disk to send: it fails when its turn comes, and says so.
-    turn(h, "ses_live")
-    await until(() => h.notes() === "1:done 2:done 3:failed")
-    assert.match(h.snap().review.notes[2]!.error ?? "", /screenshot is gone/)
-  } finally {
-    await h.close()
-  }
-})
-
-test("a gap in someone else's conversation does not re-read the one on screen", async () => {
-  const h = await boot()
-  try {
-    await h.ready()
-    const before = h.w.transcripts
-    for (let i = 0; i < 10; i++) h.emit("session.step.ended", "ses_someone_else", { assistantMessageID: `msg_x${i}`, finish: "stop", cost: 0, tokens: {} })
-    await sleep(200)
-    assert.equal(h.w.transcripts, before)
+    await turn(h)
+    await until(() => h.notes() === "1:done 2:failed")
+    assert.match(h.snap().review.notes[1]!.error ?? "", /screenshot is gone/)
   } finally {
     await h.close()
   }
@@ -1108,19 +898,19 @@ test("an OpenCode server saved by an earlier version is put aside at start: not 
     folder: "/repo",
     lastUrl: `${SITE}/`,
     sites: { [SITE]: { directory: "/repo", session: "ses_9" } },
+    defaultModel: { providerID: "anthropic", id: "sonnet" },
   }
   const review = { version: 1, notes: [savedNote("n1", 1, "done", "msg_1", "ses_9")] }
   const h = await boot({ settings, reviews: { [SITE]: review } })
   try {
     await sleep(300)
-    const disk = () => JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8"))
     assert.equal(h.snap().connection.status, "unconfigured", "nothing is connected to")
-    assert.equal(h.server.requests.length, 0, "the server is not asked anything")
+    assert.equal(h.w.fa.starts, 0)
     assert.equal(h.snap().harness, undefined)
     assert.equal(h.snap().serversRetired, true, "the connect screen says so")
     assert.equal(h.core.lastUrl(), "", "its page is not opened")
     assert.equal(h.snap().site, null)
-    const saved = disk()
+    const saved = settingsOf(h)
     assert.ok(!JSON.stringify(saved).includes("secret-pw"), "the password is gone from the settings")
     assert.deepEqual(saved.servers, [{ id: "srv_b", agent: "claude", command: ["claude-agent-acp"], space }], "the agent stays, with what is its own")
     assert.equal(saved.server, undefined)
@@ -1130,7 +920,7 @@ test("an OpenCode server saved by an earlier version is put aside at start: not 
     assert.deepEqual(
       saved.retired,
       [
-        { id: "srv_a", url: "http://box.example:4096", name: "Studio", space: { folder: "/repo", lastUrl: `${SITE}/`, sites: settings.sites, prefix: "" } },
+        { id: "srv_a", url: "http://box.example:4096", name: "Studio", space: { folder: "/repo", lastUrl: `${SITE}/`, defaultModel: settings.defaultModel, sites: settings.sites, prefix: "" } },
         { id: "srv_l", local: true },
       ],
       "what was the server's own is kept as it was",
@@ -1141,7 +931,29 @@ test("an OpenCode server saved by an earlier version is put aside at start: not 
     await h.cmd("leaveSsh")
     await sleep(350)
     assert.equal(h.snap().serversRetired, undefined)
-    assert.equal(disk().serversRetired, undefined)
+    assert.equal(settingsOf(h).serversRetired, undefined)
+    // An agent started now starts clean.
+    await h.ready()
+    assert.deepEqual([h.snap().site, h.snap().review.notes], [{ origin: SITE, directory: REPO }, []])
+  } finally {
+    await h.close()
+  }
+})
+
+test("the agent does not start at launch, and can later: the app tries again by itself", async () => {
+  const h = await boot()
+  try {
+    await h.ready()
+    await sleep(400) // the store's debounce
+    await h.relaunch()
+    // The saved agent dies at once each time it is started: offline, and tried again.
+    h.w.fa.dieAfterInit = true
+    await until(() => h.snap().connection.status === "offline", 10_000)
+    const starts = h.w.fa.starts
+    h.w.fa.dieAfterInit = false
+    await until(() => h.snap().connection.status === "online", 10_000)
+    assert.ok(h.w.fa.starts > starts, "started again without being asked")
+    await until(() => !!h.snap().session)
   } finally {
     await h.close()
   }
@@ -1152,7 +964,7 @@ test("settings from a newer version are left alone, and the user is told", async
   const h = await boot({ settings: future })
   try {
     await until(() => h.shell.dialogs.length === 1)
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    await h.connect()
     await sleep(400) // longer than the store's debounce
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")), future)
     assert.deepEqual(fs.readdirSync(h.dir).filter((f) => f.includes("corrupt")), [])
@@ -1163,9 +975,7 @@ test("settings from a newer version are left alone, and the user is told", async
 
 // ── the message box ─────────────────────────────────────────────────────────────────────────────
 
-const lastPrompt = (h: { server: FakeServer }) => [...h.server.requests].reverse().find((r) => r.method === "POST" && r.path.endsWith("/prompt"))
-
-test("send: a file mention goes as a file:// attachment under the site's folder, with the delivery asked for", async () => {
+test("send: a file mention goes as a link to the file under the site's folder; steer joins the turn under way, queue waits", async () => {
   const h = await boot()
   try {
     const s = await h.ready()
@@ -1178,103 +988,80 @@ test("send: a file mention goes as a file:// attachment under the site's folder,
       ],
       delivery: "steer",
     })
-    const req = lastPrompt(h)!
-    assert.equal(req.path, `/api/session/${s}/prompt`)
-    assert.deepEqual(req.body, {
-      text,
-      files: [
-        { uri: "file:///repo/src/hero.tsx", name: "hero.tsx", mention: { start: 5, end: 14, text: "@hero.tsx" } },
-        { uri: "file:///repo/src/ui", name: "ui", mention: { start: 19, end: 26, text: "@src/ui" } },
-      ],
-      delivery: "steer",
-    })
-    // Without options it is queued, as before.
+    // Nothing under way: it is a turn of its own.
+    await until(() => h.w.prompts.length === 1)
+    assert.deepEqual(lastPrompt(h), { session: s, text, images: [], links: [`file://${REPO}/src/hero.tsx`, `file://${REPO}/src/ui`] })
+    // While that turn goes on, steer joins it; queue waits for it to end.
+    await h.cmd("send", "and smaller", [], { delivery: "steer" })
+    await until(() => h.w.fa.steered.length === 1)
     await h.cmd("send", "plain")
-    assert.deepEqual(lastPrompt(h)!.body, { text: "plain", delivery: "queue" })
+    await sleep(50)
+    assert.equal(h.w.prompts.length, 1)
+    await turn(h, s)
+    await until(() => h.w.prompts.length === 2)
+    assert.equal(lastPrompt(h).text, "plain")
   } finally {
     await h.close()
   }
 })
 
-test("mentions: skills and helper agents for an empty query; files first for a typed one, at most 20", async () => {
+test("mentions: files and folders of the site's code, best first, at most 20", async () => {
   const h = await boot()
+  const work = folder("mentions")
+  fs.mkdirSync(path.join(work, "src"), { recursive: true })
+  for (let i = 0; i < 25; i++) fs.writeFileSync(path.join(work, "src", `store${i}.ts`), "")
+  fs.writeFileSync(path.join(work, "README.md"), "")
   try {
-    await h.ready()
-    h.server.route("GET", "/api/skill", { json: { data: [{ id: "opencode", name: "OpenCode", description: "About it" }, { id: "store-tips", name: "Store tips" }] } })
-    h.server.route("GET", "/api/agent", { json: { data: [{ id: "build", name: "Build", mode: "primary" }, { id: "explore", name: "Explore", mode: "subagent" }] } })
-    h.server.route("GET", "/api/fs/find", (req) => ({
-      json: { data: Array.from({ length: Number(req.query.get("limit")) }, (_, i) => ({ path: `src/store${i}.ts`, type: "file" })) },
-    }))
-    const all = (await h.cmd("mentions", "")) as { kind: string; id: string }[]
-    assert.deepEqual(all.map((o) => `${o.kind}:${o.id}`), ["skill:opencode", "skill:store-tips", "agent:explore"])
-
-    const found = (await h.cmd("mentions", "Store")) as { kind: string; id: string }[]
+    await h.ready(work)
+    const found = (await h.cmd("mentions", "store")) as { kind: string; id: string }[]
     assert.equal(found.length, 20)
-    assert.equal(found[0]!.id, "src/store0.ts")
-    assert.deepEqual(found.at(-1), { kind: "skill", id: "store-tips", label: "Store tips" })
-    const find = h.server.requests.filter((r) => r.path === "/api/fs/find")
-    assert.equal(find.length, 1)
-    assert.equal(find[0]!.query.get("query"), "Store")
-    assert.equal(find[0]!.query.get("location[directory]"), "/repo")
-    // Skills and agents were read once for both lookups.
-    assert.equal(h.server.requests.filter((r) => r.path === "/api/skill").length, 1)
+    assert.ok(found.every((o) => o.kind === "file" && /^src\/store\d+\.ts$/.test(o.id)), JSON.stringify(found))
+    const folders = (await h.cmd("mentions", "src")) as { kind: string; id: string }[]
+    assert.deepEqual([folders[0]!.kind, folders[0]!.id], ["folder", "src"], "the folder itself first")
   } finally {
     await h.close()
   }
 })
 
-test("commands, runCommand, cancelQueued: read once per folder, run in the open conversation, take a message out of the queue", async () => {
+test("commands, runCommand, cancelQueued: the agent's own, run in the open conversation; a waiting message is taken out of the queue", async () => {
   const h = await boot()
   try {
     const s = await h.ready()
-    h.server.route("GET", "/api/command", { json: { data: [{ name: "review", description: "review changes" }] } })
-    h.server.route("POST", /\/command$/, {})
-    h.server.route("DELETE", /\/inbox\//, {})
     const theirs = async () => ((await h.cmd("commands")) as { name: string; builtin?: true }[]).filter((c) => !c.builtin)
-    assert.deepEqual(await theirs(), [{ name: "review", description: "review changes" }])
-    assert.deepEqual(await theirs(), [{ name: "review", description: "review changes" }])
-    assert.equal(h.server.requests.filter((r) => r.path === "/api/command").length, 1)
+    await until(() => h.snap().can?.compact === true)
+    assert.deepEqual(await theirs(), [{ name: "review", description: "Review" }])
 
-    await h.cmd("runCommand", "review", "@pr", [], { mentions: [{ kind: "agent", id: "explore", start: 0, end: 3 }] })
-    const run = h.server.requests.find((r) => r.method === "POST" && r.path.endsWith("/command"))!
-    assert.equal(run.path, `/api/session/${s}/command`)
-    assert.deepEqual(run.body, { name: "review", text: "@pr", agents: [{ name: "explore", mention: { start: 0, end: 3, text: "@pr" } }], delivery: "queue" })
+    await h.cmd("runCommand", "review", "the hero")
+    await until(() => h.w.prompts.length === 1)
+    assert.deepEqual([lastPrompt(h).session, lastPrompt(h).text], [s, "/review the hero"])
 
-    await h.cmd("cancelQueued", "msg_9")
-    const del = h.server.requests.find((r) => r.method === "DELETE")!
-    assert.equal(del.path, `/api/session/${s}/inbox/msg_9`)
+    // A message sent while that runs waits; taken out, it never goes.
+    await h.cmd("send", "never mind")
+    const waiting = [...new Set(h.chat().flatMap((e) => (e.type === "item" && e.item.kind === "user" && e.item.pending && e.item.text === "never mind" ? [e.item.id] : [])))]
+    assert.equal(waiting.length, 1)
+    await h.cmd("cancelQueued", waiting[0])
+    await until(() => h.chat().some((e) => e.type === "remove" && e.item === waiting[0]))
+    await turn(h, s)
+    await sleep(100)
+    assert.equal(h.w.prompts.length, 1)
   } finally {
     await h.close()
   }
 })
 
-test("cancelNote: a waiting note leaves the queue of the conversation it was sent to, and stays on the list, stopped", async () => {
+test("cancelNote: a note waiting in the app is stopped and stays on the list; one the agent has is no longer waiting", async () => {
   const h = await boot()
   try {
-    const old = await h.ready()
-    h.server.route("DELETE", /\/inbox\//, {})
+    await h.ready()
     const [a, b] = [h.note("a"), h.note("b")]
-    await until(() => h.notes() === "1:queued 2:queued" && h.w.prompts.length === 1)
+    await until(() => h.notes() === "1:working 2:queued" && h.w.prompts.length === 1)
     await assert.rejects(h.cmd("cancelNote", "nope"), /no longer waiting/)
-
-    // The second waits in the app: no conversation has it, so the server is not asked.
     await h.cmd("cancelNote", b)
-    assert.equal(h.notes(), "1:queued 2:failed")
-    assert.equal(h.server.requests.find((r) => r.method === "DELETE"), undefined)
+    assert.equal(h.notes(), "1:working 2:failed")
     assert.deepEqual([h.snap().review.notes[1]!.stopped, h.snap().review.notes[1]!.error], [true, "Cancelled."])
-
-    // The first is in a conversation's queue. Another conversation is open by now: the note's
-    // own is the one asked.
-    await h.cmd("newSession")
-    assert.notEqual(h.snap().session!.id, old)
-    await h.cmd("cancelNote", a)
-    const del = h.server.requests.find((r) => r.method === "DELETE")!
-    assert.equal(del.path, `/api/session/${old}/inbox/${h.w.prompts[0]!.id}`)
-    h.emit("session.inbox.cancelled", old, { inboxID: h.w.prompts[0]!.id })
-    await until(() => h.notes() === "1:failed 2:failed")
-    const row = h.snap().review.notes[0]!
-    assert.deepEqual([row.stopped, row.error], [true, "Cancelled."])
     await assert.rejects(h.cmd("cancelNote", a), /no longer waiting/, "only a waiting note")
+    await sleep(50)
+    assert.equal(h.w.prompts.length, 1, "nothing of it reached the agent")
   } finally {
     await h.close()
   }
@@ -1291,8 +1078,6 @@ const canvasNote = (id: string, extra: Record<string, unknown> = {}) => ({
   type: "note",
   note: { id, text: "", url: `${SITE}/`, viewport: { w: 800, h: 600, dpr: 1, scrollX: 0, scrollY: 0 }, targets: [], area: null, strokes: [], bounds: { x: 100, y: 100, w: 200, h: 100 }, edits: EDITS, ...extra },
 })
-type Sent = { text: string; files?: { name: string; uri: string }[] }
-const jpegOf = (f: { uri: string }) => Buffer.from(f.uri.split(",")[1]!, "base64").toString()
 /** A picture stand-in whose JPEG is its name (every crop and resize of it is still "it"). */
 const shot = (name: string) => {
   const s = { getSize: () => ({ width: 800, height: 600 }), crop: () => s, resize: () => s, toJPEG: () => Buffer.from(name) }
@@ -1325,11 +1110,11 @@ test("a canvas note: before and after pictures, the edits switched off only for 
     on = true
     h.page.message({ type: "edits-shown", id: "c1", show: true })
 
-    await until(() => h.notes() === "1:queued" && !!h.snap().review.notes[0]?.sent)
+    await until(() => h.w.prompts.length === 1)
     const order = h.page.sent.filter((m) => m.type === "edits" || m.type === "captured").map((m) => (m.type === "edits" ? `edits:${m.show}` : "captured"))
     assert.deepEqual(order, ["edits:false", "edits:true", "captured"])
-    const body = lastPrompt(h)!.body as Sent
-    assert.deepEqual(body.files!.map((f) => `${f.name}=${jpegOf(f)}`), ["note-1-before-area.jpg=before", "note-1-after-area.jpg=after", "note-1-viewport.jpg=after"])
+    const body = lastPrompt(h)
+    assert.deepEqual(body.images, ["before", "after", "after"], "the area before, after, and the viewport")
     assert.match(body.text, /^Image 1 is the edited area before the canvas edits and image 2 is the same area after them/m)
     assert.match(body.text, /^1\. Gap in "Section · Plans": 16px → 32px\. \[main\]$/m)
     assert.match(body.text, /made on the live page at 800px wide/)
@@ -1353,12 +1138,12 @@ test("a canvas note whose overlay never answers: it goes with the after picture 
     h.page.sent.length = 0
     const started = Date.now()
     h.page.message(canvasNote("c1", { text: "more room", bounds: null }))
-    await until(() => h.notes() === "1:queued" && !!h.snap().review.notes[0]?.sent, 5000)
+    await until(() => h.w.prompts.length === 1, 5000)
     assert.ok(Date.now() - started >= 900, "it did wait for the overlay")
     const order = h.page.sent.filter((m) => m.type === "edits" || m.type === "captured").map((m) => (m.type === "edits" ? `edits:${m.show}` : "captured"))
     assert.deepEqual(order, ["edits:false", "edits:true", "captured"])
-    const body = lastPrompt(h)!.body as Sent
-    assert.deepEqual(body.files!.map((f) => `${f.name}=${jpegOf(f)}`), ["note-1.jpg=after"])
+    const body = lastPrompt(h)
+    assert.deepEqual(body.images, ["after"])
     assert.doesNotMatch(body.text, /before the canvas edits/)
     assert.match(body.text, /^The screenshot was taken after the canvas edits/m)
     assert.equal(body.text.split("\n")[1], "Note: more room")
@@ -1379,16 +1164,17 @@ test("a canvas note with no screenshot at all still goes, and a plain note asks 
     h.page.sent.length = 0
     h.page.message(canvasNote("c1"))
     h.note("plain")
-    await until(() => h.notes() === "1:queued 2:queued")
+    await until(() => h.notes() === "1:working 2:queued")
     assert.equal(h.page.sent.some((m) => m.type === "edits"), false)
-    const first = h.server.requests.filter((r) => r.method === "POST" && r.path.endsWith("/prompt"))[0]!.body as Sent
-    assert.equal(first.files, undefined)
+    await until(() => h.w.prompts.length === 1)
+    const first = h.w.prompts[0]!
+    assert.deepEqual(first.images, [])
     assert.match(first.text, /^Canvas edits, made on the live page/m)
     assert.doesNotMatch(first.text, /Image 1|screenshot/)
     // Edits the page made up are dropped; with no words either, there is no note.
     h.page.message(canvasNote("c2", { edits: [{ kind: "teleport", selector: "x" }] }))
     await sleep(100)
-    assert.equal(h.notes(), "1:queued 2:queued")
+    assert.equal(h.notes(), "1:working 2:queued")
   } finally {
     await h.close()
   }
@@ -1419,7 +1205,7 @@ test("a note the app does not take is answered, so the page never shows it as se
     await until(() => h.w.prompts.length >= 1)
     await sleep(100)
     assert.deepEqual(answers(), [{ type: "captured", id: "same" }])
-    assert.equal(h.notes(), "1:queued")
+    assert.equal(h.notes(), "1:working")
   } finally {
     await h.close()
   }
@@ -1439,23 +1225,19 @@ test("Retry of a canvas note sends its edits and both pictures again", async () 
     await until(() => h.page.sent.filter((m) => m.type === "edits").length === 2)
     on = true
     h.page.message({ type: "edits-shown", id: "c1", show: true })
-    await until(() => h.notes() === "1:queued" && !!h.snap().review.notes[0]?.sent)
-    const first = lastPrompt(h)!.body as Sent & { id: string }
+    await until(() => h.notes() === "1:working" && h.w.prompts.length === 1)
+    const first = lastPrompt(h)
 
-    h.agent.starts(s)
-    h.agent.picksUp(s, first.id)
-    await until(() => h.notes() === "1:working")
-    h.agent.isStopped(s)
+    await h.agent.isStopped(s)
     await until(() => h.notes() === "1:failed")
     await h.cmd("retryNote", "c1")
-    await until(() => h.notes() === "1:queued" && !!h.snap().review.notes[0]?.sent)
+    await until(() => h.notes() === "1:working" && h.w.prompts.length === 2)
 
-    const again = lastPrompt(h)!.body as Sent & { id: string }
-    assert.notEqual(again.id, first.id, "a new message")
+    const again = lastPrompt(h)
     assert.equal(again.text, first.text)
     assert.match(again.text, /^2\. Removed "Badge · New"\. \[span\.badge\]$/m)
-    assert.deepEqual(again.files, first.files)
-    assert.equal(again.files!.length, 3)
+    assert.deepEqual(again.images, first.images)
+    assert.equal(again.images.length, 3)
     assert.equal(h.page.sent.filter((m) => m.type === "edits").length, 2, "no second round of pictures")
     assert.deepEqual(h.snap().review.notes[0]!.edits, ['Gap in "Section · Plans": 16px → 32px.', 'Removed "Badge · New".'])
   } finally {
@@ -1478,16 +1260,16 @@ test("a note that is only new CSS rules is a note: named, pictured before and af
     await until(() => h.page.sent.filter((m) => m.type === "edits").length === 2)
     on = true
     h.page.message({ type: "edits-shown", id: "s1", show: true })
-    await until(() => h.notes() === "1:queued" && !!h.snap().review.notes[0]?.sent)
-    const body = lastPrompt(h)!.body as Sent
-    assert.deepEqual(body.files!.map((f) => `${f.name}=${jpegOf(f)}`), ["note-1-before.jpg=before", "note-1-after.jpg=after"])
+    await until(() => h.w.prompts.length === 1)
+    const body = lastPrompt(h)
+    assert.deepEqual(body.images, ["before", "after"])
     assert.ok(body.text.includes(`New CSS rules to add (put them where this project keeps its styles, renamed to its conventions if needed):\n\`\`\`css\n${css}\n\`\`\`\n`))
     assert.equal(body.text.split("\n")[1], "Note: 1 canvas edit: 1 new CSS rule")
-    assert.deepEqual(h.snap().review.notes[0], { id: "s1", n: 1, text: "1 canvas edit: 1 new CSS rule", status: "queued", lane: "main", edits: ["1 new CSS rule."], sent: true, session: h.snap().session!.id, pictures: "before" })
+    assert.deepEqual(h.snap().review.notes[0], { id: "s1", n: 1, text: "1 canvas edit: 1 new CSS rule", status: "working", lane: "main", edits: ["1 new CSS rule."], sent: true, session: h.snap().session!.id, pictures: "before" })
     // Too long to be carried, and nothing else in the note: there is no note.
     h.page.message(canvasNote("s2", { edits: undefined, css: "x".repeat(8001) }))
     await sleep(100)
-    assert.equal(h.notes(), "1:queued")
+    assert.equal(h.notes(), "1:working")
   } finally {
     await h.close()
   }
@@ -1495,254 +1277,71 @@ test("a note that is only new CSS rules is a note: named, pictured before and af
 
 // ── the app's own slash commands ─────────────────────────────────────────────────────────────────
 
-const requestsTo = (h: { server: FakeServer }, end: string) => h.server.requests.filter((r) => r.path.endsWith(end) && r.method !== "GET")
-
-test("commands: the app's own come first and win over a server command of the same name; without the server's list they still work", async () => {
+test("commands: the app's own come first and win over the agent's of the same name; an agent that offers none still has them", async () => {
   const h = await boot()
   try {
     await h.ready()
-    h.server.route("GET", "/api/command", { json: { data: [{ name: "review", description: "review changes" }, { name: "compact", description: "the server's own" }, { name: "init" }] } })
+    await until(() => h.snap().can?.compact === true)
     const list = (await h.cmd("commands")) as { name: string; description?: string; builtin?: true }[]
-    assert.deepEqual(list.map((c) => `${c.builtin ? "*" : ""}${c.name}`), ["*compact", "*new", "*undo", "*redo", "*rename", "*fork", "*checkpoint", "review", "init"])
+    assert.deepEqual(list.map((c) => `${c.builtin ? "*" : ""}${c.name}`), ["*compact", "*new", "*undo", "*redo", "*rename", "*fork", "*checkpoint", "review"])
     assert.ok(list.every((c) => !c.builtin || c.description), "each says what it does")
-    // The same name goes to the app, not to the server's /command.
-    h.server.route("POST", /\/compact$/, { json: { data: { id: "msg_c", type: "compaction", payload: {}, delivery: "steer" } } })
-    h.server.route("POST", /\/command$/, {})
-    await h.cmd("runCommand", "compact", "")
-    assert.equal(requestsTo(h, "/command").length, 0)
-    assert.equal(requestsTo(h, "/compact").length, 1)
   } finally {
     await h.close()
   }
-  const down = await boot()
+  // An agent that says no commands has no /compact to be asked: the app's own leaves it out too.
+  const none = await boot({ agent: (w) => (w.fa.commands = []) })
   try {
-    await down.ready()
-    down.server.route("GET", "/api/command", { status: 500, json: { _tag: "UnknownError", message: "boom" } })
-    const list = (await down.cmd("commands")) as { name: string }[]
-    assert.deepEqual(list.map((c) => c.name), ["compact", "new", "undo", "redo", "rename", "fork", "checkpoint"])
+    await none.ready()
+    await sleep(100)
+    const list = (await none.cmd("commands")) as { name: string }[]
+    assert.deepEqual(list.map((c) => c.name), ["new", "undo", "redo", "rename", "fork", "checkpoint"])
   } finally {
-    await down.close()
+    await none.close()
   }
 })
 
-test("/compact: the request goes out, the summary streams into the conversation, and the notes are not touched", async () => {
+test("/rename, /fork and /new: the name is the conversation's, a fork becomes the site's conversation, /new starts one", async () => {
   const h = await boot()
   try {
     const s = await h.ready()
-    h.server.route("POST", `/api/session/${s}/compact`, { json: { data: { id: "msg_c", type: "compaction", payload: {}, delivery: "steer" } } })
-    h.note("a")
-    h.note("b")
-    await until(() => h.notes() === "1:queued 2:queued" && h.w.prompts.length === 1)
-    const [m1] = h.w.prompts.map((p) => p.id)
-    h.agent.starts(s)
-    h.agent.picksUp(s, m1!)
-    await until(() => h.notes() === "1:working 2:queued")
-
-    assert.equal(await h.cmd("runCommand", "compact", "these words go nowhere", [], {}), undefined)
-    const sent = requestsTo(h, "/compact")
-    assert.deepEqual(sent.map((r) => [r.method, r.path, r.body]), [["POST", `/api/session/${s}/compact`, {}]])
-    // While the agent works the message box asks to queue or to interrupt; that is passed on.
-    await h.cmd("runCommand", "compact", "", [], { delivery: "queue" })
-    assert.deepEqual(requestsTo(h, "/compact")[1]!.body, { delivery: "queue" })
-
-    // The server queues it, takes it at the next step boundary and writes the summary.
-    const before = h.chat().length
-    h.emit("session.inbox.enqueued", s, { inboxID: "msg_c", item: { type: "compaction", payload: {}, delivery: "steer" } })
-    h.emit("session.inbox.delivered", s, { inboxID: "msg_c" })
-    h.emit("session.compaction.started", s, { reason: "manual", inputID: "msg_c" })
-    h.emit("session.compaction.delta", s, { text: "So far: " })
-    h.emit("session.compaction.delta", s, { text: "a is in hand." })
-    h.emit("session.compaction.ended", s, { reason: "manual", text: "So far: a is in hand, b waits." })
-    await until(() => h.chat().some((e) => e.type === "item" && e.item.kind === "assistant" && e.item.summary === "manual" && e.item.done))
-    const events = h.chat().slice(before)
-    assert.deepEqual(events.map((e) => e.type), ["item", "part", "delta", "item"])
-    assert.deepEqual(events.at(-1), {
-      type: "item",
-      session: s,
-      item: { kind: "assistant", id: "msg_c", time: (events[0] as { item: { time: number } }).item.time, parts: [{ kind: "text", key: "text:0", text: "So far: a is in hand, b waits." }], done: true, summary: "manual" },
-    })
-    assert.equal(h.notes(), "1:working 2:queued", "the summary's place in the queue is not a note's delivery")
-    assert.equal(h.snap().session!.busy, true, "Stop still has something to stop")
-
-    // The run goes on where it was and ends; the waiting note then goes, as a turn of its own.
-    h.agent.finishes(s)
-    await until(() => h.w.prompts.length === 2 && h.notes() === "1:done 2:queued")
-    turn(h, s)
-    await until(() => h.notes() === "1:done 2:done")
-
-    // Nothing to summarise is an answer in the conversation, and a refusal is passed on as it is.
-    h.emit("session.compaction.failed", s, { reason: "manual", inputID: "msg_c2", error: { type: "compaction.unavailable", message: "Nothing to compact yet" } })
-    await until(() => h.chat().some((e) => e.type === "item" && e.item.kind === "marker" && e.item.text === "The conversation was not summarised: Nothing to compact yet."))
-    h.server.route("POST", `/api/session/${s}/compact`, { status: 409, json: { _tag: "ConflictError", message: "Compaction input ID conflicts with an existing durable record" } })
-    await assert.rejects(Promise.resolve(h.cmd("runCommand", "compact", "")), /conflicts with an existing durable record/)
-    assert.equal(h.notes(), "1:done 2:done")
-  } finally {
-    await h.close()
-  }
-})
-
-test("/undo says what it will take back and waits for a yes; /redo brings it back; both re-read the conversation", async () => {
-  const h = await boot()
-  try {
-    const s = await h.ready()
-    const note = "UI review note 1 on http://site.test/, window 800×600 @1x.\nNote: make it blue\nMake the smallest change that does this. Don't touch unrelated code. Reply in one line."
-    let newestFirst: object[] = [{ id: "msg_3", type: "user", text: "tighter" }, { id: "msg_2", type: "assistant", content: [] }, { id: "msg_1", type: "user", text: note }]
-    h.server.route("GET", /^\/api\/session\/[^/]+\/message$/, (req) => ({ json: { data: req.query.get("order") === "desc" ? newestFirst : [...newestFirst].reverse(), cursor: { previous: null, next: null } } }))
-    h.server.route("POST", `/api/session/${s}/revert/stage`, (req) => {
-      ;(h.w.sessions.get(s) as Record<string, unknown>).revert = { messageID: (req.body as { messageID: string }).messageID }
-      return { json: { data: { messageID: (req.body as { messageID: string }).messageID } } }
-    })
-    h.server.route("DELETE", `/api/session/${s}/revert`, () => {
-      delete (h.w.sessions.get(s) as Record<string, unknown>).revert
-      return {}
-    })
-
-    await assert.rejects(Promise.resolve(h.cmd("runCommand", "redo", "")), /Nothing to redo\./)
-
-    // First: only words. Nothing is asked of the server but what the last message is.
-    const asked = (await h.cmd("runCommand", "undo", "")) as { say: string; draft: string }
-    assert.equal(asked.draft, "/undo yes")
-    assert.equal(asked.say, 'This takes back your message "tighter" and everything after it: the agent\'s replies, and the changes it made to files since then. Press Enter to undo.')
-    assert.equal(requestsTo(h, "/revert/stage").length, 0)
-
-    const reloads = () => h.page.sent.filter((m) => m.type === "RELOAD").length
-    assert.equal(reloads(), 0)
-    const done = (await h.cmd("runCommand", "undo", "yes")) as { say: string; draft?: string }
-    assert.deepEqual(requestsTo(h, "/revert/stage").map((r) => r.body), [{ messageID: "msg_3" }])
-    assert.equal(reloads(), 1, "the files went back: the page is loaded again to show them")
-    assert.equal(done.draft, "tighter", "a typed message comes back into the box")
-    assert.match(done.say, /^Took back your message "tighter"\. \/redo brings it back/)
-    // The server says so on the stream; the conversation on screen is read again, cut at the boundary.
-    h.emit("session.revert.staged", s, { revert: { messageID: "msg_3" } })
-    await until(() => h.chat().some((e) => e.type === "reset" && e.items.some((i) => i.id === "undone:msg_3")))
-    await until(() => h.snap().session?.undone === "msg_3")
-
-    // The next undo is about the note before it, named as a note; a note does not come back into the box.
-    const next = (await h.cmd("runCommand", "undo", "")) as { say: string }
-    assert.match(next.say, /^This takes back note 1 \("make it blue"\) and everything after it/)
-    const second = (await h.cmd("runCommand", "undo", "yes")) as { say: string; draft?: string }
-    assert.equal(second.draft, undefined)
-    assert.deepEqual(requestsTo(h, "/revert/stage").at(-1)!.body, { messageID: "msg_1" })
-    await assert.rejects(Promise.resolve(h.cmd("runCommand", "undo", "yes")), /Nothing to undo\./)
-
-    const shown = reloads()
-    assert.deepEqual(await h.cmd("runCommand", "redo", ""), { say: "Brought back what was undone." })
-    assert.equal(reloads(), shown + 1, "…and again when they are brought back")
-    assert.equal(requestsTo(h, "/revert").filter((r) => r.method === "DELETE").length, 1)
-    h.emit("session.revert.cleared", s)
-    await until(() => h.snap().session?.undone === undefined)
-
-    // Not while the agent works: said here, before the server is asked.
-    h.agent.starts(s)
-    await until(() => h.snap().session!.busy)
-    await assert.rejects(Promise.resolve(h.cmd("runCommand", "undo", "yes")), /The agent is working\. Stop it first, then \/undo\./)
-    newestFirst = []
-  } finally {
-    await h.close()
-  }
-})
-
-test("/rename, /fork and /new: the name goes to the server, a fork becomes the site's conversation, /new starts one", async () => {
-  const h = await boot()
-  try {
-    const s = await h.ready()
-    h.server.route("PATCH", `/api/session/${s}`, (req) => {
-      Object.assign(h.w.sessions.get(s)!, { title: (req.body as { title: string }).title })
-      return {}
-    })
     await assert.rejects(Promise.resolve(h.cmd("runCommand", "rename", "  ")), /Type the new name after \/rename\./)
     assert.deepEqual(await h.cmd("runCommand", "rename", " Pricing page "), { say: 'Renamed to "Pricing page".' })
-    assert.deepEqual(h.server.requests.find((r) => r.method === "PATCH")!.body, { title: "Pricing page" })
     assert.equal(h.snap().session!.title, "Pricing page")
 
-    h.server.route("POST", `/api/session/${s}/fork`, () => {
-      const copy = { id: "ses_copy", location: { directory: "/repo" }, title: "Pricing page (fork)", time: { created: 5, updated: 5 } }
-      h.w.sessions.set(copy.id, copy)
-      return { json: { data: copy } }
-    })
     const forked = (await h.cmd("runCommand", "fork", "")) as { say: string }
     assert.match(forked.say, /^This is a copy\./)
-    assert.equal(h.snap().session!.id, "ses_copy")
+    const copy = h.snap().session!.id
+    assert.notEqual(copy, s)
+    assert.deepEqual(h.w.fa.calls.filter((c) => c.method === "session/fork").map((c) => c.params.sessionId), [s])
     h.note("goes to the copy")
     await until(() => h.w.prompts.length === 1)
-    assert.equal(h.w.prompts[0]!.session, "ses_copy")
+    assert.equal(h.w.prompts[0]!.session, copy)
 
     const creates = h.w.creates
     await h.cmd("runCommand", "new", "")
     assert.equal(h.w.creates, creates + 1)
-    assert.notEqual(h.snap().session!.id, "ses_copy")
+    assert.notEqual(h.snap().session!.id, copy)
   } finally {
     await h.close()
   }
 })
 
-test("the context: its count follows the agent's steps, its limit the model, and a summary empties it", async () => {
-  const fake = await fakeOpenCode()
-  const model = (providerID: string, id: string, limit?: object) => ({ providerID, id, name: id, capabilities: { input: ["text"] }, variants: [], enabled: true, status: "active", ...(limit ? { limit } : {}) })
-  fake.server.route("GET", "/api/model", {
-    json: { data: [model("anthropic", "sonnet", { context: 200000, output: 32000 }), model("anthropic", "wide", { context: 1000000, input: 400000, output: 0 }), model("openai", "gpt", { context: 400000, output: 0 }), model("anthropic", "bare")] },
-  })
-  fake.server.route("POST", /^\/api\/session\/[^/]+\/model$/, (req) => {
-    const session = fake.w.sessions.get(req.path.split("/")[3] ?? "")
-    if (session) session.model = (req.body as { model: unknown }).model
-    return {}
-  })
-  const usage = (input: number, output: number, read: number, write = 0, reasoning = 0) => ({ input, output, reasoning, cache: { read, write } })
-  // A model is saved, so the app does not stop to ask which of the four to start with.
-  const h = await boot({ server: fake, settings: { version: 1, defaultModel: { providerID: "anthropic", id: "sonnet" } } })
+test("the context: its count is the agent's, against the window it says; a new conversation starts with nothing counted", async () => {
+  const h = await boot()
   try {
     const s = await h.ready()
     const context = () => h.snap().context
-    const step = (id: string, tokens: object, type = "session.step.ended") => {
-      h.emit("session.step.started", s, { assistantMessageID: id, agent: "build", model: { id: "sonnet", providerID: "anthropic" }, started: 1 })
-      h.emit(type, s, type === "session.step.ended" ? { assistantMessageID: id, finish: "stop", cost: 0, tokens } : { assistantMessageID: id, error: { type: "provider.error", message: "overloaded" }, tokens })
-    }
-    await h.cmd("setModel", { providerID: "anthropic", id: "sonnet" })
     assert.equal(context(), undefined, "nothing has been counted yet")
-
-    // Everything the step read and wrote, against the model's window.
-    step("msg_1", usage(2000, 1000, 120000, 500, 500))
+    h.note("a")
+    await until(() => h.w.prompts.length === 1)
+    await (await h.agent.turn(s)).usage(124000, 200000)
     await until(() => !!context())
     assert.deepEqual(context(), { used: 124000, limit: 200000 })
-    // A step that failed is not counted: the server does not measure by it either.
-    step("msg_2", usage(1, 1, 190000), "session.step.failed")
-    await until(() => h.chat().some((e) => e.type === "item" && e.item.id === "msg_2" && e.item.kind === "assistant" && e.item.done))
-    assert.deepEqual(context(), { used: 124000, limit: 200000 })
-
-    // Another model of the same provider: the same count against its window, the smaller of
-    // its two limits. A model without limits: the count alone. Another provider's: nothing.
-    await h.cmd("setModel", { providerID: "anthropic", id: "wide" })
-    assert.deepEqual(context(), { used: 124000, limit: 400000 })
-    await h.cmd("setModel", { providerID: "anthropic", id: "bare" })
-    assert.deepEqual(context(), { used: 124000 })
-    await h.cmd("setModel", { providerID: "openai", id: "gpt" })
-    assert.equal(context(), undefined, "tokens counted by another provider's model")
-    await h.cmd("setModel", { providerID: "anthropic", id: "sonnet" })
-    assert.deepEqual(context(), { used: 124000, limit: 200000 })
-
-    // Compacting, from the meter or as /compact, is one request; once the summary is written
-    // nothing says what is left until the next step counts it.
-    h.server.route("POST", `/api/session/${s}/compact`, { json: { data: { id: "msg_c", type: "compaction", payload: {}, delivery: "steer" } } })
-    await h.cmd("runCommand", "compact", "")
-    assert.equal(requestsTo(h, "/compact").length, 1)
-    h.emit("session.compaction.started", s, { reason: "manual", inputID: "msg_c" })
-    await sleep(30)
-    assert.deepEqual(context(), { used: 124000, limit: 200000 }, "still full while the summary is being written")
-    h.emit("session.compaction.ended", s, { reason: "manual", text: "So far." })
-    await until(() => !context())
-    step("msg_3", usage(20, 300, 9000, 680))
-    await until(() => !!context())
-    assert.deepEqual(context(), { used: 10000, limit: 200000 })
-
-    // Read back (here after an undo), the conversation gives the same: the last finished step
-    // since the last summary.
-    const said = (id: string, tokens: object) => ({ id, type: "assistant", time: { created: 1, completed: 2 }, model: { id: "sonnet", providerID: "anthropic" }, content: [], tokens })
-    h.server.route("GET", `/api/session/${s}/message`, {
-      json: { data: [said("msg_1", usage(2000, 1000, 120000, 500, 500)), { id: "msg_c", type: "compaction", status: "completed", reason: "manual", summary: "So far.", time: { created: 3 } }, said("msg_3", usage(20, 300, 9000, 680)), said("msg_4", usage(5, 95, 170000, 900))], cursor: {} },
-    })
-    h.emit("session.revert.cleared", s)
-    await until(() => context()?.used === 171000)
-    assert.deepEqual(context(), { used: 171000, limit: 200000 })
+    await (await h.agent.turn(s)).usage(130000, 200000)
+    await until(() => context()?.used === 130000)
+    await turn(h, s)
+    await until(() => h.notes() === "1:done")
+    assert.deepEqual(context(), { used: 130000, limit: 200000 })
 
     // Another conversation starts with nothing counted.
     await h.cmd("newSession")
@@ -1753,179 +1352,102 @@ test("the context: its count follows the agent's steps, its limit the model, and
   }
 })
 
-test("an older server without the events for summaries: the app still connects, and /compact shows the summary once it is written", async () => {
-  const fake = await fakeOpenCode()
-  fake.server.unknownEvents = /^session\.(compaction|revert)\./
-  const h = await boot({ server: fake })
-  try {
-    const s = await h.ready()
-    assert.equal(h.snap().connection.status, "online")
-    const filters = h.server.requests.filter((r) => r.path === "/api/event").map((r) => r.query.getAll("types").some((t) => t.startsWith("session.compaction.")))
-    assert.deepEqual(filters, [true, false], "asked with the newer names, refused, asked again without")
-
-    // Notes still travel on the events this server has.
-    h.note("a")
-    await until(() => h.w.prompts.length === 1)
-    h.agent.starts(s)
-    h.agent.picksUp(s, h.w.prompts[0]!.id)
-    await until(() => h.notes() === "1:working")
-
-    // /compact: the request goes out; nothing will announce the summary, so nothing is shown yet.
-    const messages: object[] = [{ id: "msg_u", type: "user", time: { created: 1 }, text: "hello" }]
-    h.server.route("GET", /^\/api\/session\/[^/]+\/message$/, () => ({ json: { data: messages, cursor: { previous: null, next: null } } }))
-    h.server.route("POST", `/api/session/${s}/compact`, { json: { data: { id: "msg_c", type: "compaction", payload: {}, delivery: "steer" } } })
-    const before = h.chat().length
-    await h.cmd("runCommand", "compact", "")
-    await sleep(60)
-    assert.deepEqual(h.chat().slice(before).filter((e) => e.type === "reset"), [])
-
-    // The server writes it between two steps; the next step starting is when the app reads it back.
-    messages.push({ id: "msg_c", type: "compaction", status: "completed", reason: "manual", summary: "So far: said hello.", time: { created: 5 } })
-    h.emit("session.step.started", s, { assistantMessageID: "msg_a9", started: 9 })
-    await until(() => h.chat().slice(before).some((e) => e.type === "reset"))
-    const reset = h.chat().slice(before).find((e) => e.type === "reset") as Extract<ChatEvent, { type: "reset" }>
-    assert.deepEqual(reset.items, [
-      { kind: "user", id: "msg_u", time: 1, text: "hello", images: [] },
-      { kind: "assistant", id: "msg_c", time: 5, parts: [{ kind: "text", key: "text:0", text: "So far: said hello." }], done: true, summary: "manual" },
-    ])
-    assert.equal(h.notes(), "1:working", "the note is where it was")
-    h.agent.finishes(s)
-    await until(() => h.notes() === "1:done")
-
-    // /undo and /redo: read back at once, cut at the boundary and whole again.
-    h.server.route("POST", `/api/session/${s}/revert/stage`, (req) => {
-      ;(h.w.sessions.get(s) as Record<string, unknown>).revert = { messageID: (req.body as { messageID: string }).messageID }
-      return { json: { data: req.body } }
-    })
-    h.server.route("DELETE", `/api/session/${s}/revert`, () => {
-      delete (h.w.sessions.get(s) as Record<string, unknown>).revert
-      return {}
-    })
-    h.server.route("GET", /^\/api\/session\/[^/]+\/message$/, (req) => ({ json: { data: req.query.get("order") === "desc" ? [...messages].reverse() : messages, cursor: { previous: null, next: null } } }))
-    await h.cmd("runCommand", "undo", "yes")
-    await until(() => h.chat().some((e) => e.type === "reset" && e.items.length === 1 && e.items[0]!.id === "undone:msg_u"))
-    await until(() => h.snap().session?.undone === "msg_u")
-    const resets = h.chat().filter((e) => e.type === "reset").length
-    await h.cmd("runCommand", "redo", "")
-    await until(() => h.chat().filter((e) => e.type === "reset").length > resets)
-    assert.deepEqual((h.chat().filter((e) => e.type === "reset").at(-1) as Extract<ChatEvent, { type: "reset" }>).items.map((i) => i.id), ["msg_u", "msg_c"])
-    await until(() => h.snap().session?.undone === undefined)
-  } finally {
-    await h.close()
-  }
-})
-
 // ── the model new conversations start with ───────────────────────────────────────────────────────
 
-const model = (providerID: string, id: string, images = true, variants: string[] = []) => ({ providerID, id, name: id, capabilities: { input: images ? ["text", "image"] : ["text"] }, variants: variants.map((v) => ({ id: v })), enabled: true, status: "active" })
-const THREE = [model("local", "text-only", false), model("acme", "vision", true, ["low", "high"]), model("acme", "vision-mini")]
-async function withModels(list: unknown[] | FakeReply, settings: Record<string, unknown> = {}) {
-  const fake = await fakeOpenCode()
-  fake.server.route("GET", "/api/model", Array.isArray(list) ? { json: { data: list } } : list)
-  const h = await boot({ server: fake, settings: { ...savedSite(), ...settings } })
-  await h.cmd("connect", { url: h.server.url, password: h.server.password })
-  const created = () => h.server.requests.filter((r) => r.method === "POST" && r.path === "/api/session").map((r) => (r.body as { model?: unknown }).model)
+/** An agent that says its models before any conversation (session/options), as Claude Code's adapter does. */
+const MODELS = [
+  { value: "acme/text-only", name: "Text only" },
+  { value: "acme/vision", name: "Vision" },
+  { value: "acme/vision-mini", name: "Vision mini" },
+]
+async function withModels(models: { value: string; name: string }[], settings: Record<string, unknown> = {}) {
+  const h = await boot({
+    settings: { ...savedSite(), defaultModel: undefined, ...settings },
+    agent: (w) => {
+      w.fa.models = models
+      w.fa.capabilities = { ...w.fa.capabilities, sessionCapabilities: { ...(w.fa.capabilities.sessionCapabilities as object), options: {} } }
+    },
+  })
+  await h.connect()
+  const created = () => h.w.fa.calls.filter((c) => c.method === "session/set_config_option" && c.params.configId === "model").map((c) => c.params.value)
   return { h, created }
 }
 
-test("first launch on a server with several models: the app asks, makes no conversation meanwhile, and the first one starts on the answer", async () => {
-  const { h, created } = await withModels(THREE)
+test("first launch with an agent of several models: the app asks, makes no conversation meanwhile, and the first one starts on the answer", async () => {
+  const { h, created } = await withModels(MODELS)
   try {
     await until(() => !!h.snap().modelChoice)
-    assert.deepEqual(h.snap().modelChoice, { suggested: { providerID: "acme", id: "vision" } }, "the first that takes screenshots is offered")
+    assert.deepEqual(h.snap().modelChoice, { suggested: { providerID: "acme", id: "acme/text-only" } }, "the first is offered: every one takes screenshots")
     await sleep(100)
     assert.equal(h.snap().session, null)
-    assert.deepEqual(created(), [], "no conversation on a model nobody chose")
+    assert.equal(h.w.creates, 0, "no conversation on a model nobody chose")
 
     await assert.rejects(Promise.resolve(h.cmd("setDefaultModel", { providerID: "acme", id: "gone" })), /does not offer that model/)
     await assert.rejects(Promise.resolve(h.cmd("setDefaultModel", null)), /does not offer that model/)
     assert.ok(h.snap().modelChoice, "still asking")
 
-    // An effort level the model does not have is dropped; one it has is kept.
-    await h.cmd("setDefaultModel", { providerID: "acme", id: "vision-mini", variant: "high" })
+    await h.cmd("setDefaultModel", { providerID: "acme", id: "acme/vision-mini" })
     assert.equal(h.snap().modelChoice, undefined)
-    assert.deepEqual(h.snap().defaultModel, { providerID: "acme", id: "vision-mini" })
+    assert.deepEqual(h.snap().defaultModel, { providerID: "acme", id: "acme/vision-mini" })
     await until(() => !!h.snap().session)
-    assert.deepEqual(created(), [{ providerID: "acme", id: "vision-mini" }])
+    assert.equal(h.w.creates, 1)
+    assert.deepEqual(created(), ["acme/vision-mini"])
 
     // Changed later (the settings dialog): the open conversation stays as it is, the next new one follows.
     const open = h.snap().session!.id
-    await h.cmd("setDefaultModel", { providerID: "acme", id: "vision", variant: "high" })
+    await h.cmd("setDefaultModel", { providerID: "acme", id: "acme/vision" })
     assert.equal(h.snap().session!.id, open)
-    assert.deepEqual(h.snap().defaultModel, { providerID: "acme", id: "vision", variant: "high" })
     await h.cmd("newSession")
-    assert.deepEqual(created(), [{ providerID: "acme", id: "vision-mini" }, { providerID: "acme", id: "vision", variant: "high" }])
+    assert.deepEqual(created(), ["acme/vision-mini", "acme/vision"])
     await sleep(400) // the store's debounce
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")).defaultModel, { providerID: "acme", id: "vision", variant: "high" })
+    assert.deepEqual(settingsOf(h).defaultModel, { providerID: "acme", id: "acme/vision" })
   } finally {
     await h.close()
   }
 })
 
-test("a saved model the server still lists: nothing is asked", async () => {
-  const { h, created } = await withModels(THREE, { defaultModel: { providerID: "local", id: "text-only" } })
+test("a saved model the agent still offers: nothing is asked", async () => {
+  const { h, created } = await withModels(MODELS, { defaultModel: { providerID: "acme", id: "acme/vision" } })
   try {
     await until(() => !!h.snap().session)
     assert.equal(h.snap().modelChoice, undefined)
-    assert.deepEqual(created(), [{ providerID: "local", id: "text-only" }], "the person's choice, even one that takes no screenshots")
+    assert.deepEqual(created(), ["acme/vision"])
   } finally {
     await h.close()
   }
 })
 
-test("a saved model the server no longer lists: the app asks again and says which one went; the open conversation stays", async () => {
-  const fake = await fakeOpenCode()
-  fake.w.sessions.set("ses_live", { id: "ses_live", location: { directory: "/repo" }, title: "t", time: { created: 1, updated: 2 } })
-  fake.server.route("GET", "/api/model", { json: { data: THREE } })
-  const h = await boot({ server: fake, settings: { ...savedSite({ session: "ses_live" }), defaultModel: { providerID: "retired", id: "old-model", variant: "high" } } })
+test("a saved model the agent no longer offers: the app asks again and says which one went", async () => {
+  const { h } = await withModels(MODELS, { defaultModel: { providerID: "retired", id: "old-model", variant: "high" } })
   try {
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
-    await until(() => !!h.snap().modelChoice && !!h.snap().session)
-    assert.deepEqual(h.snap().modelChoice, { suggested: { providerID: "acme", id: "vision" }, previous: { providerID: "retired", id: "old-model", variant: "high" } })
-    assert.equal(h.snap().session!.id, "ses_live", "a conversation that exists needs no answer to open")
-    assert.equal(h.w.creates, 0)
-    await h.cmd("setDefaultModel", { providerID: "acme", id: "vision" })
-    assert.equal(h.snap().modelChoice, undefined)
-    assert.equal(h.w.creates, 0)
-    // Another server, another list: asked as for a first server. The model chosen for the one before is its own.
-    const other = await fakeOpenCode()
-    other.server.route("GET", "/api/model", { json: { data: [model("zeta", "a"), model("zeta", "b")] } })
-    await h.cmd("connect", { url: other.server.url, password: other.server.password })
     await until(() => !!h.snap().modelChoice)
-    assert.deepEqual(h.snap().modelChoice, { suggested: { providerID: "zeta", id: "a" } })
+    assert.deepEqual(h.snap().modelChoice, { suggested: { providerID: "acme", id: "acme/text-only" }, previous: { providerID: "retired", id: "old-model", variant: "high" } })
+    await h.cmd("setDefaultModel", { providerID: "acme", id: "acme/vision" })
+    assert.equal(h.snap().modelChoice, undefined)
+    await until(() => !!h.snap().session)
+    // Another agent, another list: asked as for a first one. The model chosen for the one before is its own.
+    const other = h.agents("fake-agent --other")
+    other.fa.models = [{ value: "zeta/a", name: "A" }, { value: "zeta/b", name: "B" }]
+    other.fa.capabilities = { ...other.fa.capabilities, sessionCapabilities: { ...(other.fa.capabilities.sessionCapabilities as object), options: {} } }
+    await h.connect("fake-agent --other")
+    await until(() => !!h.snap().modelChoice)
+    assert.deepEqual(h.snap().modelChoice, { suggested: { providerID: "zeta", id: "zeta/a" } })
     await Promise.resolve(h.cmd("disconnect")).catch(() => undefined)
     assert.equal(h.snap().modelChoice, undefined)
-    await other.server.stop()
   } finally {
     await h.close()
   }
 })
 
-test("one model, no models, or a list that cannot be read: nothing is asked and setup goes on", async () => {
-  const one = await withModels([model("acme", "only", false)])
+test("one model: nothing is asked, it is saved, and setup goes on", async () => {
+  const one = await withModels([{ value: "acme/only", name: "Only" }])
   try {
     await until(() => !!one.h.snap().session)
     assert.equal(one.h.snap().modelChoice, undefined)
-    assert.deepEqual(one.created(), [{ providerID: "acme", id: "only" }])
     await sleep(400)
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(one.h.dir, "settings.json"), "utf8")).defaultModel, { providerID: "acme", id: "only" }, "nothing to choose between: it is saved")
+    assert.deepEqual(settingsOf(one.h).defaultModel, { providerID: "acme", id: "acme/only" }, "nothing to choose between: it is saved")
   } finally {
     await one.h.close()
-  }
-  for (const list of [[], { status: 500, json: { _tag: "UnknownError", message: "boom" } }] as const) {
-    const none = await withModels(list as unknown[] | FakeReply, { defaultModel: { providerID: "acme", id: "kept" } })
-    try {
-      await until(() => !!none.h.snap().session)
-      assert.equal(none.h.snap().modelChoice, undefined)
-      assert.equal(none.h.snap().defaultModel, undefined)
-      assert.deepEqual(none.created(), [undefined], "the server's own default, as before")
-      assert.deepEqual(none.h.snap().models, [])
-      await sleep(400)
-      const saved = fs.existsSync(path.join(none.h.dir, "settings.json")) ? JSON.parse(fs.readFileSync(path.join(none.h.dir, "settings.json"), "utf8")) : {}
-      assert.deepEqual(saved.defaultModel, { providerID: "acme", id: "kept" }, "an unreadable list does not cost the saved choice")
-    } finally {
-      await none.h.close()
-    }
   }
 })
 
@@ -1982,42 +1504,39 @@ test("the top bar's switch: Preview, Notes and Edit, and the brush, go to the pa
   }
 })
 
-test("a server's name: saved with it, kept when the same server connects again, dropped for another one", async () => {
+test("an agent's name: saved with it, kept when the same agent is started again, its own for another one", async () => {
   const h = await boot()
   try {
     await h.ready()
-    assert.equal(h.snap().serverName, "fake-box", "until it is named, it goes by its computer's own name, without .local")
-    // The window draws OpenCode's mark for it, names it by its computer, says where it is.
-    const where = h.server.url.replace(/^https?:\/\//, "")
-    assert.deepEqual(h.snap().harness, { kind: "opencode-server", name: "fake-box", here: false, host: where })
+    assert.equal(h.snap().serverName, "fake-agent", "until it is named, it goes by its program's name")
+    assert.deepEqual(h.snap().harness, { kind: "custom", name: "fake-agent", here: true })
     await h.cmd("setServerName", "  Studio   Mac ")
     assert.equal(h.snap().serverName, "Studio Mac")
     assert.equal(h.snap().harness?.name, "Studio Mac", "the reviewer's name wins in the window too")
     const listed = (await h.cmd("servers")) as { current: boolean; kind: string; here: boolean; name?: string }[]
-    assert.deepEqual(listed.filter((x) => x.current).map((x) => [x.kind, x.here, x.name]), [["opencode-server", false, "Studio Mac"]])
+    assert.deepEqual(listed.filter((x) => x.current).map((x) => [x.kind, x.here, x.name]), [["custom", true, "Studio Mac"]])
     const saved = async () => {
       await sleep(400) // the store's debounce
-      return JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")).server as { name?: string; password?: string }
+      return settingsOf(h).server as { name?: string }
     }
-    const first = await saved()
-    assert.deepEqual([first.name, typeof first.password], ["Studio Mac", "string"])
+    assert.equal((await saved()).name, "Studio Mac")
     await h.cmd("setServerName", "x".repeat(200))
     assert.equal(h.snap().serverName?.length, 60, "a label, not a description")
     await h.cmd("setServerName", "Studio Mac")
-    // the same server again (the password re-entered): still named
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    // the same agent again: still named
+    await h.connect()
     assert.equal(h.snap().serverName, "Studio Mac")
-    // an empty name goes back to the computer's own
+    // an empty name goes back to its own
     await h.cmd("setServerName", "   ")
-    assert.equal(h.snap().serverName, "fake-box")
+    assert.equal(h.snap().serverName, "fake-agent")
     assert.equal((await saved()).name, undefined)
-    // a name does not follow to another server
+    // a name does not follow to another agent
     await h.cmd("setServerName", "Studio Mac")
-    await h.cmd("connect", { url: h.server.url.replace("127.0.0.1", "localhost"), password: h.server.password })
-    assert.equal(h.snap().serverName, "fake-box")
+    await h.connect("fake-agent --other")
+    assert.equal(h.snap().serverName, "fake-agent")
     await h.cmd("disconnect")
     assert.equal(h.snap().harness, undefined, "nothing is in use")
-    await assert.rejects(Promise.resolve(h.cmd("setServerName", "x")), /Connect to a server first/)
+    await assert.rejects(Promise.resolve(h.cmd("setServerName", "x")), /Connect/)
   } finally {
     await h.close()
   }
@@ -2026,22 +1545,22 @@ test("a server's name: saved with it, kept when the same server connects again, 
 // ── conversations: what they are called, and the list ──────────────────────────────────────────
 
 test("a conversation is named after the first thing said in it, once; a name somebody gave is kept", async () => {
-  const world = await fakeOpenCode()
-  world.w.named = true
-  const h = await boot({ server: world })
+  const h = await boot({ agent: (w) => (w.fa.capabilities = { ...w.fa.capabilities, sessionCapabilities: { ...(w.fa.capabilities.sessionCapabilities as object), title: {} } }) })
+  const titled = (s: string) => h.w.fa.calls.filter((c) => c.method === "session/set_title" && c.params.sessionId === s).map((c) => c.params.title).at(-1)
   try {
     const s = await h.ready()
     assert.equal(h.snap().session!.title, "Review · site.test", "until something is said, it is called where it is")
     h.note("make the  buy button bigger.\nand greener")
     await until(() => h.snap().session!.title === "Make the buy button bigger")
-    assert.equal(h.w.sessions.get(s)!.title, "Make the buy button bigger", "the server has the name too")
+    await until(() => titled(s) === "Make the buy button bigger", 2000)
     assert.deepEqual(h.snap().sessions.map((x) => [x.title, x.notes, x.said]), [["Make the buy button bigger", 1, "make the  buy button bigger.\nand greener"]])
-    turn(h, s)
+    await turn(h, s)
     await until(() => h.notes() === "1:done")
     h.note("the footer is too tall")
     await until(() => h.w.prompts.length === 2)
     await sleep(50)
     assert.equal(h.snap().session!.title, "Make the buy button bigger", "the second note does not rename it")
+    await turn(h, s)
 
     // A new conversation, named by a message typed into the chat; then by hand, which stays.
     await h.cmd("newSession")
@@ -2051,9 +1570,11 @@ test("a conversation is named after the first thing said in it, once; a name som
     await until(() => h.snap().session!.title === "Why is the header sticky?")
     await h.cmd("renameSession", second, "  Header   questions ")
     assert.equal(h.snap().session!.title, "Header questions")
+    await turn(h, second)
     await h.cmd("send", "and the footer?")
     await sleep(50)
-    assert.equal(h.w.sessions.get(second)!.title, "Header questions")
+    assert.equal(titled(second), "Header questions")
+    assert.equal(h.snap().session!.title, "Header questions")
     await assert.rejects(h.cmd("renameSession", second, "   "), /Type a name/)
   } finally {
     await h.close()
@@ -2061,13 +1582,13 @@ test("a conversation is named after the first thing said in it, once; a name som
 })
 
 test("the list: a pin goes first and is saved; archiving or deleting the open conversation opens the most recent other one", async () => {
-  const world = await fakeOpenCode()
-  const h = await boot({ server: world })
+  const h = await boot({ agent: (w) => (w.fa.capabilities = { ...w.fa.capabilities, sessionCapabilities: { ...(w.fa.capabilities.sessionCapabilities as object), archive: {} } }) })
   try {
     const first = await h.ready()
     await h.cmd("newSession")
     await until(() => !!h.snap().session && h.snap().session!.id !== first)
     const second = h.snap().session!.id
+    await sleep(5)
     await h.cmd("newSession")
     await until(() => ![first, second, undefined].includes(h.snap().session?.id))
     const third = h.snap().session!.id
@@ -2077,22 +1598,16 @@ test("the list: a pin goes first and is saved; archiving or deleting the open co
     await h.cmd("pinSession", first, true)
     await until(() => h.snap().sessions[0]!.id === first)
     assert.deepEqual(h.snap().sessions.map((x) => [x.id, !!x.pinned]), [[first, true], [third, false], [second, false]])
-    const saved = () => {
-      try {
-        return JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")).sites[SITE]
-      } catch {
-        return undefined // not written yet
-      }
-    }
+    const saved = () => settingsOf(h).sites?.[SITE]
     await until(() => saved()?.pinned?.[0] === first)
 
-    // Archive the open one: out of the list, on the server still, and the site is on another.
+    // Archive the open one: out of the list, kept by the agent, and the site is on another.
     h.note("a")
     await until(() => h.w.prompts.length === 1)
     await h.cmd("archiveSession", third, true)
     await until(() => h.snap().session?.id === second)
     assert.deepEqual(h.snap().sessions.map((x) => x.id), [first, second])
-    assert.equal(h.notes(), "1:queued", "its note still runs")
+    assert.equal(h.notes(), "1:working", "its note still runs")
     assert.deepEqual(((await h.cmd("archivedSessions")) as { id: string; archived?: boolean }[]).map((x) => [x.id, x.archived]), [[third, true]])
     await h.cmd("archiveSession", third, false)
     await until(() => h.snap().sessions.length === 3)
@@ -2101,7 +1616,6 @@ test("the list: a pin goes first and is saved; archiving or deleting the open co
     // Delete the open one: the most recent other one opens, and no new conversation is made.
     const made = h.w.creates
     await h.cmd("deleteSession", second)
-    h.emit("session.deleted", second)
     await until(() => !!h.snap().session && h.snap().session!.id !== second)
     await sleep(50)
     assert.equal(h.snap().session!.id, third)
@@ -2116,7 +1630,6 @@ test("the list: a pin goes first and is saved; archiving or deleting the open co
 
     // Delete the last one, with a note in flight: the note fails, and the site gets a new one.
     await h.cmd("deleteSession", third)
-    h.emit("session.deleted", third)
     await until(() => h.notes() === "1:failed")
     await until(() => !!h.snap().session && h.snap().session!.id !== third)
     assert.equal(h.w.creates, made + 1)
@@ -2125,45 +1638,117 @@ test("the list: a pin goes first and is saved; archiving or deleting the open co
   }
 })
 
-// ── a finished note: the verdict, the diff, taking it back; checkpoints; the repo ───────────────
+// ── a finished note: the diff, taking it back; checkpoints; the repo ────────────────────────────
 
-test("a finished note shows what changed for it, and is taken back by asking the agent", async () => {
+/** A git repository with one commit on branch "polish", and a.css of 20 lines in it. */
+function gitRepo(name: string) {
+  const work = folder(name)
+  const git = (...args: string[]) => execFileSync("git", ["-C", work, ...args], { stdio: "ignore" })
+  git("init", "-q", "-b", "polish")
+  fs.writeFileSync(path.join(work, "a.css"), Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n") + "\n")
+  git("add", ".")
+  git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "first")
+  return work
+}
+
+/** A site whose folder (20 lines of a.css) is on this computer, its conversation open; the app
+ *  keeps its own history of the folder at every turn of the agent's. */
+async function historyOf(opts: { work?: string } = {}) {
+  const work = opts.work ?? fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "b42-work-")))
+  const css = path.join(work, "a.css")
+  if (!fs.existsSync(css)) fs.writeFileSync(css, Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n") + "\n")
   const h = await boot()
+  const root = path.join(h.dir, "snapshots")
+  const log = () => {
+    // The work folder's own (snapshots.ts: its name, then a hash of its path).
+    const shadow = fs.existsSync(root) ? fs.readdirSync(root).find((d) => d.startsWith(`${path.basename(work)}-`) && d.endsWith(".git")) : undefined
+    try {
+      return JSON.parse(fs.readFileSync(path.join(root, shadow ?? "-", "b42.json"), "utf8")) as { turns: Array<{ untrusted?: true; shared?: true }>; restores: Array<{ told?: true }> }
+    } catch {
+      return { turns: [], restores: [] }
+    }
+  }
+  const s = await h.ready(work)
+  return {
+    h,
+    s,
+    work,
+    root,
+    log,
+    line: (n: number) => fs.readFileSync(css, "utf8").split("\n")[n - 1],
+    edit(n: number, to: string) {
+      const all = fs.readFileSync(css, "utf8").split("\n")
+      all[n - 1] = to
+      fs.writeFileSync(css, all.join("\n"))
+    },
+    /** The agent's turn on the newest message: it changes the files while it works; resolves
+     *  once `done` notes are, and the app has kept `kept` turns. */
+    async agentTurn(change: () => void, done: string, kept?: number) {
+      const l = await h.agent.turn(s)
+      await sleep(100)
+      change()
+      l.end()
+      await until(() => h.notes() === done && (kept === undefined || log().turns.length === kept), 8000)
+    },
+    async close() {
+      await h.close()
+      if (!opts.work) fs.rmSync(work, { recursive: true, force: true })
+    },
+  }
+}
+type History = Awaited<ReturnType<typeof historyOf>>
+
+/** Two notes, each one turn: note 1 changes line 2, note 2 line 18. */
+async function twoNotes(t: History) {
+  const a = t.h.note("a")
+  await until(() => t.h.w.prompts.length === 1)
+  await t.agentTurn(() => t.edit(2, "line 2 NOTE ONE"), "1:done", 1)
+  const b = t.h.note("b")
+  await until(() => t.h.w.prompts.length === 2)
+  await t.agentTurn(() => t.edit(18, "line 18 NOTE TWO"), "1:done 2:done", 2)
+  return { a, b }
+}
+
+test("a finished note shows what changed for it, and is taken back by asking the agent when later work changed the same lines", async () => {
+  const t = await historyOf()
+  const { h, s } = t
   try {
-    const s = await h.ready()
-    h.note("a")
-    h.note("b")
+    const a = h.note("a")
     await until(() => h.w.prompts.length === 1)
-    turn(h, s)
+    await t.agentTurn(() => t.edit(2, "line 2 NOTE ONE"), "1:done", 1)
+    h.note("b")
     await until(() => h.w.prompts.length === 2)
-    turn(h, s)
-    await until(() => h.notes() === "1:done 2:done")
-    const [a] = h.snap().review.notes
-    assert.equal(a!.sent, true)
+    await t.agentTurn(() => t.edit(2, "line 2 NOTE TWO"), "1:done 2:done", 2)
+    const row = () => h.snap().review.notes[0]!
+    assert.equal(row().sent, true)
 
-    assert.deepEqual(await h.cmd("noteDiff", a!.id), [{ file: "src/a.css", patch: `@@ -1 +1 @@\n-a\n+b ${h.w.prompts[0]!.id}`, additions: 1, deletions: 1 }])
+    const diff = (await h.cmd("noteDiff", a)) as { file: string; patch: string; additions: number; deletions: number }[]
+    assert.deepEqual(diff.map((f) => [f.file, f.additions, f.deletions]), [["a.css", 1, 1]])
+    assert.match(diff[0]!.patch, /-line 2\n\+line 2 NOTE ONE/)
 
-    // Not the newest message (the fake server lists none): the agent is asked, in the note's conversation.
+    // Note 2 changed the same line since: the app can't put back note 1's alone, so the agent is
+    // asked, in the note's conversation.
     const reloads = () => h.page.sent.filter((m) => m.type === "RELOAD").length
     const shown = reloads()
-    assert.equal(await h.cmd("takeBackNote", a!.id), "asked")
-    assert.equal(h.w.prompts.length, 3)
+    assert.equal(await h.cmd("takeBackWay", a), "asked")
+    assert.equal(await h.cmd("takeBackNote", a), "asked")
+    await until(() => h.w.prompts.length === 3)
+    assert.match(lastPrompt(h).text, /note 1/)
     // No note is finished by that run, but the files change in it: the page is loaded again
     // when it ends, and only then.
-    h.agent.starts(s)
     await sleep(50)
     assert.equal(reloads(), shown)
-    h.agent.finishes(s)
+    await turn(h, s)
     await until(() => reloads() === shown + 1)
     // A later run that takes nothing back leaves the page alone.
-    h.agent.starts(s)
-    h.agent.finishes(s)
+    await h.cmd("send", "thanks")
+    await until(() => h.w.prompts.length === 4)
+    await turn(h, s)
     await sleep(100)
     assert.equal(reloads(), shown + 1)
     assert.equal(h.w.prompts[2]!.session, s)
-    const row = h.snap().review.notes[0]!
-    assert.deepEqual([row.status, row.takenBack], ["done", "asked"])
-    await assert.rejects(h.cmd("takeBackNote", a!.id), /already taken back/)
+    assert.deepEqual([row().status, row().takenBack], ["done", "asked"])
+    await assert.rejects(h.cmd("takeBackNote", a), /already taken back/)
     await assert.rejects(h.cmd("noteDiff", "nope"), /has not reached the agent/)
     // The verdict is saved with the note.
     await until(() => {
@@ -2174,91 +1759,67 @@ test("a finished note shows what changed for it, and is taken back by asking the
       }
     })
   } finally {
-    await h.close()
+    await t.close()
   }
 })
 
 test("a note's row names its conversation; take back says which way it will go, and does not go the other way", async () => {
-  const h = await boot()
+  const t = await historyOf()
+  const { h, s: old } = t
   try {
-    const old = await h.ready()
-    const text = (n: number) => `UI review note ${n} on http://site.test/, window 800×600 @1x.\nNote: x\nMake the smallest change that does this.`
-    // The old conversation's newest message is note 2; the new one's is a typed message after note 3.
-    const newestFirst = (s: string): object[] =>
-      s === old
-        ? [{ id: h.w.prompts[1]?.id, type: "user", text: text(2) }, { id: h.w.prompts[0]?.id, type: "user", text: text(1) }]
-        : [{ id: "msg_typed", type: "user", text: "and the footer" }, { id: h.w.prompts[2]?.id, type: "user", text: text(3) }]
-    h.server.route("GET", /^\/api\/session\/[^/]+\/message$/, (req) => {
-      const list = newestFirst(req.path.split("/")[3]!)
-      return { json: { data: req.query.get("order") === "desc" ? list : [...list].reverse(), cursor: { previous: null, next: null } } }
-    })
-    h.server.route("POST", /\/revert\/stage$/, (req) => ({ json: { data: { messageID: (req.body as { messageID: string }).messageID } } }))
-
-    h.note("a")
-    h.note("b")
-    await until(() => h.w.prompts.length === 1)
-    turn(h, old)
-    await until(() => h.w.prompts.length === 2)
-    turn(h, old)
-    await until(() => h.notes() === "1:done 2:done")
+    const { a, b } = await twoNotes(t)
     await h.cmd("newSession")
     const neu = h.snap().session!.id
     h.note("c")
     await until(() => h.w.prompts.length === 3)
-    h.agent.starts(neu)
-    h.agent.picksUp(neu, h.w.prompts[2]!.id)
-    h.agent.finishes(neu)
-    await until(() => h.notes() === "1:done 2:done 3:done")
+    // Note 3 changes note 2's line again.
+    const l = await h.agent.turn(neu)
+    t.edit(18, "line 18 NOTE THREE")
+    l.end()
+    await until(() => h.notes() === "1:done 2:done 3:done" && t.log().turns.length === 3)
 
-    const [a, b, c] = h.snap().review.notes
-    assert.deepEqual([a!.session, b!.session, c!.session], [old, old, neu], "each note says where it went, the open conversation or not")
-
-    // Note 1 has note 2 on top of it, note 3 a typed message: the agent is asked. Note 2 is the
-    // newest message of its conversation, which is idle and not the open one: an exact undo.
-    assert.equal(await h.cmd("takeBackWay", a!.id), "asked")
-    assert.equal(await h.cmd("takeBackWay", c!.id), "asked")
-    assert.equal(await h.cmd("takeBackWay", b!.id), "undone")
+    const [ra, rb, rc] = h.snap().review.notes
+    assert.deepEqual([ra!.session, rb!.session, rc!.session], [old, old, neu], "each note says where it went, the open conversation or not")
+    // Note 1's line is its own: put back from the app's history. Note 2's line was changed since: asked.
+    assert.equal(await h.cmd("takeBackWay", a), "restored")
+    assert.equal(await h.cmd("takeBackWay", b), "asked")
     assert.equal(h.w.prompts.length, 3, "asking how changes nothing")
-    assert.equal(requestsTo(h, "/revert/stage").length, 0)
     assert.deepEqual(h.snap().review.notes.map((n) => n.takenBack), [undefined, undefined, undefined])
-    // A busy conversation cannot be undone, whatever its newest message is.
-    h.agent.starts(old)
-    await sleep(50)
-    assert.equal(await h.cmd("takeBackWay", b!.id), "asked")
-    h.agent.finishes(old)
-    await sleep(50)
-    assert.equal(await h.cmd("takeBackWay", b!.id), "undone")
 
-    // The question said "asked"; by now it would be an exact undo, or the other way round: nothing is done.
-    await assert.rejects(h.cmd("takeBackNote", b!.id, "asked"), /changed meanwhile/)
-    await assert.rejects(h.cmd("takeBackNote", a!.id, "undone"), /changed meanwhile/)
+    // The question said one way; by now it would go the other: nothing is done.
+    await assert.rejects(h.cmd("takeBackNote", a, "asked"), /changed meanwhile/)
+    await assert.rejects(h.cmd("takeBackNote", b, "restored"), /changed meanwhile/)
     assert.equal(h.w.prompts.length, 3)
-    assert.equal(requestsTo(h, "/revert/stage").length, 0)
+    assert.equal(t.line(2), "line 2 NOTE ONE")
 
-    assert.equal(await h.cmd("takeBackNote", b!.id, "undone"), "undone")
-    assert.deepEqual(requestsTo(h, "/revert/stage").map((r) => [r.path, r.body]), [[`/api/session/${old}/revert/stage`, { messageID: h.w.prompts[1]!.id }]])
-    assert.equal(await h.cmd("takeBackNote", a!.id, "asked"), "asked")
+    assert.equal(await h.cmd("takeBackNote", a, "restored"), "restored")
+    assert.equal(t.line(2), "line 2")
+    assert.equal(await h.cmd("takeBackNote", b, "asked"), "asked")
+    await until(() => h.w.prompts.length === 4)
     assert.equal(h.w.prompts[3]!.session, old, "the agent of the note's own conversation is asked")
-    assert.deepEqual(h.snap().review.notes.map((n) => n.takenBack), ["asked", "undone", undefined])
+    assert.deepEqual(h.snap().review.notes.map((n) => n.takenBack), ["restored", "asked", undefined])
 
-    await assert.rejects(h.cmd("takeBackWay", b!.id), /already taken back/)
+    await assert.rejects(h.cmd("takeBackWay", b), /already taken back/)
     await assert.rejects(h.cmd("takeBackWay", "nope"), /Only a finished note/)
   } finally {
-    await h.close()
+    await t.close()
   }
 })
 
 test("a checkpoint is a line in the conversation, kept by the app; the repo's branch and changes are told, and a commit is asked of the agent", async () => {
+  const work = gitRepo("checkpoint")
+  fs.appendFileSync(path.join(work, "a.css"), "line 21\n")
+  fs.writeFileSync(path.join(work, "new.css"), "a\nb\nc\nd\n")
   const h = await boot()
   try {
-    const s = await h.ready()
+    const s = await h.ready(work)
     await until(() => !!h.snap().repo)
-    assert.deepEqual(h.snap().repo, { branch: "polish", changes: [{ file: "src/a.css", additions: 1, deletions: 1, status: "modified" }, { file: "src/new.css", additions: 4, deletions: 0, status: "added" }] })
+    assert.deepEqual(h.snap().repo, { branch: "polish", changes: [{ file: "a.css", additions: 1, deletions: 0, status: "modified" }, { file: "new.css", additions: 4, deletions: 0, status: "added" }] })
 
     await h.cmd("addCheckpoint", "  before  the hero ")
     const marker = h.chat().flatMap((e) => (e.type === "item" && e.item.kind === "marker" && e.item.checkpoint ? [e.item] : []))[0]!
     assert.equal(marker.text, "before the hero")
-    await assert.rejects(h.cmd("returnToCheckpoint", marker.checkpoint), /Nothing has been said since/)
+    await assert.rejects(h.cmd("returnToCheckpoint", marker.checkpoint), /The agent has changed no file since this checkpoint/)
     await assert.rejects(h.cmd("returnToCheckpoint", "nope"), /checkpoint is gone/)
     // It comes back with the conversation when that is read again.
     await h.cmd("openSession", s)
@@ -2267,7 +1828,7 @@ test("a checkpoint is a line in the conversation, kept by the app; the repo's br
     assert.ok(h.chat().some((e) => e.type === "remove" && e.item === marker.id))
 
     await h.cmd("commitChanges", "Tidy the hero\n\n- more air")
-    assert.equal(h.w.prompts.length, 1)
+    await until(() => h.w.prompts.length === 1)
     assert.equal(h.w.prompts[0]!.session, s)
     await assert.rejects(h.cmd("commitChanges", "  "), /Write what the commit is/)
   } finally {
@@ -2275,34 +1836,19 @@ test("a checkpoint is a line in the conversation, kept by the app; the repo's br
   }
 })
 
-
-test("the newest note is taken back exactly and a checkpoint is returned to: the page shows the files again, and a note taken back gets no second picture", async () => {
-  const h = await boot()
+test("the newest note is taken back and a checkpoint is returned to, from the app's history: the page shows the files again, and a note taken back gets no second picture", async () => {
+  const t = await historyOf()
+  const { h, s } = t
   try {
-    const s = await h.ready()
     h.page.capture = () => shot("p")
     h.page.viewport = { w: 800, h: 600, dpr: 1, scrollX: 0, scrollY: 0 }
-    const finish = async (text: string) => {
-      const id = h.note(text)
-      const n = h.w.prompts.length
-      await until(() => h.w.prompts.length === n + 1)
-      h.agent.starts(s)
-      h.agent.picksUp(s, h.w.prompts[n]!.id)
-      h.agent.finishes(s)
-      await until(() => h.snap().review.notes.find((r) => r.id === id)?.status === "done")
-      return id
-    }
     const row = (id: string) => h.snap().review.notes.find((r) => r.id === id)!
     const reloads = () => h.page.sent.filter((m) => m.type === "RELOAD").length
-    // The server's side: the conversation's messages, and an undo that it holds.
-    // The first note is from before the checkpoint, what follows from after it.
-    const later = Date.now() + 60_000
-    const messages = () => h.w.prompts.map((p, i) => ({ id: p.id, type: "user", text: p.text, time: { created: i ? later + i : 1 } }))
-    h.server.route("GET", /^\/api\/session\/[^/]+\/message$/, (req) => ({ json: { data: req.query.get("order") === "desc" ? messages().reverse() : messages(), cursor: { previous: null, next: null } } }))
-    h.server.route("POST", `/api/session/${s}/revert/stage`, (req) => ({ json: { data: { messageID: (req.body as { messageID: string }).messageID } } }))
 
     // A finished note is pictured again a moment later.
-    const a = await finish("a")
+    const a = h.note("a")
+    await until(() => h.w.prompts.length === 1)
+    await t.agentTurn(() => t.edit(2, "line 2 NOTE ONE"), "1:done", 1)
     assert.equal(row(a).pictures, "before")
     h.page.sent.length = 0
     await until(() => row(a).pictures === "both", 6000)
@@ -2318,23 +1864,28 @@ test("the newest note is taken back exactly and a checkpoint is returned to: the
     await h.cmd("addCheckpoint", "after a")
     const cp = h.chat().flatMap((e) => (e.type === "item" && e.item.kind === "marker" && e.item.checkpoint ? [e.item.checkpoint] : []))[0]!
 
-    // The newest one, taken back before that moment: the server's undo, the page loaded again,
-    // and no picture of an area that is as it was before the note.
-    const b = await finish("b")
+    // The newest one, taken back before its second picture: the files go back, the page is
+    // loaded again, and no picture of an area that is as it was before the note.
+    const b = h.note("b")
+    await until(() => h.w.prompts.length === 2)
+    await t.agentTurn(() => t.edit(18, "line 18 NOTE TWO"), "1:done 2:done", 2)
     const shown = reloads()
-    assert.equal(await h.cmd("takeBackNote", b), "undone")
-    assert.deepEqual(requestsTo(h, "/revert/stage").map((r) => r.body), [{ messageID: h.w.prompts[1]!.id }])
+    assert.equal(await h.cmd("takeBackNote", b), "restored")
+    assert.equal(t.line(18), "line 18")
     assert.equal(reloads(), shown + 1)
     await sleep(2600)
     assert.equal(row(b).pictures, "before")
     assert.equal(row(a).pictures, "both")
 
-    // Back to the checkpoint: everything said after it, files included, so the page again.
-    assert.deepEqual(await h.cmd("returnToCheckpoint", cp), { taken: 1, how: "undone" })
-    assert.deepEqual(requestsTo(h, "/revert/stage").at(-1)!.body, { messageID: h.w.prompts[1]!.id })
-    assert.equal(reloads(), shown + 2)
+    // /redo brings it back; then back to the checkpoint: every turn after it, files only.
+    await h.cmd("runCommand", "redo", "")
+    assert.equal(t.line(18), "line 18 NOTE TWO")
+    assert.deepEqual(await h.cmd("returnToCheckpoint", cp), { taken: 1 })
+    assert.deepEqual([t.line(2), t.line(18)], ["line 2 NOTE ONE", "line 18"])
+    assert.equal(reloads(), shown + 3)
+    void s
   } finally {
-    await h.close()
+    await t.close()
   }
 })
 
@@ -2345,21 +1896,22 @@ test("the conversation's pictures reach the window as b42-img addresses, served 
     h.page.capture = () => shot("the area")
     h.note("make it blue")
     await until(() => h.w.prompts.length === 1)
-    const sent = lastPrompt(h)!.body as Sent & { id: string }
-    // What the server keeps: the note with its pictures, and a message typed with one pasted.
-    const files = (f: { name: string; uri: string }[]) => f.map((x) => ({ mime: "image/jpeg", name: x.name, data: x.uri.split(",")[1] }))
-    const messages = [
-      { id: sent.id, type: "user", time: { created: 1 }, text: sent.text, files: files(sent.files!) },
-      { id: "msg_typed", type: "user", time: { created: 2 }, text: "and this", files: [{ mime: "image/png", name: "p.png", data: Buffer.from("pasted").toString("base64") }] },
-    ]
-    h.server.route("GET", `/api/session/${s}/message`, { json: { data: messages, cursor: {} } })
+    await turn(h, s)
+    await until(() => h.notes() === "1:done")
+    await h.cmd("send", "and this", [{ name: "p.png", uri: `data:image/png;base64,${Buffer.from("pasted").toString("base64")}` }])
+    await until(() => h.w.prompts.length === 2)
+    await turn(h, s)
+    await until(() => h.snap().session?.busy === false)
     h.shell.sent.length = 0
     h.core.chat()
     await until(() => h.chat().some((e) => e.type === "reset"))
     const reset = h.chat().find((e) => e.type === "reset") as Extract<ChatEvent, { type: "reset" }>
     assert.equal(JSON.stringify(reset).includes(";base64,"), false, "no picture travels in the reset")
-    const images = reset.items.flatMap((i) => (i.kind === "user" ? i.images : []))
-    assert.deepEqual(images.map((i) => i.src), [`b42-img://pic/${s}/${sent.id}/0`, `b42-img://pic/${s}/${sent.id}/1`, `b42-img://pic/${s}/msg_typed/0`])
+    const users = reset.items.filter((i) => i.kind === "user")
+    const images = users.flatMap((i) => (i.kind === "user" ? i.images : []))
+    // The note's two (its area and the viewport), and the one pasted with the typed message.
+    assert.equal(images.length, 3)
+    assert.ok(images.every((i) => i.src.startsWith(`b42-img://pic/${s}/`)), JSON.stringify(images))
     const serve = (url: string) => h.core.picture(url)
     const got = await serve(images[0]!.src)
     assert.equal(got.status, 200)
@@ -2367,7 +1919,7 @@ test("the conversation's pictures reach the window as b42-img addresses, served 
     assert.equal(Buffer.from(await got.arrayBuffer()).toString(), "the area")
     assert.equal(Buffer.from(await (await serve(images[2]!.src)).arrayBuffer()).toString(), "pasted")
     assert.equal((await serve(`b42-img://pic/${s}/msg_unknown/0`)).status, 404)
-    assert.equal((await serve(`b42-img://pic/${s}/msg_typed/1`)).status, 404)
+    assert.equal((await serve(images[2]!.src.replace(/\/0$/, "/1"))).status, 404)
   } finally {
     await h.close()
   }
@@ -2375,7 +1927,7 @@ test("the conversation's pictures reach the window as b42-img addresses, served 
 
 test("the page as a phone's: the page is told, the window is told, and the next start remembers", async () => {
   const h = await boot()
-  const devices = (shell: typeof h.shell) => shell.page.calls.filter((c) => c[0] === "device").map((c) => c[1])
+  const devices = (shell: TestShell) => shell.page.calls.filter((c) => c[0] === "device").map((c) => c[1])
   try {
     assert.equal(h.snap().page.device, "desktop")
     assert.deepEqual(devices(h.shell), []) // a page is a desktop's until told otherwise
@@ -2387,7 +1939,7 @@ test("the page as a phone's: the page is told, the window is told, and the next 
     assert.deepEqual(devices(h.shell), ["phone", "desktop"])
     await h.cmd("setDevice", "phone")
     // Which phone: the usual one until another is chosen; the page is told of a new one at once.
-    const phones = (shell: typeof h.shell) => shell.page.calls.filter((c) => c[0] === "phone").map((c) => c[1])
+    const phones = (shell: TestShell) => shell.page.calls.filter((c) => c[0] === "phone").map((c) => c[1])
     assert.equal(h.snap().page.phone, PHONE.id)
     assert.equal(phones(h.shell).at(-1), PHONE.id)
     await h.cmd("setPhone", "iphone-se")
@@ -2504,92 +2056,9 @@ test("the window draws the docks in HOSTED_PANES unless the shell says otherwise
   }
 })
 
-// ── the app's own file history (snapshots.ts), where the folder is on this computer ─────────────
+// ── the app's own file history (snapshots.ts) ───────────────────────────────────────────────────
 
-/** The fake server on localhost says it runs on this computer, by its name. */
-const thisComputer = (h: { server: FakeServer }, name = os.hostname()) => h.server.route("GET", "/api/info", { json: { version: VERSION, hostname: name } })
-
-/** A site whose folder (20 lines of a.css) is on this computer, its conversation open, the
- *  server's newest message whatever was prompted last; `agentTurn` is the agent's turn on the
- *  newest prompt, changing the files while it works. */
-async function historyOf(opts: { computer?: string; work?: string } = {}) {
-  const work = opts.work ?? fs.mkdtempSync(path.join(os.tmpdir(), "b42-work-"))
-  const css = path.join(work, "a.css")
-  fs.writeFileSync(css, Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n") + "\n")
-  const h = await boot()
-  thisComputer(h, opts.computer)
-  const root = path.join(h.dir, "snapshots")
-  const log = () => {
-    const shadow = fs.existsSync(root) ? fs.readdirSync(root)[0] : undefined
-    try {
-      return JSON.parse(fs.readFileSync(path.join(root, shadow ?? "-", "b42.json"), "utf8")) as { turns: Array<{ untrusted?: true }>; restores: Array<{ told?: true }> }
-    } catch {
-      return { turns: [], restores: [] }
-    }
-  }
-  await h.cmd("connect", { url: h.server.url, password: h.server.password })
-  h.page.load(`${SITE}/`)
-  await h.cmd("setDirectory", work)
-  await until(() => !!h.snap().session && h.server.streams() === 1)
-  await sleep(30)
-  const s = h.snap().session!.id
-  h.server.route("GET", /^\/api\/session\/[^/]+\/message$/, (req) => {
-    const list = [...h.w.prompts].reverse().map((p) => ({ id: p.id, type: "user", text: `UI review note 1 on x\nNote: ${p.text}` }))
-    return { json: { data: req.query.get("order") === "desc" ? list : [...list].reverse(), cursor: { previous: null, next: null } } }
-  })
-  return {
-    h,
-    s,
-    work,
-    root,
-    log,
-    line: (n: number) => fs.readFileSync(css, "utf8").split("\n")[n - 1],
-    edit(n: number, to: string) {
-      const all = fs.readFileSync(css, "utf8").split("\n")
-      all[n - 1] = to
-      fs.writeFileSync(css, all.join("\n"))
-    },
-    /** The agent takes the newest prompt and changes the files; resolves once `done` notes are. */
-    async agentTurn(change: () => void, done: string, kept?: number) {
-      h.agent.starts(s)
-      h.agent.picksUp(s, h.w.prompts.at(-1)!.id)
-      await sleep(300)
-      change()
-      h.agent.finishes(s)
-      await until(() => h.notes() === done && (kept === undefined || log().turns.length === kept), 8000)
-    },
-    async close() {
-      await h.close()
-      fs.rmSync(work, { recursive: true, force: true })
-    },
-  }
-}
-
-/** Two notes, each one turn: note 1 changes line 2, note 2 line 18. */
-async function twoNotes(t: Awaited<ReturnType<typeof historyOf>>, kept = true) {
-  const a = t.h.note("a")
-  await until(() => t.h.w.prompts.length === 1)
-  await t.agentTurn(() => t.edit(2, "line 2 NOTE ONE"), "1:done", kept ? 1 : undefined)
-  const b = t.h.note("b")
-  await until(() => t.h.w.prompts.length === 2)
-  await t.agentTurn(() => t.edit(18, "line 18 NOTE TWO"), "1:done 2:done", kept ? 2 : undefined)
-  return { a, b }
-}
-
-test("file history: a server on localhost that is another computer's (ssh -L) keeps no history, and the files here are never changed by it", async () => {
-  const t = await historyOf({ computer: "far-away-box" })
-  try {
-    const { a } = await twoNotes(t, false)
-    await sleep(200)
-    assert.equal(fs.existsSync(t.root), false, "no snapshot of the folder here")
-    assert.equal(await t.h.cmd("takeBackWay", a), "asked")
-    assert.equal(t.line(2), "line 2 NOTE ONE")
-  } finally {
-    await t.close()
-  }
-})
-
-test("file history: a turn that changed no file the app sees is asked of the agent, its diff is known to be empty; one the app kept no record of is not", async () => {
+test("file history: a turn that changed no file the app sees is asked of the agent, its diff is known to be empty", async () => {
   const t = await historyOf()
   try {
     // Note 1: the agent works where the app does not look (nothing changes in the folder).
@@ -2602,8 +2071,7 @@ test("file history: a turn that changed no file the app sees is asked of the age
     assert.equal(await t.h.cmd("takeBackWay", a), "asked")
     assert.deepEqual(await t.h.cmd("takeBackPlan", a), { how: "asked" })
     assert.deepEqual(await t.h.cmd("noteDiff", a), [])
-    // The other is the server's to undo; its plan names no files.
-    assert.deepEqual(await t.h.cmd("takeBackPlan", b), { how: "undone" })
+    assert.deepEqual(await t.h.cmd("takeBackPlan", b), { how: "restored", files: ["a.css"] })
   } finally {
     await t.close()
   }
@@ -2615,7 +2083,7 @@ test("file history: the take-back question lists the files it puts back; a stale
     const { a } = await twoNotes(t)
     assert.deepEqual(await t.h.cmd("takeBackPlan", a), { how: "restored", files: ["a.css"] })
     // The app was killed during a snapshot: git's lock is left in the shadow.
-    const lock = path.join(t.root, fs.readdirSync(t.root)[0]!, "index.lock")
+    const lock = path.join(t.root, fs.readdirSync(t.root).find((d) => d.startsWith(`${path.basename(t.work)}-`))!, "index.lock")
     fs.writeFileSync(lock, "")
     assert.equal(await t.h.cmd("takeBackWay", a), "asked")
     fs.rmSync(lock)
@@ -2625,45 +2093,57 @@ test("file history: the take-back question lists the files it puts back; a stale
   }
 })
 
-test("file history: a take-back is told only once the agent has the message; cancelled before, /redo still has it and the next message says it; /redo waits while the agent works", async () => {
+test("file history: /undo says what it will take back and waits for a yes, the conversation staying as it is; /redo brings it back", async () => {
+  const t = await historyOf()
+  const { h } = t
+  try {
+    await assert.rejects(Promise.resolve(h.cmd("runCommand", "undo", "")), /Nothing to undo/)
+    await twoNotes(t)
+    const asked = (await h.cmd("runCommand", "undo", "")) as { say: string; draft: string }
+    assert.equal(asked.draft, "/undo yes")
+    assert.match(asked.say, /^This takes back the changes the agent made to files for note 2 \("b"\)\. The conversation stays as it is/)
+    assert.equal(t.line(18), "line 18 NOTE TWO", "nothing yet")
+    const reloads = () => h.page.sent.filter((m) => m.type === "RELOAD").length
+    const shown = reloads()
+    const done = (await h.cmd("runCommand", "undo", "yes")) as { say: string }
+    assert.match(done.say, /^Took back the agent's changes to files for note 2/)
+    assert.deepEqual([t.line(2), t.line(18)], ["line 2 NOTE ONE", "line 18"])
+    assert.equal(reloads(), shown + 1, "the files went back: the page is loaded again to show them")
+    assert.deepEqual(await h.cmd("runCommand", "redo", ""), { say: "Brought back what was taken back." })
+    assert.equal(t.line(18), "line 18 NOTE TWO")
+    // Not while the agent works.
+    await h.cmd("send", "and the footer")
+    await until(() => h.snap().session?.busy === true)
+    await assert.rejects(Promise.resolve(h.cmd("runCommand", "undo", "yes")), /The agent is working\. Stop it first, then \/undo\./)
+  } finally {
+    await t.close()
+  }
+})
+
+test("file history: a take-back is told only once the agent has the message; until then /redo has it, while the agent works it waits, and once told nothing is left to redo", async () => {
   const t = await historyOf()
   const { h, s } = t
-  const lastSent = () => requestsTo(h, "/prompt").at(-1)!.body as { id?: string; text: string }
   try {
     const { a } = await twoNotes(t)
     assert.equal(await h.cmd("takeBackNote", a, "restored"), "restored")
-    // /redo while the agent works in the folder would land in its turn.
-    h.agent.starts(s)
-    await until(() => h.snap().session?.busy === true)
-    await assert.rejects(h.cmd("runCommand", "redo", ""), /working in this folder/)
-    h.agent.finishes(s)
-    await until(() => h.snap().session?.busy === false)
-
-    await h.cmd("send", "and the footer", [])
-    const first = lastSent()
-    assert.match(first.text, /^\(bicycle 42: I took back note 1 .*\)\n\nand the footer$/)
-    assert.ok(first.id, "it goes with an id, to know when the agent has it")
-    // On its way: /redo would make what it says untrue.
-    await assert.rejects(h.cmd("runCommand", "redo", ""), /Nothing to redo: your last message tells the agent/)
-    // It never reaches the agent (taken out of the queue, a Stop).
-    h.emit("session.inbox.cancelled", s, { inboxID: first.id })
-    await sleep(100)
-    assert.equal(t.log().restores[0]?.told, undefined)
+    // Nothing said since: /redo brings it back.
     assert.deepEqual(await h.cmd("runCommand", "redo", ""), { say: "Brought back what was taken back." })
     assert.equal(t.line(2), "line 2 NOTE ONE")
 
-    // Taken back again: this time the agent gets the message, and it is final.
+    // Taken back again; the next message says so first.
     assert.equal(await h.cmd("takeBackNote", a, "restored"), "restored")
-    await h.cmd("send", "and the header", [])
-    const second = lastSent()
-    assert.match(second.text, /^\(bicycle 42: I took back note 1 /)
-    h.agent.starts(s)
-    h.agent.picksUp(s, second.id!)
-    h.agent.finishes(s)
+    await h.cmd("send", "and the footer", [])
+    await until(() => h.w.prompts.length === 3)
+    assert.match(lastPrompt(h).text, /^\(bicycle 42: I took back note 1 .*\)\n\nand the footer$/)
+    // The agent has it (it is working on it): /redo would make what it says untrue.
+    await assert.rejects(h.cmd("runCommand", "redo", ""), /Nothing to redo/)
+    await turn(h, s)
     await until(() => t.log().restores.at(-1)?.told === true)
     await assert.rejects(h.cmd("runCommand", "redo", ""), /^Error: Nothing to redo\.$/)
+    assert.equal(t.line(2), "line 2")
     await h.cmd("send", "and the nav", [])
-    assert.equal(lastSent().text, "and the nav")
+    await until(() => h.w.prompts.length === 4)
+    assert.equal(lastPrompt(h).text, "and the nav", "only once")
   } finally {
     await t.close()
   }
@@ -2674,66 +2154,91 @@ test("file history: before a summary or an agent's own command, the line about w
   const { h, s } = t
   try {
     const { a } = await twoNotes(t)
+    await until(() => h.snap().can?.compact === true)
     assert.equal(await h.cmd("takeBackNote", a, "restored"), "restored")
-    h.server.route("POST", /\/compact$/, { json: { data: { id: "msg_c", type: "compaction", payload: {}, delivery: "steer" } } })
-    h.server.route("POST", /\/command$/, {})
-    const before = h.server.requests.length
     await h.cmd("runCommand", "compact", "")
-    const after = h.server.requests.slice(before).filter((r) => r.method === "POST")
-    assert.deepEqual(after.map((r) => r.path.split("/").at(-1)), ["prompt", "compact"])
-    assert.match((after[0]!.body as { text: string }).text, /^\(bicycle 42: I took back note 1 \("a"\) myself, before this message: [^\n]*\)$/)
-    // Once the agent has it, the agent's own command goes alone.
-    h.agent.starts(s)
-    h.agent.picksUp(s, (after[0]!.body as { id: string }).id)
-    h.agent.finishes(s)
+    await until(() => h.w.prompts.length === 3)
+    assert.match(lastPrompt(h).text, /^\(bicycle 42: I took back note 1 \("a"\) myself, before this message: [^\n]*\)$/)
+    await turn(h, s)
+    await until(() => h.w.prompts.length === 4)
+    assert.equal(lastPrompt(h).text, "/compact")
+    await turn(h, s)
     await until(() => t.log().restores[0]?.told === true)
-    const mark = h.server.requests.length
+    // Once the agent has it, the agent's own command goes alone.
     await h.cmd("runCommand", "review", "")
-    assert.deepEqual(h.server.requests.slice(mark).filter((r) => r.method === "POST").map((r) => r.path.split("/").at(-1)), ["command"])
+    await until(() => h.w.prompts.length === 5)
+    assert.equal(lastPrompt(h).text, "/review")
   } finally {
     await t.close()
   }
 })
 
-test("file history: a snapshot that comes late, where the server does not wait for it, leaves its turn to the agent", async () => {
-  // Every git add takes 1.2 s: longer than the agent may take to make its first change.
-  const real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim()
-  const bin = fs.mkdtempSync(path.join(os.tmpdir(), "b42-bin-"))
-  fs.writeFileSync(path.join(bin, "git"), `#!/bin/sh\nif [ "$1" = add ]; then sleep 1.2; fi\nexec "${real}" "$@"\n`, { mode: 0o755 })
-  const was = process.env.PATH
-  process.env.PATH = `${bin}${path.delimiter}${was}`
+test("file history: an older note is taken back exactly from the app's snapshots, later work and the reviewer's own edits kept; /redo brings it back; the agent is told with the next message", async () => {
   const t = await historyOf()
+  const { h, s } = t
   try {
-    const { a } = await twoNotes(t)
-    assert.ok(t.log().turns.every((x) => x.untrusted))
-    assert.equal(await t.h.cmd("takeBackWay", a), "asked")
+    const { a, b } = await twoNotes(t)
+    // The reviewer changes a line by hand.
+    t.edit(10, "line 10 BY HAND")
+
+    assert.equal(await h.cmd("takeBackWay", b), "restored")
+    assert.equal(await h.cmd("takeBackWay", a), "restored")
+    const diff = (await h.cmd("noteDiff", a)) as Array<{ file: string; patch: string }>
+    assert.deepEqual(diff.map((f) => f.file), ["a.css"])
+    assert.match(diff[0]!.patch, /\+line 2 NOTE ONE/)
+    assert.doesNotMatch(diff[0]!.patch, /NOTE TWO|BY HAND/, "its own turn's changes only")
+
+    assert.equal(await h.cmd("takeBackNote", a, "restored"), "restored")
+    assert.deepEqual([t.line(2), t.line(10), t.line(18)], ["line 2", "line 10 BY HAND", "line 18 NOTE TWO"])
+    assert.equal(h.w.prompts.length, 2, "the agent is not asked")
+    assert.deepEqual(h.snap().review.notes.map((n) => n.takenBack), ["restored", undefined])
+
+    // /redo brings note 1 back, and the hand edit stays.
+    assert.deepEqual(await h.cmd("runCommand", "redo", ""), { say: "Brought back what was taken back." })
+    assert.deepEqual([t.line(2), t.line(10), t.line(18)], ["line 2 NOTE ONE", "line 10 BY HAND", "line 18 NOTE TWO"])
+    assert.deepEqual(h.snap().review.notes.map((n) => n.takenBack), [undefined, undefined])
+
+    // Taken back again; the next message to the conversation says so first, and makes it final.
+    assert.equal(await h.cmd("takeBackNote", a, "restored"), "restored")
+    await h.cmd("send", "and the footer", [])
+    await until(() => h.w.prompts.length === 3)
+    assert.match(lastPrompt(h).text, /^\(bicycle 42: I took back note 1 \("a"\) myself, before this message: .*\)\n\nand the footer$/)
+    await assert.rejects(h.cmd("runCommand", "redo", ""), /Nothing to redo|working in this folder/)
+    assert.equal(t.line(2), "line 2")
+    // Only once.
+    await turn(h, s)
+    await until(() => h.snap().session?.busy === false)
+    await h.cmd("send", "and the header", [])
+    await until(() => h.w.prompts.length === 4)
+    assert.equal(lastPrompt(h).text, "and the header")
   } finally {
-    process.env.PATH = was
     await t.close()
-    fs.rmSync(bin, { recursive: true, force: true })
   }
 })
 
-test("file history: a conversation in a parent folder of the site's shares its turns", async () => {
-  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "b42-parent-"))
+test("file history: a conversation in a parent folder of the site's, working at the same time, shares its turns", async () => {
+  const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "b42-parent-")))
   const work = path.join(parent, "site")
   fs.mkdirSync(work)
   const t = await historyOf({ work })
   const { h, s } = t
   try {
-    h.w.sessions.set("ses_other", { id: "ses_other", location: { directory: parent }, title: "t", time: { created: 1, updated: 1 } })
     const a = h.note("a")
     await until(() => h.w.prompts.length === 1)
-    h.agent.starts(s)
-    h.agent.picksUp(s, h.w.prompts[0]!.id)
-    h.agent.starts("ses_other")
-    await sleep(300)
-    t.edit(2, "line 2 NOTE ONE")
-    h.agent.finishes("ses_other")
-    h.agent.finishes(s)
-    await until(() => h.notes() === "1:done" && t.log().turns.length === 1)
-    h.note("b")
+    // While the agent works on it, the parent folder's own project has a message going too.
+    await h.cmd("openProject", parent)
+    await until(() => h.snap().site?.directory === parent && !!h.snap().session)
+    const other = h.snap().session!.id
+    await h.cmd("send", "tidy everything")
     await until(() => h.w.prompts.length === 2)
+    await sleep(100)
+    t.edit(2, "line 2 NOTE ONE")
+    await h.agent.finishes(other)
+    await h.agent.finishes(s)
+    await h.cmd("openProject", work)
+    await until(() => h.snap().site?.directory === work && h.notes() === "1:done" && t.log().turns.length === 1)
+    h.note("b")
+    await until(() => h.w.prompts.length === 3)
     await t.agentTurn(() => t.edit(18, "line 18 NOTE TWO"), "1:done 2:done", 2)
     assert.equal(await h.cmd("takeBackWay", a), "asked")
   } finally {
@@ -2742,137 +2247,29 @@ test("file history: a conversation in a parent folder of the site's shares its t
   }
 })
 
-test("file history: an older note is taken back exactly from the app's snapshots, later work and the reviewer's own edits kept; /redo brings it back; the agent is told with the next message", async () => {
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), "b42-work-"))
-  const css = path.join(work, "a.css")
-  const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join("\n") + "\n"
-  const line = (n: number) => fs.readFileSync(css, "utf8").split("\n")[n - 1]
-  const edit = (n: number, to: string) => {
-    const all = fs.readFileSync(css, "utf8").split("\n")
-    all[n - 1] = to
-    fs.writeFileSync(css, all.join("\n"))
-  }
-  fs.writeFileSync(css, lines(20))
-  const h = await boot()
-  /** The turns the app has kept for the folder, from its log on disk. */
-  const turns = () => {
-    const root = path.join(h.dir, "snapshots")
-    const shadow = fs.existsSync(root) ? fs.readdirSync(root)[0] : undefined
-    try {
-      return (JSON.parse(fs.readFileSync(path.join(root, shadow ?? "-", "b42.json"), "utf8")) as { turns: unknown[] }).turns.length
-    } catch {
-      return 0
-    }
-  }
-  thisComputer(h)
-  try {
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
-    h.page.load(`${SITE}/`)
-    await h.cmd("setDirectory", work)
-    await until(() => !!h.snap().session && h.server.streams() === 1)
-    await sleep(30)
-    const s = h.snap().session!.id
-    // The server's newest message is whatever was prompted last.
-    h.server.route("GET", /^\/api\/session\/[^/]+\/message$/, (req) => {
-      const list = [...h.w.prompts].reverse().map((p) => ({ id: p.id, type: "user", text: `UI review note 1 on x\nNote: ${p.text}` }))
-      return { json: { data: req.query.get("order") === "desc" ? list : [...list].reverse(), cursor: { previous: null, next: null } } }
-    })
-    /** The agent's turn on the newest prompt: it changes the file while it works. */
-    const agentTurn = async (change: () => void, kept: number) => {
-      h.agent.starts(s)
-      h.agent.picksUp(s, h.w.prompts.at(-1)!.id)
-      await sleep(300)
-      change()
-      h.agent.finishes(s)
-      await until(() => turns() === kept, 5000)
-    }
-    const a = h.note("a")
-    await until(() => h.w.prompts.length === 1)
-    await agentTurn(() => edit(2, "line 2 NOTE ONE"), 1)
-    const b = h.note("b")
-    await until(() => h.w.prompts.length === 2)
-    await agentTurn(() => edit(18, "line 18 NOTE TWO"), 2)
-    await until(() => h.notes() === "1:done 2:done")
-    // The reviewer changes a line by hand.
-    edit(10, "line 10 BY HAND")
-
-    // Note 2 is the newest message: the server's undo. Note 1 has note 2 on top, in other lines.
-    assert.equal(await h.cmd("takeBackWay", b), "undone")
-    assert.equal(await h.cmd("takeBackWay", a), "restored")
-    const diff = (await h.cmd("noteDiff", a)) as Array<{ file: string; patch: string }>
-    assert.deepEqual(diff.map((f) => f.file), ["a.css"])
-    assert.match(diff[0]!.patch, /\+line 2 NOTE ONE/)
-    assert.doesNotMatch(diff[0]!.patch, /NOTE TWO|BY HAND/, "its own turn's changes only")
-
-    assert.equal(await h.cmd("takeBackNote", a, "restored"), "restored")
-    assert.deepEqual([line(2), line(10), line(18)], ["line 2", "line 10 BY HAND", "line 18 NOTE TWO"])
-    assert.equal(h.w.prompts.length, 2, "the agent is not asked")
-    assert.equal(requestsTo(h, "/revert/stage").length, 0, "and the server undoes nothing")
-    assert.deepEqual(h.snap().review.notes.map((n) => n.takenBack), ["restored", undefined])
-    // The server's undo of note 2 would put the file back whole, note 1's line with it: the app's way.
-    assert.equal(await h.cmd("takeBackWay", b), "restored")
-
-    // /redo brings note 1 back, and the hand edit stays.
-    assert.deepEqual(await h.cmd("runCommand", "redo", ""), { say: "Brought back what was taken back." })
-    assert.deepEqual([line(2), line(10), line(18)], ["line 2 NOTE ONE", "line 10 BY HAND", "line 18 NOTE TWO"])
-    assert.deepEqual(h.snap().review.notes.map((n) => n.takenBack), [undefined, undefined])
-
-    // Taken back again; the next message to the conversation says so first, and makes it final.
-    assert.equal(await h.cmd("takeBackNote", a, "restored"), "restored")
-    await h.cmd("send", "and the footer", [])
-    const sent = (requestsTo(h, "/prompt").at(-1)!.body as { text: string }).text
-    assert.match(sent, /^\(bicycle 42: I took back note 1 \("a"\) myself, before this message: .*\)\n\nand the footer$/)
-    await assert.rejects(h.cmd("runCommand", "redo", ""), /Nothing to redo/)
-    assert.equal(line(2), "line 2")
-    // Only once.
-    h.agent.starts(s)
-    h.agent.picksUp(s, h.w.prompts.at(-1)!.id)
-    h.agent.finishes(s)
-    await sleep(100)
-    await h.cmd("send", "and the header", [])
-    assert.equal((requestsTo(h, "/prompt").at(-1)!.body as { text: string }).text, "and the header")
-  } finally {
-    await h.close()
-    fs.rmSync(work, { recursive: true, force: true })
-  }
-})
-
 test("file history: a turn another conversation shared the folder with is not reversed by itself, and the agent is asked", async () => {
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), "b42-work-"))
-  const css = path.join(work, "a.css")
-  fs.writeFileSync(css, "a\nb\nc\n")
-  const h = await boot()
-  thisComputer(h)
+  const t = await historyOf()
+  const { h, s } = t
   try {
-    await h.cmd("connect", { url: h.server.url, password: h.server.password })
-    h.page.load(`${SITE}/`)
-    await h.cmd("setDirectory", work)
-    await until(() => !!h.snap().session && h.server.streams() === 1)
-    await sleep(30)
-    const s = h.snap().session!.id
-    // Another client's conversation in the same folder (the server says where it works).
-    h.w.sessions.set("ses_other", { id: "ses_other", location: { directory: work }, title: "t", time: { created: 1, updated: 1 } })
+    // A note, and while the agent works on it a background note (alt+Enter) in a conversation
+    // of its own, in the same folder.
     h.note("a")
     await until(() => h.w.prompts.length === 1)
-    h.agent.starts(s)
-    h.agent.picksUp(s, h.w.prompts[0]!.id)
-    h.agent.starts("ses_other")
-    await sleep(300)
-    fs.writeFileSync(css, "a\nB\nc\n")
-    h.agent.finishes("ses_other")
-    h.agent.finishes(s)
-    await until(() => h.notes() === "1:done")
-    await sleep(300)
-    h.note("b")
+    h.page.message({ type: "note", note: { id: "bg1", text: "in the background", url: `${SITE}/`, viewport: { w: 800, h: 600, dpr: 1, scrollX: 0, scrollY: 0 }, targets: [], area: null, strokes: [], bounds: { x: 1, y: 2, w: 3, h: 4 }, lane: "bg" } })
     await until(() => h.w.prompts.length === 2)
-    turn(h, s)
-    await until(() => h.notes() === "1:done 2:done")
-    const [first] = h.snap().review.notes
-    assert.equal(await h.cmd("takeBackWay", first!.id), "asked")
-    assert.equal(await h.cmd("takeBackNote", first!.id, "asked"), "asked")
-    assert.equal(fs.readFileSync(css, "utf8"), "a\nB\nc\n", "nothing is reversed by the app")
+    const bg = h.w.prompts[1]!.session
+    assert.notEqual(bg, s)
+    await sleep(100)
+    t.edit(5, "line 5 BY ONE OF THEM")
+    await h.agent.finishes(bg)
+    await h.agent.finishes(s)
+    await until(() => h.notes() === "1:done 2:done" && t.log().turns.length >= 1)
+    await sleep(300)
+    const first = h.snap().review.notes.find((n) => n.lane === "main")!
+    assert.equal(await h.cmd("takeBackWay", first.id), "asked")
+    assert.equal(await h.cmd("takeBackNote", first.id, "asked"), "asked")
+    assert.equal(t.line(5), "line 5 BY ONE OF THEM", "nothing is reversed by the app")
   } finally {
-    await h.close()
-    fs.rmSync(work, { recursive: true, force: true })
+    await t.close()
   }
 })

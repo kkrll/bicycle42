@@ -2,7 +2,7 @@
 // chat event, and names a cue. sound.ts plays what comes out.
 //
 //   question   something waits for the reviewer: the agent asked, or wants permission
-//   negative   the server was lost, a note failed, or the agent's run failed
+//   negative   the agent was lost, a note failed, or the agent's run failed
 //   routine    the agent finished and nothing sent is still on its way
 //
 // "hush" is not a sound: the reviewer stopped the agent, so its coming to rest is no news.
@@ -14,7 +14,7 @@ export type Cue = "question" | "negative" | "routine"
 export type Heard = {
   /** The site and conversation it is about. Another one is not a change to announce. */
   scope: string
-  /** The last of online | offline the server was; "" before either. */
+  /** The last of online | offline the agent was; "" before either. */
   link: "online" | "offline" | ""
   asks: ReadonlySet<string>
   failed: ReadonlySet<string>
@@ -31,7 +31,7 @@ export function hear(state: AppState, before?: Heard): Heard {
   const ids = (keep: (note: (typeof notes)[number]) => boolean) => new Set(notes.filter(keep).map((n) => n.id))
   return {
     scope: `${state.site?.origin ?? ""}|${state.session?.id ?? ""}`,
-    // "connecting" between two tries is neither: the server is still what it was.
+    // "connecting" between two tries is neither: the agent is still what it was.
     link: status === "online" || status === "offline" ? status : (before?.link ?? ""),
     asks: new Set([...state.permissions.map((p) => `p:${p.id}`), ...state.questions.map((q) => `q:${q.id}`)]),
     failed: ids((n) => n.status === "failed" && !n.stopped),

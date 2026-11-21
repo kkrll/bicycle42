@@ -38,18 +38,18 @@ test("settings round-trip, as strict JSON, private to the user", (t) => {
   const { open, settingsFile, logs } = setup(t)
   const store = open()
   store.update((s) => {
-    s.server = { url: "http://box:4096", password: "enc:abc" }
+    s.server = { agent: "claude", command: ["claude-agent-acp"], host: "box" }
     s.lastUrl = `${ORIGIN}/pricing`
     s.defaultModel = { providerID: "anthropic", id: "sonnet", variant: undefined }
     s.sites[ORIGIN] = { directory: "/home/dev/site", session: "ses_1", bg: undefined }
   })
-  assert.equal((store.settings().server as { url?: string } | undefined)?.url, "http://box:4096", "in memory at once")
+  assert.equal(store.settings().server?.host, "box", "in memory at once")
   assert.equal(fs.existsSync(settingsFile), false, "on disk only after the debounce or a flush")
   store.flush()
 
   const expected = {
     version: 1,
-    server: { url: "http://box:4096", password: "enc:abc" },
+    server: { agent: "claude", command: ["claude-agent-acp"], host: "box" },
     lastUrl: `${ORIGIN}/pricing`,
     defaultModel: { providerID: "anthropic", id: "sonnet" },
     sites: { [ORIGIN]: { directory: "/home/dev/site", session: "ses_1" } },

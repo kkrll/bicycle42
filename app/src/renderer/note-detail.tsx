@@ -207,11 +207,9 @@ function NoteDetail(props: { note: NoteRow }) {
         </Show>
         <Show when={n().takenBack}>
           <p class="note-aside">
-            {n().takenBack === "undone"
-              ? "Taken back, files and all. /redo in its conversation brings it back."
-              : n().takenBack === "restored"
-                ? "Taken back: its files are as they were before it, later changes kept. /redo in its conversation brings it back until the next message there."
-                : "The agent was asked to reverse it."}
+            {n().takenBack === "restored"
+              ? "Taken back: its files are as they were before it, later changes kept. /redo in its conversation brings it back until the next message there."
+              : "The agent was asked to reverse it."}
           </p>
         </Show>
         <Show when={pictures().length}>
@@ -292,14 +290,12 @@ function NoteDetail(props: { note: NoteRow }) {
               fallback={
                 <>
                   <span class="note-ask">
-                    {sure() === "undone"
-                      ? `Note ${n().n} is the newest message in its conversation, so it can be undone exactly, files included (/redo there brings it back). Undo it?`
-                      : sure() === "restored"
-                        ? `The app can put note ${n().n}'s files back exactly as they were before it, keeping what changed since. The conversation keeps it, and the agent is told with the next message there (/redo brings it back until then).${filesSaid()} Take it back?`
-                        : `Note ${n().n} can't be taken back exactly: the app has no exact record of what it changed, another conversation changed this folder at the same time, or later changes touched the same lines. Ask the agent to reverse it?`}
+                    {sure() === "restored"
+                      ? `The app can put note ${n().n}'s files back exactly as they were before it, keeping what changed since. The conversation keeps it, and the agent is told with the next message there (/redo brings it back until then).${filesSaid()} Take it back?`
+                      : `Note ${n().n} can't be taken back exactly: the app has no exact record of what it changed, another conversation changed this folder at the same time, or later changes touched the same lines. Ask the agent to reverse it?`}
                   </span>
                   <button class="btn danger" disabled={busy()} onClick={takeBack}>
-                    {sure() === "undone" ? `Undo note ${n().n}` : sure() === "restored" ? `Take back note ${n().n}` : "Ask to reverse"}
+                    {sure() === "restored" ? `Take back note ${n().n}` : "Ask to reverse"}
                   </button>
                   <button class="btn" data-keep disabled={busy()} onClick={() => setSure(false)}>
                     Keep it
