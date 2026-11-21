@@ -4,7 +4,7 @@ import { dispatch } from "../sent.js";
 import { C, EMPTY, MAX_CLASS, MAX_CSS, MAX_SHEET, MAX_TEXT, newBatch } from "./state.js";
 import { elOf, stableSel } from "./stamps.js";
 import { topProps, varsIn } from "./css.js";
-import { applyAll, runsOf } from "./apply.js";
+import { applyAll, runAt } from "./apply.js";
 import { commit, countEdits } from "./batch.js";
 import { select } from "./select.js";
 import { copyAround, dropInside } from "./copies.js";
@@ -45,6 +45,16 @@ export function submitCanvas(background) {
       const found = r.selectorText ? document.querySelectorAll(r.selectorText) : [];
       for (let i = 0; i < found.length && matched.length < 20; i++) if (found[i] !== hostEl) matched.push(found[i]);
     }
+  // A text edit beside elements says which of the element's words: those after one of them, or
+  // before the first. Which element that is, is read now, while the edit is on its run…
+  const beside = new Map();
+  for (const op of B.ops) {
+    const el = op.kind === "text" && elOf(op.rs);
+    if (!el) continue;
+    const { runs, at } = runAt(el, op);
+    const by = at >= 0 && runs.length > 1 && (at ? runs[at - 1] : runs[0]).end;
+    if (by) beside.set(op, [at ? "textAfter" : "textBefore", by]);
+  }
   // Measure with the batch switched off, then on: the note carries both sides.
   const measure = () => {
     const vals = new Map();
@@ -72,6 +82,8 @@ export function submitCanvas(background) {
     locate(op.parent);
     locate(op.before);
   }
+  // …and its name here, as the code has it: not as this batch reworded it.
+  for (const x of beside.values()) x[1] = line(plainLabel(x[1]));
   const sel = (x) => where.get(x.rs) || x.selector;
   C.hide.delete("measuring");
   applyAll();
@@ -95,10 +107,7 @@ export function submitCanvas(background) {
     const out = { kind: op.kind, ...tidy(op, sel(op)) };
     if (op.kind === "text") {
       Object.assign(out, { from: line(op.from), to: line(op.to) });
-      // Beside elements, which of its words: those after one of them, or before the first.
-      const el = elOf(op.rs), runs = el ? runsOf(el) : [], i = op.run || 0;
-      const by = runs.length > 1 && (i ? runs[i - 1] : runs[0])?.end;
-      if (by) out[i ? "textAfter" : "textBefore"] = line(plainLabel(by));
+      if (beside.has(op)) out[beside.get(op)[0]] = beside.get(op)[1];
     }
     if (op.kind === "move")
       Object.assign(out, {
@@ -222,7 +231,7 @@ export function dropFinished() {
     // wrote are left for it to replace. Failed or stopped: they are put back (by applyAll).
     if (p && p.status === "done") {
       for (const rs in b.B.els) if (b.B.els[rs].cls) forget(rs, "cls");
-      for (const op of b.B.ops) if (op.kind === "text") forget(op.rs, "text");
+      for (const op of b.B.ops) if (op.kind === "text") forget(op.rs, "text", op.run || 0);
     }
     // Say what just happened to the preview, for a few seconds, where the reviewer is looking.
     const name = typeof b.n === "number" ? `Note ${b.n}` : "Note";
@@ -242,10 +251,16 @@ export function dropFinished() {
   drawBar();
 }
 
-function forget(rs, k) {
+/** (Of an element's words, the one run: another batch's edit of another run keeps what it wrote.) */
+function forget(rs, k, run) {
   const el = elOf(rs);
   const st = el && C.applied.get(el);
-  if (st) delete st[k];
+  if (!st) return;
+  if (k !== "text") delete st[k];
+  else if (st.text) {
+    delete st.text[run];
+    if (!Object.keys(st.text).length) delete st.text;
+  }
 }
 
 export function showEdits(msg) {

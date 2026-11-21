@@ -220,7 +220,7 @@ export const label = (el) => {
 };
 
 /** What a designer would call it: "Button · Start free trial". The selector stays in the tooltip. */
-const KINDS = { a: "Link", button: "Button", img: "Image", svg: "Icon", input: "Field", textarea: "Field", select: "Menu", p: "Text",
+const KINDS = { a: "Link", button: "Button", img: "Image", br: "Line break", svg: "Icon", input: "Field", textarea: "Field", select: "Menu", p: "Text",
   span: "Text", label: "Label", ul: "List", ol: "List", li: "List item", nav: "Navigation", header: "Header", footer: "Footer",
   section: "Section", article: "Card", form: "Form", table: "Table", video: "Video", h1: "Heading", h2: "Heading", h3: "Heading",
   h4: "Heading", h5: "Heading", h6: "Heading" };
@@ -250,23 +250,35 @@ export function pick(x, y) {
 }
 
 /** Everything under a point, the one on top first: for a click that goes through (canvas mode's
- *  mod+click). What pick gives, then what is behind it, its parents among them; and before all of
- *  those, what is in it that the page keeps the pointer off (`pointer-events: none`: the icon in a
- *  button, a disabled control), down to the deepest whose box holds the point. */
+ *  mod+click). What pick gives, then what is behind it, its parents among them. And what the page
+ *  keeps the pointer off (`pointer-events: none`: the icon in a button, a disabled control, a
+ *  badge laid over a card), which no hit test names: under each element hit, what is in it of
+ *  that kind and has the point in its box, the deepest and the last drawn first. They come before
+ *  the element they are in; one smaller than the element on top comes first of all (a badge over the card's words is
+ *  what is pointed at; a sheen over the whole card is not). Not the body's: a layer of that kind
+ *  over the whole page (where toasts go) would be first everywhere. */
 export function pickDeep(x, y) {
   const all = document.elementsFromPoint(x, y).filter((n) => n !== hostEl && n !== document.documentElement && n !== document.body);
-  let el = all[0];
-  for (let next = el; next; ) {
-    el = next;
-    next = null;
-    for (const c of el.children) {
-      if (SKIP.test(c.tagName) || getComputedStyle(c).pointerEvents !== "none") continue;
-      const r = c.getBoundingClientRect();
-      // (a later child is drawn over an earlier one)
-      if (r.width > 0 && r.height > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom && c.checkVisibility({ opacityProperty: true, visibilityProperty: true })) next = c;
-    }
-  }
-  return el && el !== all[0] ? [el, ...all] : all;
+  const box = new Map();
+  const rect = (el) => box.get(el) || box.set(el, el.getBoundingClientRect()).get(el);
+  const area = (el) => rect(el).width * rect(el).height;
+  const holds = (c) => {
+    if (SKIP.test(c.tagName) || getComputedStyle(c).pointerEvents !== "none") return false;
+    const r = rect(c);
+    return r.width > 0 && r.height > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom && c.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+  };
+  const offIn = (el) => {
+    const off = [];
+    for (let c = el.lastElementChild; c; c = c.previousElementSibling) if (holds(c)) off.push(...offIn(c), c); // (a later child is drawn over an earlier one)
+    return off;
+  };
+  const out = [];
+  all.forEach((el, i) => {
+    const off = offIn(el), small = i ? off.filter((c) => area(c) < area(all[0])) : [];
+    out.unshift(...small);
+    out.push(...off.filter((c) => !small.includes(c)), el);
+  });
+  return out;
 }
 
 /** Elements fully inside a viewport rect, reduced to the outermost ones: the first 20 in

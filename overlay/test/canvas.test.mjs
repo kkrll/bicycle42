@@ -1740,9 +1740,8 @@ test("text beside elements: the words around an image, a link or a line break ar
   assert.deepEqual(n.edits.map(({ kind, selector, from, to, textBefore, textAfter }) => ({ kind, selector, from, to, textBefore, textAfter })), [
     { kind: "text", selector: "#mix", from: "Hello world", to: "Hi there", textBefore: "Image · Logo", textAfter: undefined },
     { kind: "text", selector: "#mix", from: "and", to: "or the", textBefore: undefined, textAfter: "Image · Logo" },
-    { kind: "text", selector: "#two", from: "line two", to: "second", textBefore: undefined, textAfter: n.edits[2].textAfter },
+    { kind: "text", selector: "#two", from: "line two", to: "second", textBefore: undefined, textAfter: "Line break" },
   ]);
-  assert.ok(n.edits[2].textAfter, "after the line break");
   assert.match(await page.evaluate(() => window.__harness.notes[0].prompt), /text "and" → "or the" \(its words after "Image · Logo"; what is inside it stays\)/);
   assert.deepEqual(errors, []);
   await page.close();
@@ -1815,6 +1814,208 @@ test("mod+click selects what is under the pointer through whatever is in the way
   assert.equal(await selTag(f), "section#plans.row");
   assert.equal(await count(f), "No edits");
   assert.equal(await f.evaluate(() => window.pageClicks), 0, "the page saw no clicks");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+/** Double-click the words of the k-th text node of an element. */
+const dblRun = async (page, f, sel, k) => {
+  const r = await f.evaluate(([s, i]) => {
+    const t = [...document.querySelector(s).childNodes].filter((n) => n.nodeType === 3)[i];
+    const range = document.createRange();
+    range.selectNodeContents(t);
+    const b = [...range.getClientRects()].find((q) => q.width > 4);
+    return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+  }, [sel, k]);
+  const fb = await (await f.frameElement()).boundingBox();
+  await page.mouse.click(fb.x + r.x, fb.y + r.y);
+  await page.mouse.click(fb.x + r.x, fb.y + r.y);
+  await frames(f);
+};
+
+test("text beside elements stays on its own words when the page puts an element in front of them, takes one out, or builds them anew: unsent, switched off, and after a failed note", async () => {
+  const { page, f, errors } = await open({ delay: 60000 });
+  const SPIN = '<span id="spin">…</span>', WAS = " Save changes <i>⌘S</i> now", NOW = " Save changes <i>⌘S</i> today";
+  await f.evaluate((was) => {
+    const d = document.createElement("div");
+    d.id = "sv";
+    d.innerHTML = was;
+    document.querySelector("header").after(d);
+    window.spin = (on) => {
+      const s = document.getElementById("spin");
+      if (on && !s) d.insertAdjacentHTML("afterbegin", '<span id="spin">…</span>');
+      else if (!on && s) s.remove();
+    };
+  }, WAS);
+  await frames(f);
+  const html = () => f.evaluate(() => document.getElementById("sv").innerHTML.replace(/ data-b42e="[a-z0-9]+"/g, ""));
+  await dblRun(page, f, "#sv", 1);
+  await page.keyboard.type("today");
+  await page.keyboard.press("Enter");
+  await frames(f);
+  assert.equal(await html(), NOW);
+  // an element comes in front (a spinner): the run is one further on, the edit is where it was
+  await f.evaluate(() => window.spin(true));
+  await settle(f);
+  assert.equal(await html(), SPIN + NOW);
+  await f.evaluate(() => window.spin(false));
+  await settle(f);
+  await act(f, { type: "undo" });
+  await frames(f);
+  assert.equal(await html(), WAS, "undone: as the page had it");
+  await act(f, { type: "redo" });
+  await frames(f);
+  // the page builds all of it anew, with the spinner: the edit is on the run that has its words
+  await f.evaluate((h) => (document.getElementById("sv").innerHTML = h), SPIN + WAS);
+  await settle(f);
+  assert.equal(await html(), SPIN + NOW);
+  // the element beside the words is reworded in the same batch: the note names it as the code has it
+  await dblRun(page, f, "#sv i", 0);
+  await page.keyboard.type("ctrl+S");
+  await page.keyboard.press("Enter");
+  await frames(f);
+  const n = await send(page);
+  await f.waitForFunction(() => !window.__b42.busy());
+  const mine = n.edits.find((e) => e.selector === "#sv");
+  assert.deepEqual([mine.from, mine.to, mine.textAfter], ["now", "today", "Block · ⌘S"]);
+  // sent, and the spinner goes: switched off for the "before" picture it is the page's own words, on again the edit
+  await f.evaluate(() => window.spin(false));
+  await settle(f);
+  assert.equal(await html(), NOW.replace("⌘S", "ctrl+S"));
+  await f.evaluate((id) => window.__b42.receive({ type: "edits", id, show: false }), n.id);
+  await settle(f);
+  assert.equal(await html(), WAS);
+  await f.evaluate((id) => window.__b42.receive({ type: "edits", id, show: true }), n.id);
+  await settle(f);
+  assert.equal(await html(), NOW.replace("⌘S", "ctrl+S"));
+  // the note fails: put back
+  await f.evaluate((id) => window.__b42.receive({ type: "pins", pins: [{ id, n: 1, status: "failed", selector: "#sv" }] }), n.id);
+  await settle(f);
+  assert.equal(await html(), WAS);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("text edited in place while the page builds what is inside anew: the typing goes on, the page's elements are the page's, and the words are not kept", async () => {
+  const { page, f, errors } = await open();
+  await f.evaluate(() => {
+    const p = document.createElement("p");
+    p.id = "re";
+    p.innerHTML = 'Hello <b id="old">old</b> world';
+    document.querySelector("header").after(p);
+    window.swap = (tag, id) => {
+      const x = document.createElement(tag);
+      x.id = id;
+      x.textContent = id;
+      p.children[0].replaceWith(x);
+    };
+  });
+  await frames(f);
+  const html = () => f.evaluate(() => document.getElementById("re").innerHTML);
+  await dblRun(page, f, "#re", 0);
+  await page.keyboard.type("Hi");
+  await f.evaluate(() => window.swap("i", "new"));
+  await page.keyboard.type("!");
+  assert.equal(await f.evaluate(() => document.getElementById("re").firstChild.data), "Hi!", "typing is not taken back for what the page removed");
+  await page.keyboard.press("Enter");
+  await frames(f);
+  assert.match(await said(f), /The page changed what is inside it/);
+  assert.equal(await html(), 'Hello <i id="new">new</i> world', "the element the page took out is not put back");
+  assert.equal(await count(f), "No edits");
+  // Esc the same
+  await dblRun(page, f, "#re", 0);
+  await page.keyboard.type("Hey");
+  await f.evaluate(() => window.swap("b", "newer"));
+  await page.keyboard.press("Escape");
+  await frames(f);
+  assert.equal(await html(), 'Hello <b id="newer">newer</b> world');
+  assert.ok(await f.evaluate(() => !document.querySelector("[contenteditable]")));
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("a note done forgets its own words only: an unsent edit of other words of the element is still undone exactly", async () => {
+  const { page, f, errors } = await open({ delay: 60000 });
+  await f.evaluate(() => {
+    const p = document.createElement("p");
+    p.id = "fg";
+    p.innerHTML = '<b>Lead</b> and <img alt="Pic" width="10" height="10" src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==">';
+    document.querySelector("header").after(p);
+  });
+  await frames(f);
+  await dblRun(page, f, "#fg", 0);
+  await page.keyboard.type("or");
+  await page.keyboard.press("Enter");
+  await frames(f);
+  const n = await send(page);
+  await f.waitForFunction(() => !window.__b42.busy());
+  // words typed where there were none, before the first element: a text node is made for them
+  await dblRun(page, f, "#fg", 0);
+  await f.evaluate(() => getSelection().collapse(document.getElementById("fg"), 0));
+  await page.keyboard.type("New ");
+  await page.keyboard.press("Enter");
+  await frames(f);
+  assert.deepEqual(await f.evaluate(() => [...document.getElementById("fg").childNodes].map((x) => (x.nodeType === 3 ? x.data : x.localName))), ["New ", "b", " or ", "img"]);
+  await f.evaluate((id) => window.__b42.receive({ type: "pins", pins: [{ id, n: 1, status: "done", selector: "#fg" }] }), n.id);
+  await settle(f);
+  await act(f, { type: "undo" });
+  await frames(f);
+  assert.deepEqual(await f.evaluate(() => [...document.getElementById("fg").childNodes].map((x) => (x.nodeType === 3 ? x.data : x.localName))), ["b", " or ", "img"], "the node made for them is gone with them");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("Enter during a drag does nothing: the drag goes on, and no text is edited under it", async () => {
+  const { page, f, errors } = await open();
+  await clickAt(page, f, SECOND, 100, 80);
+  const c = await box(f, SECOND);
+  await page.mouse.move(c.x + c.width, c.y + 40);
+  await frames(f);
+  await page.mouse.down();
+  await page.mouse.move(c.x + c.width + 40, c.y + 40, { steps: 4 });
+  await frames(f);
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
+  await frames(f);
+  assert.equal(await selTag(f), "article.card");
+  assert.ok(await f.evaluate(() => !document.querySelector("[contenteditable]")));
+  await page.mouse.up();
+  await frames(f);
+  assert.deepEqual([await count(f), Math.round((await box(f, SECOND)).width)], ["1 edit", 240]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("mod+click reaches what the page keeps the pointer off beside what is hit: a badge over a card first, a sheen over all of it after the words", async () => {
+  const { page, f, errors } = await open();
+  await f.evaluate(() => {
+    const d = document.createElement("div");
+    d.id = "bd";
+    d.style.cssText = "position: relative; width: 240px";
+    d.innerHTML = `<p id="bp" style="margin: 0; padding: 24px 16px">Words here</p>
+      <span id="badge" style="pointer-events: none; position: absolute; top: 4px; left: 4px; width: 34px; height: 14px; background: #c00"></span>
+      <span id="sheen" style="pointer-events: none; position: absolute; inset: 0"></span>`;
+    document.querySelector("header").after(d);
+  });
+  await frames(f);
+  const deep = async (x, y) => {
+    await page.keyboard.down(MOD);
+    await page.mouse.click(x, y);
+    await page.keyboard.up(MOD);
+    await frames(f);
+    return selTag(f);
+  };
+  const b = await box(f, "#badge");
+  const at = [b.x + b.width / 2, b.y + b.height / 2];
+  assert.equal(await deep(...at), "span#badge");
+  assert.equal(await deep(...at), "p#bp");
+  assert.equal(await deep(...at), "span#sheen");
+  assert.equal(await deep(...at), "div#bd");
+  // away from the badge: the words, then the sheen over them
+  const p = await box(f, "#bp");
+  const words = [p.x + 40, p.y + p.height / 2];
+  assert.equal(await deep(...words), "p#bp");
+  assert.equal(await deep(...words), "span#sheen");
   assert.deepEqual(errors, []);
   await page.close();
 });

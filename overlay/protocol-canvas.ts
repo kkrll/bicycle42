@@ -152,7 +152,9 @@ export type CanvasAct =
   /** An arrow on the tree: up and down the rows, right opens or goes in, left closes or goes out. */
   | { type: "walk"; key: "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight" }
   /** Enter outside a field: into the selection (the child it came out of, else its first), or
-   *  with `out` (shift+Enter) out to its parent. As on the page, where Enter is the same. */
+   *  with `out` (shift+Enter) out to its parent. As on the page, where Enter is the same, but
+   *  for the words of an element with nothing further in: those are edited from the page only
+   *  (the typing is the page's, and the keyboard is here). */
   | { type: "step"; out?: boolean }
   /** Element | Global. */
   | { type: "global"; on: boolean }

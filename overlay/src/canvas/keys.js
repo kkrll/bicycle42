@@ -36,6 +36,7 @@ export function cvKey(e) {
     // further in, the element's words are edited. So Enter alone never sends: mod+Enter does,
     // here as in the inspector's fields.
     block(e);
+    if (C.drag) return; // (a drag is finished or cancelled first: Enter would edit text under it)
     if (mod(e)) submitCanvas(e.altKey);
     else if (!C.sel) flash(`Enter goes into the selection: ${isMac ? "⌘" : "ctrl+"}Enter sends`);
     else if (!cvWalk(e.shiftKey) && !e.shiftKey && hasWords(C.sel)) startEdit(C.sel);

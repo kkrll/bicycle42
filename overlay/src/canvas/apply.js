@@ -1,4 +1,4 @@
-import { adopt, BOOST, restyled } from "../page.js";
+import { adopt, BOOST, line, restyled } from "../page.js";
 import { C, MAX_CLASS, MAX_CSS, MAX_SHEET } from "./state.js";
 import { elOf, stableSel, STAMP, stampOf } from "./stamps.js";
 import { usable } from "./css.js";
@@ -143,33 +143,56 @@ export function runsOf(el) {
 export const runText = (run) => run.nodes.map((n) => n.data).join("");
 
 /** Write a run's words: into its first text node (the node a framework holds stays the one on the
- *  page), the others emptied; a run without one gets one. Returns what each node held, to put the
- *  run back exactly (null for a node made here). */
+ *  page), the others emptied; a run without one gets one. Returns, node by node, what it held and
+ *  what it holds now, to put the run back exactly: [node, before, now] (before: null for a node
+ *  made here). */
 function writeRun(el, run, to) {
-  const was = run.nodes.map((n) => [n, n.data]);
-  run.nodes.forEach((n, k) => {
-    const s = k ? "" : to;
-    if (n.data !== s) n.data = s;
-  });
+  const was = run.nodes.map((n, k) => [n, n.data, k ? "" : to]);
+  for (const [n, , s] of was) if (n.data !== s) n.data = s;
   if (!run.nodes.length && to) {
     const t = document.createTextNode(to);
     el.insertBefore(t, run.end);
-    was.push([t, null]);
+    was.push([t, null, to]);
   }
   return was;
 }
 
-/** A run as it was before our edit: the same nodes with what each held, while they are still the
- *  run's; after the page built them anew, the words. */
+/** The run an edit is on, as the element is now. It is the i-th only while the page keeps the
+ *  same elements in front of it (a spinner comes, a badge goes), so it is found by more than its
+ *  place: by the text nodes the edit was written into (`st`), while the page still has one; else
+ *  it is the one at its place if the words there are the edit's (as they were, or as an edit
+ *  made them: `texts`); else the one run that has those words. An element of plain words has one
+ *  run, which is it whatever it says now. Null: the edit is on nothing for now, rather than on
+ *  the run next to its own. */
+function runFor(el, runs, i, texts, st) {
+  const mine = st && st.was && st.was.find(([n]) => n.parentNode === el);
+  if (mine) return runs.find((r) => r.nodes.includes(mine[0])) || null;
+  const known = (r) => texts.has(line(runText(r)));
+  if (runs[i] && known(runs[i])) return runs[i];
+  const same = runs.filter(known);
+  return same.length === 1 ? same[0] : runs.length === 1 && !i ? runs[0] : null;
+}
+
+/** Where a text edit's run is among the element's runs now (-1: nowhere), with the runs: the
+ *  note says which words by the element beside them (send.js). */
+export function runAt(el, op) {
+  const runs = runsOf(el), i = op.run || 0, st = C.applied.get(el);
+  return { runs, at: runs.indexOf(runFor(el, runs, i, new Set([line(op.from), line(op.to)]), st && st.text && st.text[i])) };
+}
+
+/** A run as it was before our edit: the same nodes with what each held, while the page still has
+ *  them (wherever the run is among its children now); after it built them anew, the words, where
+ *  ours are. */
 function restoreRun(el, i, st) {
-  const run = runsOf(el)[i];
-  if (!run) return;
-  if (st.was && st.was.length === run.nodes.length && st.was.every(([n]) => run.nodes.includes(n)))
+  if (st.was && st.was.every(([n]) => n.parentNode === el)) {
     for (const [n, d] of st.was) {
       if (d === null) n.remove();
       else if (n.data !== d) n.data = d;
     }
-  else if (runText(run) !== st.from) writeRun(el, run, st.from);
+    return;
+  }
+  const run = runFor(el, runsOf(el), i, new Set([line(st.to)]), st);
+  if (run && runText(run) !== st.from) writeRun(el, run, st.from);
 }
 const setClass = (el, v) => (v === null ? el.removeAttribute("class") : el.setAttribute("class", v));
 
@@ -262,7 +285,10 @@ export function applyAll() {
         const el = elOf(op.rs);
         if (!el) continue;
         const w = need(el), i = op.run || 0, runs = w.text || (w.text = {});
-        runs[i] = { from: runs[i] ? runs[i].from : op.from, to: op.to };
+        // (from: as it was before the first of the batches that edit it; texts: all it may say)
+        const t = runs[i] || (runs[i] = { from: op.from, texts: new Set() });
+        t.to = op.to;
+        t.texts.add(line(op.from)).add(line(op.to));
       }
     }
     const sheet = b.B.sheet;
@@ -346,13 +372,20 @@ export function applyAll() {
     if (w.text) {
       const runs = runsOf(el), had = st.text || {};
       for (const i in w.text) {
-        const run = runs[i], t = w.text[i];
-        if (!run) continue; // (the page has fewer elements in it now: no such run)
+        const t = w.text[i], old = had[i], run = runFor(el, runs, +i, t.texts, old);
+        if (!run) continue; // (the page has other words there now)
         if (runText(run) !== t.to) {
           const was = writeRun(el, run, t.to);
-          if (!had[i]) had[i] = { from: t.from, was };
+          // What is put back is what the page had before our words. A node it still has from
+          // the last time keeps what was remembered for it then, unless the page wrote into it
+          // since: that one, like a node it built since, is put back as the page has it now.
+          for (const x of (old && old.was) || []) {
+            const now = was.find(([n]) => n === x[0]);
+            if (now && now[1] === x[2]) now[1] = x[1];
+          }
+          had[i] = { from: t.from, to: t.to, was };
           dirty = true;
-        } else if (!had[i]) had[i] = { from: t.from };
+        } else if (!old) had[i] = { from: t.from, to: t.to };
       }
       if (Object.keys(had).length) st.text = had;
     }

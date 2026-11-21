@@ -34,7 +34,7 @@ export const C = {
   snap: EMPTY, // the draft batch as last committed; past and future are the undo stacks
   past: [],
   future: [],
-  applied: new Map(), // Element → { cls?: original class attribute, text?: { run: { from, was } }, its words before } written by us
+  applied: new Map(), // Element → { cls?: original class attribute, text?: { run: { from, to, was } }, its words before } written by us
   found: new Map(), // stable selector → Element
   paths: new Map(), // an element's stamp (as a selector) → { path, tag }: where it last was
   pathsDirty: false, pathsAt: 0,
