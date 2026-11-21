@@ -199,7 +199,14 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
   // The dialog can be closed while main is still trying. The attempt goes on; its outcome then
   // has no form to land in, so a failure goes to the notice strip.
   let gone = false
-  onCleanup(() => (gone = true))
+  /** Another computer was connected to here (to list its agents): let go with this screen,
+   *  unless an agent there is the one in use (main keeps that one). */
+  let reached = false
+  const leave = () => reached && void b42.invoke("leaveSsh").catch(() => undefined)
+  onCleanup(() => {
+    gone = true
+    leave()
+  })
   const known = () => ("url" in state.connection && !isAgent(state.connection.url) && state.harness?.here !== true ? state.connection.url : "")
   const [url, setUrl] = createSignal(known())
   const [password, setPassword] = createSignal("")
@@ -235,9 +242,10 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
     setReaching(true)
     setError("")
     setThere(undefined)
+    reached = true
     b42
       .invoke("connectSsh", where)
-      .then((info) => setThere(info))
+      .then((info) => (gone ? leave() : setThere(info)))
       .catch((err) => (gone ? setNotice(`Could not connect to ${where}. ${message(err)}`) : fail("ssh", err)))
       .finally(() => (setConnecting(false), setReaching(false)))
   }

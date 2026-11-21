@@ -60,6 +60,10 @@ export type Settings = {
   /** Key: the site's origin. */
   /** `url` and `seen`: the page last open on the site and when, to come back to with its project. */
   sites: Sites
+  /** Sites of agents on other computers, opened here: by host as typed, the local port the page
+   *  opens (http://127.0.0.1:<it>) and the port and address there it is forwarded from, so after
+   *  a restart the same port there is forwarded to the same one here again. */
+  forwards?: Record<string, Record<string, { port: number; host: string }>>
 }
 
 export type Store = {

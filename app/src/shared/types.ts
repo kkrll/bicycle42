@@ -522,6 +522,9 @@ export type Commands = {
    *  are installed there. Rejects with a sentence (a host key not known yet, no key accepted, no
    *  node there). */
   connectSsh(host: string): RemoteInfo
+  /** The connect screen closed: a computer connected to only to list its agents (no agent in use
+   *  is there, none is being started there) is let go. */
+  leaveSsh(): void
   /** Every server connected to so far, the one in use first. Passwords stay in main. */
   servers(): ServerInfo[]
   /** Connects to one of them. Its own repo, page and conversations come back with it. */

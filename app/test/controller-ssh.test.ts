@@ -9,6 +9,8 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import fs from "node:fs"
+import http from "node:http"
+import type net from "node:net"
 import path from "node:path"
 import { test } from "node:test"
 import { timing } from "../src/main/acp"
@@ -66,10 +68,27 @@ function boot(opts: { bind?: { there: string; here: string } } = {}) {
     notes,
     note,
     shell: () => current,
-    async ready() {
+    /** The app quits and starts again (on the same data folder). */
+    async restart() {
+      await current.core.dispose()
+      current = shell()
+    },
+    /** The app's ssh connections running "there": the helper attached to, one per host. */
+    attached: () => {
+      const dir = path.join(h.root, "sessions")
+      return (fs.existsSync(dir) ? fs.readdirSync(dir) : []).filter((f) => {
+        try {
+          return fs.readFileSync(path.join(dir, f), "utf8").includes(" attach")
+        } catch {
+          return false
+        }
+      }).length
+    },
+    /** `page: false`: no page is open (the site is to be started). */
+    async ready(o: { page?: false } = {}) {
       await cmd("connectSsh", "dev-box")
       await cmd("connectAgent", { id: "custom", command, host: "dev-box" })
-      current.page.load(`${SITE}/`)
+      if (o.page !== false) current.page.load(`${SITE}/`)
       await cmd("setDirectory", repo)
       await until(() => !!snap().session)
     },
@@ -103,8 +122,9 @@ test("an agent on another computer: the agents there are listed, it is started t
     assert.ok(listed.some((f) => f.name === "repo"))
     t.note("make it blue")
     await until(() => t.notes() === "1:done")
-    // The app's file history of the folder is kept there, not here.
+    // The app's file history of the folder is kept there, not here, under this install's own id.
     await until(() => fs.existsSync(path.join(t.h.home, ".bicycle42", "snapshots")))
+    assert.deepEqual(fs.readdirSync(path.join(t.h.home, ".bicycle42", "snapshots")), [fs.readFileSync(path.join(t.h.data, "ssh", "owner"), "utf8")])
     assert.equal(fs.existsSync(path.join(t.h.data, "snapshots")), false)
   } finally {
     await t.close()
@@ -164,7 +184,7 @@ test("take back with an agent there: an older note's files are put back from the
     assert.equal(await t.cmd("takeBackWay", first), "restored")
     assert.equal(await t.cmd("takeBackNote", first, "restored"), "restored")
     assert.equal(fs.readFileSync(a, "utf8"), "a { color: black }\n\n\n\n\nb { pad: 8px }\n")
-    const root = path.join(t.h.home, ".bicycle42", "snapshots")
+    const root = path.join(t.h.home, ".bicycle42", "snapshots", fs.readFileSync(path.join(t.h.data, "ssh", "owner"), "utf8"))
     const log = JSON.parse(fs.readFileSync(path.join(root, fs.readdirSync(root).find((d) => d.endsWith(".git"))!, "b42.json"), "utf8")) as { restores: unknown[]; turns: unknown[] }
     assert.equal(log.turns.length, 2)
     assert.equal(log.restores.length, 1)
@@ -205,5 +225,80 @@ test("a take-back with an agent on another computer never touches this computer'
   } finally {
     await t.close()
     fs.rmSync(base, { recursive: true, force: true })
+  }
+})
+
+test("Connect pressed for the computer of the agent in use while it can't be reached: its connection is tried again, the agent and its note go on", async () => {
+  const t = boot()
+  try {
+    await t.ready()
+    t.note("SLOW 1500 then done")
+    await until(() => t.notes() === "1:working")
+    t.h.drop()
+    await until(() => t.snap().connection.status === "offline")
+    t.h.up()
+    const there = (await t.cmd("connectSsh", "dev-box")) as { host: string; agents: unknown[] }
+    assert.equal(there.host, "dev-box")
+    assert.ok(there.agents.length)
+    await until(() => t.snap().connection.status === "online")
+    await until(() => t.notes() === "1:done")
+  } finally {
+    await t.close()
+  }
+})
+
+test("a computer connected to only to list its agents is let go when the connect screen closes; the one the agent in use is on is kept", async () => {
+  const t = boot()
+  try {
+    await t.ready()
+    await until(() => t.attached() === 1)
+    await t.cmd("connectSsh", "k@dev-box")
+    await until(() => t.attached() === 2)
+    await t.cmd("leaveSsh")
+    await until(() => t.attached() === 1)
+    t.note("still here")
+    await until(() => t.notes() === "1:done")
+  } finally {
+    await t.close()
+  }
+})
+
+test("the site the agent starts there opens here on 127.0.0.1; after a restart the same port there is forwarded to the same one here before the page opens; when that can't be, it is said and this computer's own site never shows", async () => {
+  // The other computer is this one: its site's port is taken here too, so it opens at another.
+  const site = http.createServer((_, res) => res.end("from there"))
+  await new Promise<void>((r) => site.listen(0, "127.0.0.1", r))
+  const port = (site.address() as net.AddressInfo).port
+  process.env.B42_FAKE_SITE = `http://localhost:${port}/`
+  const t = boot()
+  let mine: http.Server | undefined
+  try {
+    await t.ready({ page: false })
+    await t.cmd("startSite")
+    const loads = () => t.shell().page.calls.filter(([k]) => k === "load").map(([, v]) => String(v))
+    await until(() => loads().some((u) => /^http:\/\/127\.0\.0\.1:\d+\/$/.test(u)))
+    const opened = loads().find((u) => /^http:\/\/127\.0\.0\.1:\d+\/$/.test(u))!
+    const local = Number(new URL(opened).port)
+    assert.notEqual(local, port)
+    assert.equal(await (await fetch(opened)).text(), "from there")
+    // Quit and start again: the page waits for the forward, then opens the same address.
+    await t.restart()
+    assert.equal(loads()[0], "", "nothing opened before the forward is there")
+    await until(() => loads().includes(opened))
+    assert.equal(await (await fetch(opened)).text(), "from there")
+    // Again, with that port taken here meanwhile by a site of this computer's.
+    await t.shell().core.dispose()
+    await until(() => fetch(opened).then(() => false, () => true))
+    mine = http.createServer((_, res) => res.end("this computer's own"))
+    await new Promise<void>((r) => mine!.listen(local, "127.0.0.1", r))
+    await t.restart()
+    await until(() => /can't be opened here/.test(t.snap().page.error ?? ""))
+    assert.match(t.snap().page.error ?? "", /dev-box.*taken on this computer/)
+    assert.equal(t.snap().page.url, opened)
+    assert.ok(!loads().includes(opened), "this computer's site at that address never opened")
+  } finally {
+    delete process.env.B42_FAKE_SITE
+    mine?.close()
+    site.close()
+    await t.close()
   }
 })

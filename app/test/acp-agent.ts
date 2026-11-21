@@ -8,7 +8,8 @@
 // ended), "CRASH" ends the process a moment after it began (once per state file), anything else
 // is answered "done". "SLOW <ms>" takes that long first. "SPAWN <file>" starts a program that runs on (as a dev server would), writes
 // its pid into that file, and then ends the process as CRASH does, every time. "EDIT <path> <from> <to>" first replaces those words in that file, as an
-// agent's edit would (the app's own file history sees it: test/controller-acp.test.ts).
+// agent's edit would (the app's own file history sees it: test/controller-acp.test.ts). The request
+// to start the site is answered with the address in B42_FAKE_SITE, when it is set.
 import { spawn } from "node:child_process"
 import fs from "node:fs"
 import { Readable, Writable } from "node:stream"
@@ -19,6 +20,11 @@ const file = process.argv[2]!
 const fake = fakeAgent({ file })
 fake.onPrompt = async (turn) => {
   await turn.say({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "on it" }, messageId: `m-${turn.text.length}` })
+  // The request to start the site (asks.ts) is answered with B42_FAKE_SITE as the address.
+  if (process.env.B42_FAKE_SITE && turn.text.includes("SITE: <address>")) {
+    await turn.say({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: `\n\nSITE: ${process.env.B42_FAKE_SITE}\n` }, messageId: `m-${turn.text.length}` })
+    return
+  }
   const started = /SPAWN (\S+)/.exec(turn.text)
   if (started) {
     const server = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" })

@@ -157,7 +157,10 @@ export function createCore(host: Host): Core {
   const histories = new Map<Machine, Snapshots>()
   const snapshotsOf = (m: Machine): Snapshots => {
     let made = histories.get(m)
-    if (!made) histories.set(m, (made = m.local ? createSnapshots(host.dataDir, { log }) : createSnapshots(host.dataDir, { log, machine: m, root: m.path.join(m.home, ".bicycle42", "snapshots") })))
+    // Another computer's under this install's own id there: two installs of the app (a laptop
+    // and a desktop) working in one folder there each keep theirs, and never write over the other's.
+    if (!made)
+      histories.set(m, (made = m.local ? createSnapshots(host.dataDir, { log }) : createSnapshots(host.dataDir, { log, machine: m, root: m.path.join(m.home, ".bicycle42", "snapshots", (m as RemoteMachine).owner) })))
     return made
   }
   let snapshots = snapshotsOf(machine)
@@ -174,29 +177,60 @@ export function createCore(host: Host): Core {
     }
     return m
   }
+  /** Hosts an agent is being started on: their connection is not let go meanwhile. */
+  const startingOn = new Set<string>()
   /** Lets go of another computer no agent in use is on: its connection and forwards end. */
   function letGo(m: Machine) {
     if (m.local || m === machine) return
     for (const [h, p] of remotes) void p.then((r) => r === m && (remotes.delete(h), void r.close()), () => undefined)
   }
   /** The address an agent on another computer said its site is at, opened here: a port on its
-   *  localhost is forwarded over the ssh connection (the same number here when it is free). */
+   *  localhost is forwarded over the ssh connection to one on this computer's 127.0.0.1 (the
+   *  same number when it is free here), which is what the page opens, never `localhost` (a
+   *  server of this computer's on [::1] would answer it first). The two ports are kept
+   *  (settings.forwards). Throws a sentence when it can't be forwarded: the address as the agent
+   *  said it would open this computer's own site, if any. */
   async function hereFor(address: string): Promise<string> {
     const m = machine
     if (m.local || !("forward" in m)) return address
+    const r = m as RemoteMachine
+    const u = new URL(address)
+    if (!/^(localhost|127(\.\d+){3}|0\.0\.0\.0|\[::1\]|::1)$/.test(u.hostname)) return address
+    const port = Number(u.port || (u.protocol === "https:" ? 443 : 80))
+    const there = u.hostname === "0.0.0.0" ? "127.0.0.1" : u.hostname.replace(/^\[|\]$/g, "")
+    let local: number
     try {
-      const u = new URL(address)
-      if (!/^(localhost|127(\.\d+){3}|0\.0\.0\.0|\[::1\]|::1)$/.test(u.hostname)) return address
-      const port = Number(u.port || (u.protocol === "https:" ? 443 : 80))
-      const there = u.hostname === "0.0.0.0" ? "127.0.0.1" : u.hostname.replace(/^\[|\]$/g, "")
-      const local = await (m as RemoteMachine).forward(port, there)
-      u.hostname = "localhost"
-      u.port = String(local)
-      return u.toString().replace(/\/$/, address.endsWith("/") ? "/" : "")
+      local = await r.forward(port, there)
     } catch (err) {
-      log("warn", "can't forward the site's port", say(err))
-      return address
+      throw new Error(`The site on ${r.host} (port ${port}) can't be opened here: ${say(err)}`)
     }
+    store.update((s) => void ((s.forwards ??= {})[r.host] = { ...s.forwards[r.host], [String(local)]: { port, host: there } }))
+    u.hostname = "127.0.0.1"
+    u.port = String(local)
+    return u.toString().replace(/\/$/, address.endsWith("/") ? "/" : "")
+  }
+  /** What a local address opens on the computer of the agent in use: the port there it was
+   *  forwarded from, when it is one of its sites (hereFor). */
+  function forwardedAt(url: string): { local: number; port: number; host: string } | undefined {
+    const m = machine
+    if (m.local || !("forward" in m) || !url) return undefined
+    try {
+      const u = new URL(url)
+      if (u.hostname !== "127.0.0.1" && u.hostname !== "localhost") return undefined
+      const known = store.settings().forwards?.[(m as RemoteMachine).host]?.[u.port]
+      return known && { local: Number(u.port), ...known }
+    } catch {
+      return undefined
+    }
+  }
+  /** A site of the agent's computer that could not be opened here, said where the page would be
+   *  (its "Try again" forwards it again). The page itself shows nothing meanwhile. */
+  let blocked: { url: string; error: string; again(): Promise<void> } | undefined
+  function block(url: string, error: string, again: () => Promise<void>) {
+    log("warn", "can't open a site of the agent's computer", error)
+    blocked = { url, error, again }
+    page?.load("")
+    push()
   }
 
   /** The conversation's pictures, served to the window by address (pictures.ts). A note's own
@@ -368,7 +402,12 @@ export function createCore(host: Host): Core {
       ...(serverName() ? { serverName: serverName() } : {}),
       ...(harness() ? { harness: harness() } : {}),
       home: machine.home,
-      page: { ...(p ?? { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }), device: device(), phone: phone().id },
+      page: {
+        ...(p ?? { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }),
+        ...(blocked && !p?.url ? { url: blocked.url, error: blocked.error, loading: false } : {}),
+        device: device(),
+        phone: phone().id,
+      },
       review: {
         enabled: review?.enabled ?? true,
         mode: !(review?.enabled ?? true) ? "preview" : pageMode.canvas ? "edit" : pageMode.motion ? "motion" : "notes",
@@ -597,7 +636,11 @@ export function createCore(host: Host): Core {
     modelChoice = undefined
     toChat({ type: "reset", session: "", items: [] })
     chatPictures.clear()
-    page?.load(store.settings().lastUrl ?? "")
+    blocked = undefined
+    // A site of another computer's opens once it is forwarded again (use): before, its address
+    // could open whatever this computer has at that port.
+    const last = store.settings().lastUrl ?? ""
+    page?.load(forwardedAt(last) ? "" : last)
   }
 
   /** Checks the server, then keeps listening to it. Rejects, leaving things as they were, when the
@@ -623,6 +666,15 @@ export function createCore(host: Host): Core {
   /** Runs an ACP agent on this computer (a known one by its id, or any `command`) and uses it as
    *  the server. Rejects, leaving things as they were, when it can't be started. */
   async function connectAgent(id: string, command?: string[], where?: string) {
+    if (!where) return startAgent(id, command)
+    startingOn.add(where)
+    try {
+      return await startAgent(id, command, where)
+    } finally {
+      startingOn.delete(where)
+    }
+  }
+  async function startAgent(id: string, command?: string[], where?: string) {
     const known = KNOWN_AGENTS.find((a) => a.id === id)
     // On another computer: its connection first (made once, kept while one of its agents is in use).
     const m: Machine = where ? await remoteOf(where) : thisMachine()
@@ -707,11 +759,35 @@ export function createCore(host: Host): Core {
     // before one opens (after a restart the forwards are gone), and a page that failed for want
     // of one loads again.
     if (!on.local) {
-      const addresses = [store.settings().lastUrl ?? "", ...Object.keys(store.settings().sites).map(addressOf)].filter(Boolean)
-      await Promise.all([...new Set(addresses.map((a) => originOf(a)).filter(Boolean))].slice(0, 10).map((o) => hereFor(o!)))
+      const last = store.settings().lastUrl ?? ""
+      const addresses = [last, ...Object.keys(store.settings().sites).map(addressOf)].filter(Boolean)
+      const again = async (url: string) => {
+        const f = forwardedAt(url)
+        if (f) await (on as RemoteMachine).forward(f.port, f.host, f.local)
+      }
+      const failed = new Map<string, string>()
+      await Promise.all(
+        [...new Set(addresses.map((a) => originOf(a)).filter(Boolean))].slice(0, 10).map((o) =>
+          again(o!).catch((err) => {
+            log("warn", "can't forward a site's port again", say(err))
+            failed.set(o!, say(err))
+          }),
+        ),
+      )
       if (backend !== next) return
       const p = page?.state()
-      if (p?.error && p.url) page?.reload()
+      const lastFailed = failed.get(originOf(last) ?? "")
+      // The page was kept from loading it until now (lastUrl, enter): it opens, or says why not.
+      if (forwardedAt(last) && !p?.url) {
+        const open = async () => {
+          await again(last)
+          blocked = undefined
+          page?.load(last)
+        }
+        const tryOpen = (): Promise<void> => open().catch((err) => void (backend === next && block(last, `The site on ${(on as RemoteMachine).host} can't be opened here: ${say(err)}`, tryOpen)))
+        if (lastFailed) block(last, `The site on ${(on as RemoteMachine).host} can't be opened here: ${lastFailed}`, tryOpen)
+        else page?.load(last)
+      } else if (p?.error && p.url && !failed.has(originOf(p.url) ?? "")) page?.reload()
     }
     await openSite()
     void refreshRunning(true)
@@ -1336,11 +1412,17 @@ export function createCore(host: Host): Core {
       const said = last?.kind === "assistant" ? last.parts.map((p) => (p.kind === "text" ? p.text : "")).join("\n") : ""
       const url = [...said.matchAll(SITE_LINE)].pop()?.[1]
       if (!url || !originOf(url) || backend !== b || siteAsked !== id || works()) return
-      // An agent on another computer: its localhost is forwarded here first.
-      const here = await hereFor(url)
-      if (backend !== b || siteAsked !== id || works()) return
-      siteAsked = undefined
-      page?.load(here)
+      // An agent on another computer: its localhost is forwarded here first. When it can't be,
+      // that is said where the page would be: the address as said would open this computer's.
+      const open = async () => {
+        const here = await hereFor(url)
+        if (backend !== b || works()) return
+        siteAsked = undefined
+        blocked = undefined
+        page?.load(here)
+      }
+      const tryOpen = (): Promise<void> => open().catch((err) => void (backend === b && !works() && block(url, say(err), tryOpen)))
+      await tryOpen()
     } catch (err) {
       log("warn", "can't read where the agent started the site", say(err))
     }
@@ -1476,11 +1558,11 @@ export function createCore(host: Host): Core {
    *  turn boundaries read only what changed. */
   const warmed = new Set<string>()
   async function warm(directory: string | undefined) {
-    const sn = snapshots
-    const dir = await localDir(directory)
-    if (!dir || warmed.has(`${machine.where}\0${dir}`)) return
-    warmed.add(`${machine.where}\0${dir}`)
-    void sn.snapshot(dir)
+    const on = here()
+    const dir = await localDir(directory, on)
+    if (!dir || warmed.has(`${on.m.where}\0${dir}`)) return
+    warmed.add(`${on.m.where}\0${dir}`)
+    void on.sn.snapshot(dir)
   }
 
   /** A real path, or the path as it is when it can't be read. */
@@ -1513,10 +1595,16 @@ export function createCore(host: Host): Core {
   }
   /** The folder, when its files are where the app can keep a history of them (this computer, or
    *  the one the agent runs on over ssh) and it is there. */
-  async function localDir(dir: string | undefined): Promise<string | undefined> {
+  /** The computer an action works on, and the app's file history of it: taken once, when the
+   *  action begins, so an agent switched to another computer meanwhile does not have it read the
+   *  history of one and write to the other's. */
+  type On = { m: Machine; sn: Snapshots }
+  const here = (): On => ({ m: machine, sn: snapshots })
+
+  async function localDir(dir: string | undefined, on: On = here()): Promise<string | undefined> {
     if (!dir || !filesHere()) return undefined
     try {
-      return (await machine.stat(dir)).kind === "dir" ? dir : undefined
+      return (await on.m.stat(dir)).kind === "dir" ? dir : undefined
     } catch {
       return undefined
     }
@@ -1531,8 +1619,8 @@ export function createCore(host: Host): Core {
     const dir = was?.span.dir ?? dirOf(session)
     // Only a site's conversations are snapshot; any other is followed for what overlaps.
     const asked = Date.now()
-    const sn = snapshots
-    const shot: Shot | undefined = owners.has(session) ? { tree: dir.then(async (d) => ((await localDir(d)) ? sn.snapshot(d!) : undefined)) } : undefined
+    const on = here()
+    const shot: Shot | undefined = owners.has(session) ? { tree: dir.then(async (d) => ((await localDir(d, on)) ? on.sn.snapshot(d!) : undefined)) } : undefined
     // The backend gave the agent the message without waiting for this: a slow one may hold the
     // agent's first changes. (Known before the turn that ends here is written down.)
     if (shot && kind !== "end" && !(backend && waitsForBefore.has(backend)))
@@ -1606,15 +1694,15 @@ export function createCore(host: Host): Core {
 
   /** The note's turn in the app's history, when it can be taken back from there: on this
    *  computer, not shared with another conversation, not taken back already. */
-  async function noteTurn(s: Site, note: { session: string; message: string }) {
-    const dir = await localDir(siteSettings(s.origin)?.directory)
+  async function noteTurn(s: Site, note: { session: string; message: string }, on: On = here()) {
+    const dir = await localDir(siteSettings(s.origin)?.directory, on)
     if (!dir) return undefined
     await Promise.all(finishing)
-    const h = await snapshots.history(dir)
+    const h = await on.sn.history(dir)
     const turn = h.turns.findLast((t) => t.session === note.session && t.messages.includes(note.message))
     if (!turn) return undefined
     const reversed = h.restores.some((r) => r.turns.includes(turn.id))
-    return { dir, turn, reversed }
+    return { dir, turn, reversed, on }
   }
 
   /** The finished notes on the list that ran in these turns and are not taken back. */
@@ -1632,8 +1720,8 @@ export function createCore(host: Host): Core {
   /** Takes turns back from the history: the files are reversed (or nothing is), the notes they
    *  hold say "restored", and the restore is kept for /redo and for telling the agent. Throws a
    *  sentence for the reviewer when it does not apply. */
-  async function restore(dir: string, session: string, turns: Turn[]) {
-    const done = await snapshots.reverse(dir, turns).catch((err) => {
+  async function restore(dir: string, session: string, turns: Turn[], on: On = here()) {
+    const done = await on.sn.reverse(dir, turns).catch((err) => {
       if (err instanceof Refused) throw err
       log("warn", "can't take back from the file history", say(err))
       throw new Error("The app could not read its own history of these files, so it can't take this back by itself. Ask the agent to reverse it instead.")
@@ -1642,7 +1730,7 @@ export function createCore(host: Host): Core {
     // Nothing changed: there is nothing to tell the agent, nor to bring back.
     if (!done.files.length) throw new Error("The app saw no file change of the agent's there, so it has nothing to put back. Ask the agent to reverse it instead.")
     const notes = notesOf(turns)
-    await snapshots.addRestore(dir, { session, time: Date.now(), turns: turns.map((t) => t.id), from: done.from, to: done.to, notes: notes.map((x) => x.id) })
+    await on.sn.addRestore(dir, { session, time: Date.now(), turns: turns.map((t) => t.id), from: done.from, to: done.to, notes: notes.map((x) => x.id) })
     for (const x of notes) if (x.s.review.mark(x.id, { takenBack: "restored" })) changed(x.s)
     showFiles(site)
     return notes
@@ -1650,22 +1738,22 @@ export function createCore(host: Host): Core {
 
   /** The newest restore of a conversation that can still be brought back: the agent has not
    *  been told of it yet. */
-  async function lastRestore(dir: string, session: string): Promise<Restore | undefined> {
-    return (await snapshots.history(dir)).restores.findLast((r) => r.session === session && !r.told)
+  async function lastRestore(dir: string, session: string, on: On = here()): Promise<Restore | undefined> {
+    return (await on.sn.history(dir)).restores.findLast((r) => r.session === session && !r.told)
   }
   /** Whether a message on its way already says the restore was made. */
   const onItsWay = (r: Restore) => [...carrying.values()].some((c) => c.restores.includes(r.id))
 
   /** Brings a restore back: the files go forward again, its notes are no longer taken back. */
-  async function unrestore(dir: string, r: Restore) {
-    const applied = await snapshots.apply(dir, r.to, r.from).catch((err) => {
+  async function unrestore(dir: string, r: Restore, on: On = here()) {
+    const applied = await on.sn.apply(dir, r.to, r.from).catch((err) => {
       if (err instanceof Refused) throw err
       log("warn", "can't bring back from the file history", say(err))
       return false
     })
     if (!applied)
       throw new Error("Those files were changed since in the same places, so the app can't bring it back by itself.")
-    await snapshots.updateRestore(dir, r.id, null)
+    await on.sn.updateRestore(dir, r.id, null)
     for (const s of sites.values()) {
       let touched = false
       for (const id of r.notes) if (s.review.note(id)?.takenBack === "restored") touched = s.review.mark(id, { takenBack: undefined }) || touched
@@ -1678,22 +1766,22 @@ export function createCore(host: Host): Core {
    *  app took back by itself in the folder: OpenCode's puts each file the turns touched back whole,
    *  as it was before them, and that was before the app's take-back. Without `since`: whether the
    *  app took back anything there that no message has followed yet. The app's own way is used then. */
-  async function undoClobbers(directory: string | undefined, since?: number) {
-    const dir = await localDir(directory)
+  async function undoClobbers(directory: string | undefined, since?: number, on: On = here()) {
+    const dir = await localDir(directory, on)
     if (!dir) return false
-    return (await snapshots.history(dir)).restores.some((r) => (since === undefined ? !r.told : r.time > since))
+    return (await on.sn.history(dir)).restores.some((r) => (since === undefined ? !r.told : r.time > since))
   }
 
   /** Messages on their way that carry the line about take-backs, by message id: the take-backs
    *  are final (`told`) once the agent has the message ("working"), and stay as they are when it
    *  never gets it (cancelled, a Stop, the agent's process or the app ending first). */
-  const carrying = new Map<string, { session: string; dir: string; restores: string[] }>()
+  const carrying = new Map<string, { session: string; dir: string; restores: string[]; sn: Snapshots }>()
   /** The agent has the message `id`: what it carries is told. */
   function delivered(id: string) {
     const c = carrying.get(id)
     if (!c) return
     carrying.delete(id)
-    for (const r of c.restores) void snapshots.updateRestore(c.dir, r, { told: true })
+    for (const r of c.restores) void c.sn.updateRestore(c.dir, r, { told: true })
   }
   /** The conversation will not get what is on its way to it (its queue ran dry without it, it was
    *  stopped, the backend went): the take-backs stay untold, for the next message to say. */
@@ -1706,9 +1794,10 @@ export function createCore(host: Host): Core {
    *  the agent has the message, by its id, which `send` must send it with. */
   async function telling<T extends { id: string } | void>(session: string, text: string, send: (text: string, id?: string) => Promise<T>, id?: string): Promise<T> {
     // Where the app keeps no history, the message goes as it is, at once.
-    const dir = await localDir(knownDir(session))
+    const on = here()
+    const dir = await localDir(knownDir(session), on)
     if (!dir) return send(text, id)
-    const h = await snapshots.history(dir)
+    const h = await on.sn.history(dir)
     const untold = h.restores.filter((r) => r.session === session && !r.told)
     if (!untold.length) return send(text, id)
     const mid = id ?? need().messageId()
@@ -1717,7 +1806,7 @@ export function createCore(host: Host): Core {
     const turns = h.turns.filter((t) => untold.some((r) => r.turns.includes(t.id)))
     const others = turns.filter((t) => !t.messages.length).length
     const line = toldLine(named, others)
-    const entry = { session, dir, restores: untold.map((r) => r.id) }
+    const entry = { session, dir, restores: untold.map((r) => r.id), sn: on.sn }
     carrying.set(mid, entry)
     try {
       const result = await send(text ? `${line}\n\n${text}` : line, mid)
@@ -1734,8 +1823,9 @@ export function createCore(host: Host): Core {
    *  first, alone, when there is one to say, so the agent is not left believing what was taken
    *  back is still there, and a summary does not lose what was. */
   async function tellFirst(session: string) {
-    const dir = await localDir(knownDir(session))
-    if (!dir || !(await snapshots.history(dir)).restores.some((r) => r.session === session && !r.told)) return
+    const on = here()
+    const dir = await localDir(knownDir(session), on)
+    if (!dir || !(await on.sn.history(dir)).restores.some((r) => r.session === session && !r.told)) return
     const b = need()
     await startsRun(session, () => telling(session, "", (text, id) => b.prompt(session, { ...(id ? { id } : {}), text })))
   }
@@ -1785,6 +1875,7 @@ export function createCore(host: Host): Core {
   /** The page's state changed: it loads, it is somewhere else. */
   function onPageChange() {
     const url = page?.state().url ?? ""
+    if (url) blocked = undefined
     if (url && url !== store.settings().lastUrl) store.update((s) => void (s.lastUrl = url))
     const before = site?.origin
     switchSite(placeOf(url))
@@ -2136,15 +2227,16 @@ export function createCore(host: Host): Core {
     if (found.takenBack) throw new Error("This note was already taken back.")
     const note = found as typeof found & { session: string; message: string }
     const b = need()
+    const on = here()
     const info = await b.session(note.session)
     if (!info) throw new Error("Its conversation no longer exists.")
-    const mine = await noteTurn(s, note)
-    if (b.can?.undo && !info.busy && (await b.lastTurn(note.session))?.id === note.message && !(await undoClobbers(knownDir(note.session) ?? info.directory, mine?.turn.start)))
+    const mine = await noteTurn(s, note, on)
+    if (b.can?.undo && !info.busy && (await b.lastTurn(note.session))?.id === note.message && !(await undoClobbers(knownDir(note.session) ?? info.directory, mine?.turn.start, on)))
       return { s, note, how: "undone" as TakeBackWay, mine }
     // A turn that changed nothing the app saw (the agent worked in a nested repository, an
     // ignored file, outside the folder) has nothing to put back: the agent is asked.
     const usable = !!mine && !mine.reversed && !mine.turn.shared && !mine.turn.untrusted && mine.turn.before !== mine.turn.after
-    const dry = usable && !info.busy && !(await folderBusy(mine.dir)) ? await snapshots.reverse(mine.dir, [mine.turn], true).catch((err) => void log("warn", "can't tell whether the file history can take it back", say(err))) : undefined
+    const dry = usable && !info.busy && !(await folderBusy(mine.dir)) ? await mine.on.sn.reverse(mine.dir, [mine.turn], true).catch((err) => void log("warn", "can't tell whether the file history can take it back", say(err))) : undefined
     const files = dry?.files ?? []
     return { s, note, how: (files.length ? "restored" : "asked") as TakeBackWay, mine, files }
   }
@@ -2155,7 +2247,7 @@ export function createCore(host: Host): Core {
   async function diffOf(s: Site, note: { session: string; message: string }, mine?: Awaited<ReturnType<typeof noteTurn>>): Promise<FileChange[] | null> {
     const b = need()
     const turn = mine ?? (await noteTurn(s, note))
-    if (turn && (!turn.turn.shared || !b.can?.undo)) return snapshots.diff(turn.dir, turn.turn.before, turn.turn.after)
+    if (turn && (!turn.turn.shared || !b.can?.undo)) return turn.on.sn.diff(turn.dir, turn.turn.before, turn.turn.after)
     // null: not known (no turn was kept for it), not "no file changed".
     return b.can?.undo ? b.diff(note.session, note.message) : null
   }
@@ -2203,10 +2295,11 @@ export function createCore(host: Host): Core {
    *  not taken back already, from the app's history, files only. The conversation stays as it is;
    *  the agent is told with the next message. */
   async function undoFiles(current: SessionSummary, args: string): Promise<CommandResult> {
-    const dir = await localDir(knownDir(current.id) ?? current.directory)
+    const on = here()
+    const dir = await localDir(knownDir(current.id) ?? current.directory, on)
     if (!dir) throw new Error("This agent can't undo, and the files are on another computer, where the app keeps no history of them.")
     await Promise.all(finishing)
-    const h = await snapshots.history(dir)
+    const h = await on.sn.history(dir)
     const turn = h.turns.findLast((t) => t.session === current.id && t.before !== t.after && !h.restores.some((r) => r.turns.includes(t.id)))
     if (!turn) throw new Error("Nothing to undo: the agent has changed no file here that the app saw.")
     const notes = notesOf([turn])
@@ -2219,7 +2312,7 @@ export function createCore(host: Host): Core {
     if (turn.shared) throw new Error("Another conversation worked in this folder at the same time, so the app can't tell its changes apart. Ask the agent to reverse it instead.")
     if (turn.untrusted) throw new Error(LATE_TURN)
     if (await folderBusy(dir)) throw new Error("The agent is working in this folder. Stop it first, then /undo.")
-    await restore(dir, current.id, [turn])
+    await restore(dir, current.id, [turn], on)
     return { say: `Took back the agent's changes to files for ${what}. /redo brings them back; your next message makes it final.` }
   }
 
@@ -2266,14 +2359,15 @@ export function createCore(host: Host): Core {
       const now = b.can?.undo ? await b.session(current.id) : undefined
       if (!now?.undone) {
         // What the app took back by itself, the newest first, until the agent is told.
-        const dir = await localDir(knownDir(current.id) ?? current.directory)
-        const r = dir && (await lastRestore(dir, current.id))
+        const on = here()
+        const dir = await localDir(knownDir(current.id) ?? current.directory, on)
+        const r = dir && (await lastRestore(dir, current.id, on))
         if (!dir || !r) throw new Error("Nothing to redo.")
         if (onItsWay(r)) throw new Error("Nothing to redo: your last message tells the agent what was taken back. Remove it from the queue first.")
         // Files changed while a conversation works in the folder would be in its turn.
         if ((session?.id === current.id && session.busy) || (await b.session(current.id))?.busy || (await folderBusy(dir)))
           throw new Error("The agent is working in this folder. Stop it first, then /redo.")
-        await unrestore(dir, r)
+        await unrestore(dir, r, on)
         return { say: "Brought back what was taken back." }
       }
       await b.redo(current.id)
@@ -2373,9 +2467,11 @@ export function createCore(host: Host): Core {
 
   const commands: Core["commands"] = {
     navigate(url) {
+      blocked = undefined
       page?.load(url)
     },
     reload() {
+      if (blocked && !page?.state().url) return void blocked.again()
       page?.reload()
     },
     back() {
@@ -2516,7 +2612,7 @@ export function createCore(host: Host): Core {
       const b = need()
       if (how === "restored") {
         // Every note of the turn is taken back with it (notes that waited together share one).
-        await restore(mine!.dir, note.session, [mine!.turn])
+        await restore(mine!.dir, note.session, [mine!.turn], mine!.on)
         return how
       }
       if (how === "undone") {
@@ -2566,17 +2662,18 @@ export function createCore(host: Host): Core {
       // A backend that cannot cut the conversation (or whose undo would bring back what the app
       // took back since): the files go back from the app's history, every turn of the agent's
       // since the checkpoint that is not taken back already.
-      if (!b.can?.undo || (await undoClobbers(knownDir(cp.session) ?? info.directory, cp.time))) {
-        const dir = await localDir(knownDir(cp.session) ?? info.directory)
+      const on = here()
+      if (!b.can?.undo || (await undoClobbers(knownDir(cp.session) ?? info.directory, cp.time, on))) {
+        const dir = await localDir(knownDir(cp.session) ?? info.directory, on)
         if (!dir) throw new Error("This agent can't go back, and the files are on another computer, where the app keeps no history of them.")
         await Promise.all(finishing)
-        const h = await snapshots.history(dir)
+        const h = await on.sn.history(dir)
         const turns = h.turns.filter((t) => t.session === cp.session && t.start > cp.time && t.before !== t.after && !h.restores.some((r) => r.turns.includes(t.id)))
         if (!turns.length) throw new Error("The agent has changed no file since this checkpoint.")
         if (turns.some((t) => t.shared)) throw new Error("Another conversation worked in this folder meanwhile, so the app can't tell its changes apart. Ask the agent to go back instead.")
         if (turns.some((t) => t.untrusted)) throw new Error(LATE_TURN)
         if (await folderBusy(dir)) throw new Error("The agent is working in this folder. Stop it first.")
-        await restore(dir, cp.session, turns)
+        await restore(dir, cp.session, turns, on)
         return { taken: turns.length, how: "restored" as const }
       }
       // Everything said after it goes: the first such message is where the server cuts.
@@ -2635,13 +2732,34 @@ export function createCore(host: Host): Core {
       const where = checkHost(typeof input === "string" ? input : "")
       // A connection that was dropped by hand or never made: made now.
       const m = await remoteOf(where)
+      const error = () => (m.reach().status === "down" ? (m.reach() as { error: string }).error : `Can't reach ${where}.`)
       if (m.reach().status !== "up") {
-        remotes.delete(where)
-        void m.close()
-        throw new Error(m.reach().status === "down" ? (m.reach() as { error: string }).error : `Can't reach ${where}.`)
+        if (m !== machine) {
+          remotes.delete(where)
+          void m.close()
+          throw new Error(error())
+        }
+        // The computer the agent in use is on, out of reach: its connection is tried again, as
+        // the banner's Retry does, never ended (the agent works on there).
+        m.retry()
+        const end = Date.now() + 20_000
+        while (m.reach().status !== "up" && Date.now() < end && m === machine) await sleep(100)
+        if (m.reach().status !== "up") throw new Error(error())
       }
       const agents = await localAgents(m)
       return { host: where, computer: m.hostname(), home: m.home, agents }
+    },
+    leaveSsh() {
+      // Connected to only to list its agents: let go, with the connect screen.
+      for (const [h, p] of remotes)
+        void p.then(
+          (r) => {
+            if (r === machine || startingOn.has(h) || remotes.get(h) !== p) return
+            remotes.delete(h)
+            void r.close()
+          },
+          () => undefined,
+        )
     },
     servers() {
       const s = store.settings()
@@ -3040,7 +3158,18 @@ export function createCore(host: Host): Core {
       if (device() === "phone") p.setDevice("phone", phone())
     },
     detach: () => void (page = undefined),
-    lastUrl: () => store.settings().lastUrl ?? "",
+    // A site of another computer's is opened by the controller once it is forwarded (use).
+    lastUrl() {
+      const last = store.settings().lastUrl ?? ""
+      const saved = store.settings().server
+      if (saved && "agent" in saved && saved.host && store.settings().forwards?.[saved.host]) {
+        try {
+          const u = new URL(last)
+          if ((u.hostname === "127.0.0.1" || u.hostname === "localhost") && store.settings().forwards![saved.host]![u.port]) return ""
+        } catch {}
+      }
+      return last
+    },
     lastPageBounds() {
       // From disk: only a rectangle if it has the four numbers of one.
       const b = store.settings().pageBounds

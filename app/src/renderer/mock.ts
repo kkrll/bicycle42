@@ -904,6 +904,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       })
       push()
     },
+    leaveSsh() {},
     // Another computer over ssh: "dev-box" answers, with Claude Code ready and Codex not installed; any other name is not known.
     async connectSsh(host) {
       await new Promise((r) => setTimeout(r, 700))
