@@ -36,22 +36,31 @@ its own name and icon. It is not signed with a developer certificate, and there 
 ## First launch
 
 1. **Connect.** Under **Agents on this computer** the app lists the agents it knows how to run,
-   and which of them are installed: press **Start** beside one. The app runs it with your own
-   login of it, and it works in this computer's folders. Any other ACP agent works too: type the
-   command that starts it. Such an agent can't undo a message, show what one message changed, or
+   each with its mark and how it stands: ready, not installed (with the one command that
+   installs it, to copy), or needing you to sign in (with the command to run in a terminal).
+   Press **Start** beside one; **Command**, under the pointer, shows what the app runs. The app
+   runs it with your own login of it, and it works in this computer's folders. Any other ACP
+   agent works too: type the command that starts it. Such an agent can't undo a message, show what one message changed, or
    list the commands it left running (a dev server it starts ends with it, when the app quits or
    uses another agent); the app leaves out what it can't do.
-   If an OpenCode server is running on this computer the app finds it: press
-   **Use this computer**. (`opencode service start` starts one.) For a server on another machine,
-   enter its address and password: `opencode service status` there shows the address (the
+   Under **OpenCode server**, if one is running on this computer the app finds it: press
+   **Connect**. (`opencode service start` starts one.) For a server on another machine, press
+   **Enter address** and give its address and password: `opencode service status` there shows the address (the
    `https://….opentunnel.xyz` one works from anywhere) and `~/.config/opencode/service.json`
    holds the password. If the server offers more than one model, you then choose the one new
    conversations start with; it can be changed any time under the chat box.
-   Every server you connect to is remembered: the settings and the connect screen list them
-   under **Connected before**, and going back to one needs no password and brings back its
-   repo, page and notes.
-2. **Open the repo**: the folder on the server that holds the site's code. The agent works
-   there, and you can talk to it from then on.
+   Every agent and server you connect to is remembered: the connect screen lists them under
+   **Connected before**, and going back to one needs no password and brings back its repo, page
+   and notes.
+2. **Open the repo**: the folder that holds the site's code ("Where should Claude Code
+   work?"). The agent's own recent folders come first; on this computer, also those another
+   agent here worked in. The agent works there, and you can talk to it from then on.
+
+The panel's top row says who works where: the agent's mark with the connection's dot, its name
+(an OpenCode server's computer name or address), and the repo's path, `~` for your home folder
+and cut in the middle when the panel is narrow. Pressing the agent's name lists the agents and
+servers to switch to, the one in use checked, and **Connect another agent**; pressing the path
+lists the projects; the sliders at the end open the settings.
 3. **Open the site.** Type your dev URL in the top bar, for example `localhost:3000`. If the
    site is not running, press **Ask the agent to start it**: it starts the dev server (or serves
    plain HTML), is told whether the app is on its computer or another one so it gives an address

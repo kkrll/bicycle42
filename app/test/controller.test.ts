@@ -1951,8 +1951,14 @@ test("a server's name: saved with it, kept when the same server connects again, 
   try {
     await h.ready()
     assert.equal(h.snap().serverName, "fake-box", "until it is named, it goes by its computer's own name, without .local")
+    // The window draws OpenCode's mark for it, names it by its computer, says where it is.
+    const where = h.server.url.replace(/^https?:\/\//, "")
+    assert.deepEqual(h.snap().harness, { kind: "opencode-server", name: "fake-box", here: false, host: where })
     await h.cmd("setServerName", "  Studio   Mac ")
     assert.equal(h.snap().serverName, "Studio Mac")
+    assert.equal(h.snap().harness?.name, "Studio Mac", "the reviewer's name wins in the window too")
+    const listed = (await h.cmd("servers")) as { current: boolean; kind: string; here: boolean; name?: string }[]
+    assert.deepEqual(listed.filter((x) => x.current).map((x) => [x.kind, x.here, x.name]), [["opencode-server", false, "Studio Mac"]])
     const saved = async () => {
       await sleep(400) // the store's debounce
       return JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")).server as { name?: string; password?: string }
@@ -1974,6 +1980,7 @@ test("a server's name: saved with it, kept when the same server connects again, 
     await h.cmd("connect", { url: h.server.url.replace("127.0.0.1", "localhost"), password: h.server.password })
     assert.equal(h.snap().serverName, "fake-box")
     await h.cmd("disconnect")
+    assert.equal(h.snap().harness, undefined, "nothing is in use")
     await assert.rejects(Promise.resolve(h.cmd("setServerName", "x")), /Connect to a server first/)
   } finally {
     await h.close()

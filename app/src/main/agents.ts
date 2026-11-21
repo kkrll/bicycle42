@@ -23,7 +23,31 @@ type Known = {
   needs: string
   /** What to tell the person who does not have it. */
   install: string
+  /** The one command that installs it, for the connect screen to copy. */
+  installCommand: string
+  /** How to sign in to it, in a terminal; absent when it needs no sign-in of its own. */
+  login?: string
+  /** Whether a sign-in of it is on this computer: true when one is found, false when none is,
+   *  undefined when it can't be told from here (a macOS keychain, a keyring). */
+  signedIn?: () => boolean | undefined
 }
+
+const home = (...parts: string[]) => path.join(os.homedir(), ...parts)
+const exists = (file: string) => {
+  try {
+    return fs.statSync(file).isFile()
+  } catch {
+    return false
+  }
+}
+const read = (file: string) => {
+  try {
+    return fs.readFileSync(file, "utf8")
+  } catch {
+    return ""
+  }
+}
+const anyEnv = (...names: string[]) => names.some((n) => !!process.env[n])
 
 /** Checked on 2026-11-21: Claude Code's adapter is @agentclientprotocol/claude-agent-acp (the
  *  @zed-industries one is deprecated), Codex's is @agentclientprotocol/codex-acp (it brings its
@@ -36,6 +60,14 @@ export const KNOWN_AGENTS: readonly Known[] = [
     commands: [["claude-agent-acp"], ["npx", "-y", "@agentclientprotocol/claude-agent-acp"]],
     needs: "claude",
     install: "Install Claude Code and sign in: npm install -g @anthropic-ai/claude-code, then claude",
+    installCommand: "npm install -g @anthropic-ai/claude-code",
+    login: "claude",
+    // Linux keeps the login in a file; macOS in the keychain, which is not looked into.
+    signedIn: () => {
+      const dir = process.env.CLAUDE_CONFIG_DIR || home(".claude")
+      if (anyEnv("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN") || exists(path.join(dir, ".credentials.json")) || read(home(".claude.json")).includes('"oauthAccount"')) return true
+      return process.platform === "darwin" ? undefined : false
+    },
   },
   {
     id: "codex",
@@ -43,6 +75,14 @@ export const KNOWN_AGENTS: readonly Known[] = [
     commands: [["codex-acp"], ["npx", "-y", "@agentclientprotocol/codex-acp"]],
     needs: "codex",
     install: "Install Codex and sign in: npm install -g @openai/codex, then codex login",
+    installCommand: "npm install -g @openai/codex",
+    login: "codex login",
+    signedIn: () => {
+      const dir = process.env.CODEX_HOME || home(".codex")
+      if (anyEnv("OPENAI_API_KEY", "CODEX_API_KEY") || exists(path.join(dir, "auth.json"))) return true
+      // A login kept in the system's keyring leaves no file.
+      return /credentials_store\s*=\s*"(keyring|auto)"/.test(read(path.join(dir, "config.toml"))) ? undefined : false
+    },
   },
   {
     id: "gemini",
@@ -50,6 +90,13 @@ export const KNOWN_AGENTS: readonly Known[] = [
     commands: [["gemini", "--experimental-acp"]],
     needs: "gemini",
     install: "Install Gemini CLI and sign in: npm install -g @google/gemini-cli, then gemini",
+    installCommand: "npm install -g @google/gemini-cli",
+    login: "gemini",
+    signedIn: () => {
+      if (anyEnv("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI") || exists(home(".gemini", "oauth_creds.json"))) return true
+      // A key in its own .env, or a choice of Vertex in its settings: can't be told from here.
+      return exists(home(".gemini", ".env")) || /"selected(Auth)?Type"/.test(read(home(".gemini", "settings.json"))) ? undefined : false
+    },
   },
   {
     id: "opencode",
@@ -57,6 +104,7 @@ export const KNOWN_AGENTS: readonly Known[] = [
     commands: [["opencode", "acp"]],
     needs: "opencode",
     install: "Install OpenCode: npm install -g opencode-ai",
+    installCommand: "npm install -g opencode-ai",
   },
 ]
 
@@ -125,7 +173,8 @@ export async function localAgents(): Promise<LocalAgent[]> {
   return Promise.all(
     KNOWN_AGENTS.map(async (a) => {
       const command = await commandOf(a.id)
-      return { id: a.id, name: a.name, command: (command ?? a.commands.at(-1)!).join(" "), installed: !!command, ...(command ? {} : { needs: a.install }) }
+      const signIn = command && a.login && a.signedIn?.() === false ? { signIn: a.login } : {}
+      return { id: a.id, name: a.name, command: (command ?? a.commands.at(-1)!).join(" "), installed: !!command, ...(command ? signIn : { needs: a.install, install: a.installCommand }) }
     }),
   )
 }

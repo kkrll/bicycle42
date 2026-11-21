@@ -48,20 +48,50 @@ const narrowPanel = `document.querySelector(".panel").style.setProperty("--panel
 /** Presses the suggestion that asks the agent to get the site running. */
 const START_SITE = `document.querySelector('.suggestion[title^="The agent starts it"]').click()`
 
+/** The panel at its least (320px): the resizer's Home key. */
+const leastPanel = `document.querySelector(".resizer").dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }))`
+/** Makes the mock send its state again after `window.__mock.state` was changed by hand. */
+const resend = [click("[data-action=draw]"), click("[data-action=draw]")]
+/** What the place row shows, and whether any part of it is cut or runs past the row. */
+const PLACE = `(() => { const p = document.querySelector(".place"), r = p.getBoundingClientRect(); const out = [...p.querySelectorAll(".place-agent, .place-folder, .place-settings")].filter((e) => e.getBoundingClientRect().right > r.right + 0.5).map((e) => e.className); return Math.round(r.width) + " wide: " + [...p.querySelectorAll(".place-agent-name, .place-word, .place-folder-name")].map((e) => e.textContent).join(" | ") + "; past the row: " + (out.join(" ") || "nothing") })()`
+
 const SHOTS = [
   { name: "connect", mock: "connect" },
+  // Someone who disconnected: the agents, then the ones connected to before, each with its mark.
+  { name: "connect-returning", mock: "connect", query: "&returning", run: [`document.querySelector(".connect-saved").scrollIntoView({ block: "end" })`], wait: 300 },
+  // The form inside the settings while Claude Code is in use: one agent in use, one to sign in
+  // to, one not installed, one ready; the command that starts one, asked for.
+  { name: "connect-agents", mock: "review", query: "&agent=claude", run: [click("[data-action=agents]"), pause(200), click("[data-action=connect-another]"), pause(400), click('[data-agent="opencode"] .agent-how')], wait: 400 },
   {
     name: "connect-error",
     mock: "connect",
-    run: [type("input[name=url]", "http://my-box.example:4096"), type("input[name=password]", "wrong"), click(".connect-form button[type=submit]")],
-    wait: 1300,
+    run: [click("[data-action=remote]"), type("input[name=url]", "http://my-box.example:4096"), type("input[name=password]", "wrong"), click(".connect-form button[type=submit]"), pause(1100), `document.querySelector(".agent-remote-form").scrollIntoView({ block: "end" })`],
+    wait: 300,
   },
   {
     name: "connect-progress",
     mock: "connect",
-    run: [type("input[name=url]", "http://my-box.example:4096"), type("input[name=password]", "wrong"), click(".connect-form button[type=submit]")],
+    run: [click("[data-action=remote]"), type("input[name=url]", "http://my-box.example:4096"), type("input[name=password]", "wrong"), click(".connect-form button[type=submit]"), `document.querySelector(".agent-remote-form").scrollIntoView({ block: "end" })`],
     wait: 300,
   },
+  // The second step with an agent on this computer: who will work there, its folders under ~.
+  { name: "repo-agent", mock: "repo", query: "&agent=claude" },
+  // The panel's top row: the agent (mark, name, the connection's dot) and the repo's path.
+  { name: "place-claude", mock: "review", query: "&agent=claude", report: PLACE },
+  { name: "place-server", mock: "review", report: PLACE },
+  { name: "place-custom", mock: "review", query: "&agent=custom", report: PLACE },
+  // The panel at its least, with a long path: cut in the middle, its last folder kept.
+  {
+    name: "place-narrow",
+    mock: "review",
+    query: "&agent=claude",
+    run: [leastPanel, `window.__mock.state.site.directory = "/home/dev/code/a-rather-long-organisation-name/internal-tools/storefront"; 0`, ...resend],
+    wait: 500,
+    report: PLACE,
+  },
+  // The agent's name pressed: the agents and servers to switch to.
+  { name: "agent-switch", mock: "review", query: "&agent=claude", run: [click("[data-action=agents]")], wait: 500 },
+  { name: "agent-switch-narrow", mock: "review", query: "&agent=claude", run: [leastPanel, pause(200), click("[data-action=agents]")], wait: 500 },
   // The second first-run step: which model conversations start with. Then narrowed by typing,
   // and the same chooser in the settings dialog.
   { name: "model-choice", mock: "model-choice" },

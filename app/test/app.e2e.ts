@@ -160,6 +160,16 @@ async function main() {
   win.setSize(1441, 900)
   await sleep(300)
 
+  // The panel's top row: who works where. OpenCode's mark, the server's computer name with the
+  // connection's dot, and the repo's path; the name opens the list of agents to switch to.
+  const place = (await until(() => ui(`(() => { const a = document.querySelector(".place-agent"); return a && document.querySelector(".place-folder-name")?.textContent ? { kind: a.dataset.kind, name: a.querySelector(".place-agent-name").textContent, dot: a.querySelector(".dot").dataset.status, path: document.querySelector(".place-folder-name").textContent } : null })()`), 3000)) as { kind: string; name: string; dot: string; path: string } | null
+  check("the top row shows the server's mark, its computer's name, the dot and the repo's path", place?.kind === "opencode-server" && place.name === "fake-box" && place.dot === "online" && place.path === "/site", JSON.stringify(place))
+  await ui(`document.querySelector(".place-agent").click()`)
+  const choices = (await until(() => ui(`(() => { const rows = [...document.querySelectorAll(".agent-pop [data-choice]")]; return rows.length ? rows.map((r) => r.querySelector(".agent-pop-name").textContent + (r.getAttribute("aria-checked") === "true" ? " ✓" : "")) : null })()`), 3000)) as string[] | null
+  check("…its name opens the agents to switch to, the one in use checked first", choices?.[0] === "fake-box ✓" && !choices.some((c) => c.includes("acp://")), JSON.stringify(choices))
+  await ui(`document.querySelector(".agent-pop").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`)
+  check("…and Escape closes it", (await until(() => ui(`!document.querySelector(".agent-pop")`), 2000)) === true)
+
   // ── a note, from click to done ─────────────────────────────────────────────────────────────
   const wc = page.view.webContents
   const js = (code: string) => wc.executeJavaScript(code)

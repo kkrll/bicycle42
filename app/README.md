@@ -60,7 +60,7 @@ src/main/images.ts      a captured Frame → area crop + viewport thumbnail, eac
 src/main/queue.ts       one file operation at a time per key (outbox, shots)
 src/main/opencode.ts    a backend: an OpenCode server, fetch + one SSE stream → BackendEvents (no Electron)
 src/main/acp.ts         a backend: an ACP agent this computer runs, JSON-RPC over its stdio → BackendEvents
-src/main/agents.ts      the ACP agents the app knows (Claude Code, Codex, Gemini CLI, OpenCode) and how each starts
+src/main/agents.ts      the ACP agents the app knows (Claude Code, Codex, Gemini CLI, OpenCode), how each starts and installs, whether a sign-in is found
 src/main/chat-items.ts  what both backends build a conversation with: a user message, a run's end, parseNote
 src/main/patch.ts       an edit's old and new text as a unified diff (ACP says edits that way)
 src/main/asks.ts        what the app itself asks the agent (site, commit, take back), what it tells it, and the line the chat shows for it
@@ -70,6 +70,8 @@ src/main/local.ts       finds the OpenCode server running on this computer
 src/main/store.ts       settings and notes on disk, versioned, atomic writes off the main thread (flushed at quit)
 src/preload.ts          window.b42: the only door between the window and main
 src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/design tokens)
+src/renderer/agents.tsx the agent in use as the window shows it (AppState.harness): mark, name, the switcher, paths
+src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle to fit (pure, tested)
 ```
 
 - **Main owns everything durable.** The page hot-reloads under you and the window is a view of
@@ -119,7 +121,10 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   conversation of one server means nothing on another. The one in use has these in the
   settings' own fields; the others carry theirs in `space` (`enter` in `core.ts` swaps them).
   Notes files of every server but the first have its id before the site's origin, so the same
-  address on two machines is two sites.
+  address on two machines is two sites. The window never names one by its address when it has
+  a better word: `describe` in `core.ts` gives each its kind (the mark), its name ("Claude
+  Code", "OpenCode server", a computer's name) and whether it is on this computer, as
+  `AppState.harness` for the one in use and in `servers()` and `allProjects()` for the others.
 - **A project is a folder.** `openProject` makes it the open repo and loads the site visited
   last among those that work in it (`url` and `seen` in a site's settings), or no page when it
   has none. The window's list for it is `renderer/switcher.tsx`, behind the panel's "+", and

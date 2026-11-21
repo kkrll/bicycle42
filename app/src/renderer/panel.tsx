@@ -4,8 +4,9 @@
 import { For, Match, Show, Switch, createEffect, createMemo, createResource, createSelector, createSignal, on, onCleanup } from "solid-js"
 import type { NoteRow } from "../shared/types"
 import { Chat } from "./chat"
-import { ServerButton, SetupSteps, serverLabel } from "./connect"
-import { Icon } from "./icons"
+import { AgentSwitch, MiddlePath, harnessNow, homePath, whereOf } from "./agents"
+import { SetupSteps, serverLabel, setSettingsAt } from "./connect"
+import { AgentMark, Icon } from "./icons"
 import { NoteView } from "./note-detail"
 import {
   act,
@@ -450,11 +451,22 @@ export function RepoScreen() {
 /** `open` is what choosing a folder does; without it, the folder becomes the one the site on
  *  screen works in (`setDirectory`). With `onCancel` it is not a first-run step: no step line. */
 export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void; open?: (directory: string) => Promise<unknown>; browse?: boolean }) {
-  const [recent, { refetch: reloadRecent }] = createResource(() => b42.invoke("projects"))
+  const h = () => harnessNow()
+  const here = () => !!h()?.here
+  /** The agent's own folders first; on this computer, then those another agent or server here
+   *  worked in, which are this computer's folders too. */
+  const [recent, { refetch: reloadRecent }] = createResource(async () => {
+    const own = await b42.invoke("projects")
+    if (!here()) return own
+    const more = await b42.invoke("allProjects").catch(() => [])
+    return [...new Set([...own, ...more.filter((p) => p.here && p.server).map((p) => p.directory)])]
+  })
   // Reading a failed resource throws; the error has its own branch below.
   const recentList = () => (recent.error ? undefined : recent())
+  /** Where browsing starts with no project to start beside: the home folder, on this computer. */
+  const start = () => (here() && state.home ? state.home : "/")
   // Browsing starts beside the most recent project: that is where the next one usually is.
-  const [path, setPath] = createSignal<string | null>(props.browse ? parent(state.site?.directory ?? "/") : null)
+  const [path, setPath] = createSignal<string | null>(props.browse ? parent(state.site?.directory ?? start()) : null)
   const [folders, { refetch: reloadFolders }] = createResource(path, (p) => b42.invoke("listFolders", p))
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal("")
@@ -481,19 +493,27 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
         <Show when={!props.onCancel}>
           <SetupSteps at={2} />
         </Show>
-        <h2>{props.open ? "Open a project" : "Open the repo"}</h2>
+        <h2 class="folder-title">
+          <Show when={h()} fallback={props.open ? "Open a project" : "Open the repo"}>
+            {(a) => (
+              <>
+                <AgentMark kind={a().kind} size={20} />
+                <span>Where should {a().name} work?</span>
+              </>
+            )}
+          </Show>
+        </h2>
         <p class="folder-lead">
           <Show when={!props.open && state.missingFolder}>
             <span class="folder-missing">
-              <code>{state.missingFolder}</code> is not a folder on this server: it was moved, or it is another computer's.{" "}
+              <code>{state.missingFolder}</code> is not a folder on {here() ? "this computer" : "this server"}: it was moved, or it is another computer's.{" "}
             </span>
           </Show>
           <Show
             when={!props.open && state.site?.origin}
-            fallback={props.open ? <>Pick a folder on your server. The agent works there.</> : <>Pick the folder on your server that holds the site's code. The agent works there.</>}
+            fallback={<>Pick the folder {here() ? "on this computer" : `on ${h()?.name ?? "your server"}`} that holds the site's code.</>}
           >
-            Pick the folder on your server that holds the code of <strong>{host(state.site?.origin ?? "")}</strong>.
-            The agent works there.
+            Pick the folder {here() ? "on this computer" : `on ${h()?.name ?? "your server"}`} that holds the code of <strong>{host(state.site?.origin ?? "")}</strong>.
           </Show>
         </p>
       </div>
@@ -518,7 +538,7 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
                 </button>
               </Match>
               <Match when={!recentList()?.length}>
-                <p class="quiet">The server has not worked in any folder yet.</p>
+                <p class="quiet">{h()?.name ?? "The server"} has not worked in any folder yet.</p>
               </Match>
               <Match when={true}>
                 <ul class="rows">
@@ -530,7 +550,7 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
                           <span class="row-main">{tail(dir)}</span>
                           {/* Long paths lose their start, not the folder's own name. */}
                           <span class="row-sub" title={dir}>
-                            <bdi>{dir}</bdi>
+                            <bdi>{homePath(dir, here())}</bdi>
                           </span>
                         </button>
                       </li>
@@ -540,7 +560,7 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
               </Match>
             </Switch>
             <div class="folder-actions">
-              <button class="btn" onClick={() => setPath(parent(recentList()?.[0] ?? "/"))}>
+              <button class="btn" onClick={() => setPath(recentList()?.[0] ? parent(recentList()![0]!) : start())}>
                 Browse folders
               </button>
               <Show when={props.onCancel}>
@@ -636,7 +656,7 @@ function ConnectionBanner(props: { openSettings: () => void }) {
                   Retry
                 </button>
                 <button class="text-btn" onClick={props.openSettings}>
-                  Change server
+                  Change agent
                 </button>
               </div>
             </div>
@@ -685,14 +705,47 @@ function NoConversation(props: { chooseFolder: () => void }) {
   )
 }
 
-/** Where the notes and the conversations are: the server and the code folder. The notes list
- *  under it is this server's, for the site on screen; a conversation is one of many there. */
+/** Where the notes and the conversations are: the agent (its mark, its name, the connection's
+ *  dot) and the repo's path. The agent opens the list that switches to another; the path, the
+ *  list of projects; the sliders, the settings. The notes list under it is this agent's, for
+ *  the site on screen; a conversation is one of many there. */
 function Place(props: { openSettings: () => void }) {
-  const server = () => state.serverName || ("url" in state.connection ? serverLabel(state.connection.url) : "")
+  const [switching, setSwitching] = createSignal(false)
+  let agentButton: HTMLButtonElement | undefined
+  const h = () => harnessNow()
+  const status = () => state.connection.status
+  const word = () => (status() === "offline" ? "Offline" : status() === "connecting" ? "Connecting" : "")
+  const tip = () => {
+    const c = state.connection
+    const what = h() ? `${h()!.name} on ${whereOf(h()!)}` : ""
+    const how = c.status === "online" ? (c.url.startsWith("acp://") ? `over ACP · ${c.version}` : `OpenCode ${c.version}`) : c.status === "offline" ? `can't be reached. ${c.error}` : c.status === "connecting" ? "connecting" : ""
+    return `${what}${how ? `, ${how}` : ""}. Click to switch agent`
+  }
   return (
-    <div class="place">
-      <ServerButton onClick={props.openSettings} />
-      <span class="place-server">{server()}</span>
+    <div class="place" data-fit>
+      <button
+        class="place-agent"
+        ref={agentButton}
+        data-action="agents"
+        data-kind={h()?.kind}
+        aria-haspopup="menu"
+        aria-expanded={switching()}
+        aria-label={`Agent: ${h()?.name ?? "none"}${word() ? `, ${word().toLowerCase()}` : ""}. Switch agent`}
+        title={tip()}
+        onClick={() => setSwitching(!switching())}
+      >
+        <span class="place-mark">
+          <AgentMark kind={h()?.kind} />
+          <span class="dot" data-status={status()} />
+        </span>
+        <span class="place-agent-name">{h()?.name}</span>
+        <Show when={word()}>
+          <span class="place-word" data-status={status()}>
+            {word()}
+          </span>
+        </Show>
+        <Icon name="down" />
+      </button>
       {/* The project is changed where it is named: the list behind the conversation's "+". */}
       <Show when={state.site?.directory}>
         {(dir) => (
@@ -700,14 +753,29 @@ function Place(props: { openSettings: () => void }) {
             class="place-folder"
             title={`${dir()}. Click for another project`}
             aria-haspopup="dialog"
+            aria-label={`Project: ${dir()}. Another project`}
             data-action="projects"
             disabled={state.connection.status !== "online"}
             onClick={() => setSwitcherOpen("projects")}
           >
-            <span class="place-folder-name">{tail(dir())}</span>
+            <MiddlePath class="place-folder-name" path={homePath(dir(), h()?.here)} />
             <Icon name="down" />
           </button>
         )}
+      </Show>
+      <button class="icon-btn small place-settings" data-action="settings" data-status={status()} aria-label="Settings" title="Settings" onClick={props.openSettings}>
+        <Icon name="mode" />
+      </button>
+      <Show when={switching()}>
+        <AgentSwitch
+          anchor={() => agentButton}
+          onClose={() => setSwitching(false)}
+          onConnect={() => {
+            setSwitching(false)
+            setSettingsAt("connect")
+            props.openSettings()
+          }}
+        />
       </Show>
     </div>
   )

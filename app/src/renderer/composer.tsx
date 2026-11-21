@@ -59,13 +59,24 @@ function Pickers() {
     void request(el, modelValue, b42.invoke("setModel", model))
   }
   const variant = () => current()?.variant ?? ""
+  /** What the closed picker says. An agent's own model list can name one "Default
+   *  (recommended)": the label is "Default model", the list keeps the agent's words. A model the
+   *  list does not have (the conversation's, from before) goes by the last part of its id. */
+  const label = () => {
+    const name = info()?.name ?? current()?.id.split("/").pop()
+    if (!name) return "Model"
+    const plain = name.replace(/\s*\((recommended|default)\)\s*$/i, "").trim() || name
+    return /^default$/i.test(plain) ? "Default model" : plain
+  }
+  /** One group needs no heading: an agent's models are all its own. */
+  const single = () => groups().length === 1
   return (
     <div class="pickers">
       <Show when={state.models.length}>
         <Pick
           class="model"
-          value={info()?.name ?? "Model"}
-          help={`Model: ${info()?.name ?? "none chosen"}. The AI that does the work. Models marked "no screenshots" only read the notes' words.`}
+          value={label()}
+          help={`Model: ${info()?.name ?? current()?.id ?? "none chosen"}${state.harness ? `, of ${state.harness.name}` : ""}. Click to change it. Models marked "no screenshots" only read the notes' words.`}
         >
           <select class="pick-native" aria-label="Model" disabled={!state.session} onChange={(e) => choose(e.currentTarget)}>
             <Show when={!info()}>
@@ -73,20 +84,34 @@ function Pickers() {
                 Model
               </option>
             </Show>
-            <For each={groups()}>
-              {([provider, models]) => (
-                <optgroup label={provider}>
-                  <For each={models}>
-                    {(entry) => (
-                      <option value={entry.index} selected={entry.model === info()}>
-                        {entry.model.name}
-                        {entry.model.images ? "" : " (no screenshots)"}
-                      </option>
-                    )}
-                  </For>
-                </optgroup>
-              )}
-            </For>
+            <Show
+              when={!single()}
+              fallback={
+                <For each={groups()[0]?.[1]}>
+                  {(entry) => (
+                    <option value={entry.index} selected={entry.model === info()}>
+                      {entry.model.name}
+                      {entry.model.images ? "" : " (no screenshots)"}
+                    </option>
+                  )}
+                </For>
+              }
+            >
+              <For each={groups()}>
+                {([provider, models]) => (
+                  <optgroup label={provider}>
+                    <For each={models}>
+                      {(entry) => (
+                        <option value={entry.index} selected={entry.model === info()}>
+                          {entry.model.name}
+                          {entry.model.images ? "" : " (no screenshots)"}
+                        </option>
+                      )}
+                    </For>
+                  </optgroup>
+                )}
+              </For>
+            </Show>
           </select>
         </Pick>
       </Show>

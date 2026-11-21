@@ -10,6 +10,9 @@
 // streams a reply, and the "page" is a painted box placed by setPageBounds exactly as the native
 // view would be (so a wrong rectangle shows up in a screenshot).
 import type {
+  AgentKind,
+  ModelRef,
+  ServerInfo,
   AppState,
   Bridge,
   ChatAssistant,
@@ -361,10 +364,44 @@ const NOTE_REPLY: Record<number, string> = {
   10: "Tightened the gap between the cards from `gap-6` to `gap-4`.",
 }
 
+/** `&agent=claude` (or codex, gemini, opencode, custom) in the address: that agent on this
+ *  computer, over ACP, with the models it says; `&agent` alone is Claude Code. Without it, the
+ *  OpenCode server on dev-box. */
+function agentOf(): { connection: AppState["connection"]; harness: AppState["harness"]; models?: AppState["models"]; model?: ModelRef } {
+  const q = new URLSearchParams(location.search)
+  if (!q.has("agent")) return { connection: { status: "online", url: "http://my-box.example:4096", version: "1.4.2" }, harness: { kind: "opencode-server", name: "dev-box", here: false, host: "my-box.example:4096" } }
+  const id = q.get("agent") || "claude"
+  if (id === "custom") return { connection: { status: "online", url: "acp://custom-1a2b3c4d", version: "0.3.0" }, harness: { kind: "custom", name: "my-agent", here: true } }
+  const name = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", opencode: "OpenCode" }[id] ?? id
+  // What each says in its session's options: Claude Code's ids are plain words, grouped under
+  // the agent's name; Codex's carry the effort after a "/".
+  const models: AppState["models"] =
+    id === "claude"
+      ? [
+          { providerID: name, id: "default", name: "Default (recommended)", images: true, variants: [] },
+          { providerID: name, id: "opus", name: "Opus", images: true, variants: [] },
+          { providerID: name, id: "sonnet", name: "Sonnet", images: true, variants: [] },
+          { providerID: name, id: "haiku", name: "Haiku", images: true, variants: [] },
+        ]
+      : [
+          { providerID: name, id: "gpt-5.1-codex", name: "gpt-5.1-codex", images: true, variants: ["low", "medium", "high"] },
+          { providerID: name, id: "gpt-5.1-codex-mini", name: "gpt-5.1-codex-mini", images: true, variants: ["medium", "high"] },
+        ]
+  return {
+    connection: { status: "online", url: `acp://${id}`, version: "0.12.0" },
+    harness: { kind: id as AgentKind, name, here: true },
+    models,
+    model: { providerID: name, id: models[0]!.id, ...(id === "claude" ? {} : { variant: "medium" }) },
+  }
+}
+
 function base(): AppState {
   const now = Date.now()
+  const agent = agentOf()
   return {
-    connection: { status: "online", url: "http://my-box.example:4096", version: "1.4.2" },
+    connection: agent.connection,
+    harness: agent.harness,
+    home: "/home/dev",
     page: { url: `${ORIGIN}/pricing`, loading: false, canGoBack: true, canGoForward: false, hmr: false, device: "desktop", phone: PHONE.id },
     review: { enabled: true, mode: "notes", brush: false, autoReload: true, notes: notes(), unplaced: 2, docks: [] },
     site: { origin: ORIGIN, directory: DIRECTORY },
@@ -376,14 +413,14 @@ function base(): AppState {
         { file: "src/components/pricing/Faq.tsx", additions: 18, deletions: 0, status: "added" },
       ],
     },
-    session: { id: SESSION, title: "Pricing page review", updated: now, busy: false, agent: "build", directory: DIRECTORY },
+    session: { id: SESSION, title: "Pricing page review", updated: now, busy: false, agent: "build", directory: DIRECTORY, ...(agent.model ? { model: agent.model } : {}) },
     sessions: [
       { id: "s-3", title: "Homepage spacing", updated: now - 26 * HOUR, busy: false, directory: DIRECTORY, pinned: true, notes: 4, said: "more air under the hero\nthe logos row is too tight" },
       { id: SESSION, title: "Pricing page review", updated: now, busy: false, directory: DIRECTORY, notes: 7, said: "make this button bigger\nalign the plan cards" },
       { id: "s-2", title: "Checkout: mobile pass with a deliberately long title that has to be cut", updated: now - 2 * HOUR, busy: true, directory: DIRECTORY, notes: 1, said: "the pay button is under the keyboard" },
       { id: "s-4", title: "Dark mode contrast", updated: now - 12 * 24 * HOUR, busy: false, directory: DIRECTORY },
     ],
-    models: [
+    models: agent.models ?? [
       { providerID: "anthropic", id: "sonnet-4-5", name: "Sonnet 4.5", images: true, variants: ["low", "medium", "high"], context: 200_000 },
       { providerID: "anthropic", id: "haiku-4-5", name: "Haiku 4.5", images: true, variants: [], context: 200_000 },
       { providerID: "openai", id: "gpt-5", name: "GPT-5", images: true, variants: ["minimal", "high"], context: 400_000 },
@@ -393,7 +430,7 @@ function base(): AppState {
       { id: "build", name: "Build" },
       { id: "plan", name: "Plan" },
     ],
-    defaultModel: { providerID: "anthropic", id: "sonnet-4-5", variant: "medium" },
+    defaultModel: agent.model ?? { providerID: "anthropic", id: "sonnet-4-5", variant: "medium" },
     permissions: [],
     questions: [],
     // `&agent` in the address: an ACP agent's, which can't undo, list what runs, or archive.
@@ -559,6 +596,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   switch (scenario) {
     case "connect":
       Object.assign(state, { ...base(), connection: { status: "unconfigured" }, site: null, session: null, sessions: [] })
+      delete state.harness
       state.page.url = ""
       state.review.notes = []
       items = []
@@ -846,23 +884,38 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       Object.assign(state, base(), { connection: { status: "online", url: "http://127.0.0.1:49374", version: "1.4.2" } })
       push()
     },
+    // One of each: ready, not signed in, not installed, ready (and in use with `&agent=opencode`).
     localAgents: () => [
       { id: "claude", name: "Claude Code", command: "npx -y @agentclientprotocol/claude-agent-acp", installed: true },
-      { id: "codex", name: "Codex", command: "npx -y @agentclientprotocol/codex-acp", installed: true },
-      { id: "gemini", name: "Gemini CLI", command: "gemini --experimental-acp", installed: false, needs: "Install Gemini CLI and sign in: npm install -g @google/gemini-cli, then gemini" },
+      { id: "codex", name: "Codex", command: "npx -y @agentclientprotocol/codex-acp", installed: true, signIn: "codex login" },
+      { id: "gemini", name: "Gemini CLI", command: "gemini --experimental-acp", installed: false, needs: "Install Gemini CLI and sign in: npm install -g @google/gemini-cli, then gemini", install: "npm install -g @google/gemini-cli" },
       { id: "opencode", name: "OpenCode", command: "opencode acp", installed: true },
     ],
     async connectAgent(agent) {
       await new Promise((r) => setTimeout(r, 600))
-      Object.assign(state, base(), { connection: { status: "online", url: `acp://${agent.id || "custom"}`, version: "0.109.1" }, serverName: agent.id === "claude" ? "Claude Code" : agent.id, can: { queue: true, steer: true, fork: true } })
+      const known = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", opencode: "OpenCode" }[agent.id]
+      Object.assign(state, base(), {
+        connection: { status: "online", url: `acp://${known ? agent.id : "custom-1a2b3c4d"}`, version: "0.109.1" },
+        harness: { kind: known ? agent.id : "custom", name: known ?? agent.command?.split(" ")[0]?.split("/").pop() ?? "agent", here: true },
+        can: { queue: true, steer: true, fork: true },
+      })
       push()
     },
-    servers: () => [
-      { id: "srv_1", url: "http://localhost:4096", local: true, current: state.connection.status === "online" },
-      { id: "srv_4", name: "Claude Code", url: "acp://claude", local: false, current: false, agent: "claude", command: "npx -y @agentclientprotocol/claude-agent-acp" },
-      { id: "srv_2", name: "Studio Mac", url: "https://studio.example.dev", local: false, current: false },
-      { id: "srv_3", name: "omarchy", url: "https://eb501e0e4f991ca4.7fek5zuoivit.opentunnel.xyz", local: false, current: false },
-    ],
+    // `&returning`: no agent is known any more but these were connected to before.
+    servers: () => {
+      // The first launch has nothing saved; `&returning` is someone who disconnected.
+      if (scenario === "connect" && !params.has("returning")) return []
+      const url = "url" in state.connection ? state.connection.url : ""
+      const all: Omit<ServerInfo, "current">[] = [
+        { id: "srv_0", name: "dev-box", url: "http://my-box.example:4096", local: false, kind: "opencode-server", here: false },
+        { id: "srv_4", name: "Claude Code", url: "acp://claude", local: false, agent: "claude", command: "npx -y @agentclientprotocol/claude-agent-acp", kind: "claude", here: true },
+        { id: "srv_1", url: "http://127.0.0.1:49374", local: true, kind: "opencode-server", here: true },
+        { id: "srv_2", name: "Studio Mac", url: "https://studio.example.dev", local: false, kind: "opencode-server", here: false },
+        { id: "srv_5", name: "my-agent", url: "acp://custom-1a2b3c4d", local: false, agent: "custom-1a2b3c4d", command: "/opt/my-agent/bin/my-agent --acp", kind: "custom", here: true },
+        { id: "srv_3", name: "omarchy", url: "https://eb501e0e4f991ca4.7fek5zuoivit.opentunnel.xyz", local: false, kind: "opencode-server", here: false },
+      ]
+      return all.map((x) => ({ ...x, current: x.url === url })).sort((a, b) => Number(b.current) - Number(a.current))
+    },
     useServer() {},
     forgetServer() {},
     reconnect() {},
@@ -877,13 +930,19 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       if (!names) return []
       return names.map((name) => ({ name, path: `${path === "/" ? "" : path}/${name}` }))
     },
-    allProjects: () => [
-      { directory: "/home/dev/code/acme/storefront", on: "dev-box", open: true as const },
-      { directory: "/home/dev/code/acme/marketing-site", on: "dev-box" },
-      { directory: "/home/dev/code/blog", on: "dev-box" },
-      { directory: "/Users/kiryl/Documents/cde/zing-social", server: "srv_2", on: "Studio Mac" },
-      { directory: "/srv/www/a-rather-long-organisation-name/internal-tools/design-review-playground", server: "srv_3", on: "omarchy" },
-    ],
+    allProjects: () => {
+      const h = state.harness
+      const mine = { on: h?.name ?? "dev-box", kind: h?.kind ?? ("opencode-server" as const), ...(h?.here ? { here: true as const } : {}) }
+      return [
+        { directory: "/home/dev/code/acme/storefront", ...mine, open: true as const },
+        { directory: "/home/dev/code/acme/marketing-site", ...mine },
+        { directory: "/home/dev/code/blog", ...mine },
+        ...(h?.kind === "claude" ? [] : [{ directory: "/home/dev/cde/bicycle42", server: "srv_4", on: "Claude Code", kind: "claude" as const, here: true as const }]),
+        ...(h?.kind === "custom" ? [] : [{ directory: "/home/dev/sketches/motion-lab", server: "srv_5", on: "my-agent", kind: "custom" as const, here: true as const }]),
+        { directory: "/Users/kiryl/Documents/cde/zing-social", server: "srv_2", on: "Studio Mac", kind: "opencode-server" as const },
+        { directory: "/srv/www/a-rather-long-organisation-name/internal-tools/design-review-playground", server: "srv_3", on: "omarchy", kind: "opencode-server" as const },
+      ]
+    },
     refreshRunning() {},
     stopRunning(directory, id) {
       state.running = state.running.filter((r) => !((directory === undefined || r.directory === directory) && (id === undefined || r.id === id)))

@@ -84,8 +84,15 @@ test("an agent on this computer: started by its command, remembered, a note goes
     assert.match(c.status === "online" ? c.url : "", /^acp:\/\/custom-[0-9a-f]{8}$/)
     assert.equal(c.status === "online" && c.version, "9.9")
     assert.deepEqual(h.snap().can, { queue: true, steer: true, fork: true })
-    const saved = (await h.cmd("servers")) as { agent?: string; command?: string; current: boolean }[]
-    assert.ok(saved.some((s) => s.current && s.agent?.startsWith("custom-") && s.command?.includes("acp-agent.cjs")))
+    const saved = (await h.cmd("servers")) as { agent?: string; command?: string; current: boolean; kind: string; here: boolean }[]
+    assert.ok(saved.some((s) => s.current && s.agent?.startsWith("custom-") && s.command?.includes("acp-agent.cjs") && s.kind === "custom" && s.here))
+    // The window names it by its program and marks it as any other command, on this computer,
+    // never by its acp:// id; its folders are shown under ~.
+    const program = path.basename(process.execPath)
+    assert.deepEqual(h.snap().harness, { kind: "custom", name: program, here: true })
+    assert.equal(h.snap().home, os.homedir())
+    const projects = (await h.cmd("allProjects")) as { on: string; kind?: string; here?: boolean }[]
+    assert.ok(projects.length > 0 && projects.every((p) => p.on === program && p.kind === "custom" && p.here), JSON.stringify(projects))
     h.note("make it blue")
     await until(() => h.notes() === "1:done")
     assert.deepEqual(h.snap().running, [])

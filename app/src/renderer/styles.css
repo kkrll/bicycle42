@@ -1451,58 +1451,194 @@ details[open] > summary > .caret {
 
 /* Where the panel's notes and conversations are: the server, then the code folder. */
 .place {
+  position: relative;
+  /* The agent switcher drops from it, over the notes card: nothing in it needs clipping. */
+  overflow: visible;
+  z-index: 3;
   flex: none;
   display: flex;
   align-items: center;
-  gap: 6px;
   height: 36px;
-  padding: 0 10px 0 4px;
+  padding: 0 4px;
   font-size: var(--text-control);
   white-space: nowrap;
 }
 
-.place-server {
-  flex: none;
-  font-weight: 600;
-}
-
-/* The project, and the way to another one. It reads as the text it was; the mark that it opens
-   something comes with the pointer or the keyboard. As tall as the controls beside it, and its
-   background, when it has one, 4px clear of the server's name. */
+/* The agent: its mark with the connection's dot on it, its name, and (with the pointer or the
+   keyboard) the mark that it opens a list. Its name gives way before the path does, to a point. */
+.place-agent,
 .place-folder {
-  flex: 0 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   height: 28px;
-  margin-left: -2px;
-  padding: 0 4px;
+  padding: 0 6px;
   border-radius: var(--radius);
-  color: var(--muted);
   font-size: inherit;
   transition: background var(--duration-micro) var(--ease-micro);
 }
 
-.place-folder-name {
+/* The agent keeps its width (its name is cut only past half the row): the path's room is what
+   is left, so fitting the path never moves the agent. */
+.place-agent {
+  flex: none;
+  max-width: 50%;
+  padding-right: 4px;
+  font-weight: 600;
+}
+
+.place-mark {
+  position: relative;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+}
+
+.place-mark > .dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  box-shadow: 0 0 0 1.5px var(--card);
+}
+
+.place-agent-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.place-word {
+  flex: none;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.place-word[data-status="offline"] {
+  color: var(--ink-bad);
+}
+
+/* The project's path, cut in the middle when the row is short (MiddlePath); it reads as the text
+   it was, the mark that it opens something comes with the pointer or the keyboard. */
+.place-folder {
+  flex: 0 1 auto;
+  color: var(--muted);
+}
+
+.place-folder-name {
+  display: block;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.place-agent > .icon,
 .place-folder > .icon {
   flex: none;
+  width: 12px;
+  height: 12px;
+  margin-left: -3px;
   opacity: 0;
 }
 
+.place-agent:not(:disabled):hover,
+.place-agent:focus-visible,
+.place-agent[aria-expanded="true"],
 .place-folder:not(:disabled):hover,
 .place-folder:focus-visible {
   background: var(--surface);
 }
 
+.place-agent:not(:disabled):hover > .icon,
+.place-agent:focus-visible > .icon,
+.place-agent[aria-expanded="true"] > .icon,
 .place-folder:not(:disabled):hover > .icon,
 .place-folder:focus-visible > .icon {
   opacity: 1;
+}
+
+.place-settings {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+/* The agent switcher: the agents and servers to go to, each with its mark and where it runs,
+   the one in use checked; then a way to connect another. Inside the panel, never over the page. */
+.agent-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: min(340px, 100%);
+  max-height: min(360px, 60vh);
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--background-05);
+  border-radius: 8px;
+  background: var(--background);
+  font-weight: 400;
+  animation: fadeIn var(--duration-exit) var(--ease-entrance);
+}
+
+.agent-pop-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  font-size: var(--text-control);
+  text-align: left;
+}
+
+.agent-pop-row:not(:disabled):hover,
+.agent-pop-row:focus-visible {
+  background: var(--surface);
+}
+
+.agent-pop-row:focus-visible {
+  outline-offset: -2px;
+}
+
+.agent-pop-row[aria-checked="true"] {
+  font-weight: 600;
+}
+
+.agent-pop-row > .icon,
+.agent-pop-row > .mark {
+  flex: none;
+}
+
+.agent-pop-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-pop-where {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.agent-pop-on {
+  color: var(--foreground);
+}
+
+.agent-pop-rule {
+  height: 1px;
+  margin: 4px 4px;
+  background: var(--rule);
+}
+
+.agent-pop-error,
+.agent-pop-wait {
+  padding: 6px 8px;
 }
 
 /* A group of the list: what its notes need. */
@@ -1714,6 +1850,9 @@ button.note-group-name:hover {
 }
 
 .folder h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin: 0;
   font-size: var(--text-lead);
   line-height: var(--text-lead--line-height);
@@ -1956,6 +2095,13 @@ button.note-group-name:hover {
   min-width: 0;
   font-size: var(--text-control);
   color: var(--muted);
+}
+
+.row-on > .mark {
+  width: 12px;
+  height: 12px;
+  margin-right: 5px;
+  translate: 0 1px;
 }
 
 .row-on {
@@ -3169,62 +3315,153 @@ details[open] > summary > .caret {
   gap: 4px;
 }
 
-.connect-local {
+/* The connect form: sections of rows on a card, each row an agent or a server with its mark,
+   its name, how it stands in a word or two, and the one thing to do about it. */
+.connect-section {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--rule);
 }
 
-.connect-local-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.connect-local-row .btn {
-  flex: none;
-}
-
-/* Another ACP agent's command: the field takes the row, its Start keeps its width. */
-.connect-local-row .input {
-  flex: 1;
-  min-width: 0;
-}
-
-.connect-saved-actions {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* The name, then the address on a line of its own, cut short where the buttons begin. */
-.connect-saved-what {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.connect-saved-what > * {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.connect-saved-name {
-  color: var(--foreground);
+.connect-section + .connect-section {
+  margin-top: 8px;
 }
 
 .connect-form h3 {
   font-weight: 500;
 }
 
-.connect-remote {
+.agent-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.agent-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  min-height: 52px;
+  padding: 8px 10px;
+}
+
+.agent-row + .agent-row {
+  border-top: 1px solid var(--rule);
+}
+
+.agent-row > .mark {
+  align-self: start;
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0 1px;
+}
+
+.agent-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.agent-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-status {
+  font-size: var(--text-control);
+  color: var(--muted);
+}
+
+.agent-status > .dot {
+  display: inline-block;
+  margin-right: 4px;
+  translate: 0 -1px;
+}
+
+/* A command wraps as one piece to the next line, and breaks inside only when it is longer. */
+.agent-status code,
+.agent-command {
+  display: inline-block;
+  max-width: 100%;
+  font-size: var(--text-control);
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+
+.agent-row[data-state="signin"] .agent-status {
+  color: var(--ink-warn);
+}
+
+.agent-command {
   margin-top: 4px;
+  font-family: var(--font-mono);
+  user-select: text;
+}
+
+.agent-error {
+  font-size: var(--text-control);
+  color: var(--ink-bad);
+  user-select: text;
+}
+
+.agent-acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-acts > .copy-btn {
+  gap: 6px;
+}
+
+/* What only some readers want comes with the pointer: the command that starts an agent, and
+   forgetting one connected to before. The keyboard reaches them all the same. */
+.agent-how,
+.saved-forget {
+  opacity: 0;
+  transition: opacity var(--duration-micro) var(--ease-micro);
+}
+
+.agent-row:hover :is(.agent-how, .saved-forget),
+.agent-how:focus-visible,
+.agent-how[aria-expanded="true"],
+.saved-forget:focus-visible {
+  opacity: 1;
+}
+
+.agent-row-error {
+  grid-column: 2 / -1;
+  margin-top: 4px;
+}
+
+/* Any other ACP agent: its command takes the row; Start keeps its width. */
+.agent-custom > .input {
+  min-width: 0;
+}
+
+.agent-custom > .mark {
+  align-self: center;
+  margin-top: 0;
+  color: var(--muted);
+}
+
+/* Another computer's address and password, opened under its row, in the row's smaller type. */
+.agent-remote-form .form-help {
+  font-size: var(--text-control);
+}
+
+.agent-remote-form {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .form-help {
@@ -3269,6 +3506,9 @@ details[open] > summary > .caret {
 }
 
 .server-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-weight: 600;
 }
 

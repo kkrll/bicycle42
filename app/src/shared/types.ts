@@ -285,19 +285,33 @@ export type ConnectionState =
 /** A shell command the server is still running in a project's folder. `started` is a time in ms. */
 export type RunningCommand = { id: string; directory: string; command: string; started: number }
 
+/** Which agent does the work, for the mark the window draws for it: one of the ACP agents the
+ *  app knows (`localAgents`), any other ACP command ("custom"), or an OpenCode server. */
+export type AgentKind = "claude" | "codex" | "gemini" | "opencode" | "custom" | "opencode-server"
+
+/** An agent or server as the window names it. `name`: the reviewer's name for it, else the
+ *  agent's own ("Claude Code", a custom command's program), "OpenCode server" for this
+ *  computer's, or a server's computer name or address. `here`: it runs on this computer, so its
+ *  folders are this computer's; else `host` is the server's address without its scheme. */
+export type Harness = { kind: AgentKind; name: string; here: boolean; host?: string }
+
 /** A folder on a server. `server` is absent for the server in use; `on` is what to call the
- *  server ("k", "Studio Mac", or its address), `open` marks the project that is open. */
-export type ProjectInfo = { directory: string; server?: string; on: string; open?: true }
+ *  server ("k", "Studio Mac", "Claude Code", or its address), `kind` which agent that is, `here`
+ *  that it is on this computer; `open` marks the project that is open. */
+export type ProjectInfo = { directory: string; server?: string; on: string; kind?: AgentKind; here?: true; open?: true }
 
 /** `name` is the reviewer's for it, else its computer's own. `agent` is set for an agent on
  *  this computer the app runs itself (an ACP agent: `connectAgent`): which one (an id in
- *  `localAgents`, or "custom"), with `command` the line that starts it. */
-export type ServerInfo = { id: string; name?: string; url: string; local: boolean; current: boolean; agent?: string; command?: string }
+ *  `localAgents`, or "custom-…"), with `command` the line that starts it. `local` is this
+ *  computer's OpenCode server; `here` is anything on this computer (it and every ACP agent). */
+export type ServerInfo = { id: string; name?: string; url: string; local: boolean; current: boolean; agent?: string; command?: string; kind: AgentKind; here: boolean }
 
 /** An agent this computer can run for the app over ACP (the Agent Client Protocol), as the
  *  connect screen offers it. `installed`: what it needs was found on this computer's PATH;
- *  `needs` says what to install when it was not. "custom" is any other command. */
-export type LocalAgent = { id: string; name: string; command: string; installed: boolean; needs?: string }
+ *  `needs` says what to install when it was not, `install` is the one command that does.
+ *  `signIn`: it is installed and no sign-in of it was found on this computer: the command to run
+ *  in a terminal (it may still work: an API key in its own settings is not looked for). */
+export type LocalAgent = { id: string; name: string; command: string; installed: boolean; needs?: string; install?: string; signIn?: string }
 
 export type SessionSummary = {
   id: string
@@ -333,6 +347,11 @@ export type AppState = {
   /** The reviewer's name for the server in use, else its computer's own name; with neither it
    *  goes by its address. */
   serverName?: string
+  /** The agent in use (or being connected to again, while offline or connecting): its mark,
+   *  name and where it runs. Absent while none is set up. */
+  harness?: Harness
+  /** This computer's home folder: a path in it, on this computer, is shown as ~/…. */
+  home?: string
   page: {
     /** What the URL bar shows. Empty before the first page. */
     url: string

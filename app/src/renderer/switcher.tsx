@@ -4,7 +4,8 @@
 // A project is a folder on the server (the repo). Opening one brings its site back as it was
 // last open, or, when it has none yet, the step where a site is opened or started.
 import { For, Match, Show, Switch, createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js"
-import { Icon, Kbd } from "./icons"
+import { homePath } from "./agents"
+import { AgentMark, Icon, Kbd } from "./icons"
 import { FolderPicker } from "./panel"
 import { b42, keys, mac, message, state } from "./store"
 import type { ProjectInfo } from "../shared/types"
@@ -133,13 +134,16 @@ export function Switcher(props: { projectsOnly?: boolean; onClose: () => void })
                                   <span class="row-tag">open</span>
                                 </Show>
                               </span>
-                              {/* Which computer, then where on it. A long path loses its start, not the folder's own name. */}
-                              <span class="row-where" title={`${p().project.on} · ${p().project.directory}`}>
+                              {/* Which agent (its mark and name), then where. A long path loses its start, not the folder's own name. */}
+                              <span class="row-where" title={`${p().project.on}${p().project.here ? " on this computer" : ""} · ${p().project.directory}`}>
                                 <Show when={p().project.on}>
-                                  <span class="row-on">{p().project.on}</span>
+                                  <span class="row-on">
+                                    <AgentMark kind={p().project.kind} />
+                                    {p().project.on}
+                                  </span>
                                 </Show>
                                 <span class="row-sub">
-                                  <bdi>{p().project.directory}</bdi>
+                                  <bdi>{homePath(p().project.directory, p().project.here)}</bdi>
                                 </span>
                               </span>
                               <Show when={p().n}>
@@ -164,7 +168,7 @@ export function Switcher(props: { projectsOnly?: boolean; onClose: () => void })
                         <Match when={row.kind === "browse"}>
                           <Icon name="folder" />
                           <span class="row-main">Browse folders</span>
-                          <span class="row-sub plain">A project the server has not opened yet</span>
+                          <span class="row-sub plain">Any folder {state.harness?.here ? "on this computer" : `on ${state.harness?.name ?? "the server"}`}</span>
                         </Match>
                       </Switch>
                     </button>

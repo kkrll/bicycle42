@@ -27,7 +27,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { notePrompt, noteWords, TEMPLATES } from "../../../overlay/prompt.js"
 import { createAcp } from "./acp"
-import { commandOf, customName, KNOWN_AGENTS, localAgents, splitCommand } from "./agents"
+import { agentHome, commandOf, customName, KNOWN_AGENTS, localAgents, splitCommand } from "./agents"
 import { commitPrompt, parseAsk, splitTold, startPrompt, takeBackPrompt, toldLine } from "./asks"
 import type {
   AgentInfo,
@@ -58,6 +58,7 @@ import type {
   Question,
   SendOptions,
   ProjectInfo,
+  Harness,
   Rect,
   RepoChange,
   RunningCommand,
@@ -77,7 +78,7 @@ import { createOutbox, type Outgoing } from "./outbox"
 import { createShots } from "./shots"
 import { createPictures } from "./pictures"
 import { createSnapshots, type Restore, type Turn } from "./snapshots"
-import { createStore, type SavedServer } from "./store"
+import { createStore, type SavedServer, type Settings } from "./store"
 
 type Level = "info" | "warn" | "error"
 
@@ -285,6 +286,14 @@ export function createCore(host: Host): Core {
   let siteAsked: string | undefined
   let starting = false
 
+  /** The agent in use, for its mark and name in the window (absent while none is set up). */
+  function harness(): Harness | undefined {
+    const s = store.settings()
+    if (!s.server) return undefined
+    // A server saved before servers were kept is in the list only once it has connected.
+    return describe(s.servers?.find((x) => x.id === s.current) ?? s.server)
+  }
+
   /** The name the server in use goes by: the reviewer's, else its computer's own. */
   function serverName(): string | undefined {
     const s = store.settings()
@@ -306,6 +315,8 @@ export function createCore(host: Host): Core {
     return {
       connection,
       ...(serverName() ? { serverName: serverName() } : {}),
+      ...(harness() ? { harness: harness() } : {}),
+      home: agentHome(),
       page: { ...(p ?? { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }), device: device(), phone: phone().id },
       review: {
         enabled: review?.enabled ?? true,
@@ -800,8 +811,22 @@ export function createCore(host: Host): Core {
     }
   }
 
-  /** What a saved server is called: the reviewer's name, its computer's own, or its address. */
-  const serverCalled = (x: SavedServer) => x.name ?? x.computer ?? ("url" in x ? x.url.replace(/^https?:\/\//, "") : "agent" in x ? x.agent : "this computer")
+  /** Which agent a saved server is, what it is called and where it runs. An ACP agent is called
+   *  by the reviewer's name for it, else its own ("Claude Code"; a custom command's program),
+   *  never by its id; this computer's OpenCode server is "OpenCode server", not the computer's
+   *  name; another computer's goes by its name or address. */
+  function describe(x: NonNullable<Settings["server"]> & { computer?: string }): Harness {
+    if ("agent" in x) {
+      const known = KNOWN_AGENTS.find((a) => a.id === x.agent)
+      return { kind: known ? (known.id as Harness["kind"]) : "custom", name: x.name ?? known?.name ?? x.computer ?? customName(x.command), here: true }
+    }
+    if ("local" in x) return { kind: "opencode-server", name: x.name ?? "OpenCode server", here: true }
+    const host = x.url.replace(/^https?:\/\//, "").replace(/\/+$/, "")
+    return { kind: "opencode-server", name: x.name ?? x.computer ?? host, here: false, host }
+  }
+
+  /** What a saved server is called: the reviewer's name, its agent's or computer's own, or its address. */
+  const serverCalled = (x: SavedServer) => describe(x).name
 
   /** The site's conversations as the list shows them: the ones not put away, the pinned first,
    *  each with the count and the words of the notes it was sent (the background conversation's
@@ -2356,6 +2381,8 @@ export function createCore(host: Host): Core {
             local: "local" in x,
             current: !!s.server && x.id === s.current,
             ...("agent" in x ? { agent: x.agent, command: x.command.join(" ") } : {}),
+            kind: describe(x).kind,
+            here: describe(x).here,
           }),
         )
         .sort((a, b) => Number(b.current) - Number(a.current))
@@ -2409,12 +2436,13 @@ export function createCore(host: Host): Core {
       const here = site && siteSettings(site.origin)?.directory
       const live = backend ? await Promise.resolve(commands.projects()).catch(() => [] as string[]) : []
       const on = mine ? serverCalled(mine) : ""
-      const out: ProjectInfo[] = [...new Set([...(here ? [here] : []), ...live])].map((directory) => ({ directory, on, ...(directory === here ? { open: true as const } : {}) }))
+      const what = (x: SavedServer | undefined) => (x ? { kind: describe(x).kind, ...(describe(x).here ? { here: true as const } : {}) } : {})
+      const out: ProjectInfo[] = [...new Set([...(here ? [here] : []), ...live])].map((directory) => ({ directory, on, ...what(mine), ...(directory === here ? { open: true as const } : {}) }))
       for (const x of s.servers ?? []) {
         if (x.id === s.current && backend) continue
         const theirs = x.id === s.current ? { folder: s.folder, sites: s.sites } : x.space
         const known = [...new Set([...(theirs?.folder ? [theirs.folder] : []), ...Object.values(theirs?.sites ?? {}).map((e) => e.directory), ...(x.projects ?? [])])]
-        for (const directory of known) out.push({ directory, server: x.id, on: serverCalled(x) })
+        for (const directory of known) out.push({ directory, server: x.id, on: serverCalled(x), ...what(x) })
       }
       return out
     },
