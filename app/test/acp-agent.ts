@@ -6,8 +6,10 @@
 //
 // What a turn does is in its words: "HANG" never ends (until the turn is cancelled or the process
 // ended), "CRASH" ends the process a moment after it began (once per state file), anything else
-// is answered "done". "EDIT <path> <from> <to>" first replaces those words in that file, as an
+// is answered "done". "SPAWN <file>" starts a program that runs on (as a dev server would), writes
+// its pid into that file, and then ends the process as CRASH does, every time. "EDIT <path> <from> <to>" first replaces those words in that file, as an
 // agent's edit would (the app's own file history sees it: test/controller-acp.test.ts).
+import { spawn } from "node:child_process"
 import fs from "node:fs"
 import { Readable, Writable } from "node:stream"
 import { ndJsonStream } from "@agentclientprotocol/sdk/unstable"
@@ -17,6 +19,13 @@ const file = process.argv[2]!
 const fake = fakeAgent({ file })
 fake.onPrompt = async (turn) => {
   await turn.say({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "on it" }, messageId: `m-${turn.text.length}` })
+  const started = /SPAWN (\S+)/.exec(turn.text)
+  if (started) {
+    const server = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" })
+    fs.writeFileSync(started[1]!, String(server.pid))
+    setTimeout(() => process.exit(3), 100)
+    return new Promise(() => {})
+  }
   if (turn.text.includes("CRASH") && !fs.existsSync(`${file}.crashed`)) {
     fs.writeFileSync(`${file}.crashed`, "")
     setTimeout(() => process.exit(3), 100)

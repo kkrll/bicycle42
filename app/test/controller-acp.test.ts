@@ -66,6 +66,15 @@ function boot() {
       await current.core.dispose()
       current = shell()
     },
+    /** The app ends without a word (it crashed, or was killed), and starts again on the same data.
+     *  (The old one is only put away at the end, by close.) */
+    crash() {
+      current = shell()
+    },
+    /** The agent is connected again by hand while it is in use: Retry, or the same command. */
+    async connectAgain() {
+      await cmd("connectAgent", { id: "custom", command })
+    },
     async close() {
       for (const s of shells) await s.core.dispose()
       Object.assign(console, quiet)
@@ -135,6 +144,43 @@ test("the app quits with a note under way: started again, the note is stopped wi
     await until(() => h.snap().connection.status === "online" && !!h.snap().session)
     await until(() => h.notes() === "1:failed")
     assert.equal(h.snap().review.notes[0]?.stopped, true)
+  } finally {
+    await h.close()
+  }
+})
+
+test("the app crashes with a note under way: started again, the note is stopped with Retry, not done", async () => {
+  const h = boot()
+  try {
+    await h.ready()
+    h.note("HANG here")
+    await until(() => h.notes() === "1:working")
+    // Its ledger is on disk as the work left it.
+    await sleep(400)
+    h.crash()
+    await until(() => h.snap().connection.status === "online" && !!h.snap().session)
+    await until(() => h.notes() === "1:failed")
+    assert.equal(h.snap().review.notes[0]?.stopped, true)
+  } finally {
+    await h.close()
+  }
+})
+
+test("the same agent connected again while a note works: the note is stopped with Retry, not called done", async () => {
+  const h = boot()
+  try {
+    await h.ready()
+    h.note("HANG here")
+    await until(() => h.notes() === "1:working")
+    await h.connectAgain()
+    await until(() => h.snap().connection.status === "online" && !!h.snap().session)
+    await until(() => h.notes() === "1:failed")
+    assert.equal(h.snap().review.notes[0]?.stopped, true)
+    // And the agent's ledger does not bring it back as done on the next start.
+    await h.relaunch()
+    await until(() => h.snap().connection.status === "online" && !!h.snap().session)
+    await sleep(300)
+    assert.equal(h.notes(), "1:failed")
   } finally {
     await h.close()
   }

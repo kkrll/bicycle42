@@ -100,6 +100,10 @@ export type AcpOptions = {
    *  own file history), so what the agent changes is never in the turn's "before". At most
    *  `timing.beforeTurn`; a failure does not hold the message. */
   beforeTurn?: (session: string) => Promise<unknown> | undefined
+  /** Called right before a message goes to the agent without `beforeTurn` having finished (it
+   *  took longer than `timing.beforeTurn`, or failed): what the agent changes in that turn may
+   *  be in its "before". */
+  turnUntrusted?: (session: string) => void
 }
 
 /** Exported so tests can shorten them. Milliseconds. */
@@ -114,6 +118,11 @@ export const timing = {
   healthy: 60_000,
   /** The longest a message waits for `beforeTurn` (a first snapshot of a large folder). */
   beforeTurn: 20_000,
+  /** After Stop, how long the agent has to end its turn before its process is ended. */
+  stopGrace: 10_000,
+  /** An agent that dies this many times in a row soon after starting is not started again by
+   *  itself: the window offers Retry. */
+  crashes: 5,
   save: 300,
 }
 
@@ -143,6 +152,8 @@ type Kept = {
   updated: number
   archived?: true
   sent: Sent[]
+  /** The messages waiting here to be sent, so a crash of the app does not leave them "queued". */
+  queued?: string[]
   lost?: string[]
 }
 type Ledger = { version: 1; sessions: Record<string, Kept>; options?: unknown[]; modes?: unknown }
@@ -211,6 +222,33 @@ function said(err: unknown): string {
 }
 const code = (err: unknown) => num(rec(err).code)
 
+/** ACP's error for "authentication required", and what agents say when no one is signed in
+ *  (not any message with "auth" in it: a path in src/auth/, an author). */
+const AUTH_REQUIRED = -32000
+const SIGN_IN = /\b(authentication required|auth(entication)? method|not (logged|signed) in|(log|sign) ?in (first|required|again)|please (run \/?login|(log|sign) ?in)|run \/login|login required|invalid api key|api key (is )?(missing|not (set|found))|no api key|unauthori[sz]ed)\b/i
+export const needsSignIn = (err: unknown) => code(err) === AUTH_REQUIRED || SIGN_IN.test(said(err))
+
+/** A command line for cmd.exe: each word quoted when it needs to be. A word with a character
+ *  cmd.exe would act on even inside quotes (`"`, `%`, `!`, `^`, a line break) is refused: the
+ *  command was typed by a person, and is run as one program with its arguments, nothing more. */
+export function cmdLine(words: string[]): string {
+  return words
+    .map((w) => {
+      if (/["%!^\r\n]/.test(w)) throw new Error(`Can't start a command with ${JSON.stringify(w)} in it on Windows: it has a character cmd.exe would act on.`)
+      return w && /^[\w.\-/\\:=@+,]+$/.test(w) ? w : `"${w}"`
+    })
+    .join(" ")
+}
+
+/** When a file was last written; now when it can't be told. */
+function fileTime(file: string): number {
+  try {
+    return fs.statSync(file).mtimeMs
+  } catch {
+    return Date.now()
+  }
+}
+
 /** `file://` URL of an absolute path. */
 const fileUri = (abs: string) => "file://" + abs.split("/").map(encodeURIComponent).join("/")
 
@@ -242,7 +280,28 @@ export function createAcp(opts: AcpOptions): Acp {
       if (rec(err).code !== "ENOENT") warn("The agent's ledger can't be read; starting a new one", String(err))
     }
   }
+  /** The app ended without saying so (a crash, a kill): the agent's process went with it, so a
+   *  message that was with it (sent, never ended) or waiting here (queued) will never finish.
+   *  Each is lost, said once by `lost`, and a turn's end is "failed" for its line in a re-read. */
+  function lostAtLoad(at: number) {
+    let changed = false
+    for (const k of Object.values(ledger.sessions)) {
+      if (!k || !Array.isArray(k.sent)) continue
+      const ids = k.queued ?? []
+      for (const s of k.sent)
+        if (!s.ended) {
+          Object.assign(s, { ended: Math.max(at, s.time), end: "failed" as const, error: `${name} was stopped` })
+          ids.push(s.id)
+        }
+      if (k.queued) delete k.queued
+      if (!ids.length) continue
+      k.lost = [...new Set([...(k.lost ?? []), ...ids])]
+      changed = true
+    }
+    if (changed) save()
+  }
   let saveTimer: ReturnType<typeof setTimeout> | undefined
+  if (file) lostAtLoad(fileTime(file))
   function save(now = false) {
     if (!file) return
     clearTimeout(saveTimer)
@@ -258,6 +317,16 @@ export function createAcp(opts: AcpOptions): Acp {
     } catch (err) {
       warn("The agent's ledger can't be written", String(err))
     }
+  }
+  /** Keeps the ids waiting in a conversation's queue with its ledger. */
+  function queuedNow(c: Conv) {
+    const k = ledger.sessions[c.id]
+    if (!k) return
+    const ids = c.queue.map((q) => q.id)
+    if (ids.join("\n") === (k.queued ?? []).join("\n")) return
+    if (ids.length) k.queued = ids
+    else delete k.queued
+    save()
   }
   const kept = (id: string, cwd?: string): Kept | undefined => {
     let k = ledger.sessions[id]
@@ -280,8 +349,10 @@ export function createAcp(opts: AcpOptions): Acp {
 
   // ── the process ─────────────────────────────────────────────────────────────────────────────
 
-  /** `ended`: resolves with why the process ended, once it has. */
-  type Proc = { gen: number; agent: ClientContext; init: Raw; transport: Transport; started: number; ended: Promise<string> }
+  /** `ended`: resolves with why the process ended, once it has. `ending`: the app ended it, and
+   *  why (it would not stop a turn): not a crash, and that is its reason. `why`: once it has
+   *  ended, the reason, for a message that was about to go to it. */
+  type Proc = { gen: number; agent: ClientContext; init: Raw; transport: Transport; started: number; ended: Promise<string>; ending?: string; why?: string }
   let proc: Proc | undefined
   let starting: Promise<Proc> | undefined
   let gen = 0
@@ -297,15 +368,20 @@ export function createAcp(opts: AcpOptions): Acp {
     const [program, ...args] = opts.command
     if (!program) throw new Error(`No command to start ${name} with.`)
     const exe = (await which(program, env)) ?? program
-    const child: ChildProcess = spawn(exe, args, {
-      cwd: agentHome(),
-      env,
-      stdio: ["pipe", "pipe", "pipe"],
-      // Its own process group, so what it starts (a dev server) ends with it.
-      detached: process.platform !== "win32",
-      shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(exe),
-      windowsHide: true,
-    })
+    const windows = process.platform === "win32"
+    // Windows runs a .cmd or .bat (npx is one) only through cmd.exe, which reads the whole line:
+    // it is given one line, quoted, and refused when a word could make cmd.exe do anything else.
+    const viaCmd = windows && /\.(cmd|bat)$/i.test(exe)
+    const child: ChildProcess = viaCmd
+      ? spawn(cmdLine([exe, ...args]), [], { cwd: agentHome(), env, stdio: ["pipe", "pipe", "pipe"], shell: true, windowsHide: true })
+      : spawn(exe, args, {
+          cwd: agentHome(),
+          env,
+          stdio: ["pipe", "pipe", "pipe"],
+          // Its own process group, so what it starts (a dev server) ends with it.
+          detached: !windows,
+          windowsHide: true,
+        })
     stderrTail = []
     child.stderr?.on("data", (d: Buffer) => {
       for (const line of String(d).split("\n")) if (line.trim()) stderrTail.push(line.trim().slice(0, 300))
@@ -315,23 +391,24 @@ export function createAcp(opts: AcpOptions): Acp {
       child.on("error", (err) => resolve(rec(err).code === "ENOENT" ? `${program} was not found on this computer` : said(err)))
       child.on("exit", (exitCode, signal) => resolve(signal ? `it was ended (${signal})` : `it exited with code ${exitCode}`))
     })
+    // What it started is ended too, also when the agent itself has ended already (a crash leaves
+    // its dev server running otherwise): the whole group, or on Windows the tree under it.
     const kill = () => {
-      if (child.exitCode !== null || child.signalCode !== null || !child.pid) return
-      try {
-        if (process.platform === "win32") child.kill()
-        else {
-          process.kill(-child.pid, "SIGTERM")
-          setTimeout(() => {
-            try {
-              process.kill(-child.pid!, "SIGKILL")
-            } catch {
-              // gone already
-            }
-          }, 2000).unref()
-        }
-      } catch {
-        child.kill()
+      const pid = child.pid
+      if (!pid) return
+      if (windows) {
+        execFile("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true }, () => {})
+        return
       }
+      const group = (signal: NodeJS.Signals) => {
+        try {
+          process.kill(-pid, signal)
+        } catch {
+          // ESRCH: nothing of it is left
+        }
+      }
+      group("SIGTERM")
+      setTimeout(() => group("SIGKILL"), 2000).unref()
     }
     return { stream: ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>), exited, kill }
   }
@@ -398,7 +475,7 @@ export function createAcp(opts: AcpOptions): Acp {
     steering = rec(rec(init._meta).steering).supported === true
     const p: Proc = { gen: mine, agent: conn.agent, init, transport, started: Date.now(), ended }
     proc = p
-    void ended.then((reason) => died(p, why(reason)))
+    void ended.then((reason) => died(p, p.ending ?? why(reason)))
     if (JSON.stringify(can()) !== before) emit({ type: "agent" })
     return p
   }
@@ -408,31 +485,49 @@ export function createAcp(opts: AcpOptions): Acp {
   function died(p: Proc, why: string) {
     if (proc !== p) return
     proc = undefined
+    p.why = why
     p.transport.kill()
     for (const [id, pending] of permissionsPending) if (pending.gen === p.gen) (permissionsPending.delete(id), emit({ type: "permission-done", session: pending.session, id }))
     for (const [id, pending] of questionsPending) if (pending.gen === p.gen) (questionsPending.delete(id), emit({ type: "question-done", session: pending.session, id }))
     for (const conv of convs.values()) {
-      if (conv.attached !== p.gen) continue
-      conv.attached = 0
-      if (conv.running) finish(conv, conv.running.id, { failed: why })
-      for (const q of conv.queue.splice(0)) {
-        emit({ type: "inbox", session: conv.id, id: q.id, status: "cancelled" })
-        drop(conv, q.id)
+      if (conv.attached !== p.gen && conv.running?.gen !== p.gen) continue
+      if (conv.attached === p.gen) conv.attached = 0
+      if (conv.running?.gen === p.gen) finish(conv, conv.running.id, { failed: why })
+      if (conv.queue.length) {
+        for (const q of conv.queue.splice(0)) {
+          emit({ type: "inbox", session: conv.id, id: q.id, status: "cancelled" })
+          drop(conv, q.id)
+        }
+        queuedNow(conv)
       }
       if (conv.busy) setBusy(conv, false)
     }
     if (closed) return
     log("warn", why)
+    // Ended by the app (a turn that would not stop) or after a good while: not a crash at start.
+    if (p.ending || Date.now() - p.started > timing.healthy) {
+      crashes = 0
+      retryDelay = timing.retryMin
+    } else crashes++
+    if (crashes >= timing.crashes) {
+      const error = `${why}. It stopped ${crashes} times in a row just after it started, so it is not started again by itself.`
+      log("warn", error)
+      return emit({ type: "connection", state: { status: "offline", url: url(), error } })
+    }
     emit({ type: "connection", state: { status: "offline", url: url(), error: why } })
-    if (listener) restartLater(Date.now() - p.started > timing.healthy)
+    if (listener) restartLater()
   }
 
   let closed = false
+  /** The pause before the next start: doubled by each start that fails or dies young. */
   let retryDelay = timing.retryMin
+  /** Deaths in a row of a process that had only just started. */
+  let crashes = 0
   let retryTimer: ReturnType<typeof setTimeout> | undefined
-  function restartLater(healthy: boolean) {
-    if (healthy) retryDelay = timing.retryMin
+  function restartLater() {
     clearTimeout(retryTimer)
+    const wait = retryDelay
+    retryDelay = Math.min(retryDelay * 2, timing.retryMax)
     retryTimer = setTimeout(async () => {
       if (!listener || closed) return
       try {
@@ -442,10 +537,9 @@ export function createAcp(opts: AcpOptions): Acp {
         emit({ type: "resync" })
       } catch (err) {
         emit({ type: "connection", state: { status: "offline", url: url(), error: err instanceof Error ? err.message : said(err) } })
-        retryDelay = Math.min(retryDelay * 2, timing.retryMax)
-        restartLater(false)
+        restartLater()
       }
-    }, retryDelay)
+    }, wait)
   }
 
   const url = () => `acp://${opts.id}`
@@ -461,7 +555,7 @@ export function createAcp(opts: AcpOptions): Acp {
     try {
       return rec(ms ? await Promise.race([req, new Promise((_, reject) => setTimeout(() => reject(new Error(`${name} did not answer in ${ms / 1000} s`)), ms).unref())]) : await req)
     } catch (err) {
-      if (code(err) === -32000 || /auth/i.test(said(err)))
+      if (needsSignIn(err))
         throw Object.assign(new Error(`${name} needs you to sign in first: run it once in a terminal and log in. (${said(err)})`), { code: code(err) })
       throw Object.assign(new Error(said(err)), { code: code(err) })
     }
@@ -470,9 +564,10 @@ export function createAcp(opts: AcpOptions): Acp {
   // ── conversations ───────────────────────────────────────────────────────────────────────────
 
   const convs = new Map<string, Conv>()
+  const blank = (id: string): Conv => ({ id, items: [], attached: 0, busy: false, queue: [], parked: false, tools: new Map(), options: [], commands: [] })
   function conv(id: string): Conv {
     let c = convs.get(id)
-    if (!c) convs.set(id, (c = { id, items: [], attached: 0, busy: false, queue: [], parked: false, tools: new Map(), options: [], commands: [] }))
+    if (!c) convs.set(id, (c = blank(id)))
     return c
   }
 
@@ -775,6 +870,8 @@ export function createAcp(opts: AcpOptions): Acp {
         configured(c, res)
         c.items = [{ kind: "marker", id: `resumed_${c.id}`, time: Date.now(), tone: "info", text: `${name} does not show what was said before it was started again.` }]
       } else throw gone(c.id)
+      // The process ended while the conversation was read: it is loaded in none.
+      if (proc !== p) throw new Error(p.why ?? `${name} stopped while the conversation was read.`)
       // What waits in the queue is still part of the conversation, at its end.
       for (const q of c.queue) upsert(c, user(c.id, q.id, q.time, q.text, pictures(q.files), true), false)
       c.attached = p.gen
@@ -847,17 +944,25 @@ export function createAcp(opts: AcpOptions): Acp {
       if (!loaded) emit({ type: "resync", session: c.id })
     } catch (err) {
       pumping.delete(c.id)
+      const why = err instanceof Error ? err.message : said(err)
       // It could not be loaded: what waits fails, as a message the agent never got.
       for (const q of c.queue.splice(0)) {
         emit({ type: "inbox", session: c.id, id: q.id, status: "cancelled" })
         drop(c, q.id)
       }
-      if (convs.has(c.id)) upsert(c, { kind: "marker", id: `e_${c.id}_${Date.now()}`, time: Date.now(), tone: "error", text: `Failed: ${err instanceof Error ? err.message : said(err)}`, failed: true }, true)
+      queuedNow(c)
+      if (convs.has(c.id)) upsert(c, { kind: "marker", id: `e_${c.id}_${Date.now()}`, time: Date.now(), tone: "error", text: `Failed: ${why}`, failed: true }, true)
+      // The run the controller counted on (a typed message makes the conversation busy) ends.
+      emit({ type: "run", session: c.id, status: "failed", error: why })
       return
     }
     pumping.delete(c.id)
+    // The process ended after the conversation was loaded in it: loaded again in the next one.
+    if (proc !== p || c.attached !== p.gen) return void pump(c)
+    if (c.running) return
     const q = c.queue.shift()
-    if (!q || c.running) return
+    if (!q) return
+    queuedNow(c)
     take(c, p, q)
   }
   const pumping = new Set<string>()
@@ -889,16 +994,25 @@ export function createAcp(opts: AcpOptions): Acp {
     } catch (err) {
       return finish(c, q.id, { failed: said(err) })
     }
-    const go = () => {
+    const go = (untrusted = false) => {
+      if (c.running?.id !== q.id) return
       // Stopped, or the process ended, while the snapshot was taken: the message never went.
-      if (c.running?.id !== q.id || proc !== p) return
       if (c.running.cancelled) return finish(c, q.id, { interrupted: true })
+      if (proc !== p) return finish(c, q.id, { failed: p.why ?? `${name} stopped` })
+      if (untrusted) opts.turnUntrusted?.(c.id)
       send()
     }
     const ready = opts.beforeTurn?.(c.id)
     if (!ready) return go()
-    const late = new Promise((r) => setTimeout(r, timing.beforeTurn).unref())
-    void Promise.race([ready, late]).catch((err) => warn("The folder could not be snapshot before a message", said(err))).then(go)
+    // It is sent anyway when the snapshot is late or fails (the reviewer is not held up), and the
+    // controller is told the turn's "before" may have the agent's first changes in it.
+    const late = new Promise<boolean>((r) => setTimeout(() => r(true), timing.beforeTurn).unref())
+    void Promise.race([Promise.resolve(ready).then(() => false), late])
+      .catch((err) => {
+        warn("The folder could not be snapshot before a message", said(err))
+        return true
+      })
+      .then((untrusted) => go(untrusted))
 
     function send() {
       call("session/prompt", { sessionId: c.id, prompt }, 0).then(
@@ -945,7 +1059,7 @@ export function createAcp(opts: AcpOptions): Acp {
     if (c.queue.length && !c.parked && c.attached) {
       const p = proc
       const q = c.queue.shift()!
-      if (p && c.attached === p.gen) return take(c, p, q)
+      if (p && c.attached === p.gen) return (queuedNow(c), take(c, p, q))
       c.queue.unshift(q)
     }
     setBusy(c, false)
@@ -1124,20 +1238,34 @@ export function createAcp(opts: AcpOptions): Acp {
     listFolders: (dir) => listFolders(dir),
 
     async models() {
+      // What the agent can be asked is known once it has started.
+      if (!optionsOf().length) await ensure()
       if (!optionsOf().length && has("options")) {
         const res = await call("session/options", { cwd: agentHome() }).catch(() => ({}) as Raw)
-        configured(conv("\u0000options"), res)
-        convs.delete("\u0000options")
+        // A conversation of none: what it is told goes into the ledger alone.
+        configured(blank(""), res)
       }
       const model = optionOf(undefined, "model")
       const effort = optionOf(undefined, "thought_level")
       const variants = choices(effort).flatMap((o) => (str(o.value) && o.value !== "default" ? [str(o.value)!] : []))
-      return choices(model).flatMap((o): ModelInfo[] => {
+      const all = choices(model)
+      /** An option's name without the provider before it ("fake/Alpha" under "fake"). */
+      const shown = (o: Raw) => {
+        const value = str(o.value) ?? ""
+        const label = str(o.name) ?? value
+        const provider = modelRef(value).providerID
+        return label.startsWith(`${provider}/`) ? label.slice(provider.length + 1) : label
+      }
+      const names = new Map(all.flatMap((o) => (str(o.name) ? [[str(o.name)!, shown(o)] as const] : [])))
+      return all.flatMap((o): ModelInfo[] => {
         const value = str(o.value)
         if (!value) return []
-        const ref = modelRef(value)
-        const label = str(o.name) ?? value
-        return [{ providerID: ref.providerID, id: value, name: label.startsWith(`${ref.providerID}/`) ? label.slice(ref.providerID.length + 1) : label, images: promptCaps.image === true, variants }]
+        let label = shown(o)
+        // The agent's default says which model it is in its description (Claude Code's adapter:
+        // "Default (recommended)", "Opus 5.5"): the reviewer sees the model that works.
+        const is = names.get(str(o.description)?.trim() ?? "")
+        if (is && (value === "default" || /^default\b/i.test(label))) label = `Default · ${is}`
+        return [{ providerID: modelRef(value).providerID, id: value, name: label, images: promptCaps.image === true, variants }]
       })
     },
 
@@ -1202,11 +1330,29 @@ export function createAcp(opts: AcpOptions): Acp {
       if (!k) throw gone(id)
       const mid = input.id ?? backend.messageId()
       // Sent before (a retry after a lost reply): it is not queued twice.
-      if (c.running?.id === mid || c.queue.some((q) => q.id === mid) || k.sent.some((s) => s.id === mid)) return { id: mid }
+      if (c.running?.id === mid || c.queue.some((q) => q.id === mid)) return { id: mid }
       const q: Queued = { id: mid, text: input.text, files: input.files ?? [], mentions: input.mentions ?? [], time: Date.now() }
       blocks(q) // a mention without a full path fails here, before anything is queued
+      const before = k.sent.find((s) => s.id === mid)
+      if (before && before.ended && !before.end) {
+        // It was answered, and the reply saying so was lost: its run is said again, as it went.
+        if (!c.busy) {
+          emit({ type: "run", session: id, status: "started" })
+          emit({ type: "inbox", session: id, id: mid, status: "working" })
+          emit({ type: "run", session: id, status: "succeeded" })
+        }
+        return { id: mid }
+      }
+      if (before) {
+        // It never finished (stopped, failed, or lost when the agent ended): it goes again, and
+        // the earlier try keeps its line in a re-read under an id of its own.
+        before.id = `${mid}~${k.sent.filter((s) => s.id.startsWith(`${mid}~`)).length + 1}`
+        if (k.lost?.includes(mid)) k.lost = k.lost.filter((x) => x !== mid)
+        save()
+      }
       if (input.delivery === "steer" && steering && c.running && c.attached && (await steer(c, q))) return { id: mid }
       c.queue.push(q)
+      queuedNow(c)
       // Something sent wakes what waited after a stop or a failure; it goes first.
       c.parked = false
       emit({ type: "inbox", session: id, id: mid, status: "queued" })
@@ -1300,6 +1446,7 @@ export function createAcp(opts: AcpOptions): Acp {
       const at = c?.queue.findIndex((q) => q.id === item) ?? -1
       if (!c || at < 0) return
       c.queue.splice(at, 1)
+      queuedNow(c)
       emit({ type: "inbox", session: id, id: item, status: "cancelled" })
       drop(c, item)
     },
@@ -1319,7 +1466,19 @@ export function createAcp(opts: AcpOptions): Acp {
       for (const pending of [...permissionsPending.values()]) if (pending.session === id) pending.resolve({ outcome: { outcome: "cancelled" } })
       for (const pending of [...questionsPending.values()]) if (pending.session === id) pending.resolve(undefined)
       const p = proc
-      if (p) await (p.agent.notify as (m: string, params: unknown) => Promise<void>)("session/cancel", { sessionId: id }).catch((err) => warn("Could not cancel", said(err)))
+      if (!p) return true
+      const running = c.running
+      // An agent that does not end its turn when asked: after a while the turn is ended here, and
+      // so is the agent's process (nothing else stops what it is doing); it is started again.
+      setTimeout(() => {
+        if (c.running !== running || proc !== p) return
+        const why = `${name} did not stop when asked, so it was ended and started again`
+        finish(c, running.id, { interrupted: true })
+        log("warn", why)
+        p.ending = why
+        p.transport.kill()
+      }, timing.stopGrace).unref()
+      await (p.agent.notify as (m: string, params: unknown) => Promise<void>)("session/cancel", { sessionId: id }).catch((err) => warn("Could not cancel", said(err)))
       return true
     },
 
@@ -1385,7 +1544,7 @@ export function createAcp(opts: AcpOptions): Acp {
         () => emit({ type: "connection", state: { status: "online", url: url(), version: version() } }),
         (err) => {
           emit({ type: "connection", state: { status: "offline", url: url(), error: err instanceof Error ? err.message : said(err) } })
-          restartLater(false)
+          restartLater()
         },
       )
       return () => {

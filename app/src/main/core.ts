@@ -576,6 +576,12 @@ export function createCore(host: Host): Core {
     // A custom command is told apart by the command itself: two are two agents.
     const agent = known ? id : `custom-${crypto.createHash("sha1").update(line.join("\0")).digest("hex").slice(0, 8)}`
     const name = known?.name ?? customName(line)
+    const url = `acp://${agent}`
+    // The same agent again (Retry, or its command changed): the one in use lets go of the agent's
+    // ledger first, saying what it loses, so the new one reads that and is its only writer.
+    const saved = store.settings().server
+    const same = !!backend && !!saved && "agent" in saved && saved.agent === agent
+    if (same) drop()
     const next = createAcp({
       id: agent,
       name,
@@ -586,8 +592,13 @@ export function createCore(host: Host): Core {
       // The app sends each message itself here: its turn's "before" is taken before it goes.
       beforeTurn: (id) => turnsOpen.get(id)?.before,
     })
-    const info = await next.info()
-    const url = `acp://${agent}`
+    let info: Awaited<ReturnType<typeof next.info>>
+    try {
+      info = await next.info()
+    } catch (err) {
+      if (same && !backend) (connection = { status: "offline", url, error: say(err) }), push()
+      throw err
+    }
     await use(next, url, info.version, () => {
       const kept = remember("local", url, "", info.computer, { agent, command: line })
       store.update((s) => void (s.server = { agent, command: line, ...(kept.name ? { name: kept.name } : {}) }))
