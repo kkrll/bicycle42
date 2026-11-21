@@ -67,8 +67,10 @@ export type ModelInfo = {
 }
 
 /** How full a conversation's context was at the agent's last finished step, in tokens, and
- *  which provider counted them: another provider's model counts differently. */
-export type ContextUse = { used: number; providerID?: string }
+ *  which provider counted them: another provider's model counts differently. `limit` is the
+ *  window it is measured against, when the agent says it with the count (an ACP agent does);
+ *  without it the model's own `context` is. */
+export type ContextUse = { used: number; providerID?: string; limit?: number }
 
 export type AgentInfo = { id: string; name: string }
 
@@ -280,8 +282,15 @@ export type RunningCommand = { id: string; directory: string; command: string; s
  *  server ("k", "Studio Mac", or its address), `open` marks the project that is open. */
 export type ProjectInfo = { directory: string; server?: string; on: string; open?: true }
 
-/** `name` is the reviewer's for it, else its computer's own. */
-export type ServerInfo = { id: string; name?: string; url: string; local: boolean; current: boolean }
+/** `name` is the reviewer's for it, else its computer's own. `agent` is set for an agent on
+ *  this computer the app runs itself (an ACP agent: `connectAgent`): which one (an id in
+ *  `localAgents`, or "custom"), with `command` the line that starts it. */
+export type ServerInfo = { id: string; name?: string; url: string; local: boolean; current: boolean; agent?: string; command?: string }
+
+/** An agent this computer can run for the app over ACP (the Agent Client Protocol), as the
+ *  connect screen offers it. `installed`: what it needs was found on this computer's PATH;
+ *  `needs` says what to install when it was not. "custom" is any other command. */
+export type LocalAgent = { id: string; name: string; command: string; installed: boolean; needs?: string }
 
 export type SessionSummary = {
   id: string
@@ -379,6 +388,10 @@ export type AppState = {
   modelChoice?: { suggested: ModelRef; previous?: ModelRef }
   permissions: PermissionAsk[]
   questions: Question[]
+  /** What the agent in use can do beyond the basics (`BackendCan`). The window leaves out what it
+   *  cannot: Steer, the running commands and their Stop, Compact, Fork, Archive. Absent while
+   *  nothing is connected. */
+  can?: BackendCan
   /** How full the open conversation's context is: the tokens the agent's last finished step
    *  held, and the model's window (absent when the server gives none). Absent until a step has
    *  finished, right after a summary (nothing has measured what is left yet), and after a
@@ -551,8 +564,26 @@ export type Bridge = {
 }
 
 // ── backend ─────────────────────────────────────────────────────────────────────────────────────
-// The seam to whatever runs the agent. OpenCode implements it today (main/opencode.ts); an ACP
-// backend could later. Nothing outside the implementation knows the server's wire format.
+// The seam to whatever runs the agent: an OpenCode server (main/opencode.ts), or an ACP agent the
+// app runs on this computer (main/acp.ts). Nothing outside the implementation knows the wire format.
+
+/** What a backend can do beyond the basics. A missing field means it cannot. */
+export type BackendCan = {
+  /** undo/redo/lastTurn/diff on the server: the conversation is cut back, files and all. */
+  undo?: boolean
+  /** Messages sent while a run is under way wait on the server (prompt with delivery "queue"). */
+  queue?: boolean
+  /** delivery "steer": a message joins the run under way. */
+  steer?: boolean
+  /** running()/kill(): commands the agent left running. */
+  running?: boolean
+  /** compact(): summarise the conversation. */
+  compact?: boolean
+  /** fork(): copy a conversation. */
+  fork?: boolean
+  /** archive(): put a conversation away. */
+  archive?: boolean
+}
 
 export type InboxStatus = "queued" | "working" | "cancelled"
 
@@ -577,6 +608,9 @@ export type BackendEvent =
   | { type: "permission-done"; session: string; id: string }
   | { type: "question"; question: Question }
   | { type: "question-done"; session: string; id: string }
+  /** What the agent offers changed: its models, modes, commands, or `can` (an ACP agent says
+   *  them per conversation, so they can come after connecting). Read them again. */
+  | { type: "agent" }
 
 export type PromptFile = { uri: string; name: string }
 
@@ -589,6 +623,9 @@ export type Transcript = {
 }
 
 export type Backend = {
+  /** What it can do beyond the basics. It may change once the backend has said (an ACP agent,
+   *  after it starts): a `{ type: "agent" }` event follows. */
+  readonly can: BackendCan
   /** Checks the URL and password. Rejects with a message fit to show the user. */
   /** `computer` is the name of the machine the server runs on, when it says. */
   info(): Promise<{ version: string; computer?: string }>
