@@ -365,11 +365,11 @@ const NOTE_REPLY: Record<number, string> = {
 }
 
 /** `&agent=claude` (or codex, gemini, opencode, custom) in the address: that agent on this
- *  computer, over ACP, with the models it says; `&agent` alone is Claude Code. Without it, the
- *  OpenCode server on dev-box. */
+ *  computer, over ACP, with the models it says; `&agent` alone is Claude Code. Without it, Claude
+ *  Code on dev-box, over ssh. */
 function agentOf(): { connection: AppState["connection"]; harness: AppState["harness"]; models?: AppState["models"]; model?: ModelRef } {
   const q = new URLSearchParams(location.search)
-  if (!q.has("agent")) return { connection: { status: "online", url: "http://my-box.example:4096", version: "1.4.2" }, harness: { kind: "opencode-server", name: "dev-box", here: false, host: "my-box.example:4096" } }
+  if (!q.has("agent")) return { connection: { status: "online", url: "acp://claude@dev-box", version: "0.12.0" }, harness: { kind: "claude", name: "Claude Code", here: false, host: "dev-box" } }
   const id = q.get("agent") || "claude"
   if (id === "custom") return { connection: { status: "online", url: "acp://custom-1a2b3c4d", version: "0.3.0" }, harness: { kind: "custom", name: "my-agent", here: true } }
   const name = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", opencode: "OpenCode" }[id] ?? id
@@ -597,6 +597,8 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   switch (scenario) {
     case "connect":
       Object.assign(state, { ...base(), connection: { status: "unconfigured" }, site: null, session: null, sessions: [] })
+      // `&retired`: OpenCode servers saved by an earlier version were just put aside.
+      if (params.has("retired")) state.serversRetired = true
       delete state.harness
       state.page.url = ""
       state.review.notes = []
@@ -745,7 +747,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       items = [{ kind: "marker", id: "m-open", time: Date.now(), text: "Can't open a conversation: the folder /home/dev/code/acme/storefront no longer exists.", tone: "error" }]
       break
     case "offline":
-      state.connection = { status: "offline", url: "http://my-box.example:4096", error: "The connection was refused." }
+      state.connection = { status: "offline", url: "acp://claude@dev-box", error: "dev-box can't be reached: the connection was refused.", away: true }
       break
     case "pageerror":
       state.page.url = "http://a-very-long-development-hostname.some-team.example:3000/products/category/shoes?sort=price&direction=ascending&page=4"
@@ -927,12 +929,11 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       if (scenario === "connect" && !params.has("returning")) return []
       const url = "url" in state.connection ? state.connection.url : ""
       const all: Omit<ServerInfo, "current">[] = [
-        { id: "srv_0", name: "dev-box", url: "http://my-box.example:4096", local: false, kind: "opencode-server", here: false },
+        { id: "srv_0", name: "Claude Code", url: "acp://claude@dev-box", local: false, agent: "claude", command: "claude-agent-acp", host: "dev-box", kind: "claude", here: false },
         { id: "srv_4", name: "Claude Code", url: "acp://claude", local: false, agent: "claude", command: "npx -y @agentclientprotocol/claude-agent-acp", kind: "claude", here: true },
-        { id: "srv_1", url: "http://127.0.0.1:49374", local: true, kind: "opencode-server", here: true },
-        { id: "srv_2", name: "Studio Mac", url: "https://studio.example.dev", local: false, kind: "opencode-server", here: false },
+        { id: "srv_2", name: "OpenCode", url: "acp://opencode@studio-mac", local: false, agent: "opencode", command: "opencode acp", host: "studio-mac", kind: "opencode", here: false },
         { id: "srv_5", name: "my-agent", url: "acp://custom-1a2b3c4d", local: false, agent: "custom-1a2b3c4d", command: "/opt/my-agent/bin/my-agent --acp", kind: "custom", here: true },
-        { id: "srv_3", name: "omarchy", url: "https://eb501e0e4f991ca4.7fek5zuoivit.opentunnel.xyz", local: false, kind: "opencode-server", here: false },
+        { id: "srv_3", name: "Codex", url: "acp://codex@omarchy", local: false, agent: "codex", command: "npx -y @agentclientprotocol/codex-acp", host: "omarchy", kind: "codex", here: false },
       ]
       return all.map((x) => ({ ...x, current: x.url === url })).sort((a, b) => Number(b.current) - Number(a.current))
     },
@@ -952,15 +953,15 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     },
     allProjects: () => {
       const h = state.harness
-      const mine = { on: h?.name ?? "dev-box", kind: h?.kind ?? ("opencode-server" as const), ...(h?.here ? { here: true as const } : {}) }
+      const mine = { on: h?.name ?? "Claude Code", kind: h?.kind ?? ("claude" as const), ...(h?.here ? { here: true as const } : {}) }
       return [
         { directory: "/home/dev/code/acme/storefront", ...mine, open: true as const },
         { directory: "/home/dev/code/acme/marketing-site", ...mine },
         { directory: "/home/dev/code/blog", ...mine },
         ...(h?.kind === "claude" ? [] : [{ directory: "/home/dev/cde/bicycle42", server: "srv_4", on: "Claude Code", kind: "claude" as const, here: true as const }]),
         ...(h?.kind === "custom" ? [] : [{ directory: "/home/dev/sketches/motion-lab", server: "srv_5", on: "my-agent", kind: "custom" as const, here: true as const }]),
-        { directory: "/Users/kiryl/Documents/cde/zing-social", server: "srv_2", on: "Studio Mac", kind: "opencode-server" as const },
-        { directory: "/srv/www/a-rather-long-organisation-name/internal-tools/design-review-playground", server: "srv_3", on: "omarchy", kind: "opencode-server" as const },
+        { directory: "/Users/kiryl/Documents/cde/zing-social", server: "srv_2", on: "OpenCode", kind: "opencode" as const },
+        { directory: "/srv/www/a-rather-long-organisation-name/internal-tools/design-review-playground", server: "srv_3", on: "Codex", kind: "codex" as const },
       ]
     },
     refreshRunning() {},

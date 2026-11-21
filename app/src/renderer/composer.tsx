@@ -175,7 +175,7 @@ function Pick(props: { class: string; prefix?: string; value: string; short?: st
 function blocked(): string {
   if (state.session) return ""
   const c = state.connection.status
-  if (c === "offline") return "Not connected to the server."
+  if (c === "offline") return "Not connected to the agent."
   if (c !== "online") return "Connecting…"
   if (!state.site?.directory) return "Open the repo first."
   // Main explains a conversation that would not open with a marker in the (session-less) transcript.

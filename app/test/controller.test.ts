@@ -1093,21 +1093,56 @@ test("a gap in someone else's conversation does not re-read the one on screen", 
   }
 })
 
-test("the server is down at launch and comes up later: the app connects by itself", async () => {
-  // An address nothing listens on yet.
-  const probe = await start()
-  const url = probe.url
-  await probe.stop()
-  const h = await boot({ settings: { ...savedSite(), server: { url, password: "plain:pw" } } })
-  let late: FakeServer | undefined
+test("an OpenCode server saved by an earlier version is put aside at start: not connected to, its password gone, what was its own kept on disk, and said once", async () => {
+  const space = { folder: "/agent-repo", sites: { [`${SITE}#a`]: { directory: "/agent-repo" } }, prefix: "srv_b~" }
+  const settings = {
+    version: 1,
+    server: { url: "http://box.example:4096", password: "plain:secret-pw", name: "Studio" },
+    current: "srv_a",
+    servers: [
+      { id: "srv_a", url: "http://box.example:4096", password: "plain:secret-pw", name: "Studio" },
+      { id: "srv_l", local: true },
+      { id: "srv_b", agent: "claude", command: ["claude-agent-acp"], space },
+    ],
+    prefix: "",
+    folder: "/repo",
+    lastUrl: `${SITE}/`,
+    sites: { [SITE]: { directory: "/repo", session: "ses_9" } },
+  }
+  const review = { version: 1, notes: [savedNote("n1", 1, "done", "msg_1", "ses_9")] }
+  const h = await boot({ settings, reviews: { [SITE]: review } })
   try {
-    await until(() => h.snap().connection.status === "offline")
-    late = await start(Number(new URL(url).port))
-    // Any password is "wrong" for a new fake; what matters is that the app asks again by itself.
-    await until(() => late!.requests.length > 0, 8000)
-    assert.equal(late.requests[0]!.path, "/api/info")
+    await sleep(300)
+    const disk = () => JSON.parse(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8"))
+    assert.equal(h.snap().connection.status, "unconfigured", "nothing is connected to")
+    assert.equal(h.server.requests.length, 0, "the server is not asked anything")
+    assert.equal(h.snap().harness, undefined)
+    assert.equal(h.snap().serversRetired, true, "the connect screen says so")
+    assert.equal(h.core.lastUrl(), "", "its page is not opened")
+    assert.equal(h.snap().site, null)
+    const saved = disk()
+    assert.ok(!JSON.stringify(saved).includes("secret-pw"), "the password is gone from the settings")
+    assert.deepEqual(saved.servers, [{ id: "srv_b", agent: "claude", command: ["claude-agent-acp"], space }], "the agent stays, with what is its own")
+    assert.equal(saved.server, undefined)
+    assert.equal(saved.current, undefined)
+    assert.deepEqual(saved.sites, {})
+    assert.notEqual(saved.prefix, "", "the next agent's notes are kept under a prefix of its own")
+    assert.deepEqual(
+      saved.retired,
+      [
+        { id: "srv_a", url: "http://box.example:4096", name: "Studio", space: { folder: "/repo", lastUrl: `${SITE}/`, sites: settings.sites, prefix: "" } },
+        { id: "srv_l", local: true },
+      ],
+      "what was the server's own is kept as it was",
+    )
+    assert.ok(fs.existsSync(path.join(h.dir, "reviews", `${encodeURIComponent(SITE)}.json`)), "its notes stay on disk")
+    assert.deepEqual(h.snap().review.notes, [], "and are not reached")
+    // The connect screen closes: said once.
+    await h.cmd("leaveSsh")
+    await sleep(350)
+    assert.equal(h.snap().serversRetired, undefined)
+    assert.equal(disk().serversRetired, undefined)
   } finally {
-    await late?.stop()
     await h.close()
   }
 })

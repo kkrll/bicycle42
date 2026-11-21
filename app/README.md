@@ -128,6 +128,14 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   a better word: `describe` in `core.ts` gives each its kind (the mark), its name ("Claude
   Code", "OpenCode server", a computer's name) and whether it is on this computer, as
   `AppState.harness` for the one in use and in `servers()` and `allProjects()` for the others.
+- **An OpenCode server is no longer connected to.** The app runs an agent over ACP, here or on
+  another computer over ssh (OpenCode too: `opencode acp`). A server saved by an earlier version
+  (`{ url, password }` or `{ local: true }`) is put aside when the controller is made, before
+  anything loads (`retireServers` in `core.ts`): it leaves `servers` and `server`, without its
+  password, into `retired`, with its `space` (when it owned the settings' own fields, those go
+  with it, and the next agent gets a new `prefix`), so nothing of it is reached and nothing is
+  deleted; its notes files stay. `AppState.serversRetired` makes the connect screen say so once;
+  `leaveSsh` (the connect screen closing) forgets it.
 - **A project is a folder.** `openProject` makes it the open repo and loads the site visited
   last among those that work in it (`url` and `seen` in a site's settings), or no page when it
   has none. The window's list for it is `renderer/switcher.tsx`, behind the panel's "+", and

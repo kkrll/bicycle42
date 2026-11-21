@@ -146,6 +146,7 @@ export function createCore(host: Host): Core {
   const { log } = host
   const host_ = host
   const store = createStore(host.dataDir, { log })
+  retireServers()
   const noteShots = createShots(host.dataDir, log)
   /** What each unfinished note sends, on disk: a note waiting its turn, or one to retry, outlives a restart. */
   const outboxFiles = createOutbox(host.dataDir, log)
@@ -247,6 +248,39 @@ export function createCore(host: Host): Core {
       return undefined
     },
   })
+  /** An OpenCode server saved by an earlier version is no longer connected to: the app runs an
+   *  agent instead, here or on another computer over ssh. It leaves the saved list with its
+   *  password, before anything is opened. What was its own (its repo, sites and conversations, the
+   *  space the settings' own fields hold while it is the one in use) is kept as it was under
+   *  `retired`, and its notes files stay on disk; nothing reaches them. The next agent starts
+   *  clean, under a prefix of its own. The connect screen says so once (`serversRetired`). */
+  function retireServers() {
+    const s = store.settings()
+    const isServer = (x: object) => !("agent" in x)
+    const mine = s.servers?.find((v) => v.id === s.current)
+    // The settings' own fields belong to the server in use, or to the last one used.
+    const owns = mine ? isServer(mine) : !!s.server && isServer(s.server)
+    if (!owns && !(s.server && isServer(s.server)) && !(s.servers ?? []).some(isServer)) return
+    store.update((x) => {
+      const bare = (v: object) => Object.fromEntries(Object.entries(v).filter(([k]) => k !== "password"))
+      const out = (x.servers ?? []).filter(isServer).map(bare)
+      if (owns) {
+        const space = { ...(x.folder ? { folder: x.folder } : {}), ...(x.lastUrl ? { lastUrl: x.lastUrl } : {}), ...(x.defaultModel ? { defaultModel: x.defaultModel } : {}), sites: x.sites, prefix: x.prefix ?? "" }
+        const own = out.find((v) => v.id === x.current)
+        if (own) own.space = space
+        else out.push({ ...bare(x.server ?? {}), space })
+        delete x.current, delete x.folder, delete x.lastUrl, delete x.defaultModel
+        x.sites = {}
+        x.prefix = `r${Date.now().toString(36)}~`
+      }
+      if (x.server && isServer(x.server)) delete x.server
+      x.servers = (x.servers ?? []).filter((v) => !isServer(v))
+      x.retired = [...(x.retired ?? []), ...out]
+      x.serversRetired = true
+    })
+    log("info", "OpenCode servers are no longer supported: the saved ones were put aside")
+  }
+
   // ── secrets ─────────────────────────────────────────────────────────────────────────────────────
   // The server password is stored through the OS keychain when there is one. Without (a Linux box
   // with no keyring), it is stored as is, in a settings file only the user can read.
@@ -400,6 +434,7 @@ export function createCore(host: Host): Core {
     return {
       connection,
       ...(serverName() ? { serverName: serverName() } : {}),
+      ...(store.settings().serversRetired ? { serversRetired: true as const } : {}),
       ...(harness() ? { harness: harness() } : {}),
       home: machine.home,
       page: {
@@ -2750,6 +2785,8 @@ export function createCore(host: Host): Core {
       return { host: where, computer: m.hostname(), home: m.home, agents }
     },
     leaveSsh() {
+      // The connect screen said that saved servers were put aside: once is enough.
+      if (store.settings().serversRetired) store.update((s) => void delete s.serversRetired), push()
       // Connected to only to list its agents: let go, with the connect screen.
       for (const [h, p] of remotes)
         void p.then(

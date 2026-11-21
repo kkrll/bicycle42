@@ -168,7 +168,7 @@ export function Switcher(props: { projectsOnly?: boolean; onClose: () => void })
                         <Match when={row.kind === "browse"}>
                           <Icon name="folder" />
                           <span class="row-main">Browse folders</span>
-                          <span class="row-sub plain">Any folder {state.harness?.here ? "on this computer" : `on ${state.harness?.name ?? "the server"}`}</span>
+                          <span class="row-sub plain">Any folder {state.harness?.here ? "on this computer" : `on ${state.harness?.host ?? "the agent's computer"}`}</span>
                         </Match>
                       </Switch>
                     </button>

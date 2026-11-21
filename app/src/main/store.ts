@@ -64,6 +64,12 @@ export type Settings = {
    *  opens (http://127.0.0.1:<it>) and the port and address there it is forwarded from, so after
    *  a restart the same port there is forwarded to the same one here again. */
   forwards?: Record<string, Record<string, { port: number; host: string }>>
+  /** OpenCode servers saved by an earlier bicycle 42, which no longer connects to one: each as it
+   *  was saved, without its password, and with what was its own (`space`: its repo, sites and
+   *  conversations; its notes files stay under its prefix). Kept, not used. */
+  retired?: Record<string, unknown>[]
+  /** Saved servers were just retired: the connect screen says so, once. */
+  serversRetired?: true
 }
 
 export type Store = {

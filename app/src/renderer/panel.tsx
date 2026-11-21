@@ -466,9 +466,9 @@ export function RepoScreen() {
 export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void; open?: (directory: string) => Promise<unknown>; browse?: boolean }) {
   const h = () => harnessNow()
   const here = () => !!h()?.here
-  /** Where the agent works, in words: "this computer", the other computer it runs on, or the server. */
-  const on = () => (here() ? "on this computer" : h()?.host && h()?.kind !== "opencode-server" ? `on ${h()!.host}` : `on ${h()?.name ?? "your server"}`)
-  /** The agent's own folders first; on this computer, then those another agent or server here
+  /** Where the agent works, in words: "this computer", or the other computer it runs on. */
+  const on = () => (here() ? "on this computer" : h()?.host ? `on ${h()!.host}` : "on its computer")
+  /** The agent's own folders first; on this computer, then those another agent here
    *  worked in, which are this computer's folders too. */
   const [recent, { refetch: reloadRecent }] = createResource(async () => {
     const own = await b42.invoke("projects")
@@ -514,7 +514,7 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
               <>
                 <AgentMark kind={a().kind} size={20} />
                 <span>
-                  Where should {a().name} work{a().host && a().kind !== "opencode-server" ? ` on ${a().host}` : ""}?
+                  Where should {a().name} work{a().host ? ` on ${a().host}` : ""}?
                 </span>
               </>
             )}
@@ -523,7 +523,7 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
         <p class="folder-lead">
           <Show when={!props.open && state.missingFolder}>
             <span class="folder-missing">
-              <code>{state.missingFolder}</code> is not a folder {here() ? "on this computer" : h()?.host && h()?.kind !== "opencode-server" ? on() : "on this server"}: it was moved, or it is another computer's.{" "}
+              <code>{state.missingFolder}</code> is not a folder {on()}: it was moved, or it is another computer's.{" "}
             </span>
           </Show>
           <Show
@@ -555,7 +555,7 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
                 </button>
               </Match>
               <Match when={!recentList()?.length}>
-                <p class="quiet">{h()?.name ?? "The server"} has not worked in any folder yet.</p>
+                <p class="quiet">{h()?.name ?? "The agent"} has not worked in any folder yet.</p>
               </Match>
               <Match when={true}>
                 <ul class="rows">
@@ -741,7 +741,7 @@ function Place(props: { openSettings: () => void }) {
   const tip = () => {
     const c = state.connection
     const what = h() ? `${h()!.name} on ${whereOf(h()!)}` : ""
-    const how = c.status === "online" ? (c.url.startsWith("acp://") ? `over ACP · ${c.version}` : `OpenCode ${c.version}`) : c.status === "offline" ? `can't be reached. ${c.error}` : c.status === "connecting" ? "connecting" : ""
+    const how = c.status === "online" ? `over ACP · ${c.version}` : c.status === "offline" ? `can't be reached. ${c.error}` : c.status === "connecting" ? "connecting" : ""
     return `${what}${how ? `, ${how}` : ""}. Click to switch agent`
   }
   return (
@@ -763,7 +763,7 @@ function Place(props: { openSettings: () => void }) {
         </span>
         <span class="place-agent-name">{h()?.name}</span>
         {/* An agent the app runs on another computer: which one. */}
-        <Show when={h()?.host && h()?.kind !== "opencode-server" && h()?.host}>{(where) => <span class="place-host">{where()}</span>}</Show>
+        <Show when={h()?.host}>{(where) => <span class="place-host">{where()}</span>}</Show>
         <Show when={word()}>
           <span class="place-word" data-status={status()}>
             {word()}
@@ -856,7 +856,7 @@ export function Panel(props: {
               <div class="panel-empty">
                 <SetupSteps at={2} />
                 <p class="chat-empty-lead">Open the repo.</p>
-                <p>You can pick the folder as soon as the server is reachable again.</p>
+                <p>You can pick the folder as soon as the agent is reachable again.</p>
               </div>
             }
           >

@@ -109,7 +109,7 @@ async function main() {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "bicycle42-e2e-"))
   fs.writeFileSync(
     path.join(profile, "settings.json"),
-    JSON.stringify({ version: 1, server: { url: server.url, password: `plain:${server.password}` }, lastUrl: pageUrl, sites: { [origin]: { directory: "/site" } } }),
+    JSON.stringify({ version: 1, lastUrl: pageUrl, sites: { [origin]: { directory: "/site" } } }),
   )
   process.env.BICYCLE42_DATA = profile
   process.env.BICYCLE42_TEST = "1"
@@ -121,6 +121,10 @@ async function main() {
   const state = () => hook.snapshot()
   const win = (await until(() => hook.window()))!
   const page = (await until(() => hook.page()))!
+  // The server is connected to by the command the window no longer offers (until the tests move
+  // to an ACP agent): a saved one would be put aside at start.
+  await until(() => win.webContents.executeJavaScript(`!!window.b42`).catch(() => false))
+  void win.webContents.executeJavaScript(`window.b42.invoke("connect", ${JSON.stringify({ url: server.url, password: server.password })})`)
 
   // ── first launch on this server: which model? ──────────────────────────────────────────────
   // The profile has a server and a site but no model yet, and the server lists two.
@@ -141,7 +145,7 @@ async function main() {
 
   // ── start-up ───────────────────────────────────────────────────────────────────────────────
   await until(() => state().session)
-  check("connects with the saved server", state().connection.status === "online", JSON.stringify(state().connection))
+  check("connects to the server", state().connection.status === "online", JSON.stringify(state().connection))
   check("the site and its folder are restored", state().site?.origin === origin && state().site?.directory === "/site")
   check("opens a conversation for the site", state().session?.id === SES)
   const body = created[0]?.body as { model?: { providerID: string; id: string }; location?: { directory: string } } | undefined
@@ -166,7 +170,7 @@ async function main() {
   check("the top row shows the server's mark, its computer's name, the dot and the repo's path", place?.kind === "opencode-server" && place.name === "fake-box" && place.dot === "online" && place.path === "/site", JSON.stringify(place))
   await ui(`document.querySelector(".place-agent").click()`)
   const choices = (await until(() => ui(`(() => { const rows = [...document.querySelectorAll(".agent-pop [data-choice]")]; return rows.length ? rows.map((r) => r.querySelector(".agent-pop-name").textContent + (r.getAttribute("aria-checked") === "true" ? " ✓" : "")) : null })()`), 3000)) as string[] | null
-  check("…its name opens the agents to switch to, the one in use checked first", choices?.[0] === "fake-box ✓" && !choices.some((c) => c.includes("acp://")), JSON.stringify(choices))
+  check("…its name opens the agents to switch to: agents only, never the OpenCode server (it is offered nowhere)", !(choices ?? []).some((c) => c.includes("fake-box") || c.includes("acp://")), JSON.stringify(choices))
   await ui(`document.querySelector(".agent-pop").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`)
   check("…and Escape closes it", (await until(() => ui(`!document.querySelector(".agent-pop")`), 2000)) === true)
 

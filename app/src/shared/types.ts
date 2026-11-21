@@ -358,6 +358,9 @@ export type AppState = {
   /** The reviewer's name for the server in use, else its computer's own name; with neither it
    *  goes by its address. */
   serverName?: string
+  /** OpenCode servers saved by an earlier version were put aside at start (the app no longer
+   *  connects to one): the connect screen says so once, then `leaveSsh` forgets it. */
+  serversRetired?: true
   /** The agent in use (or being connected to again, while offline or connecting): its mark,
    *  name and where it runs. Absent while none is set up. */
   harness?: Harness
@@ -523,7 +526,8 @@ export type Commands = {
    *  node there). */
   connectSsh(host: string): RemoteInfo
   /** The connect screen closed: a computer connected to only to list its agents (no agent in use
-   *  is there, none is being started there) is let go. */
+   *  is there, none is being started there) is let go, and the line about servers put aside
+   *  (`serversRetired`) has been seen. */
   leaveSsh(): void
   /** Every server connected to so far, the one in use first. Passwords stay in main. */
   servers(): ServerInfo[]

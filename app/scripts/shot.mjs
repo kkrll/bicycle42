@@ -57,23 +57,13 @@ const PLACE = `(() => { const p = document.querySelector(".place"), r = p.getBou
 
 const SHOTS = [
   { name: "connect", mock: "connect" },
+  // The first start after an OpenCode server was the one saved: put aside, said once.
+  { name: "connect-retired", mock: "connect", query: "&retired" },
   // Someone who disconnected: the agents, then the ones connected to before, each with its mark.
   { name: "connect-returning", mock: "connect", query: "&returning", run: [`document.querySelector(".connect-saved").scrollIntoView({ block: "end" })`], wait: 300 },
   // The form inside the settings while Claude Code is in use: one agent in use, one to sign in
   // to, one not installed, one ready; the command that starts one, asked for.
   { name: "connect-agents", mock: "review", query: "&agent=claude", run: [click("[data-action=agents]"), pause(200), click("[data-action=connect-another]"), pause(400), click('[data-agent="opencode"] .agent-how')], wait: 400 },
-  {
-    name: "connect-error",
-    mock: "connect",
-    run: [click("[data-action=remote]"), type("input[name=url]", "http://my-box.example:4096"), type("input[name=password]", "wrong"), click(".connect-form button[type=submit]"), pause(1100), `document.querySelector(".agent-remote-form").scrollIntoView({ block: "end" })`],
-    wait: 300,
-  },
-  {
-    name: "connect-progress",
-    mock: "connect",
-    run: [click("[data-action=remote]"), type("input[name=url]", "http://my-box.example:4096"), type("input[name=password]", "wrong"), click(".connect-form button[type=submit]"), `document.querySelector(".agent-remote-form").scrollIntoView({ block: "end" })`],
-    wait: 300,
-  },
   // Another computer over ssh: its host typed, connected, the agents installed there.
   {
     name: "connect-ssh",
@@ -85,7 +75,7 @@ const SHOTS = [
   { name: "repo-agent", mock: "repo", query: "&agent=claude" },
   // The panel's top row: the agent (mark, name, the connection's dot) and the repo's path.
   { name: "place-claude", mock: "review", query: "&agent=claude", report: PLACE },
-  { name: "place-server", mock: "review", report: PLACE },
+  { name: "place-ssh", mock: "review", report: PLACE },
   { name: "place-custom", mock: "review", query: "&agent=custom", report: PLACE },
   // The panel at its least, with a long path: cut in the middle, its last folder kept.
   {
@@ -96,7 +86,7 @@ const SHOTS = [
     wait: 500,
     report: PLACE,
   },
-  // The agent's name pressed: the agents and servers to switch to.
+  // The agent's name pressed: the agents to switch to.
   { name: "agent-switch", mock: "review", query: "&agent=claude", run: [click("[data-action=agents]")], wait: 500 },
   { name: "agent-switch-narrow", mock: "review", query: "&agent=claude", run: [leastPanel, pause(200), click("[data-action=agents]")], wait: 500 },
   // The second first-run step: which model conversations start with. Then narrowed by typing,
@@ -184,19 +174,7 @@ const SHOTS = [
   { name: "offline", mock: "offline" },
   { name: "pageerror", mock: "pageerror" },
   { name: "settings", mock: "review", run: [click("[data-action=settings]")], wait: 500 },
-  { name: "settings-servers", mock: "review", run: [click("[data-action=settings]"), pause(300), click(".dialog .disclosure summary")], wait: 500 },
-  // A tunnel's address is one long word; named, the name leads and the address goes under it.
-  {
-    name: "settings-tunnel",
-    mock: "review",
-    run: [
-      `window.__mock.state.connection.url = "https://eb501e0e4f991ca4.7fek5zuoivit.opentunnel.xyz"; 0`,
-      click("[data-action=draw]"), // anything that makes the mock send its state
-      click("[data-action=draw]"),
-      click("[data-action=settings]"),
-    ],
-    wait: 500,
-  },
+  { name: "settings-agents", mock: "review", run: [click("[data-action=settings]"), pause(300), click(".dialog .disclosure summary")], wait: 500 },
   { name: "settings-rename", mock: "review", run: [click("[data-action=settings]"), pause(300), click("[data-action=rename-server]")], wait: 500 },
   {
     name: "settings-named",
