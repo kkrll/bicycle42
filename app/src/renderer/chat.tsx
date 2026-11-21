@@ -1214,9 +1214,12 @@ function Conversations(props: { openSettings: () => void }) {
                 <button class="icon-btn small" title="Rename" aria-label="Rename" data-do="rename" onClick={() => swap(() => (setConfirming(""), setRenaming(s().id)), `${row(s().id)} .menu-rename`)}>
                   <Icon name="pencil" />
                 </button>
-                <button class="icon-btn small" title="Archive (it can be brought back)" aria-label="Archive" data-do="archive" onClick={() => putAway(s(), true)}>
-                  <Icon name="archive" />
-                </button>
+                {/* An agent that can't put a conversation away (most ACP agents) has no Archive. */}
+                <Show when={state.can?.archive}>
+                  <button class="icon-btn small" title="Archive (it can be brought back)" aria-label="Archive" data-do="archive" onClick={() => putAway(s(), true)}>
+                    <Icon name="archive" />
+                  </button>
+                </Show>
               </Show>
               <button class="icon-btn small" title="Delete" aria-label="Delete" data-do="ask-delete" onClick={() => swap(() => (setRenaming(""), setConfirming(s().id)), `${row(s().id)} [data-do=delete]`)}>
                 <Icon name="trash" />
@@ -1303,17 +1306,19 @@ function Conversations(props: { openSettings: () => void }) {
             </p>
           </Show>
           <For each={found()} fallback={<p class="menu-empty">{q() ? "No conversation matches." : "No other conversations yet."}</p>}>{(s) => <Row s={s} />}</For>
-          <button
-            class="menu-archived"
-            aria-expanded={!!archived()}
-            onClick={() => {
-              if (archived()) setArchived(undefined)
-              else void loadArchived()
-            }}
-          >
-            <Icon name="right" class="caret" />
-            Archived
-          </button>
+          <Show when={state.can?.archive}>
+            <button
+              class="menu-archived"
+              aria-expanded={!!archived()}
+              onClick={() => {
+                if (archived()) setArchived(undefined)
+                else void loadArchived()
+              }}
+            >
+              <Icon name="right" class="caret" />
+              Archived
+            </button>
+          </Show>
           <Show when={archived()}>
             <For each={foundArchived()} fallback={<p class="menu-empty">{q() ? "Nothing archived matches." : "Nothing is archived."}</p>}>
               {(s) => <Row s={s} />}

@@ -6,16 +6,21 @@ A bicycle for two: the designer and the agent.
 
 bicycle 42 is a desktop app for reviewing a web page together with a coding agent. The page under
 review fills the window. You click or draw on it and type a note, or change it directly in edit
-mode (DOM tree, raw CSS, drag), and each note goes to an agent on an
-[OpenCode](https://opencode.ai) server, which makes the change in the code while you keep going.
+mode (DOM tree, raw CSS, drag), and each note goes to a coding agent, which makes the change in
+the code while you keep going: one the app runs on this computer over
+[ACP](https://agentclientprotocol.com) (Claude Code, Codex, Gemini CLI, OpenCode, or any other ACP
+agent), or an [OpenCode](https://opencode.ai) server on this computer or another one.
 It is for designers who work with a coding agent, and it is open source.
 
 ![The overlay on the bundled test page](overlay/docs/harness.png)
 
 ## Requirements
 
-- An OpenCode server, on this computer or another one.
+- An agent: one of Claude Code, Codex, Gemini CLI or OpenCode installed and signed in on this
+  computer (Claude Code and Codex are reached through their ACP adapters, which `npx` fetches the
+  first time), or an OpenCode server on this computer or another one.
 - Node 22 or newer with npm, or Bun.
+- git, for the repo's branch and changes when the agent runs on this computer.
 
 ## Run it
 
@@ -30,7 +35,13 @@ its own name and icon. It is not signed with a developer certificate, and there 
 
 ## First launch
 
-1. **Connect.** If OpenCode is running on this computer the app finds it: press
+1. **Connect.** Under **Agents on this computer** the app lists the agents it knows how to run,
+   and which of them are installed: press **Start** beside one. The app runs it with your own
+   login of it, and it works in this computer's folders. Any other ACP agent works too: type the
+   command that starts it. Such an agent can't undo a message, show what one message changed, or
+   list the commands it left running (a dev server it starts ends with it, when the app quits or
+   uses another agent); the app leaves out what it can't do.
+   If an OpenCode server is running on this computer the app finds it: press
    **Use this computer**. (`opencode service start` starts one.) For a server on another machine,
    enter its address and password: `opencode service status` there shows the address (the
    `https://….opentunnel.xyz` one works from anywhere) and `~/.config/opencode/service.json`

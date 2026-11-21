@@ -58,7 +58,11 @@ src/main/review.ts      a site's notes and their status rules (pure, no Electron
 src/main/outbox.ts      what each unfinished note sends (prompt, pictures), on disk until it is done
 src/main/images.ts      a captured Frame → area crop + viewport thumbnail, each frame scaled once, yielding between steps
 src/main/queue.ts       one file operation at a time per key (outbox, shots)
-src/main/opencode.ts    the backend: fetch + one SSE stream → BackendEvents (no Electron)
+src/main/opencode.ts    a backend: an OpenCode server, fetch + one SSE stream → BackendEvents (no Electron)
+src/main/acp.ts         a backend: an ACP agent this computer runs, JSON-RPC over its stdio → BackendEvents
+src/main/agents.ts      the ACP agents the app knows (Claude Code, Codex, Gemini CLI, OpenCode) and how each starts
+src/main/chat-items.ts  what both backends build a conversation with: a user message, a run's end, parseNote
+src/main/patch.ts       an edit's old and new text as a unified diff (ACP says edits that way)
 src/main/asks.ts        what the app itself asks the agent (site, commit, take back), and the line the chat shows for it
 src/main/pictures.ts    the conversation's pictures by address (b42-img:), served to the window by main
 src/main/local.ts       finds the OpenCode server running on this computer
@@ -220,8 +224,11 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   without asking; no models, or a list that cannot be read, asks nothing and leaves the choice
   to the server. The picker under the chat box changes the open conversation and the default
   together; the server dialog's "Default model" changes only the default.
-- **The backend is one interface** (`Backend` in `types.ts`). OpenCode implements it; an ACP
-  backend could later without touching the rest.
+- **The backend is one interface** (`Backend` in `types.ts`), with two implementations: an
+  OpenCode server (`opencode.ts`) and an ACP agent on this computer (`acp.ts`, below). What a
+  backend can do beyond the basics is `Backend.can` (`BackendCan`), which reaches the window as
+  `AppState.can`: what it can't do is not offered (Steer, the running commands and their Stop,
+  Compact, Fork, Archive), and the controller refuses it with a sentence.
 - **The app's own slash commands live in main** (`BUILTINS` in `core.ts`). The window asks
   `commands()` for the list (the app's first, then the server's for the site's folder; a
   built-in wins over a server command of the same name) and sends every `/name` through
@@ -259,6 +266,97 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   not know them refuses the whole stream (400); the app then asks again without them, once per
   connection, and reads the conversation back after `/compact`, `/undo` and `/redo` instead:
   the summary appears when it is written, without the streaming.
+
+## An agent on this computer (ACP)
+
+`main/acp.ts` runs an agent that speaks ACP, the [Agent Client Protocol](https://agentclientprotocol.com),
+and is the `Backend` for it (`@agentclientprotocol/sdk`, its `/unstable` entry, bundled into
+main). The connect screen lists the agents `main/agents.ts` knows, each said installed or not
+(looked for on this process's PATH and on the one the login shell sets up, since an app started
+from the desktop has less), and takes any other command (`connectAgent`). A saved agent is a
+server like the others (`{ agent, command }` in `settings.servers`), with its own repo, pages and
+conversations; its address is `acp://<id>`.
+
+| Agent | Command |
+|---|---|
+| Claude Code | `claude-agent-acp` if installed, else `npx -y @agentclientprotocol/claude-agent-acp` (needs `claude`, signed in) |
+| Codex | `codex-acp` if installed, else `npx -y @agentclientprotocol/codex-acp` (needs `codex`, signed in) |
+| Gemini CLI | `gemini --experimental-acp` |
+| OpenCode | `opencode acp` |
+
+- **One process for all of an agent's conversations.** Started on the first call, in its own
+  process group, and started again with a growing pause (1 s to 30 s) when it dies; the app
+  stops listening (quit, another server) by ending the group, so what it started ends with it.
+  A dev server the agent starts is a background command of its own shell tool, which ACP gives
+  the client no way to list or stop (`can.running` is false): it lives as long as the agent's
+  process. The request to get the site running says so (`startPrompt`, third argument).
+- **One conversation model, two ways in.** Each conversation opened in the process is kept as
+  ChatItems, built by one path (`apply`) from the live `session/update` notifications and from
+  the replay `session/load` sends, so a re-read in a new process gives the same items, ids and
+  part keys as the stream. One assistant item per turn (`a_<message id>`); text and thinking are
+  parts keyed by kind and ordinal, a new part where a tool call or a new message id of the
+  agent's comes between; a tool part is everything its updates said, merged. A conversation
+  loaded once is read from the model after that, not loaded again.
+- **The ledger** (`<data folder>/agents/<id>.json`). ACP lets a client choose no message ids and
+  its replay names messages its own way, so the app keeps, per conversation, the id each message
+  it sent had, by a hash of its text: a replayed user message gets its id from there (a note
+  stays its note), one the app did not send gets an id of its place. Also kept: how a turn ended
+  when it was stopped or failed (the agent does not keep the line), the conversation's folder,
+  name and whether it is a background one, and what was under way when the process ended.
+  Claude Code's own `[Request interrupted by user]` message is left out of a replay: the chat
+  has "Stopped".
+- **The queue is the adapter's.** ACP takes one prompt at a time; the rest wait in `acp.ts`
+  with the inbox and run events an OpenCode server sends (queued, working, the run started once
+  and ended when the queue is dry), so notes move as they do there. Stop is `session/cancel`,
+  parks the queue, and answers the agent's open permission and question as cancelled; the next
+  message wakes it. Steer is the agents' `_session/steering` extension (Claude Code's adapter and
+  `opencode acp` advertise it in `initialize`): the message joins the turn under way and the rest
+  of the turn goes under it; when the turn has ended meanwhile it is queued. Where the agent
+  itself puts a steered message can differ (OpenCode puts it after the step it arrived during),
+  which a re-read from a new process shows.
+- **A process that ends with work in flight.** The turn under way fails with the reason
+  ("Claude Code stopped: it exited with code 1 (its last line on stderr)"), what waits is
+  cancelled: each note with Retry. Quitting with work in flight puts its ids in the ledger
+  (`lost`), and the controller stops those notes when it next settles them.
+- **What the agent offers** comes per conversation: models, effort and modes are its config
+  options (category model, thought_level, mode; an agent from before those, `models` and
+  `session/set_model`), slash commands its `available_commands_update`, the context's fill its
+  `usage_update` (`ContextUse.limit` is the window it gives). The last options seen are kept, so
+  models are known on connecting; Claude Code also answers `session/options` before any
+  conversation. A change is a `{ type: "agent" }` event, and the controller reads them again.
+  `/compact` is the agent's own command when it has one (`can.compact`).
+- **Done here, not by the agent**: folders (`listFolders`), `@`-files (`git ls-files`, else a
+  walk), the branch and its changes (`git status`, `git diff --numstat HEAD`), projects (the
+  folders of the conversations the ledger and `session/list` know).
+
+| `Backend` | ACP |
+|---|---|
+| `info` | `initialize` (starts the process) |
+| `projects` | `session/list` without a folder, and the ledger's folders |
+| `listFolders`, `findFiles`, `vcs` | this computer's fs and git |
+| `models`, `agents` | config options (model, thought_level, mode), else `session/options` |
+| `sessions`, `session` | `session/list` with the folder, and the ledger |
+| `createSession` | `session/new`, then `session/set_title` and the model's options |
+| `setModel`, `setAgent` | `session/set_config_option` (or `session/set_model`, `session/set_mode`) |
+| `prompt`, `command` | the adapter's queue → `session/prompt` (a command is `/name args`); steer: `_session/steering` |
+| `commands` | `available_commands_update` |
+| `skills`, mention agents | none |
+| `compact` | the agent's `/compact`, when it has one |
+| `lastTurn`, `undo`, `redo`, `diff` | none: they throw (`can.undo` is false) |
+| `rename` | `session/set_title` where offered, and the ledger |
+| `archive` | `session/archive` / `unarchive` where offered (`can.archive`) |
+| `remove`, `fork` | `session/delete`, `session/fork` where offered |
+| `cancelQueued`, `waiting` | the adapter's queue |
+| `stop` | `session/cancel` |
+| `running`, `kill` | none: an empty list, and a refusal |
+| `transcript` | the model; `session/load` (its replay) the first time in a process, else `session/resume` |
+| `replyPermission` | the answer to `session/request_permission`, as the option of that kind |
+| `answerQuestion`, `dismissQuestion` | the answer to `elicitation/create` (form): accept, decline |
+| `listen` | the `session/update` notifications; the process's life as `connection` |
+
+`test/acp.real.ts` drives a real agent through it (`node dist/test/acp.real.cjs claude haiku`,
+after `node scripts/build.mjs --tests`): a note-like turn, the queue, Stop, steer, the repo, and a
+re-read from a new process against the stream. It spends the agent's tokens; not part of `bun run test`.
 
 ## The page as a phone's, and docks the window draws
 

@@ -396,6 +396,8 @@ function base(): AppState {
     defaultModel: { providerID: "anthropic", id: "sonnet-4-5", variant: "medium" },
     permissions: [],
     questions: [],
+    // `&agent` in the address: an ACP agent's, which can't undo, list what runs, or archive.
+    can: new URLSearchParams(location.search).has("agent") ? { queue: true, steer: true, fork: true } : { undo: true, queue: true, steer: true, running: true, compact: true, fork: true, archive: true },
     running: [
       { id: "sh_1", directory: DIRECTORY, command: "npm run dev -- --port 3000", started: now - 42 * 60_000 },
       { id: "sh_2", directory: "/home/dev/code/blog", command: "pnpm astro dev --host 0.0.0.0 --port 4321", started: now - 26 * 3_600_000 },
@@ -843,8 +845,20 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       Object.assign(state, base(), { connection: { status: "online", url: "http://127.0.0.1:49374", version: "1.4.2" } })
       push()
     },
+    localAgents: () => [
+      { id: "claude", name: "Claude Code", command: "npx -y @agentclientprotocol/claude-agent-acp", installed: true },
+      { id: "codex", name: "Codex", command: "npx -y @agentclientprotocol/codex-acp", installed: true },
+      { id: "gemini", name: "Gemini CLI", command: "gemini --experimental-acp", installed: false, needs: "Install Gemini CLI and sign in: npm install -g @google/gemini-cli, then gemini" },
+      { id: "opencode", name: "OpenCode", command: "opencode acp", installed: true },
+    ],
+    async connectAgent(agent) {
+      await new Promise((r) => setTimeout(r, 600))
+      Object.assign(state, base(), { connection: { status: "online", url: `acp://${agent.id || "custom"}`, version: "0.109.1" }, serverName: agent.id === "claude" ? "Claude Code" : agent.id, can: { queue: true, steer: true, fork: true } })
+      push()
+    },
     servers: () => [
       { id: "srv_1", url: "http://localhost:4096", local: true, current: state.connection.status === "online" },
+      { id: "srv_4", name: "Claude Code", url: "acp://claude", local: false, current: false, agent: "claude", command: "npx -y @agentclientprotocol/claude-agent-acp" },
       { id: "srv_2", name: "Studio Mac", url: "https://studio.example.dev", local: false, current: false },
       { id: "srv_3", name: "omarchy", url: "https://eb501e0e4f991ca4.7fek5zuoivit.opentunnel.xyz", local: false, current: false },
     ],

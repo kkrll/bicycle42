@@ -273,7 +273,8 @@ export function createAcp(opts: AcpOptions): Acp {
 
   // ── the process ─────────────────────────────────────────────────────────────────────────────
 
-  type Proc = { gen: number; agent: ClientContext; init: Raw; transport: Transport; started: number }
+  /** `ended`: resolves with why the process ended, once it has. */
+  type Proc = { gen: number; agent: ClientContext; init: Raw; transport: Transport; started: number; ended: Promise<string> }
   let proc: Proc | undefined
   let starting: Promise<Proc> | undefined
   let gen = 0
@@ -349,7 +350,8 @@ export function createAcp(opts: AcpOptions): Acp {
       .onRequest("session/request_permission", ({ params, signal }) => askPermission(rec(params), signal) as never)
       .onRequest("elicitation/create", ({ params, signal }) => askQuestion(rec(params), signal) as never)
     const conn = app.connect(transport.stream)
-    const ended = Promise.race([transport.exited, conn.closed.then(() => "it closed its output")])
+    // Its output closes as it exits: the exit, with its code, is the better reason, if it comes.
+    const ended = Promise.race([transport.exited, conn.closed.then(() => Promise.race([transport.exited, new Promise<string>((r) => setTimeout(() => r("it closed its output"), 500).unref())]))])
     const why = (reason: string) => {
       const last = stderrTail.filter((l) => !/^npm (notice|warn)/i.test(l)).at(-1)
       return `${name} stopped: ${reason}${last ? ` (${clip(last, 200)})` : ""}`
@@ -387,7 +389,7 @@ export function createAcp(opts: AcpOptions): Acp {
     caps = rec(init.agentCapabilities)
     promptCaps = rec(caps.promptCapabilities)
     steering = rec(rec(init._meta).steering).supported === true
-    const p: Proc = { gen: mine, agent: conn.agent, init, transport, started: Date.now() }
+    const p: Proc = { gen: mine, agent: conn.agent, init, transport, started: Date.now(), ended }
     proc = p
     void ended.then((reason) => died(p, why(reason)))
     if (JSON.stringify(can()) !== before) emit({ type: "agent" })
@@ -614,6 +616,9 @@ export function createAcp(opts: AcpOptions): Acp {
         r.cursor = i + 1
         break
       }
+    // Claude Code writes this into the conversation as the user's when a turn is stopped; the
+    // chat has its own "Stopped" line for that, from the ledger.
+    if (!sent && /^\[Request interrupted by user[^\]\n]*\]$/.test(g.text.trim())) return
     endTurn(c)
     const before = c.items.at(-1)?.time ?? 0
     // A message the app did not send (typed into the agent elsewhere) gets an id of its own place.
@@ -874,19 +879,27 @@ export function createAcp(opts: AcpOptions): Acp {
         else if (reason && STOPPED_BY[reason]) finish(c, q.id, { failed: STOPPED_BY[reason]! })
         else finish(c, q.id, {})
       },
-      (err) => finish(c, q.id, c.running?.cancelled ? { interrupted: true } : { failed: said(err) }),
+      (err) => {
+        if (c.running?.cancelled) return finish(c, q.id, { interrupted: true })
+        // The connection closing rejects the prompt before the process is seen to have ended:
+        // then the reason is the process's (`died`), not "connection closed".
+        void Promise.race([p.ended, new Promise((r) => setTimeout(r, 1000).unref())]).then(() => proc === p && finish(c, q.id, { failed: said(err) }))
+      },
     )
   }
 
-  /** A turn ended: the next waiting message goes, or the run ends. */
+  /** A turn ended: the next waiting message goes, or the run ends. `id` is the message it was
+   *  asked with; what it says goes with the turn's last message (one steered into it, if any),
+   *  where a replay puts it. */
   function finish(c: Conv, id: string, how: { failed?: string; interrupted?: true }): void {
     if (c.running?.id !== id) return
     c.running = undefined
     const now = Date.now()
     const item = c.turn && c.items.find((i) => i.id === c.turn!.assistant)
     if (item?.kind === "assistant") upsert(c, { ...item, done: true, ended: now }, true)
+    const last = c.turn?.user || id
     c.turn = undefined
-    const sent = ledger.sessions[c.id]?.sent.find((s) => s.id === id)
+    const sent = ledger.sessions[c.id]?.sent.find((s) => s.id === last)
     if (sent) sent.ended = now
     if (how.failed || how.interrupted) {
       if (sent) Object.assign(sent, defined({ end: how.failed ? ("failed" as const) : ("interrupted" as const), error: how.failed }))
@@ -895,7 +908,7 @@ export function createAcp(opts: AcpOptions): Acp {
       c.parked = true
       setBusy(c, false)
       emit(defined({ type: "run", session: c.id, status: how.failed ? "failed" : "interrupted", error: how.failed }) as BackendEvent)
-      if (sent) endLine(c, id, sent, true)
+      if (sent) endLine(c, last, sent, true)
       return
     }
     save()
@@ -1380,11 +1393,15 @@ export function createAcp(opts: AcpOptions): Acp {
     const now = Date.now()
     k.sent.push({ id: q.id, key: textKey(q.text), time: now })
     save()
-    // The rest of the turn is the answer to it: it goes below it.
+    // The rest of the turn is the answer to it: it goes below it. Where the agent puts it is its
+    // own to say, and a re-read from a new process shows that (OpenCode puts it after the step
+    // it was given during, so that step's last words move above it).
     c.items.push(user(c.id, q.id, now, q.text, pictures(q.files), false))
     chat({ type: "item", session: c.id, item: copy(c.items.at(-1)!) })
     const before = c.turn && c.items.find((i) => i.id === c.turn!.assistant)
     if (before?.kind === "assistant") upsert(c, { ...before, done: true, ended: now }, true)
+    const was = c.turn && k.sent.find((x) => x.id === c.turn!.user)
+    if (was) was.ended = now
     c.turn = { user: q.id, assistant: `a_${q.id}`, time: now, ordinal: { text: 0, reasoning: 0 } }
     return true
   }

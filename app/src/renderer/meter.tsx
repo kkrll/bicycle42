@@ -14,8 +14,11 @@ export function ContextMeter() {
   const shown = createMemo(() => meter(state.context))
   /** A summary is already being written: a second one would have nothing to do. */
   const summarising = () => chat.items.some((i) => i.kind === "assistant" && i.summary && !i.done)
+  /** The agent can be asked for a summary: an OpenCode server, or an ACP agent with /compact.
+   *  Without, the meter only says how full the context is. */
+  const compactable = () => !!state.can?.compact
   /** Nothing is being worked on and nothing waits: the moment to suggest a summary. */
-  const resting = () => !!state.session && !state.session.busy && !summarising() && tallyNotes().left === 0
+  const resting = () => compactable() && !!state.session && !state.session.busy && !summarising() && tallyNotes().left === 0
   let button!: HTMLButtonElement
   let pop: HTMLDivElement | undefined
 
@@ -57,9 +60,9 @@ export function ContextMeter() {
             data-action="context"
             aria-haspopup="dialog"
             aria-expanded={open()}
-            aria-label={`Context ${m().percent}% full: ${m().numbers}. Compact the conversation`}
+            aria-label={`Context ${m().percent}% full: ${m().numbers}${compactable() ? ". Compact the conversation" : ""}`}
             title={`Context: ${m().numbers}`}
-            onClick={() => setOpen(!open())}
+            onClick={() => compactable() && setOpen(!open())}
             onKeyDown={escape}
           >
             <Icon name="gauge" />

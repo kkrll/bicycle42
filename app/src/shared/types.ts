@@ -465,6 +465,12 @@ export type Commands = {
   localServer(): { url: string } | null
   /** Connects to that server, and remembers to use whichever one runs here from now on. */
   connectLocal(): void
+  /** The ACP agents this computer can run (Claude Code, Codex, Gemini CLI, OpenCode), and
+   *  whether each is installed. */
+  localAgents(): LocalAgent[]
+  /** Runs one of them (or `command`, for "custom") and uses it as the server: its folders are
+   *  this computer's. Remembered like a server. */
+  connectAgent(agent: { id: string; command?: string }): void
   /** Every server connected to so far, the one in use first. Passwords stay in main. */
   servers(): ServerInfo[]
   /** Connects to one of them. Its own repo, page and conversations come back with it. */

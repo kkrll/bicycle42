@@ -5,6 +5,7 @@
 //
 // A test scripts the agent's turns (`onPrompt`) and can end its "process" (`exit`), after which
 // the backend's next start gets a new one with the same history, as a restarted agent has.
+import fs from "node:fs"
 import { agent, type Stream } from "@agentclientprotocol/sdk/unstable"
 import type { Transport } from "../src/main/acp"
 
@@ -58,7 +59,9 @@ function coalesce(history: Update[]): Update[] {
   return out
 }
 
-export function fakeAgent(): FakeAgent {
+/** With `file`, the sessions are kept there, so a fake run as a process of its own (test/acp-agent.ts)
+ *  remembers them when it is started again, as a real agent does. */
+export function fakeAgent(opts: { file?: string } = {}): FakeAgent {
   let n = 0
   let current: { exit(reason: string): void } | undefined
   const fake: FakeAgent = {
@@ -76,6 +79,11 @@ export function fakeAgent(): FakeAgent {
     },
     connect() {
       fake.starts++
+      if (opts.file && fs.existsSync(opts.file)) {
+        const kept = JSON.parse(fs.readFileSync(opts.file, "utf8")) as { n: number; sessions: Session[] }
+        n = kept.n
+        for (const s of kept.sessions) fake.sessions.set(s.id, s)
+      }
       // Two pipes of JSON-RPC messages, one each way.
       const toAgent = new TransformStream()
       const toClient = new TransformStream()
@@ -164,6 +172,13 @@ export function fakeAgent(): FakeAgent {
           s.cancel = undefined
           return { stopReason: (stop || "end_turn") as never }
         })
+      if (opts.file) {
+        const file = opts.file
+        const keep = () => fs.writeFileSync(file, JSON.stringify({ n, sessions: [...fake.sessions.values()].map(({ cancel: _, ...s }) => s) }))
+        // Often enough for a test: what a turn said is on disk before the process can be ended.
+        const timer = setInterval(keep, 20)
+        void ended.then(() => clearInterval(timer))
+      }
       app.connect(agentSide)
       const exit = (reason: string) => {
         exited(reason)
