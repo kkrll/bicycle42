@@ -465,7 +465,11 @@ can also be moved by hand (the date `tested` then goes, unless you ran the check
   reconnect reads and writes nothing twice. The wire (`src/shared/wire.ts`) is one JSON message a
   line, split on the newline byte and decoded whole (text of any language survives any cut), 64 MiB
   a line at most each way (a longer one from there drops the link with a sentence; an answer too
-  long is an error, E2BIG); the helper says its `protocol` in `hello` and the app refuses another;
+  long is an error, E2BIG); the helper says its `protocol` in `hello` and the app refuses another
+  (except `ping`, `hello` and `endOwner`, frozen for every version, `LIFECYCLE`: when an app says
+  hello, its helper asks every other version's there to end what an earlier run of that install
+  left with it, so an update does not leave the old version's agent running for 12 hours; a helper
+  from before endOwner answers it ENOSYS and ends what it keeps with its lease);
   every call's params are checked (EINVAL); each spawn has a key, so one sent again after a drop
   is the same process; and what waits for the agent's stdin goes joined, 4 MiB a write. The app's
   ssh never forwards the reviewer's agent or X11, and a changed host key is said as a possible

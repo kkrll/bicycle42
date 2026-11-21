@@ -8,8 +8,26 @@
 // of another character, so splitting the bytes first is exact.
 
 /** What the helper speaks. `hello` answers it; an app that finds another number refuses that helper
- *  with a sentence. Raised whenever a call, its params or what it answers changes meaning. */
+ *  with a sentence. Raised whenever a call, its params or what it answers changes meaning: except
+ *  the LIFECYCLE calls, which never change. */
 export const PROTOCOL = 1
+
+/** The calls every version of the helper answers alike, forever, whatever its PROTOCOL: a helper
+ *  of one version asks them of another's (an app updated, or two versions of it side by side),
+ *  so their params and answers are frozen as they are here.
+ *
+ *    ping                         → {version, protocol}
+ *    hello {owner?, launch?}      → {version, protocol, pid, procs: [{hid, owner, launch, key?, exited?}]}
+ *    endOwner {owner, before}     → {ended}: that install's processes from its launches before
+ *                                   `before` (a time) are ended, and forgotten once they have
+ *
+ *  When an app says hello (its install `owner`, its `launch`), the helper asks the helper of every
+ *  other version there to endOwner, once: what an earlier run of the same install started with
+ *  the version it had then is ended, as a run's own helper ends it (ssh.ts), instead of being kept
+ *  for an app that will never ask for it. Helpers from before endOwner answer it "no such call"
+ *  (ENOSYS): what they keep ends with its lease (AWAY_HOURS with no app attached), and they end
+ *  themselves once nothing is attached and nothing kept. */
+export const LIFECYCLE = ["ping", "hello", "endOwner"] as const
 
 /** The longest line either end takes, in bytes. The largest lines that are meant are a command's
  *  output in `run`'s answer (git at up to 16 MiB in acp.ts, up to 32 MiB of an agent's own CLI in

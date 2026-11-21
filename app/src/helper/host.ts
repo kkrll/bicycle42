@@ -57,6 +57,9 @@ export type HostOptions = {
   shutdown(): void
   /** The longest line sent or taken (LINE_MAX unless said, for the tests). */
   lineMax?: number
+  /** An app said hello: its install, and its launch. The helper asks the other versions' helpers
+   *  to end what earlier runs of that install left with them (wire.ts LIFECYCLE). */
+  hello?(owner: string, launch: number): void
 }
 
 // ── params ─────────────────────────────────────────────────────────────────────────────────────
@@ -218,7 +221,35 @@ export function createHost(o: HostOptions) {
    *  __proto__) is ever one. */
   const ops = new Map<string, Op>([
     ["ping", { params: {}, run: () => ({ version: o.version, protocol: PROTOCOL }) }],
-    ["hello", { params: { owner: "string?", launch: "number?" }, run: () => ({ version: o.version, protocol: PROTOCOL, pid: process.pid, procs: procsOf() }) }],
+    [
+      "hello",
+      {
+        params: { owner: "string?", launch: "number?" },
+        run: (q) => {
+          if (typeof q.owner === "string" && q.owner && typeof q.launch === "number") o.hello?.(q.owner, q.launch)
+          return { version: o.version, protocol: PROTOCOL, pid: process.pid, procs: procsOf() }
+        },
+      },
+    ],
+    [
+      "endOwner",
+      {
+        params: { owner: "string", before: "number" },
+        /** That install's processes from its launches before `before`, ended (each with what it
+         *  started) and forgotten once they have: no app of theirs will ask for them. Frozen
+         *  (wire.ts LIFECYCLE). Answered once they are gone. */
+        async run(q) {
+          const mine = [...procs.values()].filter((p) => p.owner === q.owner && p.launch < (q.before as number))
+          for (const p of mine) {
+            log("ended for a later run of its app", p.hid)
+            p.orphan = true
+            if (p.closed) forget(p)
+          }
+          await Promise.all(mine.map((p) => p.child.kill()))
+          return { ended: mine.length }
+        },
+      },
+    ],
     ["info", { params: {}, run: () => ({ home: machine.home, platform: machine.platform, hostname: machine.hostname(), devNull: machine.devNull }) }],
     [
       "run",

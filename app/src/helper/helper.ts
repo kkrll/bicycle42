@@ -149,6 +149,54 @@ function ping(socket: string, ms = 2000): Promise<"up" | "dead" | "busy"> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/** One call to the helper on that socket, and its answer (or why there was none). */
+function ask(socket: string, method: string, params: Record<string, unknown>, ms: number): Promise<{ result?: unknown; error?: { message: string; code?: string } }> {
+  return new Promise((resolve) => {
+    if (socketOf(socket) !== "mine") return resolve({ error: { message: "not this user's socket" } })
+    const sock = net.connect(socket)
+    const done = (answer: { result?: unknown; error?: { message: string; code?: string } }) => {
+      clearTimeout(timer)
+      lines.stop()
+      sock.destroy()
+      resolve(answer)
+    }
+    const timer = setTimeout(() => done({ error: { message: `no answer in ${ms / 1000} s` } }), ms)
+    const lines = lineReader({
+      max: LINE_MAX,
+      line(text) {
+        try {
+          const m = JSON.parse(text) as { id?: unknown; result?: unknown; error?: { message: string; code?: string } }
+          if (m.id === 1) done(m.error ? { error: m.error } : { result: m.result })
+        } catch {}
+      },
+      tooLong: () => done({ error: { message: "an answer too long" } }),
+    })
+    sock.on("connect", () => sock.write(`${JSON.stringify({ id: 1, method, params })}\n`))
+    sock.on("data", (d: Buffer) => lines.push(d))
+    sock.on("error", (err) => done({ error: { message: String(err) } }))
+    sock.on("close", () => done({ error: { message: "it closed the connection" } }))
+  })
+}
+
+/** An app of `owner` began its run `launch`, with this version: whatever an earlier run of it
+ *  left with another version's helper here (the version it had before an update) is ended there.
+ *  Every version answers endOwner the same (wire.ts LIFECYCLE); one from before it is let be, and
+ *  ends what it keeps with its lease. */
+async function endOthers(owner: string, launch: number) {
+  let names: string[] = []
+  try {
+    names = fs.readdirSync(DIR)
+  } catch {}
+  for (const name of names) {
+    const m = /^helper-(.+)\.sock$/.exec(name)
+    if (!m || m[1] === VERSION) continue
+    const r = await ask(path.join(DIR, name), "endOwner", { owner, before: launch }, 10_000)
+    const ended = (r.result as { ended?: unknown } | undefined)?.ended
+    if (typeof ended === "number" && ended > 0) log(`version ${m[1]}'s helper ended ${ended} of an earlier run of this app's`)
+    else if (r.error?.code === "ENOSYS") log(`version ${m[1]}'s helper is older than endOwner: what it keeps ends with its lease`)
+  }
+}
+
 /** "B42 FAILED <code> <sentence>", and the end. */
 function fail(code: string, sentence: string): never {
   process.stdout.write(`B42 FAILED ${code} ${sentence}\n`)
@@ -333,6 +381,8 @@ async function serve() {
   fs.rmSync(SOCKET, { force: true })
 
   let idleTimer: ReturnType<typeof setTimeout> | undefined
+  /** The runs of apps whose earlier runs' processes the other versions' helpers were asked to end. */
+  const endedFor = new Set<string>()
   const host = createHost({
     machine: createLocalMachine(),
     version: VERSION,
@@ -349,6 +399,13 @@ async function serve() {
     },
     busy: () => clearTimeout(idleTimer),
     shutdown: () => leave(0),
+    hello(owner, launch) {
+      // Once per run of an app, however often it attaches.
+      const run = `${owner} ${launch}`
+      if (endedFor.has(run)) return
+      endedFor.add(run)
+      void endOthers(owner, launch).catch((err) => log("can't ask the other versions' helpers", String(err)))
+    },
   })
 
   const server = net.createServer((sock) => {
