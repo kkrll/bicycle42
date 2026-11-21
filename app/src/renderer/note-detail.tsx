@@ -4,7 +4,7 @@
 // one that is right needs nothing done. The
 // requests and the message box stay under it.
 import { For, Show, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js"
-import type { FileChange, NoteRow } from "../shared/types"
+import type { FileChange, NoteRow, TakeBackWay } from "../shared/types"
 import { Changes, Counts } from "./chat"
 import { Icon } from "./icons"
 import { openLightbox } from "./lightbox"
@@ -86,7 +86,7 @@ function NoteDetail(props: { note: NoteRow }) {
   const [error, setError] = createSignal("")
   /** "Take back" was pressed once, and main said which way it would go: the second press does
    *  that. */
-  const [sure, setSure] = createSignal<"undone" | "asked" | false>(false)
+  const [sure, setSure] = createSignal<TakeBackWay | false>(false)
   const [busy, setBusy] = createSignal(false)
 
   // One array for as long as the pictures are the same: <For> keeps each <img> (and the picture
@@ -195,7 +195,9 @@ function NoteDetail(props: { note: NoteRow }) {
           <p class="note-aside">
             {n().takenBack === "undone"
               ? "Taken back, files and all. /redo in its conversation brings it back."
-              : "The agent was asked to reverse it."}
+              : n().takenBack === "restored"
+                ? "Taken back: its files are as they were before it, later changes kept. /redo in its conversation brings it back until the next message there."
+                : "The agent was asked to reverse it."}
           </p>
         </Show>
         <Show when={pictures().length}>
@@ -278,10 +280,12 @@ function NoteDetail(props: { note: NoteRow }) {
                   <span class="note-ask">
                     {sure() === "undone"
                       ? `Note ${n().n} is the newest message in its conversation, so it can be undone exactly, files included (/redo there brings it back). Undo it?`
-                      : `Note ${n().n} can't be undone exactly: only the newest message of an idle conversation can. Ask the agent to reverse it?`}
+                      : sure() === "restored"
+                        ? `The app can put note ${n().n}'s files back exactly as they were before it, keeping what changed since. The conversation keeps it, and the agent is told with the next message there (/redo brings it back until then). Take it back?`
+                        : `Note ${n().n} can't be taken back exactly: the app has no record of what it changed, another conversation changed this folder at the same time, or later changes touched the same lines. Ask the agent to reverse it?`}
                   </span>
                   <button class="btn danger" disabled={busy()} onClick={takeBack}>
-                    {sure() === "undone" ? `Undo note ${n().n}` : "Ask to reverse"}
+                    {sure() === "undone" ? `Undo note ${n().n}` : sure() === "restored" ? `Take back note ${n().n}` : "Ask to reverse"}
                   </button>
                   <button class="btn" data-keep disabled={busy()} onClick={() => setSure(false)}>
                     Keep it

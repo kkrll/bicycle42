@@ -21,9 +21,10 @@
 // one (`attach`), and gives back what the shell passes on (`Core`: the window's commands, its
 // state, the conversation's pictures). index.ts is that shell; the tests are another
 // (test/stubs/host.ts). All of the controller's state is inside one call of createCore.
+import fs from "node:fs"
 import path from "node:path"
 import { notePrompt, noteWords, TEMPLATES } from "../../../overlay/prompt.js"
-import { commitPrompt, startPrompt, takeBackPrompt } from "./asks"
+import { commitPrompt, parseAsk, splitTold, startPrompt, takeBackPrompt, toldLine } from "./asks"
 import type {
   AgentInfo,
   AppState,
@@ -59,17 +60,19 @@ import type {
   ServerInfo,
   SessionSummary,
   SlashCommand,
+  TakeBackWay,
 } from "../shared/types"
 import { HOSTED_PANES, PHONE, phoneOf } from "../shared/types"
 import { noteImages, notePicture, type Frame } from "./images"
 import { readLocal } from "./local"
 import { isPlaceholder, placeholderTitle, titleFrom } from "./naming"
-import { createOpenCode, type OpenCode } from "./opencode"
+import { createOpenCode, parseNote, type OpenCode } from "./opencode"
 import type { Page, PageMessage } from "./page"
 import { createReview, imageUri, pageNote, type PageNote, type Review } from "./review"
 import { createOutbox, type Outgoing } from "./outbox"
 import { createShots } from "./shots"
 import { createPictures } from "./pictures"
+import { createSnapshots, type Restore, type Turn } from "./snapshots"
 import { createStore, type SavedServer } from "./store"
 
 type Level = "info" | "warn" | "error"
@@ -133,6 +136,8 @@ export function createCore(host: Host): Core {
   const noteShots = createShots(host.dataDir, log)
   /** What each unfinished note sends, on disk: a note waiting its turn, or one to retry, outlives a restart. */
   const outboxFiles = createOutbox(host.dataDir, log)
+  /** The app's own file history of each folder on this computer (snapshots.ts). */
+  const snapshots = createSnapshots(host.dataDir, { log })
 
   /** The conversation's pictures, served to the window by address (pictures.ts). A note's own
    *  first picture is on disk already; anything else comes from what the server sent, or from the
@@ -333,7 +338,21 @@ export function createCore(host: Host): Core {
   }
 
   function toChat(event: ChatEvent) {
+    if (event.type === "item" && event.item.kind === "user") event = { ...event, item: readTold(event.item) }
+    else if (event.type === "reset") event = { ...event, items: event.items.map(readTold) }
     host.emit("chat", event)
+  }
+  /** A message that starts with the line about a note the app took back (`toldLine`) is read by
+   *  what follows it: a note is still the note, a request still the request. Whatever backend
+   *  read it first did not know the line. */
+  function readTold(item: ChatItem): ChatItem {
+    if (item.kind !== "user") return item
+    const { told, rest } = splitTold(item.text)
+    if (!told) return item
+    const note = item.note ?? parseNote(rest)
+    const ask = note ? undefined : (item.ask ?? parseAsk(item.text))
+    const { note: _n, ask: _a, ...plain } = item
+    return { ...plain, ...(note ? { note } : {}), ...(ask ? { ask } : {}) }
   }
 
   /** Sites whose review changed since the last `settleChanges`. */
@@ -898,11 +917,13 @@ export function createCore(host: Host): Core {
         // have missed runs starting and ending.
         connection = e.state
         forgetBusy()
+        forgetTurns()
         // Pins follow the connection too: working ones read as paused while it is down.
         if (site) page?.send({ type: "pins", pins: pinsOf(site.review) })
         return push()
       case "resync":
         forgetBusy(e.session)
+        forgetTurns(e.session)
         // One conversation has a gap: only the one on screen is worth re-reading.
         if (e.session) return void (chat?.session === e.session && openChat(e.session, e.gap))
         if (session) void openChat(session.id)
@@ -924,11 +945,15 @@ export function createCore(host: Host): Core {
         }
         const origin = owners.get(e.session)
         const s = origin ? sites.get(origin) : undefined
-        if (!s) return
+        /** Where a turn of the agent's begins or ends, for the app's file history. */
+        const edge = e.type === "run" ? (e.status === "started" ? "start" : "end") : e.status === "working" ? "next" : undefined
+        if (!s) return void (edge && turnEdge(e.session, edge, []))
         const done = doneCount(s.review)
         const was = new Set(doneIds(s.review))
         const touched =
           e.type === "inbox" ? s.review.inbox(e.session, e.id, e.status) : s.review.run(e.session, e.status, e.error)
+        // The notes that finished here ran in the turn this ends.
+        if (edge) turnEdge(e.session, edge, doneIds(s.review).flatMap((id) => (was.has(id) ? [] : (s.review.note(id)?.message ?? []))))
         if (e.type === "run" && e.status !== "started" && s === site) void refreshRepo()
         if (e.type === "run" && e.status !== "started" && reversing.delete(e.session)) showFiles(s)
         // The conversation is free: the next waiting note goes. Not after an error, which leaves
@@ -1159,6 +1184,199 @@ export function createCore(host: Host): Core {
       log("warn", "can't read the repo's state", say(err))
     }
     push()
+  }
+
+  // ── the app's own file history ──────────────────────────────────────────────────────────────────
+  // Where the files are on this computer, the app snapshots a conversation's folder at each turn
+  // boundary (snapshots.ts): when a run starts, when the server hands the agent the next message
+  // ("working"), when the run ends. The notes that finished at a boundary ran in the turn it ends,
+  // and its two trees are what they changed: a note is taken back by reversing them, later turns
+  // kept, and without any help from the backend. What the reviewer changes by hand between turns
+  // is in the next turn's "before", so it is never reversed. A turn during which another
+  // conversation ran in the same folder (a background one, or another client of the server) is
+  // `shared`: its diff may hold the other's changes, so it is not reversed by itself.
+
+  /** A turn under way, by conversation. `before` is undefined where nothing is snapshot (a folder
+   *  on another computer, a conversation of no site's). */
+  type OpenTurn = { span: Span; start: number; before?: Promise<string | undefined> }
+  /** When a conversation ran in a folder, in ticks: what tells two turns overlapped. */
+  type Span = { session: string; dir: Promise<string | undefined>; from: number; to?: number }
+  const turnsOpen = new Map<string, OpenTurn>()
+  /** Turns that ended and are being written down: a take-back asked for meanwhile waits for them. */
+  const finishing = new Set<Promise<void>>()
+  let spans: Span[] = []
+  let tick = 0
+  /** Folders of conversations that are no site's, as the server said. */
+  const foreignDirs = new Map<string, string>()
+
+  /** The folder a conversation works in, as far as known without asking: a site's, or one the
+   *  server said. */
+  function knownDir(id: string): string | undefined {
+    const origin = owners.get(id)
+    const own = origin !== undefined ? placeEntry(origin)?.directory : undefined
+    return own && own !== missingFolder ? own : foreignDirs.get(id)
+  }
+  /** The folder a conversation works in, when known: a site's, or asked of the server once. */
+  function dirOf(id: string): Promise<string | undefined> {
+    const known = knownDir(id)
+    if (known) return Promise.resolve(known)
+    const b = backend
+    if (!b) return Promise.resolve(undefined)
+    return b.session(id).then(
+      (x) => (x && foreignDirs.set(id, x.directory), x?.directory),
+      () => undefined,
+    )
+  }
+  /** The folder, when its files are on this computer: only then does the app keep a history. */
+  function localDir(dir: string | undefined): string | undefined {
+    if (!dir || !sameComputer()) return undefined
+    try {
+      return fs.statSync(dir).isDirectory() ? dir : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /** A turn boundary in a conversation. "start": a run began (a turn under way stays). "next":
+   *  the agent was handed the next message, which ends one turn and begins another. "end": the
+   *  run ended. `messages`: the notes that finished here, which ran in the turn that ends. */
+  function turnEdge(session: string, kind: "start" | "next" | "end", messages: string[]) {
+    const was = turnsOpen.get(session)
+    if (kind === "start" && was) return
+    const dir = was?.span.dir ?? dirOf(session)
+    // Only a site's conversations are snapshot; any other is followed for what overlaps.
+    const shot = owners.has(session) ? dir.then((d) => (localDir(d) ? snapshots.snapshot(d!) : undefined)) : undefined
+    if (was) {
+      turnsOpen.delete(session)
+      was.span.to = ++tick
+      // Another conversation's time in a folder overlaps this turn when it had not ended by the
+      // time this began: all of those are known now. (Which folder they are in, maybe not yet.)
+      const others = spans.filter((o) => o !== was.span && o.session !== session && (o.to ?? Infinity) > was.span.from)
+      const done = finishTurn(session, was, shot, messages, others)
+      finishing.add(done)
+      void done.finally(() => finishing.delete(done))
+      // What no turn under way can overlap any more is let go.
+      const first = Math.min(...[...turnsOpen.values()].map((o) => o.span.from))
+      spans = spans.filter((o) => o.to === undefined || o.to > first)
+    }
+    if (kind === "end") return
+    const span: Span = { session, dir, from: ++tick }
+    spans.push(span)
+    turnsOpen.set(session, { span, start: Date.now(), ...(shot ? { before: shot } : {}) })
+  }
+
+  /** A turn has ended: its two trees go into the folder's log, with whether another conversation
+   *  was at work in the folder meanwhile. */
+  async function finishTurn(session: string, t: OpenTurn, after: Promise<string | undefined> | undefined, messages: string[], others: Span[]) {
+    try {
+      const [dir, before, done] = await Promise.all([t.span.dir, t.before, after])
+      if (!dir || !before || !done || (before === done && !messages.length)) return
+      const shared = (await Promise.all(others.map((o) => o.dir))).includes(dir)
+      await snapshots.addTurn(dir, { session, start: t.start, before, after: done, messages, ...(shared ? { shared: true as const } : {}) })
+    } catch (err) {
+      log("warn", "can't keep what a turn changed", say(err))
+    }
+  }
+
+  /** Events were missed: where a turn began or ended is not known any more, so the turns under
+   *  way are dropped (their notes are taken back the old way). */
+  function forgetTurns(session?: string) {
+    for (const [id, t] of turnsOpen) {
+      if (session && id !== session) continue
+      turnsOpen.delete(id)
+      t.span.to = ++tick
+    }
+  }
+
+  /** Whether a conversation is at work in the folder now, as far as the app knows. */
+  async function folderBusy(dir: string) {
+    for (const t of turnsOpen.values()) if ((await t.span.dir) === dir) return true
+    return false
+  }
+
+  /** The note's turn in the app's history, when it can be taken back from there: on this
+   *  computer, not shared with another conversation, not taken back already. */
+  async function noteTurn(s: Site, note: { session: string; message: string }) {
+    const dir = localDir(siteSettings(s.origin)?.directory)
+    if (!dir) return undefined
+    await Promise.all(finishing)
+    const h = await snapshots.history(dir)
+    const turn = h.turns.findLast((t) => t.session === note.session && t.messages.includes(note.message))
+    if (!turn) return undefined
+    const reversed = h.restores.some((r) => r.turns.includes(turn.id))
+    return { dir, turn, reversed }
+  }
+
+  /** The finished notes on the list that ran in these turns and are not taken back. */
+  function notesOf(turns: Turn[]) {
+    const out: Array<{ s: Site; id: string; n: number; text: string }> = []
+    for (const s of sites.values())
+      for (const row of s.review.rows()) {
+        const note = s.review.note(row.id)
+        if (!note?.message || row.status !== "done" || row.takenBack) continue
+        if (turns.some((t) => t.session === note.session && t.messages.includes(note.message!))) out.push({ s, id: row.id, n: row.n, text: row.text })
+      }
+    return out
+  }
+
+  /** Takes turns back from the history: the files are reversed (or nothing is), the notes they
+   *  hold say "restored", and the restore is kept for /redo and for telling the agent. Throws a
+   *  sentence for the reviewer when it does not apply. */
+  async function restore(dir: string, session: string, turns: Turn[]) {
+    const done = await snapshots.reverse(dir, turns)
+    if (!done) throw new Error("Its files were changed since in the same places, so the app can't take it back by itself. Ask the agent to reverse it instead.")
+    const notes = notesOf(turns)
+    await snapshots.addRestore(dir, { session, time: Date.now(), turns: turns.map((t) => t.id), from: done.from, to: done.to, notes: notes.map((x) => x.id) })
+    for (const x of notes) if (x.s.review.mark(x.id, { takenBack: "restored" })) changed(x.s)
+    showFiles(site)
+    return notes
+  }
+
+  /** The newest restore of a conversation that can still be brought back: the agent has not
+   *  been told of it yet. */
+  async function lastRestore(dir: string, session: string): Promise<Restore | undefined> {
+    return (await snapshots.history(dir)).restores.findLast((r) => r.session === session && !r.told)
+  }
+
+  /** Brings a restore back: the files go forward again, its notes are no longer taken back. */
+  async function unrestore(dir: string, r: Restore) {
+    if (!(await snapshots.apply(dir, r.to, r.from)))
+      throw new Error("Those files were changed since in the same places, so the app can't bring it back by itself.")
+    await snapshots.updateRestore(dir, r.id, null)
+    for (const s of sites.values()) {
+      let touched = false
+      for (const id of r.notes) if (s.review.note(id)?.takenBack === "restored") touched = s.review.mark(id, { takenBack: undefined }) || touched
+      if (touched) changed(s)
+    }
+    showFiles(site)
+  }
+
+  /** Whether the backend's own undo, from a turn that began at `since`, would bring back what the
+   *  app took back by itself in the folder: OpenCode's puts each file the turns touched back whole,
+   *  as it was before them, and that was before the app's take-back. Without `since`: whether the
+   *  app took back anything there that no message has followed yet. The app's own way is used then. */
+  async function undoClobbers(directory: string | undefined, since?: number) {
+    const dir = localDir(directory)
+    if (!dir) return false
+    return (await snapshots.history(dir)).restores.some((r) => (since === undefined ? !r.told : r.time > since))
+  }
+
+  /** Sends a message to a conversation, with the line about what the app took back by itself in
+   *  front when there is such a line to say. Once it is sent, those take-backs are final. */
+  async function telling<T>(session: string, text: string, send: (text: string) => Promise<T>): Promise<T> {
+    // Where the app keeps no history, the message goes as it is, at once.
+    const dir = localDir(knownDir(session))
+    if (!dir) return send(text)
+    const h = await snapshots.history(dir)
+    const untold = h.restores.filter((r) => r.session === session && !r.told)
+    if (!untold.length) return send(text)
+    const ids = new Set(untold.flatMap((r) => r.notes))
+    const named = [...sites.values()].flatMap((s) => s.review.rows().filter((r) => ids.has(r.id)).map((r) => ({ n: r.n, text: r.text })))
+    const turns = h.turns.filter((t) => untold.some((r) => r.turns.includes(t.id)))
+    const others = turns.filter((t) => !t.messages.length).length
+    const result = await send(`${toldLine(named, others)}\n\n${text}`)
+    for (const r of untold) void snapshots.updateRestore(dir, r.id, { told: true })
+    return result
   }
 
   // ── checkpoints ─────────────────────────────────────────────────────────────────────────────────
@@ -1501,7 +1719,8 @@ export function createCore(host: Host): Core {
       // On disk with the id it goes by before it goes: after a restart it is retried under the
       // same id, which the server does not queue twice.
       await outboxFiles.save(id, payload)
-      const sent = await backend!.prompt(target, { id: payload.id, text: payload.text, files: payload.files })
+      const b = backend!
+      const sent = await telling(target, payload.text, (text) => b.prompt(target, { id: payload.id, text, files: payload.files }))
       s.review.sent(id, sent.id, target)
       void autoName(target, s.review.rows().find((r) => r.id === id)?.text ?? "")
     } catch (err) {
@@ -1543,20 +1762,36 @@ export function createCore(host: Host): Core {
     return pending
   }
   /** A finished note that can be taken back, and how that would go now. The newest message of an
-   *  idle conversation can be undone exactly, files and all ("undone"). An older one has later
-   *  work on top of it, and a busy conversation cannot be undone: there only the agent can take
-   *  it out ("asked"). */
+   *  idle conversation is undone by a backend that can, conversation and files ("undone"). Else
+   *  the app reverses its turn from its own file history, when the files are on this computer,
+   *  nothing is at work in the folder, the turn was not shared with another conversation, and
+   *  its reverse applies to the files as they are ("restored": later changes stay). Else only the
+   *  agent can take it out ("asked"). */
   async function takeBack(id: unknown) {
     const s = site
-    const note = typeof id === "string" ? s?.review.note(id) : undefined
-    if (!s || !note?.session || !note.message || note.status !== "done") throw new Error("Only a finished note can be taken back.")
-    if (note.takenBack) throw new Error("This note was already taken back.")
+    const found = typeof id === "string" ? s?.review.note(id) : undefined
+    if (!s || !found?.session || !found.message || found.status !== "done") throw new Error("Only a finished note can be taken back.")
+    if (found.takenBack) throw new Error("This note was already taken back.")
+    const note = found as typeof found & { session: string; message: string }
     const b = need()
     const info = await b.session(note.session)
     if (!info) throw new Error("Its conversation no longer exists.")
-    const last = info.busy ? null : await b.lastTurn(note.session)
-    const how: "undone" | "asked" = last?.id === note.message ? "undone" : "asked"
-    return { s, note: note as typeof note & { session: string; message: string }, how }
+    const mine = await noteTurn(s, note)
+    if (b.can?.undo && !info.busy && (await b.lastTurn(note.session))?.id === note.message && !(await undoClobbers(knownDir(note.session) ?? info.directory, mine?.turn.start)))
+      return { s, note, how: "undone" as TakeBackWay, mine }
+    const exact =
+      !!mine && !mine.reversed && !mine.turn.shared && !info.busy && !(await folderBusy(mine.dir)) && !!(await snapshots.reverse(mine.dir, [mine.turn], true))
+    return { s, note, how: (exact ? "restored" : "asked") as TakeBackWay, mine }
+  }
+
+  /** What the agent changed for a note: its turn from the app's history when there is one and no
+   *  other conversation shares it; else the backend's diff of the turn, when it has one; else the
+   *  shared turn's, which may hold another conversation's changes too. */
+  async function diffOf(s: Site, note: { session: string; message: string }, mine?: Awaited<ReturnType<typeof noteTurn>>): Promise<FileChange[]> {
+    const b = need()
+    const turn = mine ?? (await noteTurn(s, note))
+    if (turn && (!turn.turn.shared || !b.can?.undo)) return snapshots.diff(turn.dir, turn.turn.before, turn.turn.after)
+    return b.can?.undo ? b.diff(note.session, note.message) : []
   }
 
   /** Two alt+Enter notes in a row must not make two background conversations. */
@@ -1593,6 +1828,29 @@ export function createCore(host: Host): Core {
 
   type Builtin = (b: Backend, current: SessionSummary, args: string, options?: SendOptions) => Promise<CommandResult | void>
 
+  /** /undo with a backend that cannot cut the conversation: the agent's newest turn here that is
+   *  not taken back already, from the app's history, files only. The conversation stays as it is;
+   *  the agent is told with the next message. */
+  async function undoFiles(current: SessionSummary, args: string): Promise<CommandResult> {
+    const dir = localDir(knownDir(current.id) ?? current.directory)
+    if (!dir) throw new Error("This agent can't undo, and the files are on another computer, where the app keeps no history of them.")
+    await Promise.all(finishing)
+    const h = await snapshots.history(dir)
+    const turn = h.turns.findLast((t) => t.session === current.id && !h.restores.some((r) => r.turns.includes(t.id)))
+    if (!turn) throw new Error("Nothing to undo: the agent has changed no file here that the app saw.")
+    const notes = notesOf([turn])
+    const what = notes.length ? notes.map((x) => `note ${x.n} (${quoted(x.text)})`).join(" and ") : "its last turn"
+    if (args !== UNDO_CONFIRM)
+      return {
+        say: `This takes back the changes the agent made to files for ${what}. The conversation stays as it is, and the agent is told with your next message. Press Enter to undo.`,
+        draft: `/undo ${UNDO_CONFIRM}`,
+      }
+    if (turn.shared) throw new Error("Another conversation worked in this folder at the same time, so the app can't tell its changes apart. Ask the agent to reverse it instead.")
+    if (await folderBusy(dir)) throw new Error("The agent is working in this folder. Stop it first, then /undo.")
+    await restore(dir, current.id, [turn])
+    return { say: `Took back the agent's changes to files for ${what}. /redo brings them back; your next message makes it final.` }
+  }
+
   const builtins: Record<string, Builtin> = {
     // The summary arrives as chat events; so does "nothing to compact yet". Notes are not
     // touched: they follow their own messages, and what is queued still runs.
@@ -1607,8 +1865,13 @@ export function createCore(host: Host): Core {
     // message on, the agent's file changes included. The first "/undo" only says what would go.
     async undo(b, current, args) {
       if (session?.id === current.id && session.busy) throw new Error("The agent is working. Stop it first, then /undo.")
-      const turn = await b.lastTurn(current.id)
-      if (!turn) throw new Error("Nothing to undo.")
+      if (!b.can?.undo || (await undoClobbers(knownDir(current.id) ?? current.directory))) return undoFiles(current, args)
+      const said = await b.lastTurn(current.id)
+      if (!said) throw new Error("Nothing to undo.")
+      // A message that began with the line about a note the app took back is the rest of it.
+      const told = splitTold(said.text)
+      const note = said.note ?? (told.told ? parseNote(told.rest) : undefined)
+      const turn = { ...said, text: told.rest, ...(note ? { note } : {}) }
       const what = turn.note ? `note ${turn.note.n} (${quoted(turn.note.text)})` : `your message ${quoted(turn.text)}`
       if (args !== UNDO_CONFIRM)
         return {
@@ -1626,8 +1889,15 @@ export function createCore(host: Host): Core {
       return { say: `Took back ${what}. /redo brings it back; your next message makes it final.`, ...(turn.note ? {} : { draft: turn.text }) }
     },
     async redo(b, current) {
-      const now = await b.session(current.id)
-      if (!now?.undone) throw new Error("Nothing to redo.")
+      const now = b.can?.undo ? await b.session(current.id) : undefined
+      if (!now?.undone) {
+        // What the app took back by itself, the newest first, until the agent is told.
+        const dir = localDir(knownDir(current.id) ?? current.directory)
+        const r = dir && (await lastRestore(dir, current.id))
+        if (!dir || !r) throw new Error("Nothing to redo.")
+        await unrestore(dir, r)
+        return { say: "Brought back what was taken back." }
+      }
       await b.redo(current.id)
       showFiles(site)
       for (const s of sites.values()) {
@@ -1848,24 +2118,31 @@ export function createCore(host: Host): Core {
       return typeof id === "string" && site?.review.note(id)?.pictures ? noteShots.read(id) : {}
     },
     async noteDiff(id) {
-      const note = typeof id === "string" ? site?.review.note(id) : undefined
-      if (!note?.session || !note.message) throw new Error("This note has not reached the agent.")
-      return need().diff(note.session, note.message)
+      const s = site
+      const note = typeof id === "string" ? s?.review.note(id) : undefined
+      if (!s || !note?.session || !note.message) throw new Error("This note has not reached the agent.")
+      return diffOf(s, { session: note.session, message: note.message })
     },
     async takeBackWay(id) {
       return (await takeBack(id)).how
     },
     async takeBackNote(id, expect) {
-      const { s, note, how } = await takeBack(id)
+      const { s, note, how, mine } = await takeBack(id)
       // The question named one way; the conversation has moved since, and this is not that way.
-      if ((expect === "undone" || expect === "asked") && expect !== how) throw new Error("Its conversation changed meanwhile. Press Take back again to see what it would do now.")
+      if ((expect === "undone" || expect === "restored" || expect === "asked") && expect !== how)
+        throw new Error("Its conversation or its files changed meanwhile. Press Take back again to see what it would do now.")
       const b = need()
+      if (how === "restored") {
+        // Every note of the turn is taken back with it (notes that waited together share one).
+        await restore(mine!.dir, note.session, [mine!.turn])
+        return how
+      }
       if (how === "undone") {
         await b.undo(note.session, note.message)
         showFiles(s)
       } else {
-        const diff = await b.diff(note.session, note.message).catch(() => [] as FileChange[])
-        await startsRun(note.session, () => b.prompt(note.session, { text: takeBackPrompt(note.n, note.text, diff) }))
+        const diff = await diffOf(s, note, mine).catch(() => [] as FileChange[])
+        await startsRun(note.session, () => telling(note.session, takeBackPrompt(note.n, note.text, diff), (text) => b.prompt(note.session, { text })))
         reversing.add(note.session)
       }
       s.review.mark(note.id, { takenBack: how })
@@ -1904,6 +2181,21 @@ export function createCore(host: Host): Core {
       const info = await b.session(cp.session)
       if (!info) throw new Error("Its conversation no longer exists.")
       if (info.busy) throw new Error("The agent is working. Stop it first.")
+      // A backend that cannot cut the conversation (or whose undo would bring back what the app
+      // took back since): the files go back from the app's history, every turn of the agent's
+      // since the checkpoint that is not taken back already.
+      if (!b.can?.undo || (await undoClobbers(knownDir(cp.session) ?? info.directory, cp.time))) {
+        const dir = localDir(knownDir(cp.session) ?? info.directory)
+        if (!dir) throw new Error("This agent can't go back, and the files are on another computer, where the app keeps no history of them.")
+        await Promise.all(finishing)
+        const h = await snapshots.history(dir)
+        const turns = h.turns.filter((t) => t.session === cp.session && t.start > cp.time && !h.restores.some((r) => r.turns.includes(t.id)))
+        if (!turns.length) throw new Error("The agent has changed no file since this checkpoint.")
+        if (turns.some((t) => t.shared)) throw new Error("Another conversation worked in this folder meanwhile, so the app can't tell its changes apart. Ask the agent to go back instead.")
+        if (await folderBusy(dir)) throw new Error("The agent is working in this folder. Stop it first.")
+        await restore(dir, cp.session, turns)
+        return { taken: turns.length, how: "restored" as const }
+      }
       // Everything said after it goes: the first such message is where the server cuts.
       const after = (await b.transcript(cp.session)).items.filter((i) => i.kind === "user" && !i.pending && i.time > cp.time)
       if (!after.length) throw new Error("Nothing has been said since this checkpoint.")
@@ -1918,7 +2210,7 @@ export function createCore(host: Host): Core {
         }
         if (touched) changed(s)
       }
-      return after.length
+      return { taken: after.length, how: "undone" as const }
     },
     async refreshRepo() {
       await refreshRepo()
@@ -1927,7 +2219,8 @@ export function createCore(host: Host): Core {
       const clean = typeof message === "string" ? message.trim() : ""
       if (!clean) throw new Error("Write what the commit is.")
       const id = needSession().id
-      await startsRun(id, () => need().prompt(id, { text: commitPrompt(clean) }))
+      const b = need()
+      await startsRun(id, () => telling(id, commitPrompt(clean), (text) => b.prompt(id, { text })))
     },
     showNote(id) {
       // The overlay knows where the note's pin is (its element, else where the note was made).
@@ -2078,7 +2371,7 @@ export function createCore(host: Host): Core {
       starting = true
       push()
       try {
-        await startsRun(current.id, () => b.prompt(current.id, { text: startPrompt(p?.error ? p.url : "", !sameComputer()) }))
+        await startsRun(current.id, () => telling(current.id, startPrompt(p?.error ? p.url : "", !sameComputer()), (text) => b.prompt(current.id, { text })))
       } catch (err) {
         siteAsked = undefined
         starting = false
@@ -2092,7 +2385,9 @@ export function createCore(host: Host): Core {
       const b = need()
       const current = needSession()
       const files = pictures(images)
-      await startsRun(current.id, () => b.prompt(current.id, { text, ...(files.length ? { files } : {}), ...sendOptions(options, chatDirectory(current)) }))
+      await startsRun(current.id, () =>
+        telling(current.id, text, (said) => b.prompt(current.id, { text: said, ...(files.length ? { files } : {}), ...sendOptions(options, chatDirectory(current)) })),
+      )
       void autoName(current.id, text)
     },
     async commands() {
@@ -2337,7 +2632,7 @@ export function createCore(host: Host): Core {
       unlisten?.()
       settleChanges()
       store.flush()
-      return Promise.all([outboxFiles.idle(), noteShots.idle()]).then(() => undefined)
+      return Promise.all([outboxFiles.idle(), noteShots.idle(), Promise.all(finishing).then(() => snapshots.idle())]).then(() => undefined)
     },
   }
 }

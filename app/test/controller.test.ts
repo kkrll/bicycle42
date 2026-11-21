@@ -2287,7 +2287,7 @@ test("the newest note is taken back exactly and a checkpoint is returned to: the
     assert.equal(row(a).pictures, "both")
 
     // Back to the checkpoint: everything said after it, files included, so the page again.
-    assert.equal(await h.cmd("returnToCheckpoint", cp), 1)
+    assert.deepEqual(await h.cmd("returnToCheckpoint", cp), { taken: 1, how: "undone" })
     assert.deepEqual(requestsTo(h, "/revert/stage").at(-1)!.body, { messageID: h.w.prompts[1]!.id })
     assert.equal(reloads(), shown + 2)
   } finally {
@@ -2458,5 +2458,140 @@ test("the window draws the docks in HOSTED_PANES unless the shell says otherwise
     assert.equal(none.page.sent.some((m) => m.type === "docks"), false)
   } finally {
     await none.close()
+  }
+})
+
+// ── the app's own file history (snapshots.ts), where the folder is on this computer ─────────────
+
+test("file history: an older note is taken back exactly from the app's snapshots, later work and the reviewer's own edits kept; /redo brings it back; the agent is told with the next message", async () => {
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), "b42-work-"))
+  const css = path.join(work, "a.css")
+  const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join("\n") + "\n"
+  const line = (n: number) => fs.readFileSync(css, "utf8").split("\n")[n - 1]
+  const edit = (n: number, to: string) => {
+    const all = fs.readFileSync(css, "utf8").split("\n")
+    all[n - 1] = to
+    fs.writeFileSync(css, all.join("\n"))
+  }
+  fs.writeFileSync(css, lines(20))
+  const h = await boot()
+  /** The turns the app has kept for the folder, from its log on disk. */
+  const turns = () => {
+    const root = path.join(h.dir, "snapshots")
+    const shadow = fs.existsSync(root) ? fs.readdirSync(root)[0] : undefined
+    try {
+      return (JSON.parse(fs.readFileSync(path.join(root, shadow ?? "-", "b42.json"), "utf8")) as { turns: unknown[] }).turns.length
+    } catch {
+      return 0
+    }
+  }
+  try {
+    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    h.page.load(`${SITE}/`)
+    await h.cmd("setDirectory", work)
+    await until(() => !!h.snap().session && h.server.streams() === 1)
+    await sleep(30)
+    const s = h.snap().session!.id
+    // The server's newest message is whatever was prompted last.
+    h.server.route("GET", /^\/api\/session\/[^/]+\/message$/, (req) => {
+      const list = [...h.w.prompts].reverse().map((p) => ({ id: p.id, type: "user", text: `UI review note 1 on x\nNote: ${p.text}` }))
+      return { json: { data: req.query.get("order") === "desc" ? list : [...list].reverse(), cursor: { previous: null, next: null } } }
+    })
+    /** The agent's turn on the newest prompt: it changes the file while it works. */
+    const agentTurn = async (change: () => void, kept: number) => {
+      h.agent.starts(s)
+      h.agent.picksUp(s, h.w.prompts.at(-1)!.id)
+      await sleep(300)
+      change()
+      h.agent.finishes(s)
+      await until(() => turns() === kept, 5000)
+    }
+    const a = h.note("a")
+    await until(() => h.w.prompts.length === 1)
+    await agentTurn(() => edit(2, "line 2 NOTE ONE"), 1)
+    const b = h.note("b")
+    await until(() => h.w.prompts.length === 2)
+    await agentTurn(() => edit(18, "line 18 NOTE TWO"), 2)
+    await until(() => h.notes() === "1:done 2:done")
+    // The reviewer changes a line by hand.
+    edit(10, "line 10 BY HAND")
+
+    // Note 2 is the newest message: the server's undo. Note 1 has note 2 on top, in other lines.
+    assert.equal(await h.cmd("takeBackWay", b), "undone")
+    assert.equal(await h.cmd("takeBackWay", a), "restored")
+    const diff = (await h.cmd("noteDiff", a)) as Array<{ file: string; patch: string }>
+    assert.deepEqual(diff.map((f) => f.file), ["a.css"])
+    assert.match(diff[0]!.patch, /\+line 2 NOTE ONE/)
+    assert.doesNotMatch(diff[0]!.patch, /NOTE TWO|BY HAND/, "its own turn's changes only")
+
+    assert.equal(await h.cmd("takeBackNote", a, "restored"), "restored")
+    assert.deepEqual([line(2), line(10), line(18)], ["line 2", "line 10 BY HAND", "line 18 NOTE TWO"])
+    assert.equal(h.w.prompts.length, 2, "the agent is not asked")
+    assert.equal(requestsTo(h, "/revert/stage").length, 0, "and the server undoes nothing")
+    assert.deepEqual(h.snap().review.notes.map((n) => n.takenBack), ["restored", undefined])
+    // The server's undo of note 2 would put the file back whole, note 1's line with it: the app's way.
+    assert.equal(await h.cmd("takeBackWay", b), "restored")
+
+    // /redo brings note 1 back, and the hand edit stays.
+    assert.deepEqual(await h.cmd("runCommand", "redo", ""), { say: "Brought back what was taken back." })
+    assert.deepEqual([line(2), line(10), line(18)], ["line 2 NOTE ONE", "line 10 BY HAND", "line 18 NOTE TWO"])
+    assert.deepEqual(h.snap().review.notes.map((n) => n.takenBack), [undefined, undefined])
+
+    // Taken back again; the next message to the conversation says so first, and makes it final.
+    assert.equal(await h.cmd("takeBackNote", a, "restored"), "restored")
+    await h.cmd("send", "and the footer", [])
+    const sent = (requestsTo(h, "/prompt").at(-1)!.body as { text: string }).text
+    assert.match(sent, /^\(bicycle 42: I took back note 1 \("a"\) myself, before this message: .*\)\n\nand the footer$/)
+    await assert.rejects(h.cmd("runCommand", "redo", ""), /Nothing to redo/)
+    assert.equal(line(2), "line 2")
+    // Only once.
+    h.agent.starts(s)
+    h.agent.picksUp(s, h.w.prompts.at(-1)!.id)
+    h.agent.finishes(s)
+    await sleep(100)
+    await h.cmd("send", "and the header", [])
+    assert.equal((requestsTo(h, "/prompt").at(-1)!.body as { text: string }).text, "and the header")
+  } finally {
+    await h.close()
+    fs.rmSync(work, { recursive: true, force: true })
+  }
+})
+
+test("file history: a turn another conversation shared the folder with is not reversed by itself, and the agent is asked", async () => {
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), "b42-work-"))
+  const css = path.join(work, "a.css")
+  fs.writeFileSync(css, "a\nb\nc\n")
+  const h = await boot()
+  try {
+    await h.cmd("connect", { url: h.server.url, password: h.server.password })
+    h.page.load(`${SITE}/`)
+    await h.cmd("setDirectory", work)
+    await until(() => !!h.snap().session && h.server.streams() === 1)
+    await sleep(30)
+    const s = h.snap().session!.id
+    // Another client's conversation in the same folder (the server says where it works).
+    h.w.sessions.set("ses_other", { id: "ses_other", location: { directory: work }, title: "t", time: { created: 1, updated: 1 } })
+    h.note("a")
+    await until(() => h.w.prompts.length === 1)
+    h.agent.starts(s)
+    h.agent.picksUp(s, h.w.prompts[0]!.id)
+    h.agent.starts("ses_other")
+    await sleep(300)
+    fs.writeFileSync(css, "a\nB\nc\n")
+    h.agent.finishes("ses_other")
+    h.agent.finishes(s)
+    await until(() => h.notes() === "1:done")
+    await sleep(300)
+    h.note("b")
+    await until(() => h.w.prompts.length === 2)
+    turn(h, s)
+    await until(() => h.notes() === "1:done 2:done")
+    const [first] = h.snap().review.notes
+    assert.equal(await h.cmd("takeBackWay", first!.id), "asked")
+    assert.equal(await h.cmd("takeBackNote", first!.id, "asked"), "asked")
+    assert.equal(fs.readFileSync(css, "utf8"), "a\nB\nc\n", "nothing is reversed by the app")
+  } finally {
+    await h.close()
+    fs.rmSync(work, { recursive: true, force: true })
   }
 })

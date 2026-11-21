@@ -1061,6 +1061,7 @@ export function createOpenCode(opts: { url: string; password: string; fetch?: ty
   const lastRead = new Map<string, { messages: unknown[]; undone: string | undefined }>()
 
   return {
+    can: { undo: true, queue: true, steer: true, running: true, compact: true, fork: true, archive: true },
     info: () => info(),
 
     async projects() {

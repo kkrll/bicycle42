@@ -80,7 +80,12 @@ changes only: the agent gets one note at a time, the others wait in the app); an
 **Follow up** on it in the conversation, or **Take back** what the agent did. A result that is
 right needs nothing: a done note counts as accepted unless it is taken back. Take back first
 says which way it will go: the newest message of an idle conversation is undone exactly, files
-included; for an older one, or while the agent works, the agent is asked to reverse it.
+included. Where the files are on this computer, an older note is taken back exactly too: the app
+keeps its own snapshots of the folder at every turn of the agent's, and puts back the lines that
+note changed, keeping everything changed since (by the agent or by hand); the conversation keeps
+the note, and the agent is told in a line at the start of your next message. When later work
+changed the same lines, another conversation worked in the folder at the same time, or the server
+is on another computer, the agent is asked to reverse it.
 A note stays with the conversation it was sent in. When that is not the open one, the note says
 which ("In Pricing page review"), Follow up opens it before starting the message, and Take back
 acts there.
@@ -90,7 +95,8 @@ with Retry.
 
 **Checkpoints and commits:** `/checkpoint name` marks a point in the conversation. Its line
 has **Return here**, which takes back every message after it and the files the agent changed
-since (in a git repository; `/redo` brings it back until you say something new). When the repo
+since (in a git repository; `/redo` brings it back until you say something new). A note the app
+took back by itself is brought back by `/redo` too, until the next message. When the repo
 has uncommitted changes, the conversation's header shows how many lines are added and removed;
 open it for the branch, the files and a commit message started from the finished notes, and **Commit**
 asks the agent to commit everything, without pushing.

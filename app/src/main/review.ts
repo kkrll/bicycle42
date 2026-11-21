@@ -400,7 +400,7 @@ function savedNote(raw: unknown): Note | undefined {
   if (motion) note.motion = motion
   if (raw.pictures === "before" || raw.pictures === "both") note.pictures = raw.pictures
   if (raw.held === true && raw.status === "queued") note.held = true
-  if (raw.takenBack === "undone" || raw.takenBack === "asked") note.takenBack = raw.takenBack
+  if (raw.takenBack === "undone" || raw.takenBack === "restored" || raw.takenBack === "asked") note.takenBack = raw.takenBack
   const shot = isObj(raw.shot) ? raw.shot : undefined
   const v = shot && isObj(shot.viewport) ? shot.viewport : undefined
   const b = shot && isObj(shot.bounds) ? shot.bounds : undefined

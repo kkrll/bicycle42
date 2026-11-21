@@ -59,7 +59,8 @@ src/main/outbox.ts      what each unfinished note sends (prompt, pictures), on d
 src/main/images.ts      a captured Frame → area crop + viewport thumbnail, each frame scaled once, yielding between steps
 src/main/queue.ts       one file operation at a time per key (outbox, shots)
 src/main/opencode.ts    the backend: fetch + one SSE stream → BackendEvents (no Electron)
-src/main/asks.ts        what the app itself asks the agent (site, commit, take back), and the line the chat shows for it
+src/main/asks.ts        what the app itself asks the agent (site, commit, take back), what it tells it, and the line the chat shows for it
+src/main/snapshots.ts   the app's own file history: a shadow git repository per folder, outside it; snapshots, diffs, exact take-backs
 src/main/pictures.ts    the conversation's pictures by address (b42-img:), served to the window by main
 src/main/local.ts       finds the OpenCode server running on this computer
 src/main/store.ts       settings and notes on disk, versioned, atomic writes off the main thread (flushed at quit)
@@ -138,9 +139,38 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   it first; a background note's follow-up stays in the open conversation, since the background
   one is not a conversation to talk in.
 - **Take back says its way before it goes.** `takeBackWay` answers "undone" (the note is the
-  newest message of an idle conversation: an exact undo) or "asked" (the agent is asked to
-  reverse it); the view puts that in its question and hands it to `takeBackNote`, which does
-  nothing when the conversation has moved to the other way meanwhile.
+  newest message of an idle conversation and the backend can undo: an exact undo, conversation
+  and files), "restored" (the app reverses the note's turn from its own file history, below) or
+  "asked" (the agent is asked to reverse it); the view puts that in its question and hands it to
+  `takeBackNote`, which does nothing when things have moved to another way meanwhile.
+- **The app keeps its own file history** (`snapshots.ts`), so a note is taken back exactly when it
+  is not the newest message, and a backend with no undo (`Backend.can.undo` unset) still has
+  `/undo`, `/redo` and checkpoints. Only where the files are on this computer (`sameComputer` and
+  the folder exists here); with a server on another computer nothing changes. Each folder has a
+  shadow git repository under the data folder (`snapshots/<name>-<hash>.git`), used with
+  `GIT_DIR` and `GIT_WORK_TREE` and none of the person's git configuration; the folder's own `.git`
+  is never touched, and it need not be a repository. A snapshot is `git add -A` + `git write-tree`
+  (the folder's `.gitignore` counts; `node_modules` never goes in). Core snapshots a site's
+  conversation's folder at each turn boundary (`turnEdge`: a run starts, the server hands the agent
+  the next message, the run ends); the notes that finished at a boundary ran in the turn it ends,
+  and the turn's two trees, with those notes' message ids, go into the folder's log (`b42.json` in
+  the shadow), so they outlive a restart. A note's diff is `git diff before after` of its turn.
+  Taking it back is that diff reversed, applied to the files as they are: what changed since on
+  other lines stays, the reviewer's edits between turns are in the next "before" and are never
+  reversed, and when a later change touched the same lines nothing is touched and the agent is
+  asked instead (with the diff from the snapshots). Several turns (a checkpoint) are reversed in
+  a scratch index, newest first, and the files change once or not at all. What was taken back is
+  a restore in the log: `/redo` applies it forward again until the next message, and the next
+  message to that conversation, whatever it is, starts with one line saying which notes were
+  taken back (`toldLine` in `asks.ts`; `readTold` in core shows the message as it would be
+  without it, the line folded under a typed message). A turn during which another conversation
+  ran in the same folder (a background one, another client of the server: run events come for
+  every folder, and a conversation of no site's is asked for its folder) is `shared`: its diff
+  may hold the other's changes, so it is never reversed by itself. OpenCode's own undo puts every
+  file it touched back whole, as it was before the turn, which would bring back a note the app took
+  back since; then the app's way is used for that take-back, `/undo` or checkpoint
+  (`undoClobbers`). Turns older than 30 days leave the log once a day, and git's gc (off
+  otherwise) lets their trees go.
 - **The page is untrusted.** The overlay and its way to the app (`window.__review`, which
   sends over IPC) are the view's preload (`page-preload.ts`), which Electron runs before the
   page's scripts in a script world of its own (`contextIsolation`; `WORLD` in `page.ts`), in
@@ -428,10 +458,12 @@ on its pin and in the chat. A note may be new CSS rules and nothing else.
 ## Not done yet
 
 - Tabs and device widths (two tabs at 390 and 1440).
-- Taking back a note that is not the newest message is a request to the agent, not an exact
-  undo (the server undoes from a message on, never one turn out of the middle). A note's diff
-  is its turn's, and a message typed into the chat while the agent is on a note joins that
-  turn, so its changes show in the note's diff.
+- Taking back a note that is not the newest message is exact only where the files are on this
+  computer (the app's snapshots); with a server on another computer it is a request to the agent.
+  A note's diff is its turn's, and a message steered into a run while the agent is on a note
+  joins that turn, so its changes show in the note's diff and go with it when it is taken back.
+  An agent the server does not know of (a terminal agent in the same folder) is not seen: what
+  it changes during a turn counts as that turn's.
 - The picture after the agent is done is taken only while the page the note was made on is
   open at the same width; a note finished while the reviewer is elsewhere has none.
 - Slash commands OpenCode has that are not here: `/share` (this server has no route for it),

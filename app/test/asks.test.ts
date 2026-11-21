@@ -2,7 +2,7 @@
 // read back what it asks in a line.
 import assert from "node:assert/strict"
 import test from "node:test"
-import { commitPrompt, parseAsk, startPrompt, takeBackPrompt } from "../src/main/asks"
+import { commitPrompt, parseAsk, splitTold, startPrompt, takeBackPrompt, toldLine } from "../src/main/asks"
 
 test("startPrompt says what the agent cannot know, and no more", () => {
   const near = startPrompt("", false)
@@ -47,4 +47,23 @@ test("parseAsk: what the reviewer says is not one of them", () => {
   assert.equal(parseAsk("Take back what you changed for the hero."), undefined)
   assert.equal(parseAsk("UI review note 3 on http://x/, window 1×1 @1x.\nNote: x"), undefined)
   assert.equal(parseAsk(""), undefined)
+})
+
+test("the line about notes the app took back names them, and the message after it reads as it would alone", () => {
+  const line = toldLine([{ n: 4, text: "and the footer" }, { n: 3, text: "make the header blue" }], 1)
+  assert.equal(
+    line,
+    '(bicycle 42: I took back note 3 ("make the header blue"), note 4 ("and the footer") and what you changed for one other message myself, before this message: those files are as they were before it, though the conversation above still shows the changes. Do not make them again unless I ask.)',
+  )
+  assert.match(toldLine([], 2), /I took back what you changed for 2 other messages myself/)
+  // A typed message: its first line, with the line folded under it.
+  assert.deepEqual(splitTold(`${line}\n\nmake it bigger\nand bolder`), { told: line, rest: "make it bigger\nand bolder" })
+  assert.deepEqual(parseAsk(`${line}\n\nmake it bigger\nand bolder`), { title: "make it bigger" })
+  // A request of the app's: the request.
+  assert.deepEqual(parseAsk(`${line}\n\n${commitPrompt("Tighten the header")}`), { title: "Commit: Tighten the header" })
+  // A note: not a request (the note is read from what follows the line).
+  assert.equal(parseAsk(`${line}\n\nUI review note 5 on http://x/, window 800×600 @1x.\nNote: hi`), undefined)
+  // Without the blank line after it, or anywhere but first, it is the reviewer's text.
+  assert.deepEqual(splitTold(`${line}\nmore`), { rest: `${line}\nmore` })
+  assert.equal(parseAsk(`hello\n\n${line}`), undefined)
 })

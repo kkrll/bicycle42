@@ -250,13 +250,20 @@ export type NoteRow = {
   /** Which pictures of its area there are (`notePictures`): the one from when it was made, or
    *  that and the one taken when the agent was done. */
   pictures?: "before" | "both"
-  /** What the agent did for it was taken back: "undone" with the conversation (it can still be
-   *  brought back), or the agent was "asked" to reverse it. */
-  takenBack?: "undone" | "asked"
+  /** What the agent did for it was taken back: "undone" with the conversation by the backend,
+   *  "restored" by the app from its own file history (files only: the conversation keeps it, and
+   *  the agent is told with the next message), both of which /redo can bring back until the next
+   *  message; or the agent was "asked" to reverse it. */
+  takenBack?: TakeBackWay
 }
 
 /** A file the working tree has changed since the last commit. */
 export type RepoChange = { file: string; additions: number; deletions: number; status: "added" | "deleted" | "modified" }
+
+/** How a note is taken back (`takeBackWay`): "undone" by the backend with the conversation (the
+ *  newest message of an idle one), "restored" by the app from its own snapshots of the files (its
+ *  changes reversed exactly, later ones kept), or the agent is "asked" to reverse it. */
+export type TakeBackWay = "undone" | "restored" | "asked"
 
 /** A named point in a conversation to go back to. */
 export type Checkpoint = { id: string; session: string; name: string; time: number }
@@ -427,20 +434,24 @@ export type Commands = {
    *  of. Notes that waited together for the agent share a turn, and so a diff. */
   noteDiff(id: string): FileChange[]
   /** The result is right (or, with false, not looked at after all). */
-  /** Takes back what the agent did for a finished note. The newest message of its conversation
-   *  is undone exactly, files included ("undone": /redo brings it back); for an older one the
-   *  agent is asked to reverse its change ("asked"). */
-  takeBackNote(id: string, expect?: "undone" | "asked"): "undone" | "asked"
-  /** Which of the two `takeBackNote` would do now, so the question before it can say. With
-   *  `expect`, `takeBackNote` does nothing and throws when it would by now do the other. */
-  takeBackWay(id: string): "undone" | "asked"
+  /** Takes back what the agent did for a finished note. The newest message of an idle
+   *  conversation is undone by the backend, conversation and files ("undone"); else, on this
+   *  computer, the app reverses the files from its own snapshots when that applies cleanly
+   *  ("restored"); else the agent is asked to reverse its change ("asked"). /redo brings back
+   *  either of the first two. */
+  takeBackNote(id: string, expect?: TakeBackWay): TakeBackWay
+  /** Which way `takeBackNote` would go now, so the question before it can say. With `expect`,
+   *  `takeBackNote` does nothing and throws when it would by now go another. */
+  takeBackWay(id: string): TakeBackWay
   /** Marks this point of the open conversation, to come back to. */
   addCheckpoint(name: string): void
   removeCheckpoint(id: string): void
-  /** Takes the conversation back to a checkpoint: every message after it leaves, and the files
-   *  the agent changed since go back (in a git repository). /redo brings it all back until the
-   *  next message. Returns how many messages were taken back. */
-  returnToCheckpoint(id: string): number
+  /** Takes the conversation back to a checkpoint. With a backend that undoes ("undone"), every
+   *  message after it leaves and the files the agent changed since go back (in a git repository);
+   *  without one, the app reverses the files from its own snapshots and the conversation stays
+   *  ("restored"). /redo brings it all back until the next message. `taken`: how many messages
+   *  ("undone") or turns of the agent ("restored") were taken back. */
+  returnToCheckpoint(id: string): { taken: number; how: "undone" | "restored" }
   /** Looks again at the repo's branch and uncommitted changes (`AppState.repo`). */
   refreshRepo(): void
   /** Asks the agent, in the open conversation, to commit everything changed with this message. */
@@ -588,7 +599,26 @@ export type Transcript = {
   context?: ContextUse
 }
 
+/** What a backend can do beyond the basics. A missing field means it cannot. */
+export type BackendCan = {
+  /** undo/redo/lastTurn/diff on the server: the conversation is cut back, files and all. */
+  undo?: boolean
+  /** Messages sent while a run is under way wait on the server (prompt with delivery "queue"). */
+  queue?: boolean
+  /** delivery "steer": a message joins the run under way. */
+  steer?: boolean
+  /** running()/kill(): commands the agent left running. */
+  running?: boolean
+  /** compact(): summarise the conversation. */
+  compact?: boolean
+  /** fork(): copy a conversation. */
+  fork?: boolean
+  /** archive(): put a conversation away. */
+  archive?: boolean
+}
+
 export type Backend = {
+  readonly can: BackendCan
   /** Checks the URL and password. Rejects with a message fit to show the user. */
   /** `computer` is the name of the machine the server runs on, when it says. */
   info(): Promise<{ version: string; computer?: string }>

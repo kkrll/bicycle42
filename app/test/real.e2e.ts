@@ -311,34 +311,35 @@ async function main() {
     const diff2 = await invoke<FileChange[]>("noteDiff", second).catch((err: Error) => err.message)
     check("the second note's diff is its own turn's, not the first's", Array.isArray(diff2) && diff2.length === 1 && /#222222/.test(diff2[0]!.patch) && !/#777777/.test(diff2[0]!.patch), typeof diff2 === "string" ? diff2 : diff2.map((f) => f.patch).join("\n"))
 
-    // ── 3a. taking back a note that is not the newest: the agent is asked ────────────────────
-    const how = await invoke<string>("takeBackNote", first).catch((err: Error) => `refused: ${err.message}`)
-    check("taking back the older note asks the agent", how === "asked" && row(first)?.takenBack === "asked", how)
-    await turn()
-    check("…who puts the button back and leaves the heading", rule("#cta").includes("#777777") && !rule("#title").includes("#222222"), `${rule("#cta")} / ${rule("#title")}`.replace(/\s+/g, " "))
-    check("…and the page shows the button as it was", (await shows("#cta", "backgroundColor", GREY)) === true, await painted("#cta", "backgroundColor"))
-    const afterTakeBack = css()
-    const all = await said()
-    check("the checkpoint's line stays between the first note and the second", all.length === 4 && all.slice(0, 3).join("|") === "make the button green|green button|make the heading red", JSON.stringify(all.map((t) => t.slice(0, 40))))
-
-    // ── 4. back to the checkpoint, and forward again ─────────────────────────────────────────
-    const went = await invoke<number>("returnToCheckpoint", cp?.id).catch((err: Error) => `refused: ${err.message}`)
-    check("Return here takes back the two messages after the checkpoint", went === 2, String(went))
-    check("…and the files with them: the stylesheet is as it was at the checkpoint", (await until(() => css() === afterFirst, 5000)) === true, css() === afterTakeBack ? "unchanged" : "something else")
-    check("…and the page shows it: the button green again, the heading as it was", (await shows("#title", "color", DARK)) === true && (await painted("#cta", "backgroundColor")) !== GREY, `${await painted("#title", "color")} ${await painted("#cta", "backgroundColor")}`)
+    // ── 4. back to the checkpoint (the server's undo), and forward again ─────────────────────
+    const afterSecond = css()
+    const went = await invoke<{ taken: number; how: string }>("returnToCheckpoint", cp?.id).catch((err: Error) => `refused: ${err.message}`)
+    check("Return here takes back the message after the checkpoint", typeof went === "object" && went.taken === 1 && went.how === "undone", JSON.stringify(went))
+    check("…and the files with it: the stylesheet is as it was at the checkpoint", (await until(() => css() === afterFirst, 5000)) === true, css() === afterSecond ? "unchanged" : "something else")
+    check("…and the page shows it: the heading as it was", (await shows("#title", "color", DARK)) === true, await painted("#title", "color"))
     check("the conversation ends at the checkpoint", (await until(async () => (await said()).join("|") === "make the button green|green button")) === true, JSON.stringify(await said()))
-    check("…the note sent after it says it was undone, the one before it does not", row(second)?.takenBack === "undone" && row(first)?.takenBack === "asked", `${row(first)?.takenBack} ${row(second)?.takenBack}`)
+    check("…the note sent after it says it was undone, the one before it does not", row(second)?.takenBack === "undone" && row(first)?.takenBack === undefined, `${row(first)?.takenBack} ${row(second)?.takenBack}`)
     check("the server holds the undo at the second note's message", !!(await info()).revert?.messageID)
     const redo = await invoke<{ say?: string }>("runCommand", "redo", "").catch((err: Error) => ({ say: `refused: ${err.message}` }))
-    check("/redo brings it all back", redo?.say === "Brought back what was undone." && (await until(() => css() === afterTakeBack, 5000)) === true && !(await info()).revert, redo?.say)
-    check("…on the page too", (await shows("#cta", "backgroundColor", GREY)) === true && (await painted("#title", "color")) !== DARK, `${await painted("#cta", "backgroundColor")} ${await painted("#title", "color")}`)
-    check("…and in the conversation", (await until(async () => (await said()).length === 4)) === true, JSON.stringify((await said()).map((t) => t.slice(0, 40))))
+    check("/redo brings it all back", redo?.say === "Brought back what was undone." && (await until(() => css() === afterSecond, 5000)) === true && !(await info()).revert, redo?.say)
+    check("…on the page too", (await until(async () => (await painted("#title", "color")) !== DARK, 10_000)) === true, await painted("#title", "color"))
+    check("…and in the conversation", (await until(async () => (await said()).length === 3)) === true, JSON.stringify((await said()).map((t) => t.slice(0, 40))))
     check("…and the note is no longer undone", row(second)?.takenBack === undefined, String(row(second)?.takenBack))
+
+    // ── 3a. taking back a note that is not the newest: the app reverses its files itself ─────
+    const how = await invoke<string>("takeBackNote", first).catch((err: Error) => `refused: ${err.message}`)
+    check("taking back the older note restores its files from the app's own snapshots", how === "restored" && row(first)?.takenBack === "restored", how)
+    check("…the button is back and the heading stays", (await until(() => rule("#cta").includes("#777777"), 5000)) === true && !rule("#title").includes("#222222"), `${rule("#cta")} / ${rule("#title")}`.replace(/\s+/g, " "))
+    check("…and the page shows the button as it was", (await shows("#cta", "backgroundColor", GREY)) === true, await painted("#cta", "backgroundColor"))
+    const afterTakeBack = css()
+    check("nothing was sent: the conversation is as it was", (await said()).join("|") === "make the button green|green button|make the heading red", JSON.stringify((await said()).map((t) => t.slice(0, 40))))
 
     // ── 3b. taking back the newest message: the server's own undo ────────────────────────────
     const third = await note("#lead", "make the paragraph text blue")
     check("the agent finishes the third note", await finished(third), `${row(third)?.status} ${row(third)?.error ?? ""}`)
     check("…and changed the paragraph", !rule("#lead").includes("#444444"), rule("#lead").replace(/\s+/g, " "))
+    // Its message began with the line telling the agent that note 1 was taken back; the chat shows the note.
+    check("the chat shows the third note by its words, the line before them folded away", (await said()).at(-1) === "make the paragraph text blue", JSON.stringify((await said()).map((t) => t.slice(0, 40))))
     const exact = await invoke<string>("takeBackNote", third).catch((err: Error) => `refused: ${err.message}`)
     check("taking back the newest note undoes it exactly", exact === "undone" && row(third)?.takenBack === "undone", exact)
     check("…files included", (await until(() => css() === afterTakeBack, 5000)) === true, rule("#lead").replace(/\s+/g, " "))

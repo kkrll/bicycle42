@@ -998,7 +998,12 @@ function CheckpointLine(props: { id: string; name: string }) {
     b42
       .invoke("returnToCheckpoint", props.id)
       .then(
-        (n) => setNotice(`Took back ${n === 1 ? "1 message" : `${n} messages`} and what the agent changed since. /redo brings it back until you say something new.`),
+        ({ taken: n, how }) =>
+          setNotice(
+            how === "undone"
+              ? `Took back ${n === 1 ? "1 message" : `${n} messages`} and what the agent changed since. /redo brings it back until you say something new.`
+              : `Put back the files the agent changed since, in ${n === 1 ? "1 turn" : `${n} turns`}. The conversation stays; the agent is told with your next message, and /redo brings them back until then.`,
+          ),
         (err) => setNotice(message(err)),
       )
       .finally(() => (setBusy(false), setSure(false)))

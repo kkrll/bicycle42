@@ -1,5 +1,6 @@
 // What the app itself asks the agent, in the reviewer's name: to get the site running, to commit,
-// to take a note back. Each is a message in the conversation like any other, so the chat would
+// to take a note back; and what it tells the agent before the reviewer's next message, when it
+// took a note back by itself. Each is a message in the conversation like any other, so the chat would
 // show all of it as if the reviewer had typed it: `parseAsk` reads back what one asks in a line,
 // and the chat shows that line, with the whole text folded under it (ChatUser.ask). A review
 // note's prompt is overlay/prompt.js, read back by `parseNote` (opencode.ts).
@@ -77,10 +78,42 @@ export function takeBackPrompt(n: number, text: string, diff: FileChange[]) {
   ].join("\n")
 }
 
+// ── a note the app took back by itself ──────────────────────────────────────────────────────────
+// The app reverses a note's files from its own snapshots (snapshots.ts) without the agent, and
+// the conversation still has the note and the agent's changes in it. So the next message to that
+// conversation, whatever it is, starts with a line that says so, and a blank line.
+
+const TOLD = /^\(bicycle 42: I took back .*\)$/
+
+/** The line put before the next message: the notes taken back (number and words) and how many
+ *  other turns of the agent's (a typed message's, from /undo or a checkpoint). */
+export function toldLine(notes: Array<{ n: number; text: string }>, others: number) {
+  const what = [
+    ...[...notes].sort((a, b) => a.n - b.n).map((x) => `note ${x.n} (${JSON.stringify(head(x.text, 60))})`),
+    ...(others ? [others === 1 ? "what you changed for one other message" : `what you changed for ${others} other messages`] : []),
+  ]
+  const list = what.length > 1 ? `${what.slice(0, -1).join(", ")} and ${what.at(-1)}` : (what[0] ?? "some of your changes")
+  return `(bicycle 42: I took back ${list} myself, before this message: those files are as they were before it, though the conversation above still shows the changes. Do not make them again unless I ask.)`
+}
+
+/** A message with the line in front, and without it. */
+export function splitTold(text: string): { told?: string; rest: string } {
+  const lines = text.split("\n")
+  if (!TOLD.test(lines[0] ?? "") || lines[1] !== "") return { rest: text }
+  return { told: lines[0]!, rest: lines.slice(2).join("\n") }
+}
+
+/** How a review note's prompt starts (overlay/prompt.js; `parseNote` in opencode.ts reads it). */
+const NOTE_START = /^UI review note \d+ on /
+
 // ── reading them back ───────────────────────────────────────────────────────────────────────────
 
 /** What a message asks, in a line, when it is one of the app's own requests. */
 export function parseAsk(text: string): { title: string } | undefined {
+  // The line about a note the app took back: what follows is what this message is. A note shows
+  // as the note; a typed message by its first line, with the line folded under it.
+  const told = splitTold(text)
+  if (told.told) return NOTE_START.test(told.rest) ? undefined : (parseAsk(told.rest) ?? { title: head(told.rest) || "Note taken back" })
   const lines = text.split("\n")
   const first = lines[0] ?? ""
   if (first.startsWith(START_PROMPT)) return { title: "Get the site running" }

@@ -502,12 +502,13 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       }
   }
   /** As main decides it: the newest finished note of an idle conversation is undone exactly;
-   *  for any other the agent is asked. */
-  function takeBackWay(id: string): "undone" | "asked" {
+   *  an older one is restored from the app's snapshots (here: every other one of an idle
+   *  conversation); for any other the agent is asked. */
+  function takeBackWay(id: string): "undone" | "restored" | "asked" {
     const note = state.review.notes.find((n) => n.id === id)
     const newest = state.review.notes.filter((n) => n.session === note?.session && n.status === "done").at(-1)
     const busy = note?.session === state.session?.id ? state.session?.busy : state.sessions.find((s) => s.id === note?.session)?.busy
-    return note && note === newest && !busy ? "undone" : "asked"
+    return !note || busy ? "asked" : note === newest ? "undone" : note.n % 2 ? "restored" : "asked"
   }
   /** The next waiting message gets its turn, or the agent goes idle. */
   function next() {
@@ -986,7 +987,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     removeCheckpoint(id) {
       emit({ type: "remove", session: sid(), item: `checkpoint:${id}` })
     },
-    returnToCheckpoint: () => 3,
+    returnToCheckpoint: () => ({ taken: 3, how: "undone" as const }),
     refreshRepo() {},
     commitChanges() {
       delete state.repo
