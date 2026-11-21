@@ -2,7 +2,7 @@
 // conversation. Before the site has a code folder, the folder picker takes the whole panel; before
 // there is a site, the panel shows how far setup has come.
 import { For, Match, Show, Switch, createEffect, createMemo, createResource, createSelector, createSignal, on, onCleanup } from "solid-js"
-import type { NoteRow } from "../shared/types"
+import { AWAY_HOURS, type NoteRow } from "../shared/types"
 import { Chat } from "./chat"
 import { AgentSwitch, MiddlePath, harnessNow, homePath, ownHome, whereOf } from "./agents"
 import { SetupSteps, serverLabel, setSettingsAt } from "./connect"
@@ -668,7 +668,7 @@ function ConnectionBanner(props: { openSettings: () => void }) {
                 <Show when={c().away && harnessNow()} fallback={<>Can't reach {serverLabel(c().url)}. {c().error} Notes wait until it is back.</>}>
                   {(a) => (
                     <>
-                      {c().error} {a().name} keeps working on {a().host ?? "it"}, and the app connects again by itself. Notes wait until it is back.
+                      {c().error} {a().name} keeps working on {a().host ?? "it"} for up to {AWAY_HOURS} hours, and the app connects again by itself. Notes wait until it is back.
                     </>
                   )}
                 </Show>

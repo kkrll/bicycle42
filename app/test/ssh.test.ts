@@ -6,8 +6,10 @@
 //
 //   node scripts/build.mjs --tests && node --test dist/test/ssh.test.cjs
 import assert from "node:assert/strict"
+import { execFileSync, spawn } from "node:child_process"
 import fs from "node:fs"
 import http from "node:http"
+import net from "node:net"
 import path from "node:path"
 import { test } from "node:test"
 import { checkHost, connectSsh, sshError, sshTiming } from "../src/main/ssh"
@@ -245,6 +247,263 @@ test("what goes wrong is said in a sentence: no node there, a host key not known
     delete process.env.B42_FAKE_SSH_PATH
     delete process.env.B42_FAKE_SSH_SHELL
     delete process.env.B42_FAKE_SSH_FAIL
+    await h.end()
+  }
+})
+
+// ── after the review ────────────────────────────────────────────────────────────────────────────
+
+const bundle = () => path.join(__dirname, "..", "helper.cjs")
+const helperDir = (h: { home: string }) => path.join(h.home, ".bicycle42")
+/** Ends the helpers there (as fixture.end does), keeping their files. */
+async function endHelpers(h: { home: string }) {
+  for (const f of fs.readdirSync(helperDir(h)))
+    if (f.endsWith(".sock"))
+      await new Promise<void>((resolve) => {
+        const s = net.connect(path.join(helperDir(h), f))
+        s.on("connect", () => s.write(`${JSON.stringify({ id: 1, method: "shutdown" })}\n`))
+        s.on("data", () => (s.destroy(), setTimeout(resolve, 300)))
+        s.on("error", () => resolve())
+      })
+}
+/** Whether a process whose command line has `marker` in it runs. */
+const running = (marker: string) =>
+  fs.readdirSync("/proc").some((pid) => {
+    try {
+      return /^\d+$/.test(pid) && fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").replace(/\0/g, " ").includes(marker)
+    } catch {
+      return false
+    }
+  })
+const mode = (p: string) => (fs.statSync(p).mode & 0o777).toString(8)
+
+test("another version of the app connects to the same computer: each has its own helper there, and the first one's agent works on", async () => {
+  const h = fakeHost()
+  const other = path.join(h.root, "helper-other.cjs")
+  fs.writeFileSync(other, `${fs.readFileSync(bundle(), "utf8")}\n// another version\n`)
+  // A third version's file, long unused, with no helper running: it goes.
+  fs.mkdirSync(helperDir(h), { recursive: true, mode: 0o700 })
+  const stale = path.join(helperDir(h), "helper-0123456789ab.js")
+  fs.writeFileSync(stale, "// old")
+  fs.utimesSync(stale, new Date(Date.now() - 3 * 3600_000), new Date(Date.now() - 3 * 3600_000))
+  try {
+    const a = await connectSsh({ host: "dev-box", dataDir: path.join(h.root, "dataA") })
+    const b = await connectSsh({ host: "dev-box", dataDir: path.join(h.root, "dataB"), helper: other })
+    try {
+      // Started before the other version came, too.
+      const c = a.spawn(process.execPath, ["-e", ECHO], { cwd: h.home })
+      const out = reader(c.stdout)
+      await until(() => out().includes("ready"))
+      let ended: unknown
+      void c.exited.then((e) => (ended = e))
+      const b2 = await connectSsh({ host: "dev-box", dataDir: path.join(h.root, "dataC"), helper: other })
+      await b2.close()
+      await sleep(300)
+      c.stdin.write("still here\n")
+      await until(() => out().includes("got still here"))
+      assert.equal(ended, undefined)
+      assert.equal(a.reach().status, "up")
+      // The other version's helper works as well.
+      const d = b.spawn(process.execPath, ["-e", ECHO], { cwd: h.home })
+      const dOut = reader(d.stdout)
+      await until(() => dOut().includes("ready"))
+      const files = fs.readdirSync(helperDir(h))
+      assert.equal(files.filter((f) => /^helper-.*\.sock$/.test(f)).length, 2, files.join(" "))
+      assert.ok(!files.includes("helper-0123456789ab.js"), "the long-unused version's file went")
+      void d.kill()
+    } finally {
+      await a.close()
+      await b.close()
+    }
+  } finally {
+    await h.end()
+  }
+})
+
+test("the same computer typed two ways in one run: neither connection ends the other's agent; a later run ends what an earlier one left there", async () => {
+  const h = fakeHost()
+  try {
+    const a = await connectSsh({ host: "dev-box", dataDir: h.data, launch: 1000 })
+    const c = a.spawn(process.execPath, ["-e", ECHO], { cwd: h.home })
+    const out = reader(c.stdout)
+    await until(() => out().includes("ready"))
+    let ended: { signal: string | null } | undefined
+    void c.exited.then((e) => (ended = e))
+    const b = await connectSsh({ host: "k@dev-box", dataDir: h.data, launch: 1000 })
+    await sleep(300)
+    c.stdin.write("one\n")
+    await until(() => out().includes("got one"))
+    assert.equal(ended, undefined, "the other connection of this run left it alone")
+    await b.close()
+    assert.equal(ended, undefined)
+    // The next run of the app (this one went without ending it: a crash): it is ended.
+    const later = await connectSsh({ host: "dev-box", dataDir: h.data, launch: 2000 })
+    await until(() => ended !== undefined)
+    assert.equal(ended!.signal, "SIGTERM")
+    await later.close()
+    await a.close()
+  } finally {
+    await h.end()
+  }
+})
+
+test("the helper's file there is used only when it is whole: one cut short is put there again, and nothing is left half-written", async () => {
+  const h = fakeHost()
+  try {
+    const m = await connectSsh({ host: "dev-box", dataDir: h.data })
+    await m.close()
+    await endHelpers(h)
+    const js = fs.readdirSync(helperDir(h)).find((f) => f.endsWith(".js"))!
+    fs.writeFileSync(path.join(helperDir(h), js), fs.readFileSync(bundle()).subarray(0, 9000))
+    const again = await connectSsh({ host: "dev-box", dataDir: h.data })
+    try {
+      assert.equal(again.reach().status, "up")
+      assert.ok(fs.readFileSync(path.join(helperDir(h), js)).equals(fs.readFileSync(bundle())), "the whole file")
+      assert.deepEqual(
+        fs.readdirSync(helperDir(h)).filter((f) => f.endsWith(".tmp")),
+        [],
+      )
+    } finally {
+      await again.close()
+    }
+  } finally {
+    await h.end()
+  }
+})
+
+test("the folders of the connection are this user's only: made 0700, loose ones made so, a link refused with a sentence; the same for ~/.bicycle42 there", async () => {
+  const h = fakeHost()
+  try {
+    fs.mkdirSync(path.join(h.data, "ssh"))
+    fs.chmodSync(path.join(h.data, "ssh"), 0o755)
+    fs.mkdirSync(helperDir(h))
+    fs.chmodSync(helperDir(h), 0o755)
+    const m = await connectSsh({ host: "dev-box", dataDir: h.data })
+    await m.close()
+    assert.equal(mode(path.join(h.data, "ssh")), "700")
+    assert.equal(mode(helperDir(h)), "700")
+    assert.equal(mode(path.join(h.data, "ssh", "owner")), "600")
+    // Another place's folder, linked in: ssh would trust a connection in it.
+    const linked = path.join(h.root, "data-linked")
+    fs.mkdirSync(linked)
+    fs.mkdirSync(path.join(h.root, "elsewhere"))
+    fs.symlinkSync(path.join(h.root, "elsewhere"), path.join(linked, "ssh"))
+    await assert.rejects(connectSsh({ host: "dev-box", dataDir: linked }), /ssh connections in .* which is not a folder/)
+    await endHelpers(h)
+    // ~/.bicycle42 there a link.
+    fs.renameSync(helperDir(h), path.join(h.home, "b42-real"))
+    fs.symlinkSync(path.join(h.home, "b42-real"), helperDir(h))
+    await assert.rejects(connectSsh({ host: "dev-box", dataDir: h.data }), /~\/\.bicycle42 on dev-box is not a folder/)
+    fs.rmSync(helperDir(h))
+    fs.renameSync(path.join(h.home, "b42-real"), helperDir(h))
+  } finally {
+    await h.end()
+  }
+})
+
+test("the daemon never takes away the socket of a helper that answers slowly, and takes over one whose helper is gone", async () => {
+  const h = fakeHost()
+  const dir = helperDir(h)
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
+  const js = path.join(dir, "helper-sockettest.js")
+  fs.copyFileSync(bundle(), js)
+  const sock = path.join(dir, "helper-sockettest.sock")
+  const env = { ...process.env, HOME: h.home, B42_HELPER_START_MS: "1500" }
+  const daemon = () => {
+    try {
+      return execFileSync(process.execPath, [js, "daemon"], { env, encoding: "utf8" })
+    } catch (err) {
+      return String((err as { stdout?: string }).stdout)
+    }
+  }
+  // A helper that is busy: it takes the connection and answers nothing.
+  const busy = net.createServer(() => undefined)
+  await new Promise<void>((r) => busy.listen(sock, r))
+  try {
+    assert.match(daemon(), /^B42 FAILED the app's helper there is running and does not answer/m)
+    assert.ok(fs.existsSync(sock), "its socket is still there")
+    await new Promise((r) => busy.close(r))
+    // A helper that died without taking its socket away.
+    const dead = spawn(process.execPath, ["-e", `require("net").createServer().listen(${JSON.stringify(sock)}, () => process.stdout.write("up\\n"))`], { stdio: ["ignore", "pipe", "ignore"] })
+    await new Promise((r) => dead.stdout!.once("data", r))
+    dead.kill("SIGKILL")
+    await new Promise((r) => dead.once("exit", r))
+    assert.ok(fs.existsSync(sock), "a socket with nothing behind it")
+    assert.match(daemon(), /^B42 READY$/m)
+  } finally {
+    busy.close()
+    await endHelpers(h)
+    await h.end()
+  }
+})
+
+test("closing ends what the connection started there, also a process whose start had not been answered yet; one left with no app attached is ended after its lease", async () => {
+  const h = fakeHost()
+  process.env.B42_HELPER_LEASE_MS = "700"
+  try {
+    const m = await connectSsh({ host: "dev-box", dataDir: h.data })
+    const marker = `31.${process.pid}1`
+    m.spawn("sh", ["-c", `exec sleep ${marker}`], { cwd: h.home })
+    await m.close()
+    await sleep(100)
+    assert.equal(running(`sleep ${marker}`), false, "ended before close was done")
+    // Left by an app that went without a word (the connection dropped, and it never came back).
+    const n = await connectSsh({ host: "dev-box", dataDir: h.data })
+    const left = `32.${process.pid}1`
+    const c = n.spawn("sh", ["-c", `exec sleep ${left}`], { cwd: h.home })
+    await until(() => running(`sleep ${left}`))
+    h.drop()
+    await sleep(300)
+    assert.equal(running(`sleep ${left}`), true, "within its lease it works on")
+    await until(() => !running(`sleep ${left}`), 5000)
+    h.up()
+    const e = await c.exited
+    assert.ok(e.error || e.signal, JSON.stringify(e))
+    await n.close()
+  } finally {
+    delete process.env.B42_HELPER_LEASE_MS
+    await h.end()
+  }
+})
+
+test("the shared connection is made once when two calls need it at the same time; a site on the other computer's [::1] is forwarded; a port asked for that is taken here is said", async () => {
+  const h = fakeHost()
+  const v6 = http.createServer((_, res) => res.end("from ::1"))
+  const listening = await new Promise<boolean>((r) => {
+    v6.once("error", () => r(false))
+    v6.listen(0, "::1", () => r(true))
+  })
+  const taken = net.createServer()
+  await new Promise<void>((r) => taken.listen(0, "127.0.0.1", r))
+  try {
+    const m = await connectSsh({ host: "dev-box", dataDir: h.data })
+    try {
+      const masters = () => fs.readFileSync(path.join(h.root, "masters"), "utf8").trim().split("\n").length
+      fs.rmSync(path.join(h.root, "master"))
+      const before = masters()
+      const servers = await Promise.all(
+        [0, 1].map(
+          () =>
+            new Promise<http.Server>((r) => {
+              const s = http.createServer((_, res) => res.end("x"))
+              s.listen(0, "127.0.0.1", () => r(s))
+            }),
+        ),
+      )
+      await Promise.all(servers.map((s) => m.forward((s.address() as net.AddressInfo).port, "127.0.0.1")))
+      assert.equal(masters(), before + 1, "one ssh -N")
+      for (const s of servers) s.close()
+      if (listening) {
+        const local = await m.forward((v6.address() as net.AddressInfo).port, "::1")
+        assert.equal(await (await fetch(`http://127.0.0.1:${local}/`)).text(), "from ::1")
+      }
+      await assert.rejects(m.forward(4321, "127.0.0.1", (taken.address() as net.AddressInfo).port), /is taken on this computer/)
+    } finally {
+      await m.close()
+    }
+  } finally {
+    v6.close()
+    taken.close()
     await h.end()
   }
 })

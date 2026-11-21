@@ -274,6 +274,10 @@ export type Checkpoint = { id: string; session: string; name: string; time: numb
 // Main owns it and pushes the whole snapshot on every change. It stays small: the conversation
 // travels separately as ChatEvents.
 
+/** How long an agent on another computer goes on working there with no app attached (this one
+ *  asleep, the network gone, the app quit without ending it): then its helper ends it. */
+export const AWAY_HOURS = 12
+
 export type ConnectionState =
   /** No server configured yet: show the connect form. */
   | { status: "unconfigured" }

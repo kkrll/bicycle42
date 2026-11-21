@@ -11,7 +11,13 @@
 // very code, as JSON-RPC: commands, files, the PATH; and it keeps the processes the app starts
 // there (the agent) alive while no app is attached (the Mac sleeps, the network drops), with their
 // output kept until the app says it has read it, up to OUT_MAX per process (beyond that the oldest
-// lines go, and the app is told there is a gap). What the agent's protocol means is the app's.
+// lines go, and the app is told there is a gap), for at most AWAY_HOURS with no app attached
+// (host.ts). What the agent's protocol means is the app's.
+//
+// Each version of the helper is its own: its file, socket and lock carry the version, so two
+// versions of the app (an update, a laptop and a desktop) each have theirs side by side, and none
+// ends another's. A version no app uses ends by itself once nothing is attached and nothing kept,
+// and its files go when another version's daemon finds its socket dead.
 //
 // One JSON message per line, both ways:
 //   app → helper   {id, method, params}             answered {id, result} or {id, error: {message, code}}
@@ -23,29 +29,32 @@ import net from "node:net"
 import os from "node:os"
 import path from "node:path"
 import { spawn } from "node:child_process"
-import { createLocalMachine, type Child, type Exit } from "../main/machine"
+import { createLocalMachine } from "../main/machine"
+import { AWAY_HOURS } from "../shared/types"
+import { createHost, type Conn } from "./host"
 
 const DIR = path.join(os.homedir(), ".bicycle42")
 const VERSION = /^helper-(.+)\.js$/.exec(path.basename(__filename))?.[1] ?? "dev"
 const SOCKET = path.join(DIR, `helper-${VERSION}.sock`)
+const LOCK = path.join(DIR, `helper-${VERSION}.lock`)
 const LOG = path.join(DIR, "helper.log")
 /** A process's output kept for an app that is away, at most (stdout; stderr keeps a tail). */
 const OUT_MAX = Number(process.env.B42_HELPER_OUT_MAX) || 8 * 1024 * 1024
 const ERR_MAX = 256 * 1024
-/** With no app attached and nothing running, the helper ends after this long. */
+/** With no app attached and nothing kept, the helper ends after this long. */
 const IDLE_MS = Number(process.env.B42_HELPER_IDLE_MS) || 10 * 60_000
-
-type Msg = { id?: number; method?: string; params?: Record<string, unknown> }
-
-/** One stream of a process's output: what is kept of it, and where that begins. */
-type Kept = { chunks: Buffer[]; start: number; end: number; max: number; gap: boolean }
-type Proc = { hid: string; owner: string; child: Child; out: Kept; err: Kept; inAt: number; exit?: Exit; conn?: Conn; closed: boolean }
-type Conn = { send(msg: unknown): void }
+/** A process with no app attached for this long is ended (the banner says the same time). */
+const LEASE_MS = Number(process.env.B42_HELPER_LEASE_MS) || AWAY_HOURS * 3600_000
+/** What waits to be written to an app that does not read (a connection gone half-open), at most:
+ *  beyond it the connection is dropped, and the app takes up again from what it read. */
+const WRITE_MAX = Number(process.env.B42_HELPER_WRITE_MAX) || 32 * 1024 * 1024
+/** Another version's files with a dead socket are left this long after that version last started. */
+const STALE_MS = 3600_000
 
 const mode = process.argv[2]
 if (mode === "attach") attach()
 else if (mode === "daemon") void daemon()
-else if (mode === "serve") serve()
+else if (mode === "serve") void serve()
 else {
   process.stderr.write("usage: helper.js daemon|serve|attach\n")
   process.exit(2)
@@ -70,233 +79,187 @@ function attach() {
   process.stdout.on("error", () => process.exit(0))
 }
 
+// ── the folder ─────────────────────────────────────────────────────────────────────────────────
+
+/** ~/.bicycle42, only its user's: made so, or made so again when it is theirs and others could
+ *  read it. A sentence when it is not a folder of theirs. */
+function ownDir(): string | undefined {
+  fs.mkdirSync(DIR, { recursive: true, mode: 0o700 })
+  const st = fs.lstatSync(DIR)
+  if (!st.isDirectory()) return `${DIR} is not a folder (a link, or a file): move it away and connect again.`
+  if (process.getuid && st.uid !== process.getuid()) return `${DIR} belongs to another user of this computer: move it away and connect again.`
+  if (st.mode & 0o077) fs.chmodSync(DIR, 0o700)
+  return undefined
+}
+
 // ── daemon: start the helper unless it runs ────────────────────────────────────────────────────
 
-function ping(socket: string, ms = 2000): Promise<boolean> {
+/** Whether a helper answers on that socket: "up"; "dead" only when nothing can (nothing listens,
+ *  or there is no socket); "busy" when it is there and did not answer in time. */
+function ping(socket: string, ms = 2000): Promise<"up" | "dead" | "busy"> {
   return new Promise((resolve) => {
     const sock = net.connect(socket)
-    const timer = setTimeout(() => (sock.destroy(), resolve(false)), ms)
+    const timer = setTimeout(() => (sock.destroy(), resolve("busy")), ms)
     let buf = ""
     sock.on("connect", () => sock.write(`${JSON.stringify({ id: 1, method: "ping" })}\n`))
     sock.on("data", (d) => {
       buf += d
-      if (buf.includes("\n")) (clearTimeout(timer), sock.destroy(), resolve(true))
+      if (buf.includes("\n")) (clearTimeout(timer), sock.destroy(), resolve("up"))
     })
-    sock.on("error", () => (clearTimeout(timer), resolve(false)))
+    sock.on("error", (err: NodeJS.ErrnoException) => {
+      clearTimeout(timer)
+      resolve(err.code === "ECONNREFUSED" || err.code === "ENOENT" ? "dead" : "busy")
+    })
   })
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
 async function daemon() {
-  fs.mkdirSync(DIR, { recursive: true, mode: 0o700 })
-  if (!(await ping(SOCKET))) {
-    fs.rmSync(SOCKET, { force: true })
+  const fail = (why: string) => {
+    process.stdout.write(`B42 FAILED ${why}\n`)
+    process.exit(1)
+  }
+  const bad = ownDir()
+  if (bad) return fail(bad)
+  // This version is in use: its files are not another version's to take away.
+  try {
+    const now = new Date()
+    fs.utimesSync(__filename, now, now)
+  } catch {}
+  let state = await ping(SOCKET)
+  // Not answering, but there: a helper that is busy. Never taken away from under it.
+  if (state === "dead") {
     const log = fs.openSync(LOG, "a")
     // Its own session (setsid): the ssh connection that started it ending does not end it.
     const child = spawn(process.execPath, [__filename, "serve"], { detached: true, stdio: ["ignore", log, log], cwd: os.homedir() })
     child.unref()
-    const end = Date.now() + 10_000
-    while (!(await ping(SOCKET, 500))) {
-      if (Date.now() > end) {
-        let tail = ""
-        try {
-          tail = fs.readFileSync(LOG, "utf8").trim().split("\n").slice(-3).join(" | ")
-        } catch {}
-        process.stdout.write(`B42 FAILED ${tail}\n`)
-        process.exit(1)
-      }
-      await new Promise((r) => setTimeout(r, 100))
-    }
   }
-  // An older helper (the app was updated) ends, with what it runs, and its file goes.
+  const end = Date.now() + (Number(process.env.B42_HELPER_START_MS) || 10_000)
+  while (state !== "up") {
+    if (Date.now() > end) {
+      let tail = ""
+      try {
+        tail = fs.readFileSync(LOG, "utf8").trim().split("\n").slice(-3).join(" | ")
+      } catch {}
+      return fail(state === "busy" ? "the app's helper there is running and does not answer" : tail)
+    }
+    await sleep(100)
+    state = await ping(SOCKET, 1000)
+  }
+  // Another version's files go only when its socket is dead and it has not been started for a
+  // while: a helper that runs, or an app of that version on its way to start one, is left alone.
   for (const name of fs.readdirSync(DIR)) {
-    const m = /^helper-(.+)\.(sock|js)$/.exec(name)
+    const m = /^helper-(.+)\.js$/.exec(name)
     if (!m || m[1] === VERSION) continue
-    if (m[2] === "sock") await shutdown(path.join(DIR, name))
-    fs.rmSync(path.join(DIR, name), { force: true })
+    const base = path.join(DIR, `helper-${m[1]}`)
+    try {
+      if (Date.now() - fs.statSync(`${base}.js`).mtimeMs < STALE_MS) continue
+    } catch {
+      continue
+    }
+    if ((await ping(`${base}.sock`, 1000)) !== "dead") continue
+    if (lockHolder(`${base}.lock`)) continue
+    for (const ext of [".js", ".sock", ".lock"]) fs.rmSync(`${base}${ext}`, { force: true })
   }
   process.stdout.write("B42 READY\n")
   process.exit(0)
 }
 
-function shutdown(socket: string): Promise<void> {
-  return new Promise((resolve) => {
-    const sock = net.connect(socket)
-    const timer = setTimeout(() => (sock.destroy(), resolve()), 2000)
-    sock.on("connect", () => sock.write(`${JSON.stringify({ id: 1, method: "shutdown" })}\n`))
-    sock.on("data", () => (clearTimeout(timer), sock.destroy(), resolve()))
-    sock.on("error", () => (clearTimeout(timer), resolve()))
-  })
+/** The live process that holds a lock, if any. */
+function lockHolder(lock: string): number | undefined {
+  try {
+    const pid = Number(fs.readFileSync(lock, "utf8"))
+    if (!pid || pid === process.pid) return undefined
+    process.kill(pid, 0)
+    return pid
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM" ? -1 : undefined
+  }
 }
 
 // ── serve: the helper ───────────────────────────────────────────────────────────────────────────
 
-function serve() {
-  const machine = createLocalMachine()
-  const procs = new Map<string, Proc>()
-  const conns = new Set<Conn>()
-  let next = 0
-  let idleTimer: ReturnType<typeof setTimeout> | undefined
-
+async function serve() {
   const log = (...words: unknown[]) => process.stdout.write(`${new Date().toISOString()} ${words.map(String).join(" ")}\n`)
-
-  function idle() {
-    clearTimeout(idleTimer)
-    if (conns.size || [...procs.values()].some((p) => !p.exit)) return
-    idleTimer = setTimeout(() => {
-      log("idle: ending")
-      fs.rmSync(SOCKET, { force: true })
-      process.exit(0)
-    }, IDLE_MS)
-  }
-
-  const kept = (max: number): Kept => ({ chunks: [], start: 0, end: 0, max, gap: false })
-  /** Output comes in: kept, and sent to the app attached to the process, if any. */
-  function take(p: Proc, fd: 1 | 2, data: Buffer) {
-    const k = fd === 1 ? p.out : p.err
-    const at = k.end
-    k.chunks.push(data)
-    k.end += data.length
-    // Too much for an app that is away: the oldest goes, from a line's start on, and the app is
-    // told by the gap between what it read and where the data it gets begins.
-    if (k.end - k.start > k.max) {
-      while (k.chunks.length > 1 && k.end - k.start > k.max) k.start += k.chunks.shift()!.length
-      if (k.end - k.start > k.max) {
-        const cut = k.end - k.start - k.max
-        k.chunks[0] = k.chunks[0]!.subarray(cut)
-        k.start += cut
+  if (ownDir()) process.exit(1)
+  // One helper of a version at a time: it holds the lock while it runs. A lock whose process is
+  // gone is taken over; so is one whose number another process has now, once it is old and no
+  // helper answers.
+  for (let tries = 0; ; tries++) {
+    try {
+      fs.writeFileSync(LOCK, String(process.pid), { flag: "wx", mode: 0o600 })
+      break
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST" || tries > 2) {
+        log("can't take the lock", String(err))
+        process.exit(1)
       }
-      const first = k.chunks[0]!
-      const nl = first.indexOf(10)
-      if (fd === 1 && nl >= 0) (k.chunks[0] = first.subarray(nl + 1)), (k.start += nl + 1)
-      k.gap = true
-    }
-    p.conn?.send({ ev: "data", hid: p.hid, fd, at, data: data.toString("base64") })
-  }
-
-  /** What the app has read is no longer kept. */
-  function trim(k: Kept, upTo: number) {
-    while (k.chunks.length && k.start + k.chunks[0]!.length <= upTo) k.start += k.chunks.shift()!.length
-    if (k.chunks.length && upTo > k.start) {
-      k.chunks[0] = k.chunks[0]!.subarray(upTo - k.start)
-      k.start = upTo
-    }
-  }
-
-  /** Sends what is kept from `from` on, then the exit if it has come. */
-  function replay(p: Proc, conn: Conn, from: { out: number; err: number }) {
-    for (const [fd, k] of [[1, p.out], [2, p.err]] as const) {
-      trim(k, fd === 1 ? from.out : from.err)
-      let at = k.start
-      for (const c of k.chunks) {
-        conn.send({ ev: "data", hid: p.hid, fd, at, data: c.toString("base64") })
-        at += c.length
-      }
-    }
-    if (p.exit && p.closed) conn.send({ ev: "exit", hid: p.hid, ...p.exit })
-  }
-
-  const ops: Record<string, (params: Record<string, unknown>, conn: Conn) => unknown> = {
-    ping: () => ({ version: VERSION }),
-    hello: () => ({
-      version: VERSION,
-      pid: process.pid,
-      procs: [...procs.values()].map((p) => ({ hid: p.hid, owner: p.owner, ...(p.exit ? { exited: true } : {}) })),
-    }),
-    info: () => ({ home: machine.home, platform: machine.platform, hostname: machine.hostname(), devNull: machine.devNull }),
-    run: (q) => machine.run(String(q.program), q.args as string[], q.options as never),
-    agentEnv: () => machine.agentEnv(),
-    which: (q) => machine.which(String(q.program), q.env as never).then((x) => x ?? null),
-    stat: (q) => machine.stat(String(q.path)),
-    lstat: (q) => machine.lstat(String(q.path)),
-    readdir: (q) => machine.readdir(String(q.path)),
-    readFile: (q) => machine.readFile(String(q.path)),
-    writeFile: (q) => machine.writeFile(String(q.path), String(q.data), typeof q.mode === "number" ? q.mode : undefined),
-    mkdir: (q) => machine.mkdir(String(q.path)),
-    rename: (q) => machine.rename(String(q.from), String(q.to)),
-    rm: (q) => machine.rm(String(q.path)),
-    realpath: (q) => machine.realpath(String(q.path)),
-
-    spawn(q, conn) {
-      const hid = `p${process.pid.toString(36)}${(++next).toString(36)}`
-      const child = machine.spawn(String(q.program), q.args as string[], { cwd: q.cwd as string, env: q.env as never })
-      const p: Proc = { hid, owner: String(q.owner ?? ""), child, out: kept(OUT_MAX), err: kept(ERR_MAX), inAt: 0, conn, closed: false }
-      procs.set(hid, p)
-      child.stdout.on("data", (d: Buffer) => take(p, 1, d))
-      child.stderr.on("data", (d: Buffer) => take(p, 2, d))
-      child.stdin.on("error", () => undefined)
-      let outDone = false
-      let errDone = false
-      const settle = () => {
-        if (!p.exit || !outDone || !errDone || p.closed) return
-        p.closed = true
-        log("exit", hid, JSON.stringify(p.exit))
-        p.conn?.send({ ev: "exit", hid, ...p.exit })
-        idle()
-      }
-      child.stdout.on("close", () => ((outDone = true), settle()))
-      child.stderr.on("close", () => ((errDone = true), settle()))
-      void child.exited.then((exit) => {
-        p.exit = exit
-        // Not started at all: its streams may never say "close".
-        if (exit.error) outDone = errDone = true
-        settle()
-      })
-      log("spawn", hid, String(q.program))
-      clearTimeout(idleTimer)
-      return { hid }
-    },
-    /** Bytes for its stdin, from byte `at` on: what came before (sent again after a reconnect) is skipped. */
-    write(q) {
-      const p = procs.get(String(q.hid))
-      if (!p) throw Object.assign(new Error("no such process"), { code: "ESRCH" })
-      let data = Buffer.from(String(q.data), "base64")
-      const at = Number(q.at)
-      if (at > p.inAt) throw new Error(`a write from ${at} when ${p.inAt} were written`)
-      data = data.subarray(Math.min(data.length, p.inAt - at))
-      if (data.length && !p.exit) p.child.stdin.write(data)
-      p.inAt += data.length
-      return { inAt: p.inAt }
-    },
-    kill(q) {
-      procs.get(String(q.hid))?.child.kill()
-      return {}
-    },
-    /** The app takes a process up (again): its output from these bytes on comes to this connection. */
-    resume(q, conn) {
-      const p = procs.get(String(q.hid))
-      if (!p) return { gone: true }
-      p.conn = conn
-      const from = { out: Number(q.out) || 0, err: Number(q.err) || 0 }
-      const gap = from.out < p.out.start
-      setImmediate(() => replay(p, conn, from))
-      return { inAt: p.inAt, gap }
-    },
-    /** The app knows it has ended: it is forgotten. */
-    reap(q) {
-      const p = procs.get(String(q.hid))
-      if (p?.exit) procs.delete(p.hid)
-      idle()
-      return {}
-    },
-    shutdown() {
-      log("shutdown")
-      for (const p of procs.values()) p.child.kill()
-      setTimeout(() => {
-        fs.rmSync(SOCKET, { force: true })
+      const holder = lockHolder(LOCK)
+      let old = false
+      try {
+        old = Date.now() - fs.statSync(LOCK).mtimeMs > 60_000
+      } catch {}
+      if (holder && !(old && (await ping(SOCKET, 1000)) === "dead")) {
+        log("another helper of this version runs", holder)
         process.exit(0)
-      }, 300)
-      return {}
-    },
+      }
+      fs.rmSync(LOCK, { force: true })
+    }
   }
+  let ino: number | undefined
+  /** The socket goes on the way out only when it is this helper's own (not one that took over). */
+  const leave = (code: number) => {
+    try {
+      if (ino !== undefined && fs.statSync(SOCKET).ino === ino) fs.rmSync(SOCKET, { force: true })
+    } catch {}
+    try {
+      if (fs.readFileSync(LOCK, "utf8") === String(process.pid)) fs.rmSync(LOCK, { force: true })
+    } catch {}
+    process.exit(code)
+  }
+  // A socket left by a helper that is gone: taken over. One that answers is another's.
+  const there = await ping(SOCKET)
+  if (there !== "dead") {
+    log("a helper answers on the socket already", there)
+    leave(0)
+  }
+  fs.rmSync(SOCKET, { force: true })
+
+  let idleTimer: ReturnType<typeof setTimeout> | undefined
+  const host = createHost({
+    machine: createLocalMachine(),
+    version: VERSION,
+    log,
+    outMax: OUT_MAX,
+    errMax: ERR_MAX,
+    leaseMs: LEASE_MS,
+    idle() {
+      clearTimeout(idleTimer)
+      idleTimer = setTimeout(() => {
+        log("idle: ending")
+        leave(0)
+      }, IDLE_MS)
+    },
+    busy: () => clearTimeout(idleTimer),
+    shutdown: () => leave(0),
+  })
 
   const server = net.createServer((sock) => {
+    let dropped = false
     const conn: Conn = {
       send(msg) {
-        if (!sock.destroyed) sock.write(`${JSON.stringify(msg)}\n`)
+        if (sock.destroyed || dropped) return
+        sock.write(`${JSON.stringify(msg)}\n`)
+        // An app that reads nothing (the connection is half-open): dropped, its output kept.
+        if (sock.writableLength > WRITE_MAX) {
+          dropped = true
+          log("a connection reads nothing: dropped")
+          sock.destroy()
+        }
       },
     }
-    conns.add(conn)
-    clearTimeout(idleTimer)
+    host.attach(conn)
     let buf = ""
     sock.on("data", (d) => {
       buf += d
@@ -304,54 +267,27 @@ function serve() {
       while ((nl = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, nl)
         buf = buf.slice(nl + 1)
-        if (line.trim()) handle(line)
+        if (line.trim()) host.handle(conn, line)
       }
     })
-    function handle(line: string) {
-      let msg: Msg
-      try {
-        msg = JSON.parse(line) as Msg
-      } catch {
-        return
-      }
-      const params = msg.params ?? {}
-      if (msg.method === "ack") {
-        const p = procs.get(String(params.hid))
-        if (p) (trim(p.out, Number(params.out) || 0), trim(p.err, Number(params.err) || 0))
-        return
-      }
-      const op = msg.method ? ops[msg.method] : undefined
-      void (async () => {
-        try {
-          if (!op) throw new Error(`no such call: ${msg.method}`)
-          const result = await op(params, conn)
-          if (msg.id !== undefined) conn.send({ id: msg.id, result: result ?? null })
-        } catch (err) {
-          const e = err as NodeJS.ErrnoException
-          if (msg.id !== undefined) conn.send({ id: msg.id, error: { message: e?.message ?? String(err), ...(e?.code ? { code: e.code } : {}) } })
-        }
-      })()
-    }
-    const gone = () => {
-      if (!conns.delete(conn)) return
-      for (const p of procs.values()) if (p.conn === conn) p.conn = undefined
-      idle()
-    }
+    const gone = () => host.detach(conn)
     sock.on("close", gone)
     sock.on("error", gone)
   })
   server.on("error", (err) => {
     log("can't listen", String(err))
-    process.exit(1)
+    leave(1)
   })
   const was = process.umask(0o077)
   server.listen(SOCKET, () => {
     process.umask(was)
+    try {
+      ino = fs.statSync(SOCKET).ino
+    } catch {}
     log("listening", SOCKET, "node", process.version)
-    idle()
+    // Nothing attached yet: the idle wait starts.
+    clearTimeout(idleTimer)
+    idleTimer = setTimeout(() => (log("idle: ending"), leave(0)), IDLE_MS)
   })
-  process.on("SIGTERM", () => {
-    fs.rmSync(SOCKET, { force: true })
-    process.exit(0)
-  })
+  process.on("SIGTERM", () => leave(0))
 }

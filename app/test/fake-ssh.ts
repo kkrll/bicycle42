@@ -101,9 +101,11 @@ function main() {
   }
   if (control === "forward") {
     if (!fs.existsSync(master)) fail("Control socket connect: No such file or directory")
-    // [bind:]local:host:port
-    const parts = forwards[0]!.split(":")
-    const [local, there, port] = parts.slice(-3) as [string, string, string]
+    // [bind:]local:host:port, an IPv6 host in brackets ([::1]); one without them is refused, as
+    // ssh reads its colons as the separators.
+    const m = /^(?:[^:]+:)?(\d+):(\[[^\]]+\]|[^:[\]]+):(\d+)$/.exec(forwards[0]!)
+    if (!m) fail(`Bad local forwarding specification '${forwards[0]}'`)
+    const [local, there, port] = [m![1]!, m![2]!.replace(/^\[|\]$/g, ""), m![3]!]
     const pidFile = path.join(root, "forwards", `${local}.pid`)
     const child = spawn(process.execPath, [__filename, "__proxy", local, there, port, pidFile], { detached: true, stdio: ["ignore", "pipe", "ignore"] })
     child.stdout!.once("data", (d: Buffer) => {
@@ -116,8 +118,9 @@ function main() {
   }
   if (control) fail(`fake-ssh: -O ${control} is not known here`)
   if (background) {
-    // A master: it is there until -O exit (or the test takes it away).
+    // A master: it is there until -O exit (or the test takes it away). Each one made is counted.
     fs.writeFileSync(master, String(process.pid))
+    fs.appendFileSync(path.join(root, "masters"), `${process.pid}\n`)
     return process.exit(0)
   }
 

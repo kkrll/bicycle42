@@ -47,8 +47,9 @@ export type Child = {
   stderr: Readable
   exited: Promise<Exit>
   /** Ends it and its process group (on Windows its tree), also once it has ended by itself:
-   *  what it started (a dev server) would live on. */
-  kill(): void
+   *  what it started (a dev server) would live on. Resolves once they are gone, or were sent
+   *  SIGKILL (2 s after SIGTERM); another computer's once its helper has done that. Never rejects. */
+  kill(): Promise<void>
   /** Some of its output was lost while the app was away (another computer's helper keeps only so
    *  much): what was read since is not the whole story. Never on this computer. */
   onGap?(listener: () => void): void
@@ -209,22 +210,31 @@ export function createLocalMachine(): Machine {
       })
       // What it started is ended too, also when it has ended already (a crash leaves its dev
       // server running otherwise): the whole group, or on Windows the tree under it.
-      const kill = () => {
+      const kill = (): Promise<void> => {
         const pid = child.pid
-        if (!pid) return
-        if (windows) {
-          execFile("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true }, () => {})
-          return
-        }
-        const group = (signal: NodeJS.Signals) => {
+        if (!pid) return Promise.resolve()
+        if (windows) return new Promise((resolve) => void execFile("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true }, () => resolve()))
+        const group = (signal: NodeJS.Signals | 0) => {
           try {
             process.kill(-pid, signal)
-          } catch {
+            return true
+          } catch (err) {
             // ESRCH: nothing of it is left
+            return (err as NodeJS.ErrnoException).code === "EPERM"
           }
         }
         group("SIGTERM")
-        setTimeout(() => group("SIGKILL"), 2000).unref()
+        // Until the group is gone, at most 2 s; then SIGKILL, only if anything of it is left (its
+        // number could be another's by then otherwise). The wait does not keep this process up.
+        const end = Date.now() + 2000
+        return new Promise((resolve) => {
+          const tick = () => {
+            if (!group(0)) return resolve()
+            if (Date.now() >= end) return (group("SIGKILL"), resolve())
+            setTimeout(tick, 50).unref()
+          }
+          setTimeout(tick, 20).unref()
+        })
       }
       return { stdin: child.stdin!, stdout: child.stdout!, stderr: child.stderr!, exited, kill }
     },
