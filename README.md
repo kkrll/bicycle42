@@ -138,7 +138,7 @@ targets under 44 px, inputs that make iOS zoom) and the files the agent changed.
 | paste a picture | Attach it as a reference |
 | `Esc` | Cancel the note; again for Preview |
 | `mod+L` / `mod+K` / `mod+\` | URL bar / chat box / show or hide the panel |
-| `mod+R` | Reload the page |
+| `mod+R` / `F5` | Reload the page (from the page, the chat box or the inspector) |
 
 | Edit mode | |
 |---|---|

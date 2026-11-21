@@ -705,8 +705,17 @@ export function App() {
     else focusChat()
   }
   const onKey = (e: KeyboardEvent) => {
-    if (!(mac() ? e.metaKey : e.ctrlKey) || e.altKey || setup() || settings()) return
+    if (setup() || settings()) return
     const key = e.key.toLowerCase()
+    // The page is reloaded from the window too (the chat box, the inspector): the keyboard is
+    // here more often than in the page, which has the same two keys (main/page.ts).
+    const plain = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey
+    if (key === "f5" && plain) {
+      e.preventDefault()
+      act("reload")
+      return
+    }
+    if (!(mac() ? e.metaKey : e.ctrlKey) || e.altKey) return
     const mode = e.shiftKey ? undefined : MODE_KEYS[e.code]
     // The same keys as while the page has the keyboard: mod+U again goes back to the mode it left.
     if (e.shiftKey) {
@@ -714,6 +723,7 @@ export function App() {
       act("toggleBrush")
     } else if (mode === "preview") act("toggleReview")
     else if (mode) act("setMode", mode)
+    else if (key === "r") act("reload")
     else if (key === "l") focusUrl()
     else if (key === "\\") togglePanel()
     else if (key === "k") focusChat()

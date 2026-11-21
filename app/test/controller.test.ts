@@ -772,7 +772,8 @@ test("startSite asks the agent in the repo's conversation, and opens the address
     await h.cmd("startSite")
     assert.equal(sent.length, 1)
     assert.match(sent[0]!, /^Get this project's site running/)
-    assert.match(sent[0]!, /same computer as you/, "the fake server is on this computer")
+    assert.doesNotMatch(sent[0]!, /another computer/, "the fake server is on this computer: localhost opens")
+    assert.match(sent[0]!, /background command of your shell tool/)
     assert.match(sent[0]!, /SITE: <address>$/)
     assert.equal(h.snap().startingSite, true)
 

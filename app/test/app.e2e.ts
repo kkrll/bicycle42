@@ -333,6 +333,14 @@ async function main() {
   check("…and draws no bar of its own over the page: the inspector's footer has it", (await until(() => js(`!${shadow}.querySelector('.bar').checkVisibility() && !${shadow}.querySelector('.corner').checkVisibility()`))) === true && (await ui(`document.querySelector('.cd-foot .cd-count')?.textContent`)) === "No edits")
   wc.sendInputEvent({ type: "keyDown", keyCode: "P", modifiers: [mod] })
   check("mod+P on the page goes back to Annotate, and the top bar follows", (await until(async () => !(await inspector()) && (await modeShown()) === "notes")) === true)
+  // mod+R and F5 reload the page while the window has the keyboard too (the chat box, the inspector).
+  for (const [name, keyCode, modifiers] of [["mod+R", "R", [mod]], ["F5", "F5", []]] as const) {
+    await js(`window.__kept = 1`)
+    win.webContents.sendInputEvent({ type: "keyDown", keyCode, modifiers: [...modifiers] })
+    win.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers: [...modifiers] })
+    check(`${name} in the window reloads the page`, (await until(async () => (await js("window.__kept").catch(() => 1)) === undefined)) === true)
+    await until(() => js(`${shadow}?.querySelector('.pins')?.classList.contains('live') ?? false`))
+  }
   // Resting the pointer on a control shows what it does and its key, in the bar; the chosen
   // mode keeps its colours under the pointer.
   const centreOf = (sel: string) => ui(`(() => { const r = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } })()`) as Promise<{ x: number; y: number }>

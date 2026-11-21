@@ -1040,22 +1040,22 @@ export function createCore(host: Host): Core {
     }
   }
 
-  /** What the agent is asked when the reviewer has a repo and no running site. It ends with a
-   *  line the app can read (SITE_LINE). `failed` is an address that did not answer. */
+  /** What the agent is asked when the reviewer has a repo and no running site. It says only what
+   *  the agent cannot know: that the app stops what runs through the server's shell (a detached
+   *  process is not there, see `refreshRunning`), that localhost does not open on another
+   *  computer, and the line the app reads the address from (SITE_LINE). `failed` is an address
+   *  that did not answer. */
   const START_PROMPT = "Get this project's site running so I can review it in bicycle 42."
   function startPrompt(failed: string) {
     return [
-      START_PROMPT,
-      ...(failed ? [`I expected it at ${failed}, which did not answer.`] : []),
+      [START_PROMPT, ...(failed ? [`I expected it at ${failed}, which did not answer.`] : [])].join(" "),
       "",
-      "- If its dev server is already running, use that. Otherwise start it as a background command of your shell tool, so it keeps running after you reply and I can stop it from bicycle 42. Do not detach it with nohup, & or a terminal multiplexer.",
-      "- If it is plain HTML with nothing to run, serve the folder with a small static server.",
-      sameComputer()
-        ? "- bicycle 42 runs on the same computer as you, so a localhost address works."
-        : "- bicycle 42 runs on a different computer from you, so localhost on your side will not open here. Give an address this computer can reach: bind the server to the network, or use a tunnel if one is set up, and tell me if that makes the site public.",
-      "- If you need something from me (which app of several, a missing setting, a port), ask before guessing.",
+      [
+        "Run it as a background command of your shell tool (not nohup, & or tmux), so I can stop it from here.",
+        ...(sameComputer() ? [] : ["I am on another computer, so localhost will not open: bind it to the network, and ask before a tunnel makes it public."]),
+      ].join(" "),
       "",
-      "When it is up, check that it answers, then end your reply with one line: SITE: <address>",
+      "When it answers, end your reply with one line: SITE: <address>",
     ].join("\n")
   }
   const SITE_LINE = /^\s*`?SITE:\s*<?(https?:\/\/[^\s<>`"']{1,2000})>?`?\s*$/gim

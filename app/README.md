@@ -94,8 +94,8 @@ src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/des
   pinned and its notes until a folder is chosen or the folder is back. With a repo and no
   page, the app is at a place of the repo's own (`HOME`, one for each repo) that has a
   conversation like any site, so the agent can be asked to
-  get the site running (`startSite`): the prompt says whether app and server share a computer
-  and asks for a last line `SITE: <address>`, which is opened when the run ends and no page
+  get the site running (`startSite`): the prompt is short, and says that the app is on another computer
+  when it is, and asks for a last line `SITE: <address>`, which is opened when the run ends and no page
   works yet. The first site opened takes that conversation over.
 - **What is left running is the server's to say.** `Backend.running` lists the shell commands
   still running in a folder (`GET /api/shell`), `kill` ends one. Main reads the open repo's
