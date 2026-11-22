@@ -38,7 +38,7 @@ after(async () => {
   process.env.HOME = kept.HOME
   process.env.PATH = kept.PATH
   await registry.close()
-  fs.rmSync(root, { recursive: true, force: true })
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
 /** A computer of its own for each test: this one with a home of its own, and on its PATH `claude`

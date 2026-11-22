@@ -30,6 +30,13 @@ bun run test:unit    # the Node part alone
 bun run check:design # the window's styles against the design system's rules
 ```
 
+One heavy run at a time on a computer: the unit tests, each e2e, the screenshots and the overlay's
+browser tests wait for a lock (`scripts/heavy-lock.mjs`, a folder at `/tmp/bicycle42-heavy.lock`
+with its holder's pid) and say whom they wait for. Two or three at once (parallel agents, a merge
+check beside them) made each several times slower and timing-sensitive checks fail. A holder that
+is gone is taken over; `B42_NO_LOCK=1` skips it, and after `B42_LOCK_WAIT_S` (1800) a run goes
+ahead anyway. `node scripts/heavy-lock-run.mjs <command…>` holds it around any other command.
+
 The Electron parts load the pages in `../overlay/harness/`. None of these needs a real agent: the
 controller's tests and the whole app's (`test/app.e2e.ts`) play the fake ACP agent of
 `test/fake-agent.ts` in their own process, a turn at a time (`test/played-agent.ts`, reached

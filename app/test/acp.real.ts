@@ -193,8 +193,8 @@ async function main() {
   // Clean up: the conversation, the folder, the process.
   await backend.remove(session.id).catch((err) => console.log(`  (could not delete the conversation: ${err.message})`))
   stop()
-  fs.rmSync(dir, { recursive: true, force: true })
-  fs.rmSync(stateDir, { recursive: true, force: true })
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  fs.rmSync(stateDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   const failed = results.filter((r) => !r[1]).length
   console.log(`\n${results.length - failed}/${results.length} checks passed`)
   setTimeout(() => process.exit(failed ? 1 : 0), 500)

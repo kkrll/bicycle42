@@ -139,7 +139,7 @@ test("on this computer, a normal repo reads as it did: branch, changes, their co
     assert.equal((await vcs(m, dir))?.branch, undefined)
     assert.equal((await before(m, dir))?.branch, undefined)
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true })
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -162,7 +162,7 @@ test("a repo with no commit yet, and a folder inside a repo, read as before", as
     assert.deepEqual(inner?.changes.find((c) => c.file === "sub/c.txt"), { file: "sub/c.txt", status: "added", additions: 3, deletions: 0 })
     assert.deepEqual(inner?.changes.find((c) => c.file === "b.txt"), { file: "b.txt", status: "added", additions: 2, deletions: 0 })
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true })
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -186,7 +186,7 @@ test("binary files are marked, not counted; a new file past the line cap is mark
       { file: "new.bin", status: "added", additions: 0, deletions: 0, uncounted: "binary" },
     ])
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true })
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -211,7 +211,7 @@ test("the list is cut before anything is counted, and says how many there are", 
     // Only the nine shown were given to grep.
     for (const args of runs.filter((a) => a.includes("grep"))) assert.equal(args.filter((a) => a.startsWith(":(top,literal)")).length, 9)
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true })
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

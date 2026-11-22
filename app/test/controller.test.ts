@@ -35,7 +35,7 @@ async function until(what: () => unknown, ms = 8000) {
 /** The folders the agent works in: real ones, since an agent on this computer works in this
  *  computer's. `folder("repo")` makes one; one never made is a folder that is gone. */
 const ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bicycle42-ctl-folders-")))
-after(() => fs.rmSync(ROOT, { recursive: true, force: true }))
+after(() => fs.rmSync(ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
 const folder = (name: string) => {
   const p = path.join(ROOT, name)
   fs.mkdirSync(p, { recursive: true })
@@ -144,7 +144,7 @@ async function boot(opts: { settings?: Record<string, unknown>; reviews?: Record
       for (const s of shells) await Promise.resolve(s.core.invoke("disconnect", [])).catch(() => undefined)
       for (const s of shells) await s.core.dispose()
       Object.assign(console, quiet)
-      fs.rmSync(dir, { recursive: true, force: true })
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     },
   }
   return h
@@ -1809,7 +1809,7 @@ async function historyOf(opts: { work?: string } = {}) {
     },
     async close() {
       await h.close()
-      if (!opts.work) fs.rmSync(work, { recursive: true, force: true })
+      if (!opts.work) fs.rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     },
   }
 }
@@ -2394,7 +2394,7 @@ test("file history: a conversation in a parent folder of the site's, working at 
     assert.equal(await h.cmd("takeBackWay", a), "asked")
   } finally {
     await t.close()
-    fs.rmSync(parent, { recursive: true, force: true })
+    fs.rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

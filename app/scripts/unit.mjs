@@ -19,6 +19,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { heavyLock } from "./heavy-lock.mjs"
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..")
 const testDir = path.join(root, "dist", "test")
@@ -29,6 +30,8 @@ if (!files.length) {
   console.error("unit: no test files in dist/test; run `node scripts/build.mjs --tests` first")
   process.exit(1)
 }
+
+await heavyLock("unit tests")
 
 const timeout = Number(process.env.UNIT_TIMEOUT_S ?? 600) * 1000
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "b42-unit-"))

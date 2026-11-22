@@ -19,6 +19,7 @@ import { commitPrompt } from "../src/main/asks"
 import type { PageView } from "../src/main/page"
 import type { Transport, timing as acpTiming } from "../src/main/acp"
 import { playedAgent } from "./played-agent"
+import { heavyLock } from "../scripts/heavy-lock.mjs"
 
 const overlayDir = path.join(__dirname, "../../../overlay")
 const results: boolean[] = []
@@ -73,6 +74,7 @@ function serveSite(): Promise<http.Server> {
 type Hook = { window(): BrowserWindow | undefined; page(): PageView | undefined; snapshot(): AppState; acpTiming: typeof acpTiming }
 
 async function main() {
+  await heavyLock("app e2e")
   const siteServer = await serveSite()
   const origin = `http://127.0.0.1:${(siteServer.address() as { port: number }).port}`
   const pageUrl = `${origin}/harness/page.html`
@@ -156,7 +158,7 @@ async function main() {
   check("…and once signed in, back in the window, it offers Start", signedIn === "ready", await codexRow())
   Object.assign(process.env, keptEnv)
   for (const [k, v] of Object.entries(keptEnv)) if (v === undefined) delete process.env[k]
-  fs.rmSync(codexDir, { recursive: true, force: true })
+  fs.rmSync(codexDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   await chooser(`(() => { const el = ${custom}; el.value = "fake-agent"; el.dispatchEvent(new Event("input", { bubbles: true })) })()`)
   await chooser(`document.querySelector('[data-start="custom"]').click()`)
 
@@ -1292,7 +1294,7 @@ async function main() {
     await ui(`[...${savingStrip}.querySelectorAll("button")].find((b) => b.textContent === "Cancel").click()`)
     check("…Cancel on that line stops it: the line goes, and nothing of it is kept", (await until(async () => !state().page.saving && (await savingText()) === "" && inHeld().length === 0)) === true && !fs.existsSync(answer), `"${await savingText()}" ${inHeld().join(" ")}`)
     check("(nothing of any download was ever in the reviewer's Downloads)", !fs.existsSync(theirDownloads) || fs.readdirSync(theirDownloads).length === 0)
-    fs.rmSync(savedDir, { recursive: true, force: true })
+    fs.rmSync(savedDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 
   // ── the page as a phone's: the switch beside the address ───────────────────────────────────
@@ -2110,8 +2112,8 @@ async function main() {
   check("the chosen model is saved for the next launch", saved().defaultModel?.providerID === "anthropic" && saved().defaultModel?.id === "anthropic/sonnet", JSON.stringify(saved().defaultModel))
 
   siteServer.close()
-  fs.rmSync(profile, { recursive: true, force: true })
-  fs.rmSync(siteDir, { recursive: true, force: true })
+  fs.rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  fs.rmSync(siteDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   const failed = results.filter((ok) => !ok).length
   console.log(`\n${results.length - failed}/${results.length} checks passed`)
   app.exit(failed ? 1 : 0)

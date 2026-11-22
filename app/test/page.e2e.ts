@@ -17,6 +17,7 @@ import { parseNote } from "../src/main/chat-items"
 import { PHONE, PHONES, viewportOf, type Pane } from "../src/shared/types"
 import type { CanvasAct, CanvasView } from "../../overlay/protocol-canvas"
 import { notePrompt, noteWords } from "../../overlay/prompt.js"
+import { heavyLock } from "../scripts/heavy-lock.mjs"
 
 // dist/test/ → the repo's overlay/, which the harness page lives in.
 const overlayDir = path.join(__dirname, "../../../overlay")
@@ -128,6 +129,7 @@ function serve(): Promise<http.Server> {
 }
 
 async function main() {
+  await heavyLock("page e2e")
   fs.mkdirSync(out, { recursive: true })
   const server = await serve()
   const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
@@ -1205,14 +1207,14 @@ async function main() {
     const base = `http://127.0.0.1:${(again.address() as { port: number }).port}`
     const held = path.join(out, "held")
     const saved = path.join(out, "saved")
-    fs.rmSync(held, { recursive: true, force: true })
-    fs.rmSync(saved, { recursive: true, force: true })
+    fs.rmSync(held, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    fs.rmSync(saved, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     fs.mkdirSync(saved, { recursive: true })
     // The reviewer's Downloads folder, as the app's "downloads" path was before the app made it the
     // held folder (index.ts does the same): Chromium writes each download there first, hidden,
     // unless it is the held one. Watched for anything at all made in it.
     const theirs = path.join(out, "Downloads")
-    fs.rmSync(theirs, { recursive: true, force: true })
+    fs.rmSync(theirs, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     fs.mkdirSync(theirs, { recursive: true })
     app.setPath("downloads", theirs)
     holdDownloadsIn(held)
@@ -1486,8 +1488,8 @@ async function main() {
     theirsWatch.close()
     heldWatch.close()
     check("nothing of any download here was ever made in the reviewer's Downloads folder", inTheirs.length === 0 && fs.readdirSync(theirs).length === 0, inTheirs.join(" "))
-    fs.rmSync(saved, { recursive: true, force: true })
-    fs.rmSync(held, { recursive: true, force: true })
+    fs.rmSync(saved, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    fs.rmSync(held, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 
   // ── the page's renderer dies ───────────────────────────────────────────────────────────────

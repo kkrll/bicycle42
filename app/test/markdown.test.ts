@@ -63,7 +63,7 @@ app.whenReady().then(async () => {
     if (!line?.startsWith("CHECKS ")) throw new Error(`the checks did not run: ${line ?? r.stderr}`)
     return JSON.parse(line.slice(7)) as Check[]
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true })
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 }
 

@@ -22,7 +22,7 @@ async function until(what: () => unknown, ms = 8000) {
 }
 
 const ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "bicycle42-downloads-")))
-after(() => fs.rmSync(ROOT, { recursive: true, force: true }))
+after(() => fs.rmSync(ROOT, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
 const folder = (name: string) => {
   const p = path.join(ROOT, name)
   fs.mkdirSync(p, { recursive: true })

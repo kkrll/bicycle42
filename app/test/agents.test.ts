@@ -45,6 +45,6 @@ test("a known agent: installed or not with what installs it, signed in or not wi
     process.env.HOME = kept.HOME
     process.env.PATH = kept.PATH
     for (const k of keys) if (kept.keys[k] !== undefined) process.env[k] = kept.keys[k]
-    fs.rmSync(home, { recursive: true, force: true })
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
