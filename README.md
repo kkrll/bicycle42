@@ -145,7 +145,7 @@ falling one when a note fails or the agent is lost, and a single note when the a
 finished everything you sent. They can be turned off in the settings (the agent's button, in the
 panel's conversation row), where reloading the page after a note is switched too.
 
-The top bar has the mode: **Preview** (the page as it is), **Annotate** (point at something
+The top bar has the mode: **Preview** (the page as it is, without the notes' pins), **Annotate** (point at something
 and say what to change), **Edit** (change the page itself, then press Send) and **Motion** (see
 what moves on the page, change one animation, then send it), with the pencil for drawing beside
 them. Beside the address, **Desktop | Phone** shows the page as wide as its pane or as a phone

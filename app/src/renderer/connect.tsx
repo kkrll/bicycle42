@@ -341,7 +341,6 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
       </Show>
       <section class="connect-section">
         <h3 class="label">Agents on this computer</h3>
-        <p class="form-help">The app starts it with your own login, in this computer's folders.</p>
         <ul class="agent-list">
           <Show when={agents.loading}>
             <li class="agent-row agent-wait">
@@ -382,9 +381,8 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
       </section>
       <section class="connect-section connect-ssh">
         <h3 class="label">Another computer (ssh)</h3>
-        <p class="form-help">
-          The app connects with your own ssh (its keys, <code>~/.ssh/config</code>, Tailscale) and runs the agent there, in that computer's folders. It needs
-          Node 18 or newer there, and puts a small helper in <code>~/.bicycle42</code>.
+        <p class="form-help" title="The agent runs there, in that computer's folders, and the app puts a small helper in ~/.bicycle42 there.">
+          Uses your ssh keys and config. Needs Node 18+ there.
         </p>
         <ul class="agent-list">
           <li class="agent-row agent-custom" data-state={sshHost().trim() ? "ready" : "empty"}>
@@ -609,11 +607,11 @@ export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void;
         </For>
       </div>
       <Show when={state.models.some((m) => !m.images)}>
-        <p class="form-help">A model marked “no images” cannot see pictures: your notes reach it as words only.</p>
+        <p class="form-help">“no images”: notes send words only.</p>
       </Show>
       <Show when={picked()?.variants.length}>
         <label class="form-row">
-          <span class="label">Effort (optional)</span>
+          <span class="label">Effort</span>
           <select class="input" aria-label="Effort" value={variant()} onChange={(e) => setVariant(e.currentTarget.value)}>
             <option value="">default</option>
             <For each={picked()!.variants}>{(v) => <option value={v}>{v}</option>}</For>
@@ -679,9 +677,10 @@ export function ServerButton(props: { onClick: () => void }) {
   )
 }
 
-function Toggle(props: { on: boolean; label: string; title: string; disabled?: boolean; onClick: () => void }) {
+/** A switch: its track says on or off, its words what it is. `class`: more classes on it. */
+export function Toggle(props: { on: boolean; label: string; title: string; disabled?: boolean; class?: string; onClick: () => void }) {
   return (
-    <button class="toggle" type="button" role="switch" aria-checked={props.on} disabled={props.disabled} title={props.title} onClick={props.onClick}>
+    <button class={props.class ? `toggle ${props.class}` : "toggle"} type="button" role="switch" aria-checked={props.on} disabled={props.disabled} title={props.title} onClick={props.onClick}>
       <span class="toggle-track" />
       {props.label}
     </button>
@@ -706,7 +705,7 @@ function Preferences() {
       </div>
       <div class="dialog-pref">
         <Toggle on={soundOn()} label="Sounds" title="A question, a failure, finished" onClick={toggleSound} />
-        <span class="dialog-sub">When the agent asks something, when a note fails or the agent is lost, and when it has finished.</span>
+        <span class="dialog-sub">Questions, failures and finished work.</span>
       </div>
     </div>
   )

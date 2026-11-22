@@ -1152,22 +1152,22 @@ async function main() {
   // (The pane's outlines: in the layer's own, or in the one that scrolls with the document.)
   const both = (sel: string) => `[...(${shadow}?.querySelectorAll('${sel}') ?? []), ...(document.querySelector('b42-marks')?.shadowRoot.querySelectorAll('${sel}') ?? [])]`
   const outlined = () => js(`${both(".box.fx:not(.mk)")}.map((b) => { const r = b.getBoundingClientRect(); return [r.x, r.y, r.width, r.height] })`) as Promise<number[][]>
-  // Marks off (the default): the page is the page. The toggle in the pane's header marks every
-  // listed element, as many as the pane has rows, and takes them away again.
+  // Marks off (the default): the page is the page. The Marks switch in the pane's header marks
+  // every listed element, as many as the pane has rows, and takes them away again.
   const marked = () => js(`${both(".box.fx.mk")}.length`) as Promise<number>
   const rowCount = () => ui(`document.querySelectorAll('.fp-fact').length`) as Promise<number>
-  const marksBtn = () => ui(`(() => { const b = document.querySelector('.pl-marks'); return b.getAttribute('aria-pressed') + "|" + b.textContent + "|" + b.title })()`) as Promise<string>
+  const marksBtn = () => ui(`(() => { const b = document.querySelector('.pl-marks'); return b.getAttribute('role') + "|" + b.getAttribute('aria-checked') + "|" + b.textContent + "|" + b.title })()`) as Promise<string>
   await sleep(300) // (the pane's rows are in: a mark would be by now)
   const clean = [await marked(), await marksBtn()] as const
-  check("in Preview the page is clean: no marks until asked for, and the toggle says what it would do", clean[0] === 0 && clean[1] === "false|Marks off|Outline everything listed here on the page", clean.join(" / "))
+  check("in Preview the page is clean: no marks until asked for, and the Marks switch is off", clean[0] === 0 && clean[1] === "switch|false|Marks|Outline everything listed here on the page", clean.join(" / "))
   await ui(`document.querySelector('.pl-marks').click()`)
   const markedAll = await until(async () => {
     const [m, r] = [await marked(), await rowCount()]
     return m > 0 && m === r ? m : null
   }, 3000)
-  check("with marks on, the page has a mark for each of the pane's rows", !!markedAll && (await marksBtn()) === "true|Marks on|Stop outlining them on the page", `${await marked()} marks, ${await rowCount()} rows, ${await marksBtn()}`)
+  check("with marks on, the page has a mark for each of the pane's rows", !!markedAll && (await marksBtn()) === "switch|true|Marks|Outline everything listed here on the page", `${await marked()} marks, ${await rowCount()} rows, ${await marksBtn()}`)
   await ui(`document.querySelector('.pl-marks').click()`)
-  check("…and the toggle takes them off the page, and says so in words", (await until(async () => (await marked()) === 0, 3000)) === true && (await marksBtn()).startsWith("false|Marks off"), `${await marked()} ${await marksBtn()}`)
+  check("…and the switch takes them off the page, and shows it off", (await until(async () => (await marked()) === 0, 3000)) === true && (await marksBtn()).startsWith("switch|false|Marks|"), `${await marked()} ${await marksBtn()}`)
   await hoverRow(true)
   const boxes = (await until(async () => ((await outlined()).length ? outlined() : null), 3000)) ?? []
   const target = (await js(`(() => { const r = document.getElementById("cta").getBoundingClientRect(); return [r.x, r.y, r.width, r.height] })()`)) as number[]
@@ -1178,6 +1178,13 @@ async function main() {
   check("…and off the row, the outline goes", (await until(async () => (await outlined()).length === 0, 3000)) === true)
   await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
   await until(() => state().review.mode === "notes" && state().review.enabled)
+  // A row's Note is out of sight until its row has the pointer or the focus, and stays in the tab order.
+  const noteSeen = (focus: boolean) =>
+    until(() => ui(`(() => { const r = [...document.querySelectorAll('.fp-fact')].find((r) => r.querySelector('.fp-label').textContent === "Start free trial"); const b = r?.querySelector('.fp-note'); if (!b) return null; if (${focus}) r.querySelector('.fp-hit').focus(); else document.activeElement?.blur(); return getComputedStyle(b).opacity + "|" + b.tabIndex })()`), 3000) as Promise<string | null>
+  const restNote = await noteSeen(false)
+  const focusNote = await noteSeen(true)
+  check("in Annotate a row's Note shows only with the row's focus (or pointer), and can be tabbed to", restNote === "0|0" && focusNote === "1|0", `${restNote} / ${focusNote}`)
+  await ui(`document.activeElement?.blur()`)
   // In Annotate a row's Note button starts a note about its element: the card opens on the page,
   // with that element chosen, and the keyboard is the page's.
   const cardOpen = () => js(`!!${shadow}?.querySelector('.card') && !${shadow}.querySelector('.card').hidden`) as Promise<boolean>

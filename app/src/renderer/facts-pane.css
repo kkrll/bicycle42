@@ -120,27 +120,11 @@
   }
 }
 
-/* Marks on | off: two states in words. Its words end 12px in from the right edge. */
+/* Marks: the app's switch (.toggle in styles.css), as tall as the counts. Its words end 12px in
+   from the right edge. */
 .pl-marks {
   flex: none;
   height: 24px;
-  padding: 0 7px;
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  color: var(--muted);
-  font-weight: 500;
-  transition: background var(--duration-micro) var(--ease-micro);
-}
-
-.pl-marks:hover {
-  background: var(--surface);
-  color: var(--foreground);
-}
-
-.pl-marks[aria-pressed="true"] {
-  border-color: var(--background-05);
-  background: var(--surface-strong);
-  color: var(--foreground);
 }
 
 /* ── the body ─────────────────────────────────────────────────────────────────────────────────── */
@@ -189,15 +173,11 @@
   color: var(--ink-warn);
 }
 
-.fp-ok .icon {
-  color: var(--ink-good);
-}
-
 .fp-sec {
   margin-top: 12px;
 }
 
-/* A section's name, in sentence case, its tone and how many. */
+/* A section's name, in sentence case, and its tone. */
 .fp-h {
   display: flex;
   align-items: center;
@@ -206,11 +186,6 @@
   font-size: var(--text-control);
   font-weight: 600;
   color: var(--muted);
-}
-
-.fp-count {
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
 }
 
 /* A kind's tone: the legend of the marks on the page. */
@@ -294,20 +269,19 @@
   padding-right: 4px;
 }
 
-/* Note, in Annotate: words only at rest, so a list of them does not outweigh the facts; a button's
-   border and the foreground on its row's hover, or with the focus. */
+/* Note, in Annotate: out of sight at rest, so a list of them does not outweigh the facts; on its
+   row's hover, or with the focus in the row, a button. (Still in the tab order while unseen.) */
 .btn.fp-note {
   width: 100%;
   height: 22px;
   padding: 0;
-  border-color: transparent;
-  color: var(--muted);
+  border-color: var(--background-05);
+  opacity: 0;
 }
 
 .fp-fact:hover .btn.fp-note,
-.btn.fp-note:focus-visible {
-  border-color: var(--background-05);
-  color: var(--foreground);
+.fp-fact:focus-within .btn.fp-note {
+  opacity: 1;
 }
 
 /* The files the agent changed: words, not controls. */

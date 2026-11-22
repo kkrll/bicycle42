@@ -480,7 +480,8 @@ const TREE: Record<string, string[]> = {
 // ── the painted page ────────────────────────────────────────────────────────────────────────────
 // Neutral greys on purpose: it stands for someone else's site, not for this app's design.
 
-/** `pins`: the review has notes, so their pins are on the page. */
+/** `pins`: the review has notes, so their pins are on the page (in Annotate, Edit and Motion:
+ *  Preview is the page alone, as the overlay draws it; `[data-pins]` is shown by the bridge). */
 function fakePage(pins: boolean): HTMLElement {
   const el = document.createElement("div")
   el.style.cssText =
@@ -499,7 +500,7 @@ function fakePage(pins: boolean): HTMLElement {
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:48px">
         ${block("height:180px;border:1px solid GrayText;border-radius:12px").repeat(3)}
       </div>
-      ${pins ? pin(1, "done", 12, 44) : ""}${pins ? pin(4, "working", 12, 104) + pin(5, "queued", 164, 150) + pin(6, "failed", 300, 250) + pin(8, "working", 590, 250, true) : ""}
+      <div data-pins>${pins ? pin(1, "done", 12, 44) + pin(4, "working", 12, 104) + pin(5, "queued", 164, 150) + pin(6, "failed", 300, 250) + pin(8, "working", 590, 250, true) : ""}</div>
     </div>`
   document.body.append(el)
   return el
@@ -512,7 +513,11 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   let items: ChatItem[] = transcript()
   const stateFns = new Set<(s: AppState) => void>()
   const chatFns = new Set<(e: ChatEvent) => void>()
-  const push = () => stateFns.forEach((fn) => fn(structuredClone(state)))
+  const push = () => {
+    const pins = document.querySelector<HTMLElement>("[data-pins]")
+    if (pins) pins.hidden = !state.review.enabled
+    stateFns.forEach((fn) => fn(structuredClone(state)))
+  }
   const emit = (e: ChatEvent) => chatFns.forEach((fn) => fn(e))
   const panelFns = new Set<(m: PanelMessage) => void>()
   const sid = () => state.session?.id ?? ""
@@ -893,6 +898,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   if (params.get("mode") === "preview") (state.review.enabled = false), (state.review.mode = "preview")
 
   const page = fakePage(state.review.notes.length > 0)
+  page.querySelector<HTMLElement>("[data-pins]")!.hidden = !state.review.enabled
 
   const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => ReturnType<Commands[K]> | Promise<ReturnType<Commands[K]>> } = {
     navigate(url) {

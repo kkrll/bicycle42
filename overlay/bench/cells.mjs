@@ -146,7 +146,8 @@ export const CELLS = [
   { id: "off-wheel", page: "heavy", run: wheel, base: "none-wheel", after: () => window.scrollY > 3000 },
   { id: "off-scroll", page: "heavy", run: scrolls, after: () => window.scrollY > 3000 },
   { id: "off+churn", page: "churn" },
-  { id: "pins-missing", page: "churn", pins: MISSING, ready: (r) => r.querySelectorAll(".pin.approx").length === 5 },
+  { id: "off-pins", page: "heavy", pins: PLACED, run: wheel, base: "none-wheel", after: () => window.scrollY > 3000 },
+  { id: "pins-missing", page: "churn", enabled: true, pins: MISSING, ready: (r) => r.querySelectorAll(".pin.approx").length === 5 },
   { id: "on-idle", page: "heavy", enabled: true },
   { id: "selected", page: "heavy", enabled: true, setup: ({ page }) => click(page, "#c7 h3"), ready: cardOpen },
   { id: "strokes", page: "heavy", enabled: true, setup: strokes, ready: fourStrokes },
@@ -159,9 +160,9 @@ export const CELLS = [
   { id: "canvas-after-drag", page: "heavy", enabled: true, setup: canvasDrag, ready: inspecting },
   { id: "canvas-drag", page: "heavy", enabled: true, setup: async ({ page }) => (await canvasOn(page), await clickPad(page, "#c7")), ready: inspecting, run: resizeDrag },
   { id: "motion-selected", page: "heavy", enabled: true, setup: motionSelected, base: "none+bob", ready: (r) => !r.querySelector(".m-tag").hidden },
-  { id: "pins-scroll", page: "heavy", pins: PLACED, ready: (r) => r.querySelectorAll(".pin:not(.approx)").length === 20, run: wheel, base: "none-wheel", after: () => window.scrollY > 3000 },
-  { id: "pins200-scroll", page: "heavy", pins: MANY, ready: (r) => r.querySelectorAll(".pin:not(.approx)").length > 5, run: wheel, base: "none-wheel", after: () => window.scrollY > 3000 },
-  { id: "pin-working", page: "heavy", pins: WORKING, ready: (r) => r.querySelectorAll(".pin.working:not(.approx)").length === 1 },
+  { id: "pins-scroll", page: "heavy", enabled: true, pins: PLACED, ready: (r) => r.querySelectorAll(".pin:not(.approx)").length === 20, run: wheel, base: "none-wheel", after: () => window.scrollY > 3000 },
+  { id: "pins200-scroll", page: "heavy", enabled: true, pins: MANY, ready: (r) => r.querySelectorAll(".pin:not(.approx)").length > 5, run: wheel, base: "none-wheel", after: () => window.scrollY > 3000 },
+  { id: "pin-working", page: "heavy", enabled: true, pins: WORKING, ready: (r) => r.querySelectorAll(".pin.working:not(.approx)").length === 1 },
 ];
 /** The baseline a cell's own milliseconds are measured against. */
 export const baseOf = (cell) => cell.base || (cell.page === "churn" ? "none+churn" : "none");
@@ -187,6 +188,9 @@ export const invariants = (fps) => [
   ["off-scroll", "searches", 0],
   ["off+churn", "frames", 0],
   ["off+churn", "searches", 0],
+  // Review off with pins: Preview draws none, so the same nothing while the page scrolls.
+  ["off-pins", "frames", 0],
+  ["off-pins", "searches", 0],
   // Still: the idle tick (250 ms), whether something is selected or drawn or not.
   ["on-idle", "frames", 6],
   ["selected", "frames", 6],

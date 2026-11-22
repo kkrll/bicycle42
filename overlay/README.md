@@ -185,7 +185,7 @@ What the overlay costs the page under review, state by state (`bench/cells.mjs`)
 and idle, an element selected (on a still page and on one that changes), four strokes drawn,
 strokes while scrolling, a stroke being drawn, typing in the note card, the pointer moving,
 canvas mode (a selection, after a drag, during a resize drag), motion mode with an animation
-open (its dock the host's, so the views sent to it are counted), pins that are missing, scrolled past (twenty, then two hundred) or working. The pages are
+open (its dock the host's, so the views sent to it are counted), pins with review off (none drawn), and pins that are missing, scrolled past (twenty, then two hundred) or working. The pages are
 made in memory: `heavy` (5,000 elements) and `churn` (2,000, one text changing every frame).
 Each state settles, then is measured over three windows of 3 s; the table shows the median, per
 second: main-thread, script, layout, style-recalc, paint, raster and GPU milliseconds and counts
@@ -198,8 +198,8 @@ that of the `none` state with the same page and gesture, so it is the overlay's 
 milliseconds. `--cells` measures a state's baseline with it.
 
 Below the table are the invariants, checked from counts only (milliseconds depend on the
-machine): with review off and no pins there are no frames, no timers and no searches, whatever
-the pointer, the wheel or the page does; idle is the 250 ms tick, with an element selected,
+machine): with review off there are no frames, no timers and no searches, whatever the pointer,
+the wheel or the page does, with pins or without (Preview draws none); idle is the 250 ms tick, with an element selected,
 strokes drawn or a canvas selection too; a selection or drawn strokes cause no layout, no style
 recalc and no path writes while nothing moves; strokes cause no layout and no path writes while
 the page scrolls, and strokes and pins (20 or 200) are painted at most 5 times a second then; on

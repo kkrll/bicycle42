@@ -120,6 +120,38 @@ test("pin follows the queue to done", async () => {
   await page.close();
 });
 
+test("Preview draws no pins and asks for no frames for them; Annotate draws them again", async () => {
+  const { page, f } = await open(50);
+  await clickAt(page, f, "#cta");
+  await page.keyboard.type("x");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() => window.__harness.notes[0]?.status === "done");
+  const pins = () => f.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelectorAll(".pin").length);
+  await f.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelectorAll(".pin").length === 1);
+  await page.click("#toggle"); // review off: Preview
+  await f.waitForFunction(() => !document.documentElement.hasAttribute("data-b42-review"));
+  await page.waitForTimeout(600); // (the frames of the last key typed end after half a second)
+  assert.equal(await pins(), 0, "no pin in Preview");
+  // The page scrolls and changes: nothing is drawn for pins nobody sees.
+  const frames = await f.evaluate(async () => {
+    let n = 0;
+    const real = window.requestAnimationFrame;
+    window.requestAnimationFrame = (cb) => (n++, real(cb));
+    window.scrollBy(0, 200);
+    // (A text, not an element added: one came or went is a frame for variant groups, review on or off.)
+    document.querySelector(".hero p").firstChild.data += " Changed.";
+    await new Promise((r) => setTimeout(r, 600));
+    window.requestAnimationFrame = real;
+    return n;
+  });
+  assert.equal(frames, 0, `${frames} frames asked for in Preview`);
+  assert.equal(await pins(), 0);
+  await page.click("#toggle"); // back on: Annotate
+  await f.waitForFunction(() => document.documentElement.hasAttribute("data-b42-review"));
+  await f.waitForFunction(() => document.querySelector("b42-review").shadowRoot.querySelector(".pin.done")?.textContent === "1");
+  await page.close();
+});
+
 test("alt+Enter sends to the background lane; busy() covers the whole note", async () => {
   const { page, f } = await open(100);
   const busy = () => f.evaluate(() => window.__b42.busy());

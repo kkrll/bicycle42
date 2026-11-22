@@ -4,8 +4,10 @@
 // dock and nothing else.
 //
 // The pane's header is the phone line (PhoneLine): how many of each fact, each count a button
-// (the pointer on it marks that kind on the page, a click goes to the next one), and the marks
-// toggle at its right.
+// (the pointer on it marks that kind on the page, a click goes to the next one), and the Marks
+// switch at its right. The body says each fact once: no phone size (the picker above the phone
+// says it), no counts in the headings (the line's counts say them, its dots are the legend), and
+// "Fits this phone" only in the line.
 //
 // The facts are the overlay's (overlay/src/facts/host.js; FactsView in overlay/protocol-facts.ts),
 // worked out only while the pane shows them: it says it wants them (wantFacts), and the window
@@ -17,6 +19,7 @@
 import { For, Match, Show, Switch, createEffect, createMemo, createRoot, createSignal, on, onCleanup, onMount } from "solid-js"
 import type { FactItem, FactKind, FactList, FactsAct, FactsView } from "../../../overlay/protocol-facts"
 import { Counts } from "./chat"
+import { Toggle } from "./connect"
 import { Icon, Kbd } from "./icons"
 import { dockAct, dockViews, factsMarks, keys, setFactsMarks, state } from "./store"
 import "./facts-pane.css"
@@ -88,10 +91,6 @@ export function FactsPane() {
   const view = () => dockViews.facts ?? null
   const annotate = () => state.review.enabled && state.review.mode === "notes"
   const changes = () => state.repo?.changes ?? []
-  const clear = () => {
-    const v = view()
-    return !!v && total(v) === 0
-  }
   onCleanup(() => send({ type: "hover", id: null }))
   // The row of the element a count's click went to: brought into the pane's view, lit a moment.
   let body!: HTMLDivElement
@@ -114,21 +113,13 @@ export function FactsPane() {
           {(v) => (
             <>
               <p class="fp-line fp-sum">
-                <span>
-                  {n(v().viewport.w)} × {n(v().viewport.h)} · page is {n(v().doc.h)} tall
-                </span>
+                <span>Page is {n(v().doc.h)} tall</span>
                 <Show when={v().doc.w > v().viewport.w + 1}>
                   <span class="fp-warn">scrolls sideways: {n(v().doc.w)} wide</span>
                 </Show>
               </p>
               <Show when={!v().meta}>
                 <p class="fp-line fp-warn">No viewport tag: a phone lays this page out about 980 wide and zooms out.</p>
-              </Show>
-              <Show when={clear()}>
-                <p class="fp-line fp-ok">
-                  <Icon name="check" />
-                  Fits this phone: nothing sticks out, taps are 44 px or more, no field zooms.
-                </p>
               </Show>
               <Show when={v().partial}>
                 <p class="fp-line fp-quiet">A large page: these are from its first few thousand elements.</p>
@@ -184,7 +175,7 @@ export function FactsPane() {
 }
 
 /** One kind of fact, only when there is some: a heading (its dot the tone of its marks on the
- *  page) and a row for each element. */
+ *  page; how many is the line's to say) and a row for each element. */
 function Facts(props: { kind: Kind; title: string; list: FactList; annotate: boolean; lit: number }) {
   return (
     <Show when={props.list.total > 0}>
@@ -192,7 +183,6 @@ function Facts(props: { kind: Kind; title: string; list: FactList; annotate: boo
         <h3 class="fp-h">
           <Dot kind={props.kind} />
           {props.title}
-          <span class="fp-count">{props.list.total}</span>
         </h3>
         <ul class="fp-rows">
           <For each={props.list.items}>{(it) => <Row item={it} annotate={props.annotate} lit={props.lit === it.id} />}</For>
@@ -206,8 +196,8 @@ function Facts(props: { kind: Kind; title: string; list: FactList; annotate: boo
 }
 
 /** A row: the pointer on it outlines its element on the page, a click brings it into view, and in
- *  Annotate "Note" makes it the note's selection. Its last cell is there on every row, Note or
- *  not, so every number ends at the same x. */
+ *  Annotate "Note" makes it the note's selection (shown on the row's hover and focus only). Its
+ *  last cell is there on every row, Note or not, so every number ends at the same x. */
 function Row(props: { item: FactItem; annotate: boolean; lit: boolean }) {
   return (
     <li
@@ -250,7 +240,7 @@ export function nextOf(items: readonly FactItem[], last: number | undefined): Fa
   return items[(i + 1) % items.length]
 }
 
-/** The facts pane's header: how many of each fact, and the marks toggle. `onGo`: a count's click
+/** The facts pane's header: how many of each fact, and the Marks switch. `onGo`: a count's click
  *  went to that element (the pane brings its row into view). */
 export function PhoneLine(props: { onGo?: (id: number) => void }) {
   wantFacts(factsMarks)
@@ -293,7 +283,7 @@ export function PhoneLine(props: { onGo?: (id: number) => void }) {
             </span>
           </Match>
           <Match when={says() === "fits"}>
-            <span class="pl-ok">
+            <span class="pl-ok" title="Nothing sticks out, taps are 44 px or more, no field zooms">
               <Icon name="check" />
               Fits this phone
             </span>
@@ -330,15 +320,7 @@ export function PhoneLine(props: { onGo?: (id: number) => void }) {
           </Match>
         </Switch>
       </div>
-      <button
-        type="button"
-        class="pl-marks"
-        aria-pressed={factsMarks()}
-        title={factsMarks() ? "Stop outlining them on the page" : "Outline everything listed here on the page"}
-        onClick={() => setFactsMarks(!factsMarks())}
-      >
-        {factsMarks() ? "Marks on" : "Marks off"}
-      </button>
+      <Toggle class="pl-marks" on={factsMarks()} label="Marks" title="Outline everything listed here on the page" onClick={() => setFactsMarks(!factsMarks())} />
     </div>
   )
 }
