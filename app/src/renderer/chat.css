@@ -22,7 +22,6 @@
   background: var(--background);
   scrollbar-width: thin;
   scrollbar-color: var(--background-05) transparent;
-  animation: fadeIn var(--duration-micro) var(--ease-entrance);
 }
 
 .suggest-group {
@@ -221,21 +220,6 @@
   background: var(--hover-fill);
 }
 
-/* A pin clicked on the page points at its message. */
-.msg.flash {
-  animation: flash calc(var(--duration-slow) * 5) var(--ease-micro);
-}
-
-@keyframes flash {
-  0%,
-  40% {
-    box-shadow: 0 0 0 2px var(--accent);
-  }
-  100% {
-    box-shadow: 0 0 0 2px transparent;
-  }
-}
-
 /* Copy a reply: out of the way until the reader is in the message. */
 .msg-tools {
   display: flex;
@@ -270,18 +254,42 @@
   color: var(--ink-good);
 }
 
-/* "Copy" and "Copied" in one cell, the other hidden: one width for both (copy.tsx). */
-.copy-words {
+/* "Copy" and "Copied" in one cell, and the two icons in another: one width for both (copy.tsx).
+   One crossfades into the other, the word leaving blurred a little, the icon coming from a little
+   smaller; without motion, only the fade. */
+.copy-words,
+.copy-icons {
   display: inline-grid;
 }
 
-.copy-words > span {
+.copy-words > span,
+.copy-icons > .icon {
   grid-area: 1 / 1;
+  transition:
+    opacity var(--duration-exit) var(--ease-micro),
+    filter var(--duration-exit) var(--ease-micro),
+    scale var(--duration-exit) var(--ease-micro);
+}
+
+.copy-btn:not(.copied) :is(.copy-words, .copy-icons) > :last-child,
+.copy-btn.copied :is(.copy-words, .copy-icons) > :first-child {
+  opacity: 0;
 }
 
 .copy-btn:not(.copied) .copy-words > :last-child,
 .copy-btn.copied .copy-words > :first-child {
-  visibility: hidden;
+  filter: blur(2px);
+}
+
+.copy-btn:not(.copied) .copy-icons > :last-child,
+.copy-btn.copied .copy-icons > :first-child {
+  scale: 0.9;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copy-icons > .icon {
+    scale: none !important;
+  }
 }
 
 /* ── long output and code ─────────────────────────────────────────────────────────────────── */
@@ -736,7 +744,8 @@
   border: 1px solid var(--background-05);
   border-radius: 8px;
   background: var(--background);
-  animation: fadeIn var(--duration-enter) var(--ease-entrance);
+  animation: pop-in var(--duration-enter) var(--ease-entrance);
+  transform-origin: bottom right;
 }
 
 .meter-head {
@@ -1382,7 +1391,8 @@
   border: 1px solid var(--background-05);
   border-radius: 8px;
   background: var(--background);
-  animation: fadeIn var(--duration-enter) var(--ease-entrance);
+  animation: pop-in var(--duration-enter) var(--ease-entrance);
+  transform-origin: top right;
 }
 
 .repo-head {

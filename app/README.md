@@ -816,9 +816,21 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   `overlay/protocol.ts`, "facts" in `HOSTED_PANES`) and rides as a dock does. In Edit and Motion
   the column is the mode's dock and nothing else, and nothing is worked out; a desktop's page has
   no column and no pane.
-- **The bar's hints wait two seconds** (`HINT_DELAY`), and one that is up stays a moment after
-  the pointer leaves its control (`HINT_LINGER`): on the way to the next control the same
-  element gets new words, and is not taken down and put up again.
+- **The bar's hints wait 600 ms** (`HINT_DELAY`): a pointer passing over on its way to a click
+  sees none. One that is up stays a moment after the pointer leaves its control
+  (`HINT_LINGER`): on the way to the next control the same element gets new words, at once and
+  with no fade, and is not taken down and put up again.
+- **While the page is away for a moment, its picture holds its place.** A dialog over the window
+  (Settings, the list behind "+") or an edge being dragged takes the native page view away
+  (`setPageBounds(null)`). First the window asks main for a picture of the page as it is drawn
+  (`pageStill`: `capturePage`, a JPEG at the device's pixels, as a `data:` address, since the
+  window's images take no other), draws it where the view is (`.page-still`, at the view's size:
+  a dragged edge crops it), and only then lets the view go, so the window never blanks and a
+  dialog's backdrop fades over the page. It waits 150 ms at most (`STILL_WAIT`); meanwhile a
+  dialog that opened waits unseen at the start of its entrance (`.page-holding`), so it does not
+  come in half under the page. The picture stays under the view a moment after it is back
+  (`STILL_KEEP`). Settings leaves in 150 ms (`.dialog:not([open])`, its `display` and `overlay`
+  held to the end), and the page stays away until it has.
 - **A dock the window draws.** Edit mode's inspector and motion mode's dock are the window's
   only: the overlay draws neither and the page has none of its own. A dock named in
   `HOSTED_PANES` (`shared/types.ts`) is drawn by the window: the overlay is told after every

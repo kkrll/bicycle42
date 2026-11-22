@@ -886,6 +886,9 @@
   background: var(--background);
   --hover-fill: var(--surface-strong);
   overscroll-behavior: contain;
+  /* Out of the "?" at the footer's right end (pop-in, styles.css). */
+  animation: pop-in var(--duration-enter) var(--ease-entrance);
+  transform-origin: bottom right;
 }
 
 /* The edits list, from the count: as the keys list, at the footer's other end. A row is what the
@@ -902,6 +905,9 @@
   background: var(--background);
   --hover-fill: var(--surface-strong);
   overscroll-behavior: contain;
+  /* Out of the count at the footer's left end. */
+  animation: pop-in var(--duration-enter) var(--ease-entrance);
+  transform-origin: bottom left;
 }
 
 .cd-erow {

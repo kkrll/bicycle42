@@ -16,9 +16,10 @@ export async function copyText(text: string): Promise<boolean> {
 /** How long "Copied" stays. */
 const SHOWN = 1500
 
-/** Both words are always there, in one grid cell, the one not said hidden: the button is as wide
- *  as "Copied" from the start, so saying it moves nothing under the pointer. Its size is the
- *  CSS's (.copy-btn), never the component's, so a screen can give it another. */
+/** Both words are always there, in one grid cell, the one not said faded out, and both icons the
+ *  same: the button is as wide as "Copied" from the start, so saying it moves nothing under the
+ *  pointer, and one crossfades into the other. Its size is the CSS's (.copy-btn), never the
+ *  component's, so a screen can give it another. */
 export function CopyButton(props: { text: () => string; label: string; class?: string }) {
   const [copied, setCopied] = createSignal(false)
   let timer = 0
@@ -36,7 +37,10 @@ export function CopyButton(props: { text: () => string; label: string; class?: s
         timer = window.setTimeout(() => setCopied(false), SHOWN)
       }}
     >
-      <Icon name={copied() ? "check" : "copy"} />
+      <span class="copy-icons">
+        <Icon name="copy" />
+        <Icon name="check" />
+      </span>
       <span class="copy-words">
         <span>Copy</span>
         <span>Copied</span>
@@ -53,6 +57,9 @@ export function copyButtonElement(label: string, cls = ""): HTMLButtonElement {
   b.className = `copy-btn ${cls}`.trim()
   b.title = label
   b.setAttribute("aria-label", label)
+  const icons = document.createElement("span")
+  icons.className = "copy-icons"
+  icons.append(iconElement("copy"), iconElement("check"))
   const words = document.createElement("span")
   words.className = "copy-words"
   for (const w of ["Copy", "Copied"]) {
@@ -60,7 +67,7 @@ export function copyButtonElement(label: string, cls = ""): HTMLButtonElement {
     span.textContent = w
     words.append(span)
   }
-  b.append(iconElement("copy"), words)
+  b.append(icons, words)
   return b
 }
 
@@ -69,7 +76,6 @@ export function copiedElement(b: HTMLButtonElement): void {
   const show = (on: boolean) => {
     b.classList.toggle("copied", on)
     b.setAttribute("aria-label", on ? "Copied" : b.title)
-    b.querySelector("svg")?.replaceWith(iconElement(on ? "check" : "copy"))
   }
   show(true)
   clearTimeout(Number(b.dataset.timer))

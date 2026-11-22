@@ -163,7 +163,8 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
       requestAnimationFrame(() => {
         const row = rows.get(focus.id)
         if (!row) return
-        row.scrollIntoView({ block: "nearest" })
+        // Brought into view as its message is in the conversation: smoothly, unless motion is reduced.
+        row.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" })
         row.classList.remove("flash")
         void row.offsetWidth
         row.classList.add("flash")

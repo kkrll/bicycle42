@@ -205,6 +205,9 @@ async function main() {
   await ui(`document.querySelector(".place-agent").click()`)
   const choices = (await until(() => ui(`(() => { const rows = [...document.querySelectorAll(".agent-pop [data-choice]")]; return rows.length ? rows.map((r) => r.querySelector(".agent-pop-name").textContent + (r.getAttribute("aria-checked") === "true" ? " ✓" : "")) : null })()`), 3000)) as string[] | null
   check("…its name opens the agents to switch to, the one in use checked first", choices?.[0] === "fake-agent ✓" && !choices.some((c) => c.includes("acp://")), JSON.stringify(choices))
+  // Popovers opened by a click grow out of the side their control is on (pop-in, styles.css).
+  const popsIn = (sel: string) => ui(`(() => { const p = document.querySelector(${JSON.stringify(sel)}); if (!p) return ""; const s = getComputedStyle(p), w = p.offsetWidth, h = p.offsetHeight; const [x, y] = s.transformOrigin.split(" ").map(parseFloat); return s.animationName + " " + s.animationDuration + " from " + (Math.abs(y) < 1 ? "top" : Math.abs(y - h) < 1 ? "bottom" : y) + " " + (Math.abs(x) < 1 ? "left" : Math.abs(x - w) < 1 ? "right" : x) })()`) as Promise<string>
+  check("…growing out of it, from its top left", (await popsIn(".agent-pop")) === "pop-in 0.2s from top left", await popsIn(".agent-pop"))
   await ui(`document.querySelector(".agent-pop").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`)
   check("…and Escape closes it", (await until(() => ui(`!document.querySelector(".agent-pop")`), 2000)) === true)
 
@@ -286,12 +289,17 @@ async function main() {
     (await until(() => ui(`(() => { const l = ${workingLines}; return l.length === 1 && /^working: Working on ?1 ?make this button bigger$/.test(l[0]) })()`))) === true,
     JSON.stringify(await ui(workingLines)),
   )
+  // One rhythm in a line at work: its spinner says it, the note's badge beside it stands still,
+  // and every spinner in the window turns in step with every other.
+  const oneRhythm = (line: string) => ui(`(() => { const b = document.querySelector(${JSON.stringify(line)} + " .badge"); const spins = document.getAnimations().filter((a) => a.animationName === "spin"); return b ? getComputedStyle(b, "::after").animationName + " | " + spins.length + " spinning, " + spins.filter((a) => a.startTime === 0).length + " in step" : "" })()`) as Promise<string>
+  check("…its badge stands still beside the spinner, which turns in step with the window's others", /^none \| (\d+) spinning, \1 in step$/.test(await oneRhythm(".transcript .working")) && !/\| 0 spinning/.test(await oneRhythm(".transcript .working")), await oneRhythm(".transcript .working"))
   await (await turnNow())?.update({ sessionUpdate: "tool_call", toolCallId: "e2e-read", title: "Read", kind: "read", status: "completed", locations: [{ path: path.join(siteDir, "index.html") }] })
   check(
     "once it takes a step, the turn's header says it, with the note's words and no counts (the rows under it say them), and no line at the foot",
     (await until(() => ui(`(() => { const l = ${workingLines}; return l.length === 1 && /^turn-head live: Working on ?1 ?make this button bigger ?· \\d+s$/.test(l[0]) })()`))) === true,
     JSON.stringify(await ui(workingLines)),
   )
+  check("…the same one rhythm there", /^none \| (\d+) spinning, \1 in step$/.test(await oneRhythm(".transcript .turn-head.live")) && !/\| 0 spinning/.test(await oneRhythm(".transcript .turn-head.live")), await oneRhythm(".transcript .turn-head.live"))
   // Said to a screen reader as it changes, without the clock that ticks beside it.
   const liveSaid = `[...document.querySelectorAll('.transcript .turn [aria-live="polite"]')].map((e) => e.textContent.trim())`
   check(
@@ -418,21 +426,82 @@ async function main() {
   await sleep(300) // past the switch's own transition
   const still = await colours('.mode[data-mode="notes"]')
   await hover('.mode[data-mode="notes"]')
+  const rested = Date.now()
   await sleep(150)
   check("the chosen mode keeps its colours under the pointer", (await colours('.mode[data-mode="notes"]')) === still, `${still} → ${await colours('.mode[data-mode="notes"]')}`)
   check("…and no hint yet: the pointer only passed", (await hintText()) === "")
   // On a Mac ⌘ is drawn (an SVG), so the text has only the digit.
   const modKey = (k: string) => (process.platform === "darwin" ? k : `Ctrl+${k}`)
   check("resting on it, the hint says what it does and its key", (await until(async () => (await hintText()) === `Point at something, say what to change${modKey("P")}`, 4000)) === true, await hintText())
+  // (Rest is about half a second: well under the two seconds it was, frames late as they are here.)
+  const restedFor = Date.now() - rested
+  check("…after a moment's rest, not two seconds", restedFor < 1500, `${restedFor} ms`)
   check("…in the bar, left of the controls, where the page view cannot cover it", (await ui(`(() => { const h = document.querySelector('.bar-hint').getBoundingClientRect(), b = document.querySelector('.topbar').getBoundingClientRect(), t = document.querySelector('[data-action="draw"]').getBoundingClientRect(); return h.top >= b.top && h.bottom <= b.bottom && h.right <= t.left })()`)) === true)
   await hover('.mode[data-mode="edit"]')
   await sleep(100)
   // "At once" is without the rest the first hint needs; the hidden window still draws a few frames late.
   check("the next one's hint shows at once", (await until(async () => (await hintText()) === `Change the page itself, then send${modKey("O")}`, 600)) === true, await hintText())
+  check("…with no fade: it is the same hint going on", (await ui(`getComputedStyle(document.querySelector('.bar-hint')).animationName`)) === "none", await ui(`getComputedStyle(document.querySelector('.bar-hint')).animationName`))
   check("a mode not chosen lights up under the pointer", (await colours('.mode[data-mode="edit"]')) !== (await ui(`(() => { const s = getComputedStyle(document.querySelector('.mode[data-mode="preview"]')); return s.color + " on " + s.backgroundColor })()`)))
   await hover(".url")
   await sleep(100)
   check("…and it goes when the pointer leaves", (await until(async () => (await hintText()) === "", 600)) === true, await hintText())
+  // Pressed, a button gives a little under the pointer, and comes back when it is let go (here
+  // away from it, so nothing is clicked).
+  {
+    const at = await centreOf('.mode[data-mode="notes"]')
+    const scaled = () => ui(`getComputedStyle(document.querySelector('.mode[data-mode="notes"]')).scale`) as Promise<string>
+    win.webContents.sendInputEvent({ type: "mouseMove", x: at.x, y: at.y })
+    win.webContents.sendInputEvent({ type: "mouseDown", x: at.x, y: at.y, button: "left", clickCount: 1 })
+    const down = await until(async () => ((await scaled()) === "0.97" ? "0.97" : ""), 1000)
+    win.webContents.sendInputEvent({ type: "mouseMove", x: at.x, y: at.y + 300 })
+    win.webContents.sendInputEvent({ type: "mouseUp", x: at.x, y: at.y + 300, button: "left", clickCount: 1 })
+    const up = await until(async () => ((await scaled()) === "none" ? "none" : ""), 1000)
+    check("a button pressed gives a little under the pointer, and comes back when let go", down === "0.97" && up === "none" && state().review.mode === "notes", `${down || (await scaled())} → ${up || (await scaled())}`)
+  }
+  // A dialog over the page: the page's view goes, and its picture as it was holds its place, so
+  // the window does not blank and the dialog's backdrop fades over the page.
+  {
+    // (Where the dialog's entrance is when main is told to take the page away.)
+    const setBounds = page.setBounds
+    let entranceAtAway: Promise<unknown> | undefined
+    page.setBounds = (to) => {
+      if (!to && !entranceAtAway) entranceAtAway = ui(`document.querySelector('dialog.dialog')?.getAnimations()[0]?.currentTime ?? "none"`)
+      setBounds(to)
+    }
+    await ui(`document.querySelector('[data-action="settings"]').click()`)
+    const still = (await until(() => ui(`(() => { const i = document.querySelector('.page .page-still'), p = document.querySelector('.page'); if (!i?.complete || !i.naturalWidth) return null; const r = i.getBoundingClientRect(), q = p.getBoundingClientRect(); const c = document.createElement("canvas"); c.width = i.naturalWidth; c.height = i.naturalHeight; const g = c.getContext("2d"); g.drawImage(i, 0, 0); const seen = new Set(); for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) seen.add(g.getImageData(Math.floor((x + 0.5) * c.width / 8), Math.floor((y + 0.5) * c.height / 8), 1, 1).data.join()); return { at: [r.x - q.x - p.clientLeft, r.y - q.y - p.clientTop], size: [r.width, r.height], box: [p.clientWidth, p.clientHeight], pixels: [i.naturalWidth, i.naturalHeight], dpr: devicePixelRatio, colours: seen.size } })()`), 3000)) as { at: number[]; size: number[]; box: number[]; pixels: number[]; dpr: number; colours: number } | null
+    const away = await until(() => !page.view.getVisible(), 3000)
+    check(
+      "a dialog over the page: the view goes, and a picture of the page holds its place, where it was and at its size",
+      !!still && away && still.at.join() === "0,0" && still.size.join() === still.box.join() && still.pixels.join() === still.box.map((n) => Math.round(n * still.dpr)).join() && still.colours > 2,
+      JSON.stringify(still),
+    )
+    page.setBounds = setBounds
+    const entranceThen = await entranceAtAway
+    check("…the dialog comes in once the page's view has gone, not partly under it", typeof entranceThen === "number" && entranceThen < 100 && (await ui(`getComputedStyle(document.querySelector('dialog.dialog')).animationPlayState`)) === "running", `${JSON.stringify(entranceThen)} ms into its entrance`)
+    const entrance = await ui(`(() => { const s = getComputedStyle(document.querySelector('dialog.dialog')); return s.animationName + " from " + parseFloat(s.getPropertyValue("--pop-scale")) + " in " + s.animationDuration })()`)
+    check("…Settings grows a little into place where it stands, as it fades in", entrance === "pop-in from 0.98 in 0.2s", entrance)
+    const curves = (await ui(`(() => { const t = document.querySelector('dialog.dialog .toggle-track'); return [getComputedStyle(t).transitionTimingFunction, getComputedStyle(t, "::after").transitionTimingFunction, getComputedStyle(t).transitionDuration, getComputedStyle(t, "::after").transitionDuration] })()`)) as string[]
+    check("…its switches' colour and knob move on one curve, in one time", curves[0] === curves[1] && curves[2] === curves[3], JSON.stringify(curves))
+    await ui(`document.querySelector('dialog.dialog [aria-label="Close"]').click()`)
+    const leaving = await ui(`(() => { const d = document.querySelector('dialog.dialog'); return d ? (d.open ? "open" : "closed") + " " + getComputedStyle(d).transitionDuration : "gone" })()`)
+    const awayWhileLeaving = !page.view.getVisible()
+    const gone = await until(() => ui(`!document.querySelector('dialog.dialog')`), 2000)
+    const back = await until(() => page.view.getVisible(), 2000)
+    const stillGone = await until(() => ui(`!document.querySelector('.page-still')`), 2000)
+    check(
+      "…closed, it leaves in 150 ms, quicker than it came, over the page's picture; then the page is back and the picture goes",
+      leaving === "closed 0.15s, 0.15s, 0.15s, 0.15s" && awayWhileLeaving && gone === true && back && stillGone === true,
+      `${leaving}; away while leaving ${awayWhileLeaving}; gone ${gone}; back ${back}; picture gone ${stillGone}`,
+    )
+    // The list behind "+" is typed into at once: it has no entrance, and goes the moment it closes.
+    await ui(`document.querySelector('[data-action="switcher"]').click()`)
+    const palette = await until(() => ui(`(() => { const d = document.querySelector('dialog.switcher'); return d?.open ? getComputedStyle(d).animationName + " " + getComputedStyle(d, "::backdrop").animationName : "" })()`), 2000)
+    const paletteGone = await ui(`(() => { const d = document.querySelector('dialog.switcher'); d.close(); return getComputedStyle(d).display })()`)
+    check("the list behind \"+\" has no entrance and no exit: it is there at once and gone at once", palette === "none none" && paletteGone === "none", `${palette}; drawn as it closes: ${paletteGone}`)
+    await until(() => page.view.getVisible(), 2000)
+  }
   // Every control in the top bar keeps its place and width whatever is chosen or pressed.
   const barLayout = () => ui(`[...document.querySelectorAll(".topbar button")].filter((b) => b.checkVisibility()).map((b) => { const r = b.getBoundingClientRect(); return b.className + "@" + r.left.toFixed(1) + "+" + r.width.toFixed(1) }).join(" ")`) as Promise<string>
   await ui(`document.querySelector('.mode[data-mode="preview"]').click()`)
@@ -508,6 +577,21 @@ async function main() {
     await ui(`delete navigator.clipboard.writeText`)
     const widthOf = (s: string) => s.split("|")[1]
     check("a reply's Copy is as wide as its Copied", !!copyBefore && !!copyAfter && widthOf(copyBefore) === widthOf(copyAfter) && (await copied()) === true, `${copyBefore} → ${copyAfter}`)
+    // …and the one crossfades into the other: both icons and both words stay where they are, the
+    // word leaving blurred a little, the icon coming from a little smaller.
+    const fadedTo = (await until(() => ui(`(() => { const b = document.querySelector(".msg-tools .copy-btn"); const i = [...b.querySelectorAll(".copy-icons > .icon")], w = [...b.querySelectorAll(".copy-words > span")]; if (i.length !== 2) return null; const o = (e) => getComputedStyle(e).opacity; return o(i[0]) === "0" && o(i[1]) === "1" && o(w[0]) === "0" && o(w[1]) === "1" ? { word: getComputedStyle(w[0]).transitionProperty + " " + getComputedStyle(w[0]).transitionDuration, blur: getComputedStyle(w[0]).filter, from: getComputedStyle(i[0]).scale } : null })()`), 1000)) as { word: string; blur: string; from: string } | null
+    check("…crossfading into it in 150 ms, the word leaving blurred, the icon coming from a little smaller", fadedTo?.word === "opacity, filter, scale 0.15s, 0.15s, 0.15s" && fadedTo.blur === "blur(2px)" && fadedTo.from === "0.9", JSON.stringify(fadedTo))
+  }
+  // A pin clicked on the page points at its note's row and at its message in the conversation:
+  // both lit the same way, on the same curve, for the same time.
+  {
+    win.webContents.send("b42:note", { id: notes()[0]!.id })
+    const look = (sel: string) => `(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return ""; const s = getComputedStyle(e); return [s.animationName, s.animationDuration, s.animationTimingFunction].join(" ") })()`
+    const lit = (await until(async () => {
+      const [row, msg] = (await Promise.all([ui(look(".notes-list .note.flash .note-main")), ui(look(".transcript .msg.flash"))])) as string[]
+      return row && msg ? { row, msg } : null
+    }, 3000)) ?? { row: "", msg: "" }
+    check("a pin pointed at lights its note's row and its message alike, on one curve", lit.row !== "" && lit.row === lit.msg && lit.row.startsWith("pointed "), JSON.stringify(lit))
   }
   // The transcript fades under the conversation's header once something has scrolled under it,
   // and not at its very top.
@@ -809,6 +893,7 @@ async function main() {
   // The keys list: from the "?", inside the inspector's box; Escape shuts it.
   await ui(`(() => { const b = document.querySelector('.cd-help'); b.focus(); b.click() })()`)
   const keysList = (await ui(`(() => { const k = document.querySelector('.cd-keys'); if (!k) return null; const b = k.getBoundingClientRect(), d = document.querySelector('.dock .cd').getBoundingClientRect(); return { text: k.textContent, inside: b.top >= d.top && b.bottom <= d.bottom && b.left >= d.left && b.right <= d.right } })()`)) as { text: string; inside: boolean } | null
+  check("…out of the \"?\" at the footer's right end, as every popover opened by a click", (await popsIn(".cd-keys")) === "pop-in 0.2s from bottom right", await popsIn(".cd-keys"))
   check("the \"?\" lists the keys and gestures, and what the two style boxes are, inside the inspector's box", !!keysList && keysList.inside && /double-click text/.test(keysList.text) && /Delete/.test(keysList.text) && /drag the space between items/.test(keysList.text) && /& nests a rule/.test(keysList.text) && /edit it to override/.test(keysList.text), JSON.stringify(keysList))
   await keyW("Escape")
   check("…and Escape shuts it", (await until(() => ui(`!document.querySelector('.cd-keys')`))) === true)
@@ -1126,6 +1211,7 @@ async function main() {
   const pressBox = (k: string) => ui(`${box}.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(k)}, bubbles: true, cancelable: true }))`)
   await typeBox("/")
   const menu = (await until(() => ui(`(() => { const m = document.querySelector(".suggest"); return m && m.querySelectorAll(".suggest-item").length ? JSON.stringify([...m.children].map((c) => (c.classList.contains("suggest-group") ? "# " + c.textContent : c.querySelector(".suggest-label").textContent))) : "" })()`))) as string
+  check("…with no entrance: it keeps up with the keys", (await ui(`getComputedStyle(document.querySelector(".suggest")).animationName`)) === "none", await ui(`getComputedStyle(document.querySelector(".suggest")).animationName`))
   check(
     '"/" lists the built-in commands first, then the site\'s, and a built-in wins over a same-named one',
     menu === JSON.stringify(["# Built in", "/compact", "/new", "/undo", "/redo", "/rename", "/fork", "/checkpoint", "# From this project", "/review"]),
@@ -1418,6 +1504,11 @@ async function main() {
   // every listed element, as many as the pane has rows, and takes them away again.
   const marked = () => js(`${both(".box.fx.mk")}.length`) as Promise<number>
   const rowCount = () => ui(`document.querySelectorAll('.fp-fact').length`) as Promise<number>
+  // A fact's row lights under the pointer as quickly as every other hover does; only the light a
+  // count's click leaves on it fades slowly.
+  const factHover = (await ui(`(() => { const r = document.querySelector('.fp-fact'), s = r && getComputedStyle(r); return s ? s.transitionProperty + " " + s.transitionDuration : "" })()`)) as string
+  const shared = (await ui(`getComputedStyle(document.querySelector('.icon-btn')).transitionDuration.split(", ")[0]`)) as string
+  check("a fact's row lights under the pointer in the time every hover takes; the light a count leaves fades slowly", factHover === `background-color, box-shadow ${shared}, 0.3s`, `${factHover} (a hover: ${shared})`)
   const marksBtn = () => ui(`(() => { const b = document.querySelector('.pl-marks'); return b.getAttribute('role') + "|" + b.getAttribute('aria-checked') + "|" + b.textContent + "|" + b.title })()`) as Promise<string>
   await sleep(300) // (the pane's rows are in: a mark would be by now)
   const clean = [await marked(), await marksBtn()] as const
@@ -1672,6 +1763,7 @@ async function main() {
   }
   const windowFrame = () => ui(`new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)))`)
   const MOVES = 10
+  const stills: boolean[] = []
   const dragged = async (sel: string, dx: number, dy: number) => {
     const at = (await ui(`(() => { const r = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } })()`)) as { x: number; y: number }
     const to = (type: "mouseDown" | "mouseMove" | "mouseUp", i: number) => win.webContents.sendInputEvent({ type, x: at.x + dx * i, y: at.y + dy * i, button: "left", clickCount: 1 })
@@ -1679,6 +1771,7 @@ async function main() {
     to("mouseDown", 0)
     to("mouseMove", 1)
     await until(() => ui(`!!document.querySelector('.page.veiled')`), 2000)
+    stills.push((await until(async () => (await ui(`!!document.querySelector('.page.veiled .page-still')?.naturalWidth`)) === true && !page.view.getVisible(), 2000)) === true)
     await windowFrame()
     const work = await windowWork(async () => {
       for (let i = 2; i < 2 + MOVES; i++) {
@@ -1707,6 +1800,7 @@ async function main() {
     hAfter === hBefore + 3 * (1 + MOVES) && dockDrag.restyled / MOVES < elements / 10 && dockDrag.layouts / MOVES < 3,
     `${hBefore} → ${hAfter}px; ${dockDrag.restyled / MOVES} elements restyled a move of ${elements}, ${dockDrag.layouts / MOVES} layouts a move`,
   )
+  check("…and while an edge is dragged, a picture of the page holds its place, not an empty card", stills.length === 2 && stills.every(Boolean), JSON.stringify(stills))
   await ui(`document.querySelector('.resizer').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`)
   await ui(`document.querySelector('.dock-divider').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`)
   // A phone's page in a window that grows shorter is drawn smaller at every height: one box a
@@ -1840,6 +1934,8 @@ async function main() {
   await until(() => ui(`document.querySelector(".mdock-kb [data-kat]")?.value === "0" && !!document.querySelector(".mdock-kb .mdock-cvb")`))
   await ui(`document.querySelector(".mdock-kb .mdock-cvb").click()`)
   const easeUp = await until(() => popped(".mdock-ez"))
+  const easeIn = await popsIn(".mdock-pop")
+  check("Motion's easings grow out of the button that opened them, as every popover opened by a click", /^pop-in 0\.2s from (top|bottom) right$/.test(easeIn), easeIn)
   await key(".mdock-tl", "Delete")
   const deleted = await until(async () => (await drawnKeys()) === "100" && !(await popped("")) && !(await ui(`!!document.querySelector(".mdock-kb")`)), 3000)
   check(
@@ -1922,6 +2018,7 @@ async function main() {
   }
   await ui(`document.querySelector(".mdock [data-addp]").focus()`)
   const allProps = ((await until(async () => ((await sugs()) ? sugs() : null))) ?? "").split("|")
+  check("a field's list in Motion has no entrance: it keeps up with the keys", (await ui(`getComputedStyle(document.querySelector(".mdock-pop.list")).animationName`)) === "none", await ui(`getComputedStyle(document.querySelector(".mdock-pop.list")).animationName`))
   await windowDbg.sendCommand("Input.insertText", { text: "bo" })
   const bo = await until(async () => ((await sugs()).replace(/\*/g, "") === "border-color|box-shadow|border-radius" ? sugs() : null))
   await wkey("ArrowDown", 40)
