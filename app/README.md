@@ -500,8 +500,15 @@ real check from the lockfile as it is, installed as the app does, and writes not
   Claude Code. Notes wait until it is back." One that dies five times in a row just after it
   started is not started again by itself: no `retry`, and the banner prints the error and what to
   do ("Claude Code keeps stopping at start: … Fix it, then Retry."), as for any start that nothing
-  tries again. While it is offline (and not `away`), the turn under way reads "Paused on ④", with
-  no spinner or clock, the notes list's working group reads "Paused", and the box keeps Send
+  tries again. When what stopped it is a sign-in it wants (`needsSignIn` on its error), the
+  offline state carries `signIn`, with the known agent's sign-in command (`login` in agents.ts),
+  and the banner says that instead of the agent's own words ("Please run /login" read as
+  something to type in the box under it): "Claude Code isn't signed in. Sign in: `claude` Copy,
+  then Retry." ("Sign in on dev-box:" for an agent on another computer, "Sign in to it in a
+  terminal" for one the app does not know); the error is the banner's tooltip. While it is
+  offline (and not `away`), the turn under way reads "Paused on ④", with no spinner or clock (its
+  running tools show nothing where the spinner was), the notes list's working group reads
+  "Paused", and the box keeps Send
   instead of Stop: the run Stop would end went with the process. A message sent then is queued
   as any is offline, and starts the agent again at once (failing with the reason if it can't).
   A dev server the agent starts is a background command of its own shell tool, which ACP gives

@@ -160,10 +160,10 @@ function Tool(props: { part: ToolPart; quiet: boolean }) {
       <Show when={totals().files}>
         <Counts additions={totals().additions} deletions={totals().deletions} />
       </Show>
+      {/* Paused, a running tool shows nothing: the turn's "Paused on" says it, and no spinner
+          says nothing moves. */}
       <Switch>
-        <Match when={props.part.status === "running" && paused()}>
-          <span class="tool-state">paused</span>
-        </Match>
+        <Match when={props.part.status === "running" && paused()}>{null}</Match>
         <Match when={props.part.status === "running"}>
           <Icon name="spinner" class="tool-state" />
         </Match>

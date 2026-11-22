@@ -26,7 +26,7 @@
 import crypto from "node:crypto"
 import path from "node:path"
 import { notePrompt, noteWords, TEMPLATES } from "../../../overlay/prompt.js"
-import { createAcp, type Acp, type AcpOptions, type Transport } from "./acp"
+import { createAcp, needsSignIn, type Acp, type AcpOptions, type Transport } from "./acp"
 import { customName, KNOWN_AGENTS, localAgent, localAgents, prepareStart, splitCommand, type StartPrefs } from "./agents"
 import { commitPrompt, parseAsk, splitTold, startPrompt, takeBackPrompt, toldLine } from "./asks"
 import type {
@@ -153,6 +153,8 @@ type Client = Acp
 
 /** Errors meant for the person at the screen; anything else gets a generic prefix. */
 const say = (err: unknown) => (err instanceof Error ? err.message : String(err))
+/** An offline state's `signIn` when the agent could not start for want of one (as acp's). */
+const signedOut = (err: unknown, command: string | undefined) => (needsSignIn(err) ? { signIn: command ? { command } : {} } : {})
 
 export function createCore(host: Host): Core {
   const { log } = host
@@ -795,6 +797,7 @@ export function createCore(host: Host): Core {
       // One ledger per agent and computer.
       id: where ? `${agent}@${where}` : agent,
       name,
+      ...(known?.login ? { signIn: known.login } : {}),
       command: line,
       machine: m,
       stateDir: path.join(host.dataDir, "agents"),
@@ -815,7 +818,7 @@ export function createCore(host: Host): Core {
     try {
       info = await next.info()
     } catch (err) {
-      if (same && !backend) (connection = { status: "offline", url, error: say(err) }), push()
+      if (same && !backend) (connection = { status: "offline", url, error: say(err), ...signedOut(err, known?.login) }), push()
       throw err
     }
     await use(
@@ -919,7 +922,7 @@ export function createCore(host: Host): Core {
       retryDelay = RETRY_FIRST_MS
     } catch (err) {
       if (backend || !store.settings().server) return
-      connection = { status: "offline", url, error: say(err), retry: true }
+      connection = { status: "offline", url, error: say(err), retry: true, ...signedOut(err, KNOWN_AGENTS.find((a) => a.id === saved.agent)?.login) }
       push()
       retryTimer = setTimeout(() => void reconnectSaved(), retryDelay)
       retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS)

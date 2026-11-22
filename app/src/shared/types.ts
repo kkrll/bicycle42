@@ -311,8 +311,10 @@ export type ConnectionState =
    *  the agent works on there: nothing it was doing is lost, the app connects again by itself, and
    *  notes wait meanwhile. `retry`: the app starts the agent again by itself after a pause;
    *  without it, nothing happens until the reviewer presses Retry (an agent that keeps stopping
-   *  just after it starts, one that failed to start from the connect screen). */
-  | { status: "offline"; url: string; error: string; away?: true; retry?: true }
+   *  just after it starts, one that failed to start from the connect screen). `signIn`: what
+   *  stopped it is a sign-in it wants (its error says so in the agent's own words); `command`,
+   *  how to sign in to it in a terminal on its computer, when the app knows (a known agent's). */
+  | { status: "offline"; url: string; error: string; away?: true; retry?: true; signIn?: { command?: string } }
 
 /** Which agent does the work, for the mark the window draws for it: one of the ACP agents the
  *  app knows (`localAgents`), or any other ACP command ("custom"). */

@@ -468,6 +468,36 @@ test("an agent that dies just after it starts: started again with a growing paus
   }
 })
 
+test("an agent that stops at start for want of a sign-in: the connection says so, with the agent's sign-in command", async () => {
+  const crashes = timing.crashes
+  timing.crashes = 2
+  try {
+    // A known agent: the command it is signed in with is given.
+    const fake = fakeAgent()
+    fake.dieAfterInit = "it exited with code 1 (Invalid API key · Please run /login)"
+    const { events } = setup(fake, undefined, undefined, { signIn: "fake login" })
+    await until(() => fake.starts === 2 && of(events, "connection").at(-1)?.state.status === "offline")
+    const offline = of(events, "connection").flatMap((e) => (e.state.status === "offline" ? [e.state] : []))
+    // Each time: the one started again by itself and the one left for Retry.
+    assert.deepEqual(offline.map((o) => [!!o.retry, o.signIn]), [[true, { command: "fake login" }], [false, { command: "fake login" }]])
+    // Another agent: the same, with no command to give.
+    const other = fakeAgent()
+    other.dieAfterInit = "it exited with code 1 (Error: not logged in)"
+    const two = setup(other)
+    await until(() => other.starts === 2 && of(two.events, "connection").at(-1)?.state.status === "offline")
+    const last = of(two.events, "connection").at(-1)!.state
+    assert.deepEqual(last.status === "offline" && last.signIn, {})
+    // Not a sign-in: nothing said of one.
+    const plain = fakeAgent()
+    plain.dieAfterInit = true
+    const three = setup(plain, undefined, undefined, { signIn: "fake login" })
+    await until(() => plain.starts === 2 && of(three.events, "connection").at(-1)?.state.status === "offline")
+    assert.ok(of(three.events, "connection").every((e) => e.state.status !== "offline" || e.state.signIn === undefined))
+  } finally {
+    timing.crashes = crashes
+  }
+})
+
 test("stop, with an agent that ignores it: the turn ends as stopped after a while, and its process is ended and started again", async () => {
   const fake = fakeAgent()
   fake.ignoreCancel = true

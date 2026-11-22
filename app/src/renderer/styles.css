@@ -1521,6 +1521,8 @@ details[open] > summary > .caret {
 
 /* Where the panel's notes and conversations are: the server, then the code folder. */
 .place {
+  /* Its own width decides whether the agent's name shows (below). */
+  container: place / inline-size;
   position: relative;
   /* The agent switcher drops from it, over the notes card: nothing in it needs clipping. */
   overflow: visible;
@@ -1576,6 +1578,15 @@ details[open] > summary > .caret {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* In a narrow panel the name, the host and the path cut together read "Claude … dev-… ~/…": the
+   mark says which agent (the button's label and title name it), so the name goes and the host
+   and the path's last folder stay whole. */
+@container place (width < 340px) {
+  .place-agent-name {
+    display: none;
+  }
 }
 
 .place-word {
@@ -1875,6 +1886,27 @@ button.note-group-name:hover {
   gap: 8px;
   overflow-wrap: anywhere;
   user-select: text;
+}
+
+/* "Sign in: <command> Copy, then Retry.": the command and its Copy wrap as one, in the line's
+   own height. */
+.banner-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: -2px 0;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.banner-command > code {
+  font-size: var(--text-control);
+}
+
+/* Its padding is the gap after the command, not before the comma. */
+.banner-command > .copy-btn {
+  height: 22px;
+  margin-right: -6px;
 }
 
 .banner-actions {
