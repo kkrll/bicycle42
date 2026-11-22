@@ -2413,10 +2413,13 @@ async function main() {
     await ui(`document.querySelector('.mode[data-mode="motion"]').click()`)
     await until(async () => (await motionRows()) > 0)
     const listed = await motionRows()
+    // (When the dock had no rows, what it and the page showed instead: this check has failed so
+    // now and then, and never yet where its cause could be seen.)
+    const none = listed ? "" : ` [${state().review.mode}; ${JSON.stringify(state().page)}; dock: ${await ui(`document.querySelector('[data-dock]')?.textContent.slice(0, 160) ?? "none"`)}; page: ${await js(`document.getAnimations().length + " animations, " + document.body.getElementsByTagName("*").length + " elements"`).catch((e) => String(e))}]`
     const reason = await kill()
     const emptied = await until(async () => (await motionRows()) === 0 && state().page.crashed === true, 3000)
     const card = (await ui(`document.querySelector('.page-failed')?.textContent ?? ""`)) as string
-    check("a page whose renderer died leaves the window's dock nothing to show, and the window says the page crashed", listed > 0 && reason === "killed" && emptied === true && /crashed/.test(card), `${listed} rows before, ${await motionRows()} after (${reason}): ${card.slice(0, 90)}`)
+    check("a page whose renderer died leaves the window's dock nothing to show, and the window says the page crashed", listed > 0 && reason === "killed" && emptied === true && /crashed/.test(card), `${listed} rows before${none}, ${await motionRows()} after (${reason}): ${card.slice(0, 90)}`)
     // Try again loads it: the overlay starts anew, and its first views are whole ones.
     const back = await loadedAgain()
     await ui(`document.querySelector('.mode[data-mode="motion"]').click()`)

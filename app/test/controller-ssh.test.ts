@@ -394,13 +394,20 @@ function logThere(t: ReturnType<typeof boot>) {
   const file = path.join(root, fs.readdirSync(root).find((d) => d.endsWith(".git"))!, "b42.json")
   return { file, read: () => JSON.parse(fs.readFileSync(file, "utf8")) as { turns: Array<{ messages: string[] }>; restores: Array<{ told?: true; notes: string[] }> } }
 }
-/** That computer's git, slow while the returned flag file is there. */
+/** That computer's git, slow while the returned flag file is there. Each slow call that starts
+ *  once `sent` (what the app wrote there) holds the take-back with what its dry run found leaves
+ *  `<flag>.ran`: the take-back is running there, not just written to the link. */
 function slowGit(t: ReturnType<typeof boot>, seconds: number) {
   const bin = path.join(t.h.root, "slowbin")
   const flag = path.join(t.h.root, "slow")
+  const sent = path.join(t.h.root, "sent")
   fs.mkdirSync(bin, { recursive: true })
   const real = (process.env.PATH ?? "").split(path.delimiter).map((d) => path.join(d, "git")).find((f) => fs.existsSync(f))!
-  fs.writeFileSync(path.join(bin, "git"), `#!/bin/sh\n[ -f "${flag}" ] && sleep ${seconds}\nexec "${real}" "$@"\n`, { mode: 0o755 })
+  fs.writeFileSync(
+    path.join(bin, "git"),
+    `#!/bin/sh\nif [ -f "${flag}" ]; then\n  grep -qs '"ops\\.takeBack".*"was"' "${sent}" && : > "${flag}.ran"\n  sleep ${seconds}\nfi\nexec "${real}" "$@"\n`,
+    { mode: 0o755 },
+  )
   process.env.B42_FAKE_SSH_PATH = `${bin}${path.delimiter}${process.env.PATH}`
   return flag
 }
@@ -421,8 +428,10 @@ test("the link drops while a take-back runs there: the files and its record are 
     fs.writeFileSync(sent, "")
     fs.writeFileSync(flag, "")
     const taking = (t.cmd("takeBackNote", first, "restored") as Promise<unknown>).then(String, (e: Error) => e.message)
-    await until(() => /"ops\.takeBack".*"was"/.test(fs.readFileSync(sent, "utf8")), 30_000)
-    await sleep(100)
+    // Dropped once the take-back runs there: its request written to the link is not enough, as
+    // it still has two processes to cross there (the link's shell, then the helper), and a drop
+    // before they pass it on means it never runs there at all.
+    await until(() => fs.existsSync(`${flag}.ran`), 30_000)
     t.h.drop()
     assert.equal(await taking, "The connection to dev-box ended while the app was taking this back there, so it may have been done. Look at the note again once dev-box is back.")
     // Done there all the same, with its record.
