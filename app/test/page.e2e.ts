@@ -161,7 +161,7 @@ async function main() {
       }
       // The one reply the overlay can't do without.
       if (msg.type === "ready") {
-        page.send({ type: "state", enabled: true, draft, pins: review.pins(), templates: [{ name: "variants", hint: "5 options" }, { name: "keep", hint: "keep the one shown" }, { name: "grade", hint: "a score" }] })
+        page.send({ type: "state", enabled: true, draft, pins: review.pins(), templates: [{ name: "variants", hint: "5 options" }, { name: "keep", hint: "keep the one shown" }, { name: "grade", hint: "a score" }, { name: "done", hint: "remove the states" }] })
         if (docks.length) page.send({ type: "docks", hosted: docks })
       }
     },
@@ -538,7 +538,7 @@ async function main() {
   await click("#cta")
   await dbg.sendCommand("Input.insertText", { text: "/" })
   await sleep(100)
-  check('"/" lists the templates', (await js(`${shadow}.querySelectorAll('.menu:not([hidden]) .opt').length`)) === 3)
+  check('"/" lists the templates', (await js(`${shadow}.querySelectorAll('.menu:not([hidden]) .opt').length`)) === 4)
   await snap("overlay-templates")
   await dbg.sendCommand("Input.insertText", { text: "gr" })
   await sleep(100)
@@ -577,6 +577,19 @@ async function main() {
   check("Keep starts a /keep note naming the variant", (await js(`${shadow}.querySelector('.chip').textContent + '|' + ${shadow}.querySelector('textarea').value`)) === "/keep|variant 1 (bold) of hero-cta")
   await key("Escape", "Escape", 27)
   await js("document.querySelector('#variants').remove()")
+  await sleep(100)
+
+  // A states group (/show-states): the same bar steps through states, and Done takes them away.
+  await js(`(() => {
+    const w = document.createElement('div'); w.setAttribute('data-b42-variants', 'billing-card'); w.setAttribute('data-b42-kind', 'states'); w.id = 'states'
+    w.innerHTML = '<p data-b42-variant="0" data-b42-label="live">Pro</p><p data-b42-variant="1" data-b42-label="Data · empty">No plan</p>'
+    document.body.prepend(w)
+  })()`)
+  check("a states group says Done and names states", (await until(() => js(`(() => { const b = ${shadow}.querySelectorAll('.vbar button'); return b.length === 3 && b[2].textContent === 'Done' && b[1].title === 'Next state' })()`), 2000)) === true)
+  await barButton(2)
+  check("Done starts a /done note naming the group", (await js(`${shadow}.querySelector('.chip').textContent + '|' + ${shadow}.querySelector('textarea').value`)) === "/done|the states of billing-card")
+  await key("Escape", "Escape", 27)
+  await js("document.querySelector('#states').remove()")
   await sleep(100)
 
   // ── the page opens a modal dialog with a focus trap ────────────────────────────────────────
