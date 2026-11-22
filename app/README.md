@@ -752,7 +752,13 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   narrower lane names; narrow and at least 600 tall (beside a phone's page), the list above
   what is open. The timing fields keep their names at every width ("900 ms" alone leaves one
   guessing which it is): where the header has no room for them in one row (under 1100 px) they
-  take a row of their own, and under 460 Duration is "Dur.". The header's controls are words
+  take a row of their own; in a dock under 640 the rest of the header is one row and the names
+  are short ("Dur.", "Delay", "Ease"), so the three fit in the second, and an easing too long
+  to fit whole there takes a row of its own. A short dock (under 400 tall) draws its rows
+  closer: the header, the keyframe's row and the note's, the ruler, so a 1000×720 window shows
+  two tracks whole with a keyframe selected; there, if also narrow, a keyframe's easing that is
+  its animation's (the placeholder) is cut before that row takes two. Until dragged, the dock under a page is 360,
+  or in a short window what leaves the page 300, never under half. The header's controls are words
   where a picture would need its title: "Only this" (show only this element), and "Reset" (put
   back as the page has it, or remove a new animation), named as the inspector's footer names it;
   undo stays an icon, as everywhere in the window. The playhead's flag is its time ("0.38s"),

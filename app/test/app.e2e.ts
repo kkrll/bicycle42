@@ -1578,17 +1578,27 @@ async function main() {
   win.setSize(1000, 900)
   const mshape = () => ui(`(() => { const shown = (s) => { const e = document.querySelector(s); return !!e && getComputedStyle(e).display !== "none" }; return [shown(".mdock-list"), shown(".mdock-main"), shown(".mdock-back"), getComputedStyle(document.querySelector(".mdock-tl") ?? document.body).getPropertyValue("--lab").trim()].join("|") })()`) as Promise<string>
   const narrowOpen = await until(async () => ((await mshape()).startsWith("false|true") ? mshape() : null), 3000)
-  // The timing fields keep their names there ("900 ms" alone leaves one guessing), on a row of
-  // their own, and the same names for a screen reader.
+  // The timing fields keep their names there ("900 ms" alone leaves one guessing), short, on a
+  // row of their own, and their whole names for a screen reader.
   const tnames = (await ui(
     `[...document.querySelectorAll(".mdock-tn span")].filter((e) => e.getClientRects().length).map((e) => e.textContent).join("|") + " / " + [...document.querySelectorAll(".mdock-timing .mdock-fld")].map((f) => f.getAttribute("aria-label")).join("|")`,
   )) as string
+  // …and in a short window too, the timeline keeps room for the tracks being changed: at least
+  // two of them whole, under the header with its named fields, with a keyframe selected.
+  win.setSize(1000, 720)
+  await ui(`window.b42.invoke("panel", { panel: "motion", act: { type: "select", key: { at: 0, prop: "opacity" } } })`)
+  const tracks = `(() => { const tl = document.querySelector(".mdock-tl").getBoundingClientRect(); return [...document.querySelectorAll(".mdock-lane")].filter((l) => { const r = l.getBoundingClientRect(); return r.top >= tl.top - 0.5 && r.bottom <= tl.bottom + 0.5 }).length })()`
+  const shortTracks = await until(async () => (await ui(`!!document.querySelector(".mdock-kb") && innerHeight <= 720`)) && (await ui(tracks)) >= 2, 3000)
+  const shortWhy = `${await ui(tracks)} whole; dock ${await ui(`Math.round(document.querySelector(".mdock").getBoundingClientRect().height)`)}, header ${await ui(`Math.round(document.querySelector(".mdock-hd").getBoundingClientRect().height)`)}, timeline ${await ui(`Math.round(document.querySelector(".mdock-tl").getBoundingClientRect().height)`)}`
+  await ui(`window.b42.invoke("panel", { panel: "motion", act: { type: "select", key: null } })`)
+  check("a narrow dock in a short window (1000×720) shows at least two tracks whole, a keyframe selected", shortTracks === true, shortWhy)
+  win.setSize(1000, 900)
   await ui(`document.querySelector(".mdock-back").click()`)
   const narrowList = await until(async () => ((await mshape()).startsWith("true|false") ? mshape() : null), 3000)
   const mdockW = await ui(`Math.round(document.querySelector(".mdock").getBoundingClientRect().width)`)
   check(
     "a narrow dock shows what is open, with a way back, narrower lane names and named timing fields; back, the list",
-    narrowOpen === "false|true|true|104px" && narrowList?.startsWith("true|false|false") === true && tnames === "Duration|Delay|Easing / Duration|Delay|Easing",
+    narrowOpen === "false|true|true|104px" && narrowList?.startsWith("true|false|false") === true && tnames === "Dur.|Delay|Ease / Duration|Delay|Easing",
     `${mdockW} wide: ${narrowOpen} / ${narrowList}; names ${tnames}`,
   )
   win.setSize(1441, 900)

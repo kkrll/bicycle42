@@ -19,6 +19,9 @@ const PHONE_LINE = `(() => { const l = document.querySelector(".pl"), f = l.quer
 /** The inspector's footer: its width and rows, and whether a part of it is cut (needs/has), or
  *  reaches past the inspector's box. */
 const FOOTER = `(() => { const f = document.querySelector(".cd-foot"), r = f.getBoundingClientRect(), box = document.querySelector(".cd").getBoundingClientRect(); const cut = [...f.querySelectorAll(".cd-count, .cd-acts, .cd-note, .cd-msg, .cd-send, .cd-help, .cd-reset")].filter((e) => e.scrollWidth > e.clientWidth + 1 || e.getBoundingClientRect().right > box.right + 0.5).map((e) => e.className); const rows = new Set([...f.children].map((e) => Math.round(e.getBoundingClientRect().top))).size; return Math.round(r.width) + " wide, " + rows + " row(s), text at " + Math.round(f.querySelector(".cd-count").getBoundingClientRect().left - box.left) + "px; cut: " + (cut.join(" ") || "nothing") })()`
+/** Motion's dock: its height, its parts' heights, and how many property tracks show whole in the
+ *  timeline (the group's row is not one). */
+const TRACKS = `(() => { const h = (s) => { const e = document.querySelector(s); return e ? Math.round(e.getBoundingClientRect().height) : 0 }; const tl = document.querySelector(".mdock-tl").getBoundingClientRect(); const whole = [...document.querySelectorAll(".mdock-lane")].filter((l) => { const r = l.getBoundingClientRect(); return r.top >= tl.top - 0.5 && r.bottom <= tl.bottom + 0.5 }).length; return "dock " + h(".mdock") + ", header " + h(".mdock-hd") + ", timeline " + h(".mdock-tl") + ", keyframe " + h(".mdock-kb") + ", foot " + h(".mdock-ft") + "; tracks shown whole " + whole + " of " + document.querySelectorAll(".mdock-lane").length })()`
 const click = (selector) => `document.querySelector(${JSON.stringify(selector)}).click()`
 const type = (selector, text) =>
   `(() => { const el = document.querySelector(${JSON.stringify(selector)}); el.value = ${JSON.stringify(text)}; el.dispatchEvent(new Event("input", { bubbles: true })) })()`
@@ -162,16 +165,16 @@ const SHOTS = [
   { name: "phone-max-collapsed", mock: "review", query: "&device=phone&phone=iphone-18-pro-max&mode=preview", run: [click("[data-action=panel]")] },
   { name: "phone-wide", mock: "review", query: "&device=phone&mode=preview", size: [1984, 1276] },
   { name: "phone-clear", mock: "review", query: "&device=phone&mode=preview&facts=clear" },
-  { name: "dock", mock: "review", query: "&docks=motion&mode=motion" },
+  { name: "dock", mock: "review", query: "&docks=motion&mode=motion", report: TRACKS },
   { name: "phone-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", report: FOOTER },
   // The keys list from the footer's "?", inside the inspector's box.
   { name: "phone-dock-keys", mock: "review", query: "&device=phone&docks=canvas&mode=edit", run: [click(".cd-help")], wait: 300, report: `(() => { const k = document.querySelector(".cd-keys").getBoundingClientRect(), b = document.querySelector(".cd").getBoundingClientRect(); return k.top >= b.top && k.bottom <= b.bottom && k.left >= b.left && k.right <= b.right ? "inside the inspector" : "OUTSIDE " + JSON.stringify([k, b]) })()` },
   // Motion's dock drawn by the window: beside a phone's page (the list above what is open), and
   // under the page with its "more" sheet open (inside the dock's box, never over the page).
-  { name: "phone-motion-dock", mock: "review", query: "&device=phone&docks=motion&mode=motion" },
-  { name: "dock-more", mock: "review", query: "&docks=motion&mode=motion", run: [click('.mdock-hd [aria-label="More"]')], wait: 400 },
+  { name: "phone-motion-dock", mock: "review", query: "&device=phone&docks=motion&mode=motion", report: TRACKS },
+  { name: "dock-more", mock: "review", query: "&docks=motion&mode=motion", run: [click('.mdock-hd [aria-label="More"]')], wait: 400, report: TRACKS },
   // Under a page in a narrow window: what is open, with a way back to the list.
-  { name: "dock-narrow", mock: "review", query: "&docks=motion&mode=motion", size: [1000, 720] },
+  { name: "dock-narrow", mock: "review", query: "&docks=motion&mode=motion", size: [1000, 720], report: TRACKS },
   // Edit mode's inspector, drawn by the window under a desktop's page (mock-canvas.ts: a card selected).
   { name: "canvas-dock", mock: "review", query: "&docks=canvas&mode=edit", report: FOOTER },
   // …and its footer's list of the unsent edits, opened from the count: inside the inspector too.

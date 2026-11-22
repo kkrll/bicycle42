@@ -883,7 +883,7 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
           <span class="mdock-unit">ms</span>
         </label>
         <label class="mdock-tf">
-          <TName long="Easing" />
+          <TName long="Easing" short="Ease" />
           <Field
             class="ease"
             attr="teasing"

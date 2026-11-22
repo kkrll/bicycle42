@@ -38,6 +38,9 @@ const DOCK_MIN = 160
 const DOCK_DEFAULT = 360
 /** What stays of the page above a dock, whatever the dock is dragged to. */
 const PAGE_MIN = 120
+/** In a short window the dock takes more than half the stage, up to DOCK_DEFAULT, while the page
+ *  keeps this: a 720px window's Motion dock then has room for two of its tracks. */
+const PAGE_SHORT = 300
 /** What a phone's column holds besides the page, top to bottom: 12px of air above and below, the
  *  picker's row (28) and the gap under it (12), and the page's own hairline (2). The same
  *  numbers as `.stage.phone > .device-col` and `.device-bar` in styles.css. */
@@ -573,12 +576,12 @@ export function App() {
     return { width, height: Math.round((p.height * width) / p.width) }
   }
   // A dock the window draws: under the page at this height, or beside a phone's page.
-  // Until it is dragged: DOCK_DEFAULT, or half the stage in a window so short that it is less
-  // (not smaller than that: Motion's timeline needs the height). From the stage as it is now,
-  // not as it was when the window opened.
+  // Until it is dragged: DOCK_DEFAULT, or in a window so short that it is less, what the page
+  // leaves over PAGE_SHORT, and never less than half the stage (Motion's timeline needs the
+  // height). From the stage as it is now, not as it was when the window opened.
   const [dockChosen, setDockHeight] = createSignal<number | undefined>(Number(recall("dock.height")) || undefined)
   const dockHeight = () =>
-    Math.max(DOCK_MIN, dockChosen() ?? (colHeight() > 0 ? Math.min(DOCK_DEFAULT, Math.round((colHeight() - 16) * 0.5)) : DOCK_DEFAULT))
+    Math.max(DOCK_MIN, dockChosen() ?? (colHeight() > 0 ? Math.min(DOCK_DEFAULT, Math.round(Math.max((colHeight() - 16) * 0.5, colHeight() - 16 - PAGE_SHORT))) : DOCK_DEFAULT))
   // (With no page open the box holds the window's own words, at its whole width.)
   const phone = () => state.page.device === "phone" && state.page.url !== ""
   let urlEl: HTMLInputElement | undefined
