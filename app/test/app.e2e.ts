@@ -19,7 +19,7 @@ import { commitPrompt } from "../src/main/asks"
 import type { PageView } from "../src/main/page"
 import type { Transport, timing as acpTiming } from "../src/main/acp"
 import { playedAgent } from "./played-agent"
-import { heavyLock } from "../scripts/heavy-lock.mjs"
+import { heavyLockSync } from "../scripts/heavy-lock.mjs"
 
 const overlayDir = path.join(__dirname, "../../../overlay")
 const results: boolean[] = []
@@ -74,7 +74,6 @@ function serveSite(): Promise<http.Server> {
 type Hook = { window(): BrowserWindow | undefined; page(): PageView | undefined; snapshot(): AppState; acpTiming: typeof acpTiming }
 
 async function main() {
-  await heavyLock("app e2e")
   const siteServer = await serveSite()
   const origin = `http://127.0.0.1:${(siteServer.address() as { port: number }).port}`
   const pageUrl = `${origin}/harness/page.html`
@@ -2523,6 +2522,12 @@ async function main() {
   console.log(`\n${results.length - failed}/${results.length} checks passed`)
   app.exit(failed ? 1 : 0)
 }
+
+// One heavy run at a time (scripts/heavy-lock.mjs), waited for here, before the watchdog below
+// starts counting and before Electron is ready (the main process's schemes are registered as its
+// module loads, above; they must be before ready). Waited for in main() instead, the watchdog
+// ended a run while it was still waiting its turn.
+heavyLockSync("app e2e")
 
 // If something hangs, say so instead of sitting there.
 setTimeout(() => {

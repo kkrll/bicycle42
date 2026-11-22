@@ -38,38 +38,53 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 /** Waits until this process holds the lock (or need not), and lets it go when the process ends. */
 export async function heavyLock(label) {
-  if (process.env.B42_NO_LOCK === "1" || process.env.B42_HEAVY_LOCK_HELD === "1") return
-  const waitMs = Number(process.env.B42_LOCK_WAIT_S ?? 1800) * 1000
-  const from = Date.now()
-  let said = false
-  for (;;) {
-    try {
-      fs.mkdirSync(LOCK)
-      fs.writeFileSync(OWNER, JSON.stringify({ pid: process.pid, label, cwd: process.cwd(), since: new Date().toISOString() }))
-      break
-    } catch (e) {
-      if (e.code !== "EEXIST") throw e
-    }
-    const o = owner()
-    // Gone, or a folder with no owner written for a while (its holder died between mkdir and write).
-    const stale = o ? !alive(o.pid) : Date.now() - (fs.statSync(LOCK, { throwIfNoEntry: false })?.mtimeMs ?? 0) > 5000
-    if (stale) {
-      fs.rmSync(LOCK, { recursive: true, force: true })
-      continue
-    }
-    if (Date.now() - from > waitMs) {
-      console.error(`[heavy-lock] ${label}: waited ${Math.round(waitMs / 1000)} s for ${o?.label} (pid ${o?.pid}); going ahead anyway`)
-      return
-    }
-    if (!said) {
-      console.error(`[heavy-lock] ${label}: waiting for ${o ? `${o.label} (pid ${o.pid}, ${o.cwd}, since ${o.since})` : "another run"} to finish…`)
-      said = true
-    }
-    await sleep(500)
+  const t = start(label)
+  while (t && !attempt(t)) await sleep(500)
+}
+
+/** The same, waiting without the event loop: for a script that must hold the lock before anything
+ *  of its own starts, such as the app e2e, whose 90 s watchdog would otherwise count the wait (and
+ *  whose Electron must not be ready before its schemes are registered, so it cannot wait after). */
+export function heavyLockSync(label) {
+  const t = start(label)
+  const cell = new Int32Array(new SharedArrayBuffer(4))
+  while (t && !attempt(t)) Atomics.wait(cell, 0, 0, 500)
+}
+
+/** A wait about to begin, or null when there is none to do. */
+function start(label) {
+  if (process.env.B42_NO_LOCK === "1" || process.env.B42_HEAVY_LOCK_HELD === "1") return null
+  return { label, from: Date.now(), waitMs: Number(process.env.B42_LOCK_WAIT_S ?? 1800) * 1000, said: false }
+}
+
+/** One try: true once the lock is held (or the wait is given up), false to wait and try again. */
+function attempt(t) {
+  try {
+    fs.mkdirSync(LOCK)
+    fs.writeFileSync(OWNER, JSON.stringify({ pid: process.pid, label: t.label, cwd: process.cwd(), since: new Date().toISOString() }))
+    if (t.said) console.error(`[heavy-lock] ${t.label}: going ahead after ${Math.round((Date.now() - t.from) / 1000)} s`)
+    process.env.B42_HEAVY_LOCK_HELD = "1"
+    process.on("exit", () => {
+      if (owner()?.pid === process.pid) fs.rmSync(LOCK, { recursive: true, force: true })
+    })
+    return true
+  } catch (e) {
+    if (e.code !== "EEXIST") throw e
   }
-  if (said) console.error(`[heavy-lock] ${label}: going ahead after ${Math.round((Date.now() - from) / 1000)} s`)
-  process.env.B42_HEAVY_LOCK_HELD = "1"
-  process.on("exit", () => {
-    if (owner()?.pid === process.pid) fs.rmSync(LOCK, { recursive: true, force: true })
-  })
+  const o = owner()
+  // Gone, or a folder with no owner written for a while (its holder died between mkdir and write).
+  const stale = o ? !alive(o.pid) : Date.now() - (fs.statSync(LOCK, { throwIfNoEntry: false })?.mtimeMs ?? 0) > 5000
+  if (stale) {
+    fs.rmSync(LOCK, { recursive: true, force: true })
+    return attempt(t)
+  }
+  if (Date.now() - t.from > t.waitMs) {
+    console.error(`[heavy-lock] ${t.label}: waited ${Math.round(t.waitMs / 1000)} s for ${o?.label} (pid ${o?.pid}); going ahead anyway`)
+    return true
+  }
+  if (!t.said) {
+    console.error(`[heavy-lock] ${t.label}: waiting for ${o ? `${o.label} (pid ${o.pid}, ${o.cwd}, since ${o.since})` : "another run"} to finish…`)
+    t.said = true
+  }
+  return false
 }
