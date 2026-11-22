@@ -101,7 +101,7 @@ src/globals.d.ts    what the type check cannot read from the .js files
   it says. What the host's inspector draws itself it takes from here, pure: the keys list
   (`src/canvas/help.js`), the suggestions (`src/canvas/suggest-model.js`, with Chrome's list of
   properties, `css-data.js`) and number stepping (`src/canvas/number.js`). The tests play the host
-  (`test/canvas.test.mjs`, `test/canvas-hosted.test.mjs`). In notes mode the page shows a chip
+  (`test/canvas.suite.mjs`, `test/canvas-hosted.test.mjs`). In notes mode the page shows a chip
   when edits were left unsent, a click on it back to canvas mode, and the "?" with notes mode's
   keys.
 - **A phone's page has the phone over it** (`{ type: "device", phone }`, `PhoneEdge` in
@@ -154,7 +154,7 @@ src/globals.d.ts    what the type check cannot read from the .js files
   `src/facts/host.js`), is placed in the window, as the other outlines are, in the frame after
   anything scrolls (only then does a scroll ask for a frame). Like the hover outline they take no pointer, are in no
   note's screenshot, go with the peek and go with "stop". A new document sends the view null, so a host whose
-  pane is up asks again. `?page=facts` is its harness page (`test/facts-hosted.test.mjs`).
+  pane is up asks again. `?page=facts` is its harness page (`test/facts-hosted.suite.mjs`).
 
 ![harness](docs/harness.png)
 
