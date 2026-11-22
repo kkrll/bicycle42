@@ -1,0 +1,198 @@
+/* The phone's strips (phone-frame.tsx), at life size inside (.pf-in, zoomed to the size the phone
+   is drawn). Shapes only: a phone's status bar and home indicator as the phone draws them, no
+   bezel, no gloss. Sizes in the phone's CSS px: an iPhone's status bar from Apple's own (the
+   Dynamic Island 125 by 37, 11 down; the home indicator 134 by 5, 8 up), an Android's from
+   Material's (a 24 dp bar, its icons and time a little smaller). */
+
+.pf-status,
+.pf-home {
+  flex: none;
+  overflow: hidden;
+  /* (A phone's own type, not the app's.) */
+  font-family: -apple-system, system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  user-select: none;
+}
+
+.pf-in {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: start;
+}
+
+.pf-side {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: var(--row);
+  margin-top: var(--row-top);
+}
+
+.pf-middle {
+  display: flex;
+  justify-content: center;
+}
+
+.pf-time {
+  font-size: 17px; /* kkrll-ignore: an iPhone's status bar time, at its own size, not the app's type */
+  font-weight: 600;
+}
+
+.pf-cutout {
+  display: block;
+  background: #000; /* kkrll-ignore: the camera's cut-out is black glass, in either theme */
+}
+
+.pf-signal,
+.pf-wifi,
+.pf-battery {
+  display: block;
+  fill: currentColor;
+}
+
+.pf-signal {
+  width: 17px;
+  height: 11px;
+}
+
+.pf-wifi {
+  width: 15px;
+  height: 11px;
+}
+
+.pf-battery {
+  width: 25px;
+  height: 12px;
+}
+
+/* An iPhone with a Dynamic Island: the time and the icons centred in the screen at its sides. */
+.pf-status[data-cutout="island"] {
+  --row-top: 11px;
+  --row: 37px;
+}
+
+.pf-status[data-cutout="island"] .pf-cutout {
+  width: 125px;
+  height: 37px;
+  margin-top: 11px;
+  border-radius: 19px;
+}
+
+/* An iPhone with a notch: the notch hangs from the screen's top edge. */
+.pf-status[data-cutout="notch"] {
+  --row-top: 6px;
+  --row: 34px;
+}
+
+.pf-status[data-cutout="notch"] .pf-cutout {
+  width: 162px;
+  height: 32px;
+  border-radius: 0 0 20px 20px;
+}
+
+/* An iPhone SE: no cut-out, the time in the middle, the signal at the left. */
+.pf-status[data-cutout="none"] {
+  --row-top: 0px;
+  --row: 20px;
+}
+
+.pf-status[data-cutout="none"] .pf-side {
+  padding: 0 6px;
+}
+
+.pf-status[data-cutout="none"] .pf-left {
+  justify-content: flex-start;
+}
+
+.pf-status[data-cutout="none"] .pf-right {
+  justify-content: flex-end;
+}
+
+.pf-status[data-cutout="none"] .pf-middle {
+  align-items: center;
+  height: 20px;
+}
+
+.pf-status[data-cutout="none"] .pf-time {
+  font-size: 12px; /* kkrll-ignore: an iPhone SE's status bar time, at its own size */
+}
+
+.pf-status[data-cutout="none"] :is(.pf-signal, .pf-wifi) {
+  width: 14px;
+  height: 9px;
+}
+
+.pf-status[data-cutout="none"] .pf-battery {
+  width: 22px;
+  height: 10.5px;
+}
+
+/* An Android: a hole for the camera in the middle, the time at the left, the icons at the right. */
+.pf-status[data-cutout="punch"] {
+  --row-top: 0px;
+  --row: var(--strip);
+}
+
+.pf-status[data-cutout="punch"] .pf-side {
+  padding: 0 16px;
+}
+
+.pf-status[data-cutout="punch"] .pf-left {
+  justify-content: flex-start;
+}
+
+.pf-status[data-cutout="punch"] .pf-right {
+  justify-content: flex-end;
+}
+
+.pf-status[data-cutout="punch"] .pf-time {
+  font-size: 14px; /* kkrll-ignore: an Android's status bar time, at its own size */
+  font-weight: 500;
+}
+
+.pf-status[data-cutout="punch"] .pf-cutout {
+  width: 12px;
+  height: 12px;
+  margin-top: calc((var(--strip) - 12px) / 2);
+  border-radius: 50%;
+}
+
+.pf-status[data-cutout="punch"] :is(.pf-signal, .pf-wifi) {
+  width: 14px;
+  height: 9px;
+}
+
+.pf-status[data-cutout="punch"] .pf-battery {
+  width: 20px;
+  height: 9.5px;
+}
+
+/* The home indicator: an iPhone's 134 by 5, 8 px up from the screen's edge; an Android's gesture
+   handle, shorter and thinner, in the middle of its bar. */
+.pf-home .pf-in {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 8px;
+}
+
+.pf-indicator {
+  display: block;
+  width: 134px;
+  height: 5px;
+  border-radius: 3px;
+  background: currentColor;
+}
+
+.pf-home[data-cutout="punch"] .pf-in {
+  align-items: center;
+  padding-bottom: 0;
+}
+
+.pf-home[data-cutout="punch"] .pf-indicator {
+  width: 108px;
+  height: 4px;
+  border-radius: 2px;
+}

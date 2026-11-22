@@ -687,15 +687,61 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   `PHONES` in `shared/types.ts`, 390 by 844 until another is chosen; the `.stage.phone` rules,
   from `--phone-width` and `--phone-height`) and main asks Chromium for its own phone emulation
   (`setDevice` in `main/page.ts`): the viewport tag counts and scrollbars lie over the page, so
-  the page is laid out 390 wide, not 375. The pointer stays a mouse: every mode works as on a
-  desktop page. A page with something wider than the window is shown zoomed out to fit, as a
-  phone shows it.
+  the page is laid out 390 wide, not 375. A page with something wider than the window is shown
+  zoomed out to fit, as a phone shows it.
+- **The window draws the phone; the page is the part of the screen between its bars.** The
+  phone's body (`.device-body`) is the screen's shape, with a ring 8px wide outside it in the
+  foreground at a tenth. Inside, top to bottom: the status strip (the time, the cut-out, signal,
+  wifi and battery; `StatusStrip` in `renderer/phone-frame.tsx`), the page's box, and the home
+  strip with the home indicator (`HomeStrip`; none on the SE, which has a home button). Each
+  phone in `PHONES` says how tall the two strips are (`top`, `bottom`, its browser's safe-area
+  insets, sources in the comment there), its cut-out (an island, a notch, a punch-hole, none) and
+  whether it has a home indicator. The page's viewport is the screen less the strips, as in a
+  phone's browser (`viewportOf`: 390 by 763 on the 16e), while `screen` is the whole screen
+  (the emulation's `viewSize` and `screenSize`). Sizes at the size the phone is drawn are
+  `frameOf` in `renderer/phone.ts`: the strips and the box add up to the body on whole pixels,
+  and the body is moved by the fraction of a pixel its column centres it at (`report` in
+  `app.tsx`: a relative offset, as `translate` snapped its rounded clip a pixel short), so the
+  native view meets the strips exactly. The window cannot draw over the native view, so nothing
+  here is on the page: the strips are beside it. The view's corners never have to match a curve
+  of CSS's (macOS draws a native view's as a continuous curve, which CSS's arcs never followed,
+  so a phone's page had no hairline before): they are square between the strips, except where a
+  strip is less tall than the screen's corner is round (an iPhone's 34 px below a 62 px corner),
+  where a square corner would reach 6.7 px past the screen over the ring. There the view is
+  rounded just enough to stay inside (`viewRadius` in `shared/types.ts`, `phone.test.ts` checks
+  every phone), and what shows in the gap is the strip's colour.
+- **The strips are in the page's colours**, as a phone's browser colours its bars. Main asks the
+  page in the overlay's world (`TINT_PROBE` in `main/page.ts`): above, its `theme-color` (the
+  first whose media matches), else the first opaque background at its top; below, the same at
+  its bottom; with neither, its canvas (white, or Chromium's dark one for a page dark by its
+  `color-scheme`). Any CSS colour is read by drawing it on a canvas. Asked once a load is done
+  and a moment later, after a move within the page, a tap, a drag or the wheel (250 ms on), and
+  when the system's theme changes; only as a phone's (`page.tint`). The time and icons are black
+  or white, whichever has the larger contrast (`inkOn`); black strips with white ink until the
+  colours are known.
+- **In Preview the mouse is a finger** (`setTouch` in `main/page.ts`, asked by the controller
+  with every state it pushes: a phone's page, in Preview, with a site). What Chromium's own
+  device mode does, over the page's debugger: `Emulation.setTouchEmulationEnabled` and
+  `setEmitTouchEventsForMouse` ("mobile"). The page has no hover on mouse-over, `:hover` sticks
+  where the finger last tapped, `(hover: none)` and `(pointer: coarse)` match,
+  `navigator.maxTouchPoints` is 5, a press is a touchstart and a click a tap; the wheel and a
+  trackpad still scroll (the emulator lets them through). Nothing is reloaded: a page that looks
+  for `'ontouchstart' in window` finds it from its next load. In Annotate, Edit and Motion, and
+  on a desktop's page, the debugger is detached, which undoes all of it, so the overlay picks
+  with a real mouse's hover. The debugger is attached only after the view's first commit and
+  never while its renderer is gone (as the emulation: asked of a view that has loaded nothing,
+  Chromium crashes the whole app); after a reload,
+  a crash or another site it is told again once the document has committed. It asks only the
+  Emulation domain, so the page's console still never reaches main. The page's developer tools
+  (alt+mod+J) are a client of their own beside it; a debugger someone else attached (a test's)
+  is used and left attached. Closing the page detaches it first.
 - **A phone is shown whole, as large as life or as large as fits.** Its page sits in the middle
   of a column of its own (`.device-col`), with which phone it is right above it. A phone taller
   than that column is not cut: the box keeps the phone's shape, smaller (`fit` and `pageBox` in
   `renderer/app.tsx`), and main draws the page smaller in it, by the box's width over the
   phone's (the emulation's `scale`, with the phone's own size as the page's): `100vh` is the
-  phone's height in a short window too, and the picker says "· 94%". The column is as wide as
+  phone's (less its strips) in a short window too, and the picker says "· 94%", the drawn
+  width over the phone's. The column is as wide as
   the widest phone, so another phone or another scale moves nothing beside it; the column at
   its right is 300 to 720px wide, and the panel cannot be dragged so wide that it gets less
   (`maxWidth`, `--panel-max`).
@@ -841,7 +887,8 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   them as text and never as markup, and keeps nothing of the page's that the overlay does not
   also have (a reload of either side loses nothing). `dockPing` measures the way to the overlay
   and back.
-- Shots: `phone`, `phone-se`, `phone-wide`, `phone-clear`, `dock`, `phone-dock`,
+- Shots: `phone`, `phone-se`, `phone-island`, `phone-notch`, `phone-pixel`, `phone-galaxy`,
+  `phone-dark-page` (a dark page: its strips dark, white ink; `&page=dark`), `phone-wide`, `phone-clear`, `dock`, `phone-dock`,
   `phone-dock-keys`, `phone-least-dock`, `phone-motion-dock`, `dock-more`, `dock-narrow`,
   `canvas-dock`, `canvas-dock-edits` (the footer's list of edits open), `canvas-dock-narrow` (the mock takes `&device=phone`,
   `&docks=motion,canvas`, `&mode=preview|edit|motion`, `&facts=clear`; it feeds motion's dock a

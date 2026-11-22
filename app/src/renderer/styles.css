@@ -1084,41 +1084,57 @@ details[open] > summary > .caret {
   flex-direction: row;
 }
 
-/* The page's wrapper is no box of its own around a desktop's page… */
-.device-col {
+/* The page's wrappers are no boxes of their own around a desktop's page… */
+.device-col,
+.device-body {
   display: contents;
 }
 
-/* …and around a phone's it is the phone's column: the page in the middle of it, top to bottom
-   and side to side, with which phone it is above. The column is wide enough for the widest
-   phone with air at its sides, so another phone, or the same one drawn smaller, moves nothing
-   beside it; in a wide window it takes what the column at its right does not (that one stops
-   at 720px). The page's box is the phone's size, or smaller in the same shape when the phone
-   is taller than the column (app.tsx works that out: PHONE_AROUND is this padding, the row
-   and the gap). */
+/* …and around a phone's they are the phone's column, the page in the middle of it, top to
+   bottom and side to side, with which phone it is above; and the phone's body. The column is
+   wide enough for the widest phone with its ring and air at its sides, so another phone, or the
+   same one drawn smaller, moves nothing beside it; in a wide window it takes what the column at
+   its right does not (that one stops at 720px). The body is the phone's size, or smaller in the
+   same shape when the phone is taller than the column (app.tsx works that out: PHONE_AROUND is
+   this padding, the row and the gap; PHONE_SIDES the min-width's 34). */
 .stage.phone > .device-col {
-  flex: 1 1 calc(442px + 2 * clamp(16px, 3vw, 40px));
-  min-width: calc(var(--phone-width) + 18px);
+  flex: 1 1 calc(440px + 34px + 2 * clamp(16px, 3vw, 40px));
+  min-width: calc(var(--phone-width) + 34px);
   min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 12px 0;
+  gap: 20px;
+  padding: 16px 0;
+}
+
+/* The phone the window draws (phone-frame.tsx): the screen's shape, its strips above and below
+   the page, and around it the ring, 8px of the foreground at a tenth, outside the screen. The
+   page view between the strips is a native view whose corners the system draws: they are never
+   at the screen's corners (only as round as keeps them inside, viewRadius in shared/types.ts),
+   so no line of CSS has to follow a curve of the system's. */
+.stage.phone .device-body {
+  /* (Moved by app.tsx to sit on whole pixels.) */
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: var(--phone-width);
+  height: var(--phone-height);
+  border-radius: var(--phone-radius);
+  outline: 8px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+  overflow: hidden;
 }
 
 .stage.phone .page {
   flex: none;
-  width: calc(var(--phone-width) + 2px);
-  height: calc(var(--phone-height) + 2px);
+  width: 100%;
+  height: var(--phone-screen);
   margin: 0;
-  /* The phone's own screen corners (PHONES in shared/types.ts; main rounds the page view to
-     them). No hairline around a phone's page: the page view's corners are the system's to
-     draw (on a Mac a continuous curve, not a circle's arc), and a line of CSS's around them
-     ran true at the sides and parted from them at every corner. The page is its own edge. */
-  border-color: transparent;
-  border-radius: var(--phone-radius);
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(var(--tint-top, transparent) 50%, var(--tint-bottom, transparent) 50%);
 }
 
 /* While the page is away (an edge dragged, a dialog open), its place is a card. */

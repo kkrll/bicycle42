@@ -14,6 +14,8 @@ import { DockRegion, PhoneAside, dockShown } from "./dock"
 import { copyText } from "./copy"
 import { ConnectScreen, ModelScreen, ServerButton, SettingsDialog, SetupSteps, firstRunConnecting } from "./connect"
 import { Icon, Kbd, type IconName } from "./icons"
+import { frameOf } from "./phone"
+import { HomeStrip, StatusStrip } from "./phone-frame"
 import { Switcher } from "./switcher"
 import { Panel, RepoScreen, countNotes, countWords, shortWords } from "./panel"
 import {
@@ -41,10 +43,14 @@ const PAGE_MIN = 120
 /** In a short window the dock takes more than half the stage, up to DOCK_DEFAULT, while the page
  *  keeps this: a 720px window's Motion dock then has room for two of its tracks. */
 const PAGE_SHORT = 300
-/** What a phone's column holds besides the page, top to bottom: 12px of air above and below, the
- *  picker's row (28) and the gap under it (12), and the page's own hairline (2). The same
- *  numbers as `.stage.phone > .device-col` and `.device-bar` in styles.css. */
-const PHONE_AROUND = 12 + 28 + 12 + 2 + 12
+/** What a phone's column holds besides the phone, top to bottom: 16px of air above and below, the
+ *  picker's row (28) and the gap under it (20). The ring around the phone (8) is drawn in the air
+ *  and the gap, and takes no room. The same numbers as `.stage.phone > .device-col` and
+ *  `.device-bar` in styles.css. */
+const PHONE_AROUND = 16 + 28 + 20 + 16
+/** What a phone's column needs beside the phone: the ring (8) at both sides, and air beyond it.
+ *  The same as the column's min-width in styles.css. */
+const PHONE_SIDES = 34
 /** A phone is never drawn smaller than this: under it the window is too small to review in. */
 const PHONE_FIT_MIN = 0.3
 /** The column at a phone's right is never left less than this by the panel: a dock's narrowest
@@ -551,6 +557,9 @@ export function App() {
   })
   let pageEl!: HTMLDivElement
   let stageEl!: HTMLDivElement
+  let bodyEl!: HTMLDivElement
+  /** How far the phone's body is moved to sit on whole pixels (report below). */
+  let shift = { x: 0, y: 0 }
   // ── a phone's page: as large as life, or as large as fits ──
   // The phone's column is as tall as the window allows; above the page it has the picker's row.
   // A phone taller than what is left is drawn smaller, whole (main draws the page at the box's
@@ -564,19 +573,16 @@ export function App() {
   const sizeSaid = () => {
     if (!phone()) return `${pageSize().width} × ${pageSize().height}`
     const p = phoneOf(state.page.phone)
-    return `${p.width} × ${p.height}${fit() < 1 ? ` · ${Math.round(fit() * 100)}%` : ""}`
+    return `${p.width} × ${p.height}${drawn().scale < 1 ? ` · ${Math.round(drawn().scale * 100)}%` : ""}`
   }
   const fit = () => {
     const room = colHeight() - PHONE_AROUND
     const h = phoneOf(state.page.phone).height
     return room <= 0 || room >= h ? 1 : Math.max(PHONE_FIT_MIN, room / h)
   }
-  const pageBox = () => {
-    const p = phoneOf(state.page.phone)
-    // (The height from the width as it was rounded: main draws by the box's width over the phone's.)
-    const width = Math.round(p.width * fit())
-    return { width, height: Math.round((p.height * width) / p.width) }
-  }
+  /** The phone as it is drawn: its body (the whole screen), its strips and the page's box between
+   *  them (phone.ts). (By the width as it was rounded: main draws by the box's width over the phone's.) */
+  const drawn = () => frameOf(phoneOf(state.page.phone), fit())
   // A dock the window draws: under the page at this height, or beside a phone's page.
   // Until it is dragged: DOCK_DEFAULT, or in a window so short that it is less, what the page
   // leaves over PAGE_SHORT, and never less than half the stage (Motion's timeline needs the
@@ -613,6 +619,17 @@ export function App() {
   const report = () => {
     frame = 0
     let next: Rect | null = null
+    // A phone's body on whole pixels: centred in its column it can fall on half a one, and the
+    // page view, which main places on whole ones, would then meet the strips half a pixel off.
+    const b = phone() ? bodyEl.getBoundingClientRect() : undefined
+    const to = b ? { x: Math.round(b.x - shift.x) - (b.x - shift.x), y: Math.round(b.y - shift.y) - (b.y - shift.y) } : { x: 0, y: 0 }
+    if (Math.abs(to.x - shift.x) > 0.001 || Math.abs(to.y - shift.y) > 0.001) {
+      shift = to
+      // (An offset of the layout's own, not a transform: a body moved by a fraction of a pixel
+      // with `translate` had its rounded clip snapped before the move, a pixel short at one side.)
+      bodyEl.style.left = to.x ? `${to.x}px` : ""
+      bodyEl.style.top = to.y ? `${to.y}px` : ""
+    }
     if (!pageHidden()) {
       // Inside the pane's border, so the border stays visible around the page view.
       const r = pageEl.getBoundingClientRect()
@@ -675,7 +692,7 @@ export function App() {
   // A window too narrow for the panel, a phone's page and the column at its right all at once
   // shows two of them: with a dock (Edit, Motion) the page and the dock, which the mode cannot
   // do without; else the panel and the page, and what the column says of the page waits.
-  const crowded = () => phone() && winWidth() < PANEL_MIN + pageBox().width + 18 + COLUMN_MIN + 8
+  const crowded = () => phone() && winWidth() < PANEL_MIN + drawn().width + PHONE_SIDES + COLUMN_MIN + 8
   const panelShown = () => panelOpen() && !(crowded() && !!dockShown())
   const asideShown = () => phone() && !(crowded() && panelOpen())
   /** From the top bar's note counts: the panel, open on the notes, at the first one that needs
@@ -695,7 +712,7 @@ export function App() {
   // page's right the 300px a dock needs (COLUMN_MIN), with the page's own column and the gaps.
   const maxWidth = () => {
     const half = Math.floor(winWidth() / 2)
-    const room = phone() ? winWidth() - (pageBox().width + 18) - COLUMN_MIN - 8 : half
+    const room = phone() ? winWidth() - (drawn().width + PHONE_SIDES) - COLUMN_MIN - 8 : half
     return Math.max(PANEL_MIN, Math.min(half, room))
   }
   const clampWidth = (w: number) => Math.min(maxWidth(), Math.max(PANEL_MIN, Math.round(w)))
@@ -907,20 +924,33 @@ export function App() {
         <div
           class="device-col"
           style={{
-            "--phone-width": `${pageBox().width}px`,
-            "--phone-height": `${pageBox().height}px`,
-            // (The screen's own corners at the size it is drawn.)
-            "--phone-radius": `${Math.round(phoneOf(state.page.phone).radius * fit())}px`,
+            "--phone-width": `${drawn().width}px`,
+            "--phone-height": `${drawn().height}px`,
+            // (The screen's own corners at the size it is drawn, and the page's box between the strips.)
+            "--phone-radius": `${drawn().radius}px`,
+            "--phone-screen": `${drawn().screen}px`,
           }}
         >
         <Show when={phone()}>
           <div class="device-bar">
-            <PhonePick fit={fit()} />
+            <PhonePick fit={drawn().scale} />
           </div>
         </Show>
+        {/* A phone's body: the status strip, the page's box and the home strip, with the ring
+            around it (phone-frame.tsx). A desktop's page has none: the wrapper makes no box. */}
+        <div class="device-body" ref={bodyEl}>
+        <Show when={phone()}>
+          <StatusStrip phone={phoneOf(state.page.phone)} height={drawn().top} scale={drawn().scale} tint={state.page.tint?.top} />
+        </Show>
         {/* While a dialog is open or the panel is resized the page view is away: a quiet surface
-            stands in for it, so the window does not go black. */}
-        <div class="page" ref={pageEl} classList={{ veiled: settings() || !!switcherOpen() || resizing() }}>
+            stands in for it, so the window does not go black. Behind a phone's page, the strips'
+            colours, which show in the corners it rounds to stay inside the screen's. */}
+        <div
+          class="page"
+          ref={pageEl}
+          classList={{ veiled: settings() || !!switcherOpen() || resizing() }}
+          style={phone() && state.page.tint && !loadFailed() ? { "--tint-top": state.page.tint.top, "--tint-bottom": state.page.tint.bottom } : {}}
+        >
           <Show when={resizing() && state.page.url !== "" && !loadFailed()}>
             <p class="page-size" aria-hidden="true">
               {sizeSaid()}
@@ -990,6 +1020,10 @@ export function App() {
               </Show>
             </div>
           </Show>
+        </div>
+        <Show when={phone()}>
+          <HomeStrip phone={phoneOf(state.page.phone)} height={drawn().bottom} scale={drawn().scale} tint={state.page.tint?.bottom} />
+        </Show>
         </div>
         </div>
         <Show when={dockShown()} fallback={<Show when={asideShown()}><PhoneAside /></Show>}>

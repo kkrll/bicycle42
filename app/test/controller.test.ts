@@ -2086,6 +2086,40 @@ test("the page as a phone's: the page is told, the window is told, and the next 
   }
 })
 
+test("the mouse is a finger on a phone's page in Preview, and a mouse in every mode and on a desktop's page", async () => {
+  const h = await boot()
+  const touch = () => h.shell.page.calls.filter((c) => c[0] === "touch").at(-1)?.[1] ?? false
+  try {
+    await h.ready()
+    h.page.message({ type: "ready" })
+    await h.cmd("setMode", "preview")
+    await until(() => h.snap().review.mode === "preview")
+    assert.equal(touch(), false, "a desktop's page in Preview: a mouse")
+    await h.cmd("setDevice", "phone")
+    await until(() => touch() === true)
+    for (const mode of ["notes", "edit", "motion"] as const) {
+      await h.cmd("setMode", mode)
+      await until(() => touch() === false)
+      await h.cmd("setMode", "preview")
+      await until(() => touch() === true)
+    }
+    // The overlay's own key (mod+.) turns review on: a mouse again.
+    await h.cmd("toggleReview")
+    await until(() => touch() === false)
+    await h.cmd("toggleReview")
+    await until(() => touch() === true)
+    await h.cmd("setDevice", "desktop")
+    await until(() => touch() === false)
+    // Told only when it changes: a state pushed for anything else says nothing.
+    const told = h.shell.page.calls.filter((c) => c[0] === "touch").length
+    h.page.message({ type: "ready" })
+    await new Promise((r) => setImmediate(r))
+    assert.equal(h.shell.page.calls.filter((c) => c[0] === "touch").length, told)
+  } finally {
+    await h.close()
+  }
+})
+
 test("a dock the window draws: the overlay is told after every state, its views reach the window, and the window's acts reach it; nothing for a dock that is not hosted", async () => {
   const h = await boot({ docks: ["motion"] })
   const toOverlay = (type: string) => h.page.sent.filter((m) => m.type === type)

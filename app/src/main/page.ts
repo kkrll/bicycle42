@@ -4,18 +4,20 @@
 // the view's preload: Electron runs it before the page's own scripts in every document of the top
 // frame, so it needs nothing from the page and survives reloads. It runs in the preload's script
 // world (WORLD), which is the page's DOM but not the page's scripts: they can't see the overlay's
-// globals or its way back to the app, window.__review, which sends over IPC. No debugger is
-// attached, so the page's console and the rest of its runtime events never reach this process.
+// globals or its way back to the app, window.__review, which sends over IPC. A debugger is
+// attached only while a phone's page is in Preview, for the pointer as a finger (setTouch), and
+// it only ever asks the Emulation domain: the page's console and the rest of its runtime events
+// never reach this process.
 // This file knows nothing about notes: it hands the overlay's messages to the controller and
 // offers load / capture / send. `Page` is what the controller has of it: what a page under review
 // does, with no word of Electron in it. What is made of Electron (the view) is on `PageView`,
 // which the shell that makes the page keeps; every script run in the page is in this file.
-import { app, WebContentsView, type BrowserWindow, type DownloadItem, type IpcMainEvent, type NativeImage, type Session, type WebContents } from "electron"
+import { app, nativeTheme, WebContentsView, type BrowserWindow, type DownloadItem, type IpcMainEvent, type NativeImage, type Session, type WebContents } from "electron"
 import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 import type { HostMessage, PageMessage } from "../../../overlay/protocol"
-import { PHONE, type Device, type Phone, type Rect } from "../shared/types"
+import { PHONE, viewportOf, viewRadius, type Device, type Phone, type Rect } from "../shared/types"
 import type { Frame } from "./images"
 
 export type PageState = {
@@ -31,6 +33,8 @@ export type PageState = {
   canGoBack: boolean
   canGoForward: boolean
   hmr: boolean
+  /** A phone's page: the colours of the strips above and below it (AppState's page.tint). */
+  tint?: { top: string; bottom: string }
 }
 
 /** overlay → host, as the overlay's protocol has it. What arrives is only known to have one of
@@ -49,6 +53,11 @@ export type Page = {
   /** The page laid out as a phone's browser lays it out, or as it is (Device in shared/types.ts).
    *  How wide the view is stays the window's to say (setBounds). */
   setDevice(device: Device, phone: Phone): void
+  /** The mouse acts as a finger on the page, as on a phone: no hover, `:hover` only on a tap,
+   *  `(hover: none)` and `(pointer: coarse)`, taps for clicks. For a phone's page in Preview;
+   *  off, the mouse is a mouse again (what the overlay's modes need). The page is not reloaded
+   *  either way. */
+  setTouch(on: boolean): void
   /** host → overlay (window.__b42.receive). */
   send(msg: HostMessage): void
   /** The reviewer asked for a note outside this view: Send in a dock the window draws. The next
@@ -145,6 +154,43 @@ const HMR_PROBE = `!!(window.$RefreshReg$ || window.$RefreshHelpers$ || window._
   document.querySelector('script[src*="/@vite/client"],script[src*="react-refresh"],script[src*="webpack-hot"],script[src*="livereload"],nextjs-portal'))`
 
 const BUSY = "!!(window.__b42 && window.__b42.busy && window.__b42.busy())"
+/** The colours of a phone's strips for this page (PageState's tint), asked in the overlay's
+ *  world: above, the page's theme-color (the first whose media matches), else the first opaque
+ *  background at its top; below, the same at its bottom; else the page's canvas, white or, for
+ *  a page that is dark by its color-scheme, Chromium's dark one. Any way CSS writes a colour is
+ *  read by drawing it, and the overlay's own element is passed over. */
+const TINT_PROBE = `(() => {
+  const g = new OffscreenCanvas(1, 1).getContext("2d", { willReadFrequently: true })
+  const rgba = (c) => {
+    if (!c) return null
+    g.fillStyle = "#010203"
+    g.fillStyle = c
+    if (g.fillStyle === "#010203" && c.trim().toLowerCase() !== "#010203") return null
+    g.clearRect(0, 0, 1, 1)
+    g.fillRect(0, 0, 1, 1)
+    return [...g.getImageData(0, 0, 1, 1).data]
+  }
+  const hex = (c) => "#" + c.slice(0, 3).map((n) => n.toString(16).padStart(2, "0")).join("")
+  const opaque = (c) => (c && c[3] >= 250 ? c : null)
+  const root = document.documentElement
+  const scheme = getComputedStyle(root).colorScheme
+  const dark = /dark/.test(scheme) && (!/light/.test(scheme) || matchMedia("(prefers-color-scheme: dark)").matches)
+  const canvas = opaque(rgba(getComputedStyle(root).backgroundColor)) ?? (document.body && opaque(rgba(getComputedStyle(document.body).backgroundColor))) ?? (dark ? [18, 18, 18, 255] : [255, 255, 255, 255])
+  const at = (y) => {
+    for (const el of document.elementsFromPoint(innerWidth / 2, y)) {
+      if (el.localName === "b42-review") continue
+      const c = opaque(rgba(getComputedStyle(el).backgroundColor))
+      if (c) return c
+    }
+    return canvas
+  }
+  const meta = [...document.querySelectorAll('meta[name="theme-color" i]')].find((m) => !m.media || matchMedia(m.media).matches)
+  const theme = opaque(rgba(meta && meta.content))
+  return { top: hex(theme ?? at(0)), bottom: hex(at(innerHeight - 1)) }
+})()`
+/** How long after a tap, a drag or the wheel the strips' colours are asked again (the page may
+ *  have changed its theme, or scrolled another colour to its bottom). */
+const TINT_AFTER_INPUT = 250
 /** The script world the overlay and window.__review live in, apart from the page's own: the one
  *  Electron runs a preload in when contextIsolation is on. */
 export const WORLD = 999
@@ -384,9 +430,15 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   // ── the page as a phone's ────────────────────────────────────────────────────────────────────
   // Chromium's own emulation, the kind its developer tools use: the viewport tag counts and
   // scrollbars lie over the page, so a view 390 px wide is a layout 390 px wide (a desktop's
-  // scrollbar would leave it 375). The pointer stays a mouse: the overlay's gestures are a
-  // mouse's. It belongs to the renderer, and a navigation to another site starts a new one: asked
-  // for again once each navigation commits, which is before the new document's first script runs.
+  // scrollbar would leave it 375). The pointer stays a mouse here: the overlay's gestures are a
+  // mouse's (a finger's is setTouch's, below). It belongs to the renderer, and a navigation to
+  // another site starts a new one: asked for again once each navigation commits, which is before
+  // the new document's first script runs.
+  //
+  // The window draws the phone around the view: its body, the status strip above and the home
+  // strip below. The view is the part of the screen between them, as a phone's browser gives a
+  // page: `screen` is the whole screen, the viewport (innerHeight, 100vh) is the screen less the
+  // two strips (viewportOf).
   //
   // The page's viewport is the phone's screen whatever room the window has for it: a view
   // narrower than the phone (the window gives it the phone's shape, smaller, when the phone is
@@ -407,25 +459,96 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     return w > 0 && w < phone.width ? w / phone.width : 1
   }
   let fitted = 1
-  /** The view's corners: the pane's (inside its hairline), or a phone's screen's own at the size
-   *  it is drawn (no hairline is around those: the system draws them its own way). */
+  /** The view's corners: the pane's (inside its hairline), or, between a phone's strips, only as
+   *  round as keeps them inside the screen's corners the window draws (viewRadius), at the size
+   *  the phone is drawn. */
   const shape = () => {
     if (gone()) return
-    view.setBorderRadius(device === "phone" ? Math.round(phone.radius * fit()) : PAGE_RADIUS)
+    view.setBorderRadius(device === "phone" ? Math.round(viewRadius(phone) * fit()) : PAGE_RADIUS)
   }
   const emulate = () => {
     shape()
     if (gone() || !committed || wc.isCrashed()) return
     if (device === "phone") {
-      const size = { width: phone.width, height: phone.height }
       fitted = fit()
-      wc.enableDeviceEmulation({ screenPosition: "mobile", screenSize: size, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: size, scale: fitted })
+      wc.enableDeviceEmulation({ screenPosition: "mobile", screenSize: { width: phone.width, height: phone.height }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: viewportOf(phone), scale: fitted })
     } else wc.disableDeviceEmulation()
   }
   each((w) => w.on("did-navigate", mine(w, () => {
     committed = true
     if (device === "phone") emulate()
+    applyTouch()
   })))
+
+  // ── the pointer as a finger (a phone's page in Preview) ──────────────────────────────────────
+  // What Chromium's developer tools do in their device mode, over the page's debugger: touch
+  // emulation (maxTouchPoints, `(pointer: coarse)` and `(hover: none)`, no hover on mouse-over)
+  // and the mouse sent as touches (a press is a touchstart, a click a tap, `:hover` sticks where
+  // the finger last was). The wheel and a trackpad still scroll: the emulator lets them through.
+  // A page that looks for 'ontouchstart' in window finds it from its next load (Chromium decides
+  // it as a document starts); the rest holds at once, without a reload.
+  // The settings are the browser's, kept across documents and renderers; they are said again
+  // after each commit all the same (a crashed renderer's, a debugger detached meanwhile). Like
+  // the emulation above, never before the view's first commit, nor while its renderer is gone.
+  // Off, the debugger is detached, which undoes all of it; one attached by someone else (a test's
+  // that drives input, say) is used and left attached, told to stop.
+  let touch = false
+  /** The view whose debugger this page attached, while it is attached. */
+  let attachedTo: WebContents | undefined
+  let touchRefusedLogged = false
+  /** The view the finger was asked of, until it is told to stop. */
+  let touchedIn: WebContents | undefined
+  const applyTouch = () => {
+    if (gone() || !committed || wc.isCrashed()) return
+    const w = wc
+    const d = w.debugger
+    // Off, and nothing of ours to undo: nothing is said (not to another's debugger either).
+    if (!touch && (touchedIn !== w || !d.isAttached())) return void (touchedIn = undefined)
+    if (touch && !d.isAttached()) {
+      try {
+        d.attach("1.3")
+      } catch (err) {
+        if (!touchRefusedLogged) log("warn", "page: the debugger would not attach, the pointer stays a mouse", { error: String(err) })
+        touchRefusedLogged = true
+        return
+      }
+      attachedTo = w
+      d.once("detach", () => void (attachedTo === w && (attachedTo = undefined)))
+    }
+    if (!touch && attachedTo === w) {
+      attachedTo = touchedIn = undefined
+      d.detach()
+      return
+    }
+    touchedIn = touch ? w : undefined
+    const failed = (err: unknown) => void (!gone() && w === wc && log("warn", "page: the pointer as a finger was refused", { error: String(err) }))
+    d.sendCommand("Emulation.setTouchEmulationEnabled", touch ? { enabled: true, maxTouchPoints: 5 } : { enabled: false }).catch(failed)
+    d.sendCommand("Emulation.setEmitTouchEventsForMouse", touch ? { enabled: true, configuration: "mobile" } : { enabled: false }).catch(failed)
+  }
+
+  // ── the strips' colours (a phone's page) ─────────────────────────────────────────────────────
+  // A phone's browser colours its status bar for the page: by its theme-color, or by what is at
+  // its top. Asked once a load is done (and once more a moment later, as the HMR probe looks
+  // twice), after a move within the page, a tap, a drag or the wheel (debounced), and when the
+  // system's theme changes. Only as a phone's: a desktop's page has no strips.
+  let tint: PageState["tint"]
+  let tintTimer: ReturnType<typeof setTimeout> | undefined
+  async function probeTint() {
+    if (gone() || device !== "phone" || !committed || wc.isCrashed() || internal(wc.getURL())) return
+    const at = wc.getURL()
+    const found = (await wc.executeJavaScriptInIsolatedWorld(WORLD, [{ code: TINT_PROBE }]).catch(() => undefined)) as PageState["tint"] | undefined
+    if (gone() || wc.getURL() !== at || !found || typeof found.top !== "string" || typeof found.bottom !== "string") return
+    if (tint?.top === found.top && tint.bottom === found.bottom) return
+    tint = { top: found.top, bottom: found.bottom }
+    opts.onChange()
+  }
+  const tintSoon = () => {
+    if (device !== "phone") return
+    clearTimeout(tintTimer)
+    tintTimer = setTimeout(() => void probeTint(), TINT_AFTER_INPUT)
+  }
+  const themeChanged = () => tintSoon()
+  nativeTheme.on("updated", themeChanged)
   // A new document is not a phone's until it is told (emulation goes with the document before
   // it), and by then the page's own scripts may have had it laid out: as a desktop's, where
   // scrollbars take room (Linux, Windows, a Mac set to always show them) 15 px narrower. The zoom
@@ -525,6 +648,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       ...(shown ? { error: shown } : {}),
       ...(wc.isCrashed() ? { crashed: true as const } : {}),
       ...(refused ? { refused } : {}),
+      ...(device === "phone" && tint ? { tint } : {}),
       canGoBack: before !== undefined && !internal(before),
       canGoForward: history.canGoForward(),
       hmr,
@@ -552,8 +676,9 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     opts.onChange()
     // Dev clients often attach a moment after load; look twice.
     void probeHmr()
+    void probeTint()
     clearTimeout(probeTimer)
-    probeTimer = setTimeout(() => void probeHmr(), 1500)
+    probeTimer = setTimeout(() => (void probeHmr(), void probeTint()), 1500)
   })))
   // Only the document now in the top frame can fail the page. A failed load leaves Chromium's
   // error page (chrome-error://chromewebdata/) in a frame of its own, still loading; a good load
@@ -585,7 +710,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     refused = undefined
     navigated(to)
   })))
-  each((w) => w.on("did-navigate-in-page", mine(w, (_e, to, isMain) => void (isMain && navigated(to)))))
+  each((w) => w.on("did-navigate-in-page", mine(w, (_e, to, isMain) => void (isMain && (navigated(to), tintSoon())))))
   // One page under review: links that want a new window open here instead.
   each((w) =>
     w.setWindowOpenHandler(({ url: to }) => {
@@ -809,6 +934,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   }
 
   each((w) => w.on("before-mouse-event", mine(w, (_event, mouse) => {
+    if (mouse.type === "mouseUp" || mouse.type === "mouseWheel") tintSoon()
     if (mouse.type !== "mouseUp" || mouse.button !== "left") return
     clickAt = Date.now()
     holdForInput()
@@ -944,6 +1070,8 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     // Nothing of the page before is this one's: a phone's is made so again once it has a document.
     committed = false
     fitted = 1
+    tint = undefined
+    attachedTo = touchedIn = undefined
     overlayError = undefined
     clearTimeout(probeTimer)
     enterAt = clickAt = 0
@@ -977,9 +1105,15 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       device = d
       phone = p
       emulate()
+      if (d === "phone") void probeTint()
       // A document that started as a phone's and is still loading has a rule of ours for its
       // scrollbar (IS_PHONE above): a desktop's page is told, and takes it back at once.
       if (!gone() && committed && !wc.isCrashed()) wc.send(IS_PHONE, d === "phone")
+    },
+    setTouch(on) {
+      if (on === touch) return
+      touch = on
+      applyTouch()
     },
     send,
     admitNote() {
@@ -999,8 +1133,13 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       disposed = true
       clearTimeout(reloadTimer)
       clearTimeout(probeTimer)
+      clearTimeout(tintTimer)
+      nativeTheme.off("updated", themeChanged)
       if (inputHold) clearTimeout(inputHold.timer)
       dropWaiting()
+      // (Ours detached before the view closes: no command of it is left waiting on a renderer going away.)
+      if (attachedTo === wc && !wc.isDestroyed() && wc.debugger.isAttached()) wc.debugger.detach()
+      attachedTo = undefined
       if (!window.isDestroyed()) window.contentView.removeChildView(view)
       if (!wc.isDestroyed()) wc.close()
     },

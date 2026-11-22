@@ -24,7 +24,7 @@ export type TestShell = {
     sent: { type: string; [k: string]: unknown }[]
     /** Set by a test that wants screenshots: returns the next picture. */
     capture?: () => Frame
-    /** [what, value] for each call the controller or the shell made on the page: "bounds", "load", "device", "admit" and "partition" (when it changed). */
+    /** [what, value] for each call the controller or the shell made on the page: "bounds", "load", "device", "admit", and "partition" and "touch" (when they changed). */
     calls: [string, unknown][]
     /** The session the page is in (Page.setPartition): the one the shell made it in, then each
      *  the controller moved it to. */
@@ -54,6 +54,7 @@ export function testShell(dataDir: string, opts: { docks?: Pane[]; agent?: (comm
   })
 
   let url = ""
+  let touch = false
   const state = (): PageState => ({ url, loading: false, canGoBack: false, canGoForward: false, hmr: false })
   const stub: TestShell["page"] = {
     load: (next) => page.load(next),
@@ -75,6 +76,11 @@ export function testShell(dataDir: string, opts: { docks?: Pane[]; agent?: (comm
     forward() {},
     setBounds: (bounds) => void stub.calls.push(["bounds", bounds]),
     setDevice: (device, phone) => void stub.calls.push(["device", device], ...(device === "phone" ? [["phone", phone.id] as [string, string]] : [])),
+    setTouch(on) {
+      if (on === touch) return
+      touch = on
+      stub.calls.push(["touch", on])
+    },
     admitNote: () => void stub.calls.push(["admit", null]),
     send(msg) {
       stub.sent.push(msg)

@@ -34,7 +34,7 @@ import type {
   Shortcut,
   SlashCommand,
 } from "../shared/types"
-import { PHONE, phoneOf } from "../shared/types"
+import { PHONE, phoneOf, viewRadius } from "../shared/types"
 import { canvasView } from "./mock-canvas"
 import { setFocusedNote } from "./store"
 import type { MotionView } from "../../../overlay/protocol-motion"
@@ -897,7 +897,11 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   if (params.get("mode") === "edit" || params.get("mode") === "motion") state.review.mode = params.get("mode") as "edit" | "motion"
   if (params.get("mode") === "preview") (state.review.enabled = false), (state.review.mode = "preview")
 
+  // &page=dark: the page dark by its own color-scheme, and the strips as main would find them.
+  const darkPage = params.get("page") === "dark"
+  state.page.tint = darkPage ? { top: "#121212", bottom: "#121212" } : { top: "#ffffff", bottom: "#ffffff" }
   const page = fakePage(state.review.notes.length > 0)
+  if (darkPage) page.style.colorScheme = "dark"
   page.querySelector<HTMLElement>("[data-pins]")!.hidden = !state.review.enabled
 
   const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => ReturnType<Commands[K]> | Promise<ReturnType<Commands[K]>> } = {
@@ -948,8 +952,11 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     },
     setPageBounds(bounds: Rect | null) {
       page.style.display = bounds ? "block" : "none"
-      // Rounded like the real page view (PAGE_RADIUS in main/page.ts).
-      if (bounds) Object.assign(page.style, { left: `${bounds.x}px`, top: `${bounds.y}px`, width: `${bounds.width}px`, height: `${bounds.height}px`, borderRadius: "9px", overflow: "hidden" })
+      // Rounded like the real page view (PAGE_RADIUS in main/page.ts; a phone's, viewRadius at the
+      // size it is drawn).
+      const phone = phoneOf(state.page.phone)
+      const radius = state.page.device === "phone" && bounds ? Math.round(viewRadius(phone) * Math.min(1, bounds.width / phone.width)) : 9
+      if (bounds) Object.assign(page.style, { left: `${bounds.x}px`, top: `${bounds.y}px`, width: `${bounds.width}px`, height: `${bounds.height}px`, borderRadius: `${radius}px`, overflow: "hidden" })
       calls.push(bounds)
     },
     toggleReview() {

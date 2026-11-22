@@ -164,6 +164,13 @@ const SHOTS = [
   // and a page that fits the phone.
   { name: "phone", mock: "review", query: "&device=phone" },
   { name: "phone-se", mock: "review", query: "&device=phone&phone=iphone-se&mode=preview" },
+  // The phone the window draws around the page, one of each kind: an iPhone with an island, the
+  // 16e's notch, an Android's punch-hole; and a dark page, whose strips take its colour, white ink on it.
+  { name: "phone-island", mock: "review", query: "&device=phone&phone=iphone-18-pro&mode=preview" },
+  { name: "phone-notch", mock: "review", query: "&device=phone&phone=iphone-16e&mode=preview" },
+  { name: "phone-pixel", mock: "review", query: "&device=phone&phone=pixel-11&mode=preview" },
+  { name: "phone-galaxy", mock: "review", query: "&device=phone&phone=galaxy-s26&mode=preview" },
+  { name: "phone-dark-page", mock: "review", query: "&device=phone&phone=iphone-18-pro-max&mode=preview&page=dark", run: [click("[data-action=panel]")] },
   // A phone taller than its room (a laptop's window), and the largest phone with the panel shut.
   { name: "phone-short", mock: "review", query: "&device=phone", size: [1280, 720] },
   // A window with no room for all three: the panel and the page, or (Edit, Motion) the page and its dock.

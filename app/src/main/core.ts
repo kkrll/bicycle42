@@ -574,7 +574,11 @@ export function createCore(host: Host): Core {
     pushing = true
     setImmediate(() => {
       pushing = false
-      host.emit("state", snapshot())
+      const state = snapshot()
+      // A phone's page in Preview takes the mouse as a finger; in a mode the overlay needs the
+      // mouse's hover to pick with. Every change of the device, the mode or the site comes here.
+      page?.setTouch(state.page.device === "phone" && state.review.mode === "preview" && !!site)
+      host.emit("state", state)
     })
   }
 

@@ -14,7 +14,7 @@ import { createPage, holdDownloadsIn, moveFile, WORLD, type HeldDownload, type P
 import { noteImages } from "../src/main/images"
 import { createReview, pageEdits, pageNote } from "../src/main/review"
 import { parseNote } from "../src/main/chat-items"
-import { PHONE, PHONES, type Pane } from "../src/shared/types"
+import { PHONE, PHONES, viewportOf, type Pane } from "../src/shared/types"
 import type { CanvasAct, CanvasView } from "../../overlay/protocol-canvas"
 import { notePrompt, noteWords } from "../../overlay/prompt.js"
 
@@ -966,11 +966,128 @@ async function main() {
   place({ x: 0, y: 0, width: small.width, height: 700 })
   page.setDevice("phone", small)
   check("a smaller phone is a narrower layout", (await until(async () => (await laidOut()) === small.width, 2000)) === true, `${small.name}: ${await laidOut()}`)
+  // The window draws the phone's strips above and below the view (its status bar, its home
+  // indicator): the page's viewport is the screen less them, as in a phone's browser, and its
+  // screen the whole screen.
+  page.setDevice("phone", PHONE)
+  const vp = viewportOf(PHONE)
+  const sizes = () => js("innerWidth + 'x' + innerHeight + ' of ' + screen.width + 'x' + screen.height") as Promise<string>
+  place({ x: 0, y: 0, width: vp.width, height: vp.height })
+  check(
+    "as a phone's the page's viewport is the screen less the browser's strips, and its screen the whole screen",
+    vp.height < PHONE.height && (await until(async () => (await sizes()) === `${vp.width}x${vp.height} of ${PHONE.width}x${PHONE.height}`, 2000)) === true,
+    await sizes(),
+  )
   // A box narrower than the phone (the window's, when the phone is taller than its room) is the
   // same phone drawn smaller: the page's own size stays the phone's.
+  place({ x: 0, y: 0, width: PHONE.width / 2, height: vp.height / 2 })
+  check("a box half the phone's size is the whole phone at half size", (await until(async () => (await sizes()) === `${vp.width}x${vp.height} of ${PHONE.width}x${PHONE.height}`, 2000)) === true, await sizes())
+
+  // ── a phone's page in Preview: the mouse is a finger ───────────────────────────────────────
+  // A square at the page's top left that turns blue under :hover, and what taps it.
+  place({ x: 0, y: 0, width: vp.width, height: vp.height })
+  const addSquare = () =>
+    js(`(() => {
+      if (document.getElementById("b42-hov")) return
+      const s = document.createElement("style")
+      s.textContent = "#b42-hov { position: fixed; left: 0; top: 0; width: 120px; height: 120px; z-index: 2147483646; background: rgb(255, 0, 0) } #b42-hov:hover { background: rgb(0, 0, 255) }"
+      document.head.append(s)
+      const d = document.createElement("div")
+      d.id = "b42-hov"
+      document.body.append(d)
+      window.__taps = []
+      for (const t of ["touchstart", "pointerdown", "pointerup", "click"]) addEventListener(t, (e) => __taps.push(t + ":" + (e.pointerType ?? "")), true)
+    })()`)
+  await addSquare()
+  const squareColour = () => js("getComputedStyle(document.getElementById('b42-hov')).backgroundColor") as Promise<string>
+  const BLUE = "rgb(0, 0, 255)"
+  const RED = "rgb(255, 0, 0)"
+  /** The mouse away from the square, then over it: real input, as the window passes it on. */
+  const mouseOver = async () => {
+    wc.sendInputEvent({ type: "mouseMove", x: 300, y: 500 })
+    await sleep(150)
+    wc.sendInputEvent({ type: "mouseMove", x: 60, y: 60 })
+    await sleep(300)
+  }
+  const tap = async () => {
+    wc.sendInputEvent({ type: "mouseDown", x: 60, y: 60, button: "left", clickCount: 1 })
+    await sleep(80)
+    wc.sendInputEvent({ type: "mouseUp", x: 60, y: 60, button: "left", clickCount: 1 })
+    await sleep(400)
+  }
+  const media = () => js(`["(hover: none)", "(pointer: coarse)", "(any-pointer: fine)"].map((q) => matchMedia(q).matches).join(" ") + " " + navigator.maxTouchPoints`) as Promise<string>
+  const FINGER = "true true false 5"
+  const hovers = () => js(`${shadow}?.querySelectorAll('.box.hover').length ?? 0`) as Promise<number>
+  // Annotate first, as it was: a mouse, which the overlay picks with.
+  page.send({ type: "enabled", enabled: true })
+  page.setTouch(false)
+  await mouseOver()
+  const annotate = { colour: await squareColour(), picks: await hovers(), media: await media(), attached: wc.debugger.isAttached() }
+  check("in Annotate a phone's page has a mouse: :hover on mouse-over, the overlay's outline, no coarse pointer, no touch points, no debugger", annotate.colour === BLUE && annotate.picks > 0 && /^\S+ false \S+ 0$/.test(annotate.media) && !annotate.attached, JSON.stringify(annotate))
+  // Preview: review off, and the mouse a finger. (The mouse leaves the square first, as it does
+  // on its way to the top bar's Preview: a finger's moves with nothing pressed are not the page's.)
+  wc.sendInputEvent({ type: "mouseMove", x: 300, y: 500 })
+  await sleep(150)
+  page.send({ type: "enabled", enabled: false })
+  page.setTouch(true)
+  const fingered = (await until(async () => (await media()) === FINGER, 2000)) === true
+  await mouseOver()
+  check("in Preview a phone's page has a finger: no :hover on mouse-over, (hover: none), (pointer: coarse), no fine pointer, touch points", fingered && (await squareColour()) === RED && wc.debugger.isAttached(), `${await media()} ${await squareColour()}`)
+  await js("__taps = []")
+  await tap()
+  const taps = (await js("__taps.join(' ')")) as string
+  check("…a press is a touchstart, a click a tap (a touch's pointer events and click), and :hover sticks where the finger was, as on a phone", /pointerdown:touch touchstart: pointerup:touch click:touch/.test(taps) && (await squareColour()) === BLUE, taps)
+  // A reload, a page of another site (another renderer): the finger is there from the start, and
+  // a document begun with it has touch events to feature-detect.
+  const fingerAfter = async (go: () => void) => {
+    const n = count("ready")
+    go()
+    await until(() => count("ready") > n && !page.state().loading)
+    return (await until(async () => (await media()) === FINGER, 2000)) === true && (await js("'ontouchstart' in window")) === true
+  }
+  check("…and after a reload", await fingerAfter(() => page.reload()), await media())
+  check("…and on a page of another site", await fingerAfter(() => page.load(moved)), await media())
+  // The page's developer tools (alt+mod+J) are a debugger of their own beside it.
+  page.openDevTools()
+  await until(() => wc.isDevToolsOpened(), 3000)
+  await sleep(1000)
+  const withTools = `${wc.isDevToolsOpened()} ${wc.debugger.isAttached()} ${await media()}`
+  wc.closeDevTools()
+  await sleep(300)
+  check("…and with the page's developer tools open and closed again", withTools === `true true ${FINGER}` && (await media()) === FINGER && wc.debugger.isAttached(), `${withTools}; after: ${await media()}`)
+  // The strips' colours: what a phone's browser gives its bars for this page, asked again after
+  // a tap (the page may have changed its theme).
+  const tintAfter = async (code: string, want: string) => {
+    const thrown = await js(`(() => { try { ${code} } catch (e) { return String(e) } })()`)
+    if (thrown) console.log("  tint step threw:", thrown)
+    await tap()
+    return (await until(() => JSON.stringify(page.state().tint) === want, 2000)) === true
+  }
+  const tints = [
+    ["its theme-color above, what is at its bottom below", `document.head.insertAdjacentHTML("beforeend", '<meta name="theme-color" content="#336699"><meta name="theme-color" media="(min-width: 5000px)" content="#ff0000">'); document.body.insertAdjacentHTML("beforeend", '<div id="b42-foot" style="position:fixed;left:0;right:0;bottom:0;height:40px;background:rgb(10, 20, 30)"></div>')`, { top: "#336699", bottom: "#0a141e" }],
+    ["without one, what is at its top, in any of CSS's ways to say a colour", `document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.remove()); document.body.insertAdjacentHTML("beforeend", '<div id="b42-head" style="position:fixed;left:0;right:0;top:0;height:40px;z-index:2147483647;background:hsl(120 100% 25%)"></div>')`, { top: "#008000", bottom: "#0a141e" }],
+    ["with nothing of its own, the page's canvas: dark by its color-scheme", `document.getElementById("b42-head").remove(); document.getElementById("b42-foot").remove(); document.head.insertAdjacentHTML("beforeend", "<style>* { background: transparent !important }</style>"); document.documentElement.style.colorScheme = "dark"`, { top: "#121212", bottom: "#121212" }],
+  ] as const
+  for (const [what, code, want] of tints) check(`a phone's strips have the page's colours: ${what}`, await tintAfter(code, JSON.stringify(want)), JSON.stringify(page.state().tint))
+  page.setDevice("desktop", PHONE)
+  check("…and a desktop's page has none", page.state().tint === undefined)
   page.setDevice("phone", PHONE)
-  place({ x: 0, y: 0, width: PHONE.width / 2, height: PHONE.height / 2 })
-  check("a box half the phone's size is the whole phone at half size", (await until(() => js(`innerWidth === ${PHONE.width} && innerHeight === ${PHONE.height}`), 2000)) === true, String(await js("innerWidth + 'x' + innerHeight")))
+  page.reload()
+  await until(() => !page.state().loading)
+
+  // Back to Annotate without a reload: a mouse again, and the debugger gone.
+  const readiesNow = count("ready")
+  await addSquare()
+  await js("window.__b42mark = 1")
+  page.send({ type: "enabled", enabled: true })
+  page.setTouch(false)
+  const moused = (await until(async () => !/^\S+ true/.test(await media()), 2000)) === true
+  await mouseOver()
+  check(
+    "back in Annotate, the same document: a mouse, :hover on mouse-over, the overlay's outline, and no debugger",
+    moused && (await squareColour()) === BLUE && (await hovers()) > 0 && !wc.debugger.isAttached() && (await js("window.__b42mark")) === 1 && count("ready") === readiesNow,
+    `${await media()} ${await squareColour()} ${await hovers()} ${wc.debugger.isAttached()}`,
+  )
   place({ x: 0, y: 0, width: 390, height: 700 })
   page.setDevice("desktop", PHONE)
   check("as a desktop's again, the scrollbar is back", (await until(async () => (await laidOut()) < 390, 2000)) === true, String(await laidOut()))
@@ -985,12 +1102,23 @@ async function main() {
     onShortcut: () => {},
     log: () => {},
   })
+  // Nor may its debugger be attached then: a phone's page in Preview at the start.
   early.setDevice("phone", PHONE)
+  early.setTouch(true)
+  const ewc = early.view.webContents
+  const attachedEarly = ewc.debugger.isAttached()
   early.setBounds({ x: 0, y: 0, width: 390, height: 700 })
   early.load(moved)
-  const earlyWidth = () => early.view.webContents.executeJavaScript("document.body && (document.body.style.minHeight = '3000px'); document.documentElement.clientWidth") as Promise<number>
+  const earlyWidth = () => ewc.executeJavaScript("document.body && (document.body.style.minHeight = '3000px'); document.documentElement.clientWidth") as Promise<number>
   check("a page told it is a phone's before its first load is one once it has loaded", (await until(async () => !early.state().loading && (await earlyWidth()) === 390, 5000)) === true, String(await earlyWidth().catch(String)))
+  const earlyMedia = () => ewc.executeJavaScript("matchMedia('(pointer: coarse)').matches") as Promise<boolean>
+  check("…and its finger, told before the first load, comes with the first document and not before", !attachedEarly && (await until(() => earlyMedia(), 3000)) === true && ewc.debugger.isAttached(), `${attachedEarly} ${await earlyMedia()}`)
+  // Closed with the finger on: the debugger is let go before the view closes.
+  let detaches = 0
+  const letGo = ewc.debugger.detach.bind(ewc.debugger)
+  ewc.debugger.detach = () => (detaches++, letGo())
   early.dispose()
+  check("a page closed with its finger on detaches its debugger first", detaches === 1, String(detaches))
 
   // ── what the page may do: no permissions, no other schemes, a session per computer ─────────
   // A page of its own, in a session of its own (in memory: nothing is kept between runs).
@@ -1377,14 +1505,19 @@ async function main() {
     page.send({ type: "pins", pins: [] })
     page.send({ type: "enabled", enabled: true })
     page.send({ type: "panel", panel: "motion", act: { type: "ping", id: 9 } })
-    page.setDevice("phone", PHONE)
     page.setDevice("desktop", PHONE)
+    // Made a phone's in Preview while it is gone: asked of nothing until it is back.
+    page.setDevice("phone", PHONE)
+    page.setTouch(true)
     await sleep(200)
     check("…and nothing is sent to it", undelivered === 0 && (await page.busy()) === false, `${undelivered} sends Electron could not deliver`)
     // Loaded again, it is a page like any other: the overlay starts anew and says so.
     const back = await readyAgain(() => page.reload())
     const alive = page.state()
     check("loaded again, it is there, its overlay with it", back && alive.crashed === undefined && alive.error === undefined && (await inOverlay("!!window.__b42")) === true, JSON.stringify(alive))
+    check("…a phone's, with the finger asked for while it was gone", (await until(() => js("matchMedia('(pointer: coarse)').matches && innerHeight < screen.height"), 3000)) === true, String(await js("matchMedia('(pointer: coarse)').matches + ' ' + innerHeight + '/' + screen.height")))
+    page.setTouch(false)
+    page.setDevice("desktop", PHONE)
     console.error = consoleError
   }
 

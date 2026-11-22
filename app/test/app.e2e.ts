@@ -14,7 +14,7 @@ import fs from "node:fs"
 import http from "node:http"
 import os from "node:os"
 import path from "node:path"
-import type { AppState } from "../src/shared/types"
+import { phoneOf, viewportOf, type AppState, type Rect } from "../src/shared/types"
 import { commitPrompt } from "../src/main/asks"
 import type { PageView } from "../src/main/page"
 import type { Transport, timing as acpTiming } from "../src/main/acp"
@@ -1299,13 +1299,46 @@ async function main() {
   const wide = page.view.getBounds()
   await ui(`document.querySelector('[data-device="phone"]').click()`)
   // (The phone's shape, as large as life or as large as fits this window: never cut.)
+  // (The page's box is the screen less the phone's strips, which the window draws above and below it.)
+  const VIEW = viewportOf(phoneOf("iphone-16e"))
+  const VIEW_SE = viewportOf(phoneOf("iphone-se"))
   const shaped = (b: { width: number; height: number }, w: number, h: number) => b.width <= w && b.width > 100 && Math.abs(b.width / b.height - w / h) < 0.01
-  await until(() => shaped(page.view.getBounds(), 390, 844))
+  await until(() => shaped(page.view.getBounds(), VIEW.width, VIEW.height))
   const narrow = page.view.getBounds()
   // (Edit mode is still on: its inspector, the window's, is the column beside the page, which keeps left.)
   const column = (await ui(`(() => { const r = document.querySelector('.dock .cd').getBoundingClientRect(); return { x: r.x, width: r.width, height: r.height, stacked: getComputedStyle(document.querySelector('.cd-body')).flexDirection === "column" } })()`)) as { x: number; width: number; height: number; stacked: boolean }
-  check("the phone switch gives the page a phone's box, and Edit's inspector the column beside it", shaped(narrow, 390, 844) && state().page.device === "phone" && column.x >= narrow.x + narrow.width && column.height > 600, `${JSON.stringify(narrow)} ${JSON.stringify(column)}`)
+  check("the phone switch gives the page a phone's box, and Edit's inspector the column beside it", shaped(narrow, VIEW.width, VIEW.height) && state().page.device === "phone" && column.x >= narrow.x + narrow.width && column.height > 600, `${JSON.stringify(narrow)} ${JSON.stringify(column)}`)
   check("…tall and narrow: the tree above the styles", column.stacked, JSON.stringify(column))
+  // The phone the window draws: its body the screen's shape with the ring around it, the status
+  // strip above the page view and the home strip below, edge to edge; the strips in the page's colours.
+  const frameNow = async () => (await ui(`(() => {
+    const r = (s) => { const b = document.querySelector(s).getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height } }
+    const cs = getComputedStyle(document.querySelector(".stage.phone .device-body"))
+    return { body: r(".device-body"), status: r(".pf-status"), home: r(".pf-home"), ring: cs.outlineWidth + " " + cs.outlineStyle, radius: cs.borderRadius, notch: !!document.querySelector(".pf-status[data-cutout=notch] .pf-cutout"), time: document.querySelector(".pf-time").textContent, bg: getComputedStyle(document.querySelector(".pf-status")).backgroundColor }
+  })()`)) as { body: Rect; status: Rect; home: Rect; ring: string; radius: string; notch: boolean; time: string; bg: string }
+  const fills = (body: Awaited<ReturnType<typeof frameNow>>, inBody: Rect) =>
+    body.ring === "8px solid" &&
+      body.notch &&
+      body.time === "9:41" &&
+      Number.isInteger(body.body.x) &&
+      Number.isInteger(body.body.y) &&
+      Math.abs(body.status.y - body.body.y) < 0.5 &&
+      Math.abs(body.status.y + body.status.height - inBody.y) < 0.5 &&
+      Math.abs(inBody.y + inBody.height - body.home.y) < 0.5 &&
+      Math.abs(body.home.y + body.home.height - (body.body.y + body.body.height)) < 0.5 &&
+      Math.abs(inBody.x - body.body.x) < 0.5 &&
+      inBody.width === Math.round(body.body.width)
+  const framed = await until(async () => fills(await frameNow(), page.view.getBounds()), 3000)
+  check(
+    "a phone's page sits in the phone the window draws on whole pixels: the status strip, the page and the home strip fill its body, with the 8px ring around it",
+    framed === true,
+    `${JSON.stringify(await frameNow())} view ${JSON.stringify(page.view.getBounds())}`,
+  )
+  const tinted = await until(async () => {
+    const t = state().page.tint
+    return !!t && (await ui(`getComputedStyle(document.querySelector(".pf-status")).backgroundColor`)) === `rgb(${parseInt(t.top.slice(1, 3), 16)}, ${parseInt(t.top.slice(3, 5), 16)}, ${parseInt(t.top.slice(5, 7), 16)})`
+  }, 3000)
+  check("…its status strip in the colour main found for the page", tinted === true, `${JSON.stringify(state().page.tint)} ${await ui(`getComputedStyle(document.querySelector(".pf-status")).backgroundColor`)}`)
   win.setSize(1440, 900) // (headless: the view's renderer hears of its size with the window's)
   await sleep(200)
   win.setSize(1441, 900)
@@ -1315,7 +1348,7 @@ async function main() {
   // fit: innerWidth is then that wider width, and the height in the phone's proportion to it.)
   const fitted = page.view.getBounds()
   const label = (await ui(`document.querySelector('.phone-size').textContent`)) as string
-  check("…and as tall as the phone, whatever room the window has: drawn smaller, and said so", (await until(() => js("Math.abs(innerHeight / innerWidth - 844 / 390) < 0.01 && innerHeight >= 844"), 3000)) === true && (fitted.width === 390 ? !label.includes("%") : label.includes(`${Math.round((fitted.width / 390) * 100)}%`)), `${JSON.stringify(fitted)} ${label} ${await js("innerWidth + 'x' + innerHeight")}`)
+  check("…and as tall as the phone, whatever room the window has: drawn smaller, and said so", (await until(() => js(`Math.abs(innerHeight / innerWidth - ${VIEW.height} / ${VIEW.width}) < 0.01 && innerHeight >= ${VIEW.height} && screen.height === 844`), 3000)) === true && (fitted.width === 390 ? !label.includes("%") : label.includes(`${Math.round((fitted.width / 390) * 100)}%`)), `${JSON.stringify(fitted)} ${label} ${await js("innerWidth + 'x' + innerHeight + ' of ' + screen.height")}`)
   // The panel is at the left, and the phone's page next to it in every mode: a mode with no
   // dock has a column of its own there (This page on this phone), so the page does not move.
   const panelRight = (await ui(`document.querySelector('.panel').getBoundingClientRect().right`)) as number
@@ -1356,6 +1389,27 @@ async function main() {
   const taps = (await until(async () => ((await tapRows()).some((r) => r.startsWith("Start free trial|")) ? tapRows() : null))) ?? (await tapRows())
   const cta = taps.find((r) => r.startsWith("Start free trial|")) ?? ""
   check("in Preview the pane lists the page's own small tap targets", !!cta && /^\d+ × \d+$/.test(cta.split("|")[1] ?? ""), taps.join(", "))
+  // In Preview the mouse is a finger on a phone's page; Annotate gives the mouse back, and
+  // neither reloads the page.
+  const coarse = () => js(`matchMedia("(pointer: coarse)").matches && navigator.maxTouchPoints === 5`) as Promise<boolean>
+  await js("window.__b42still = 1")
+  let navigations = 0
+  const navigated = () => void navigations++
+  wc.on("did-navigate", navigated)
+  // (The app may reload the page by itself meanwhile, once an agent's turn has changed its files:
+  // those loads are counted apart. The mode switches must start none.)
+  let appLoads = 0
+  const [reload, loadURL] = [wc.reload, wc.loadURL]
+  wc.reload = () => (appLoads++, reload.call(wc))
+  wc.loadURL = (...a: Parameters<typeof loadURL>) => (appLoads++, loadURL.apply(wc, a))
+  const fingers = [(await until(() => coarse(), 3000)) === true]
+  await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
+  fingers.push((await until(async () => !(await coarse()), 3000)) === true)
+  await ui(`document.querySelector('.mode[data-mode="preview"]').click()`)
+  fingers.push((await until(() => coarse(), 3000)) === true)
+  check("a phone's page in Preview takes the mouse as a finger, in Annotate as a mouse, without a reload", fingers.every(Boolean) && navigations === appLoads && (appLoads > 0 || (await js("window.__b42still")) === 1), `${fingers} ${await js("window.__b42still")} ${navigations} navigations, ${appLoads} asked by the app`)
+  wc.off("did-navigate", navigated)
+  Object.assign(wc, { reload, loadURL })
   const hoverRow = (on: boolean) => ui(`(() => { const r = [...document.querySelectorAll('.fp-fact')].find((r) => r.querySelector('.fp-label').textContent === "Start free trial"); r.dispatchEvent(new PointerEvent(${JSON.stringify(on ? "pointerenter" : "pointerleave")})) })()`)
   // (The pane's outlines: in the layer's own, or in the one that scrolls with the document.)
   const both = (sel: string) => `[...(${shadow}?.querySelectorAll('${sel}') ?? []), ...(document.querySelector('b42-marks')?.shadowRoot.querySelectorAll('${sel}') ?? [])]`
@@ -1408,10 +1462,10 @@ async function main() {
   // Which phone: the list beside the switch.
   await ui(`(() => { const s = document.querySelector('.phone-pick select'); s.value = "iphone-se"; s.dispatchEvent(new Event("change", { bubbles: true })) })()`)
   const asideX = () => ui(`document.querySelector('.dock.fp').getBoundingClientRect().x`) as Promise<number>
-  check("another phone is another box, in the middle of the same column: what is beside it does not move", (await until(() => shaped(page.view.getBounds(), 375, 667))) === true && Math.abs((await asideX()) - aside!.x) < 1 && state().page.phone === "iphone-se", `${JSON.stringify(page.view.getBounds())} ${await asideX()} was ${aside?.x}`)
+  check("another phone is another box, in the middle of the same column: what is beside it does not move", (await until(() => shaped(page.view.getBounds(), VIEW_SE.width, VIEW_SE.height))) === true && Math.abs((await asideX()) - aside!.x) < 1 && state().page.phone === "iphone-se", `${JSON.stringify(page.view.getBounds())} ${await asideX()} was ${aside?.x}`)
   check("…and its name beside the switch", (await ui(`document.querySelector('.phone-pick .pick-long').textContent`)) === "iPhone SE")
   await ui(`(() => { const s = document.querySelector('.phone-pick select'); s.value = "iphone-16e"; s.dispatchEvent(new Event("change", { bubbles: true })) })()`)
-  await until(() => shaped(page.view.getBounds(), 390, 844) && page.view.getBounds().width === narrow.width)
+  await until(() => shaped(page.view.getBounds(), VIEW.width, VIEW.height) && page.view.getBounds().width === narrow.width)
   // Edit, beside a phone's page: the column is the inspector and nothing else; the page's facts
   // are not worked out there, and nothing of the pane is marked on the page.
   await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
@@ -1573,7 +1627,7 @@ async function main() {
   // new one). Each box is a move of the page view in main, and each new size an emulation.
   {
     await ui(`document.querySelector('[data-device="phone"]').click()`)
-    await until(() => shaped(page.view.getBounds(), 390, 844))
+    await until(() => shaped(page.view.getBounds(), VIEW.width, VIEW.height))
     await sleep(300)
     const boxes: { width: number; height: number }[] = []
     let emulations = 0
@@ -1603,7 +1657,7 @@ async function main() {
     const last = page.view.getBounds()
     check(
       "a phone's page in a window that grows shorter gets one box a height, each a new size: none that only moves it on the way",
-      boxes.length > 0 && boxes.length <= HEIGHTS && sameSize === 0 && emulations <= HEIGHTS && shaped(last, 390, 844) && last.width < narrow.width,
+      boxes.length > 0 && boxes.length <= HEIGHTS && sameSize === 0 && emulations <= HEIGHTS && shaped(last, VIEW.width, VIEW.height) && last.width < narrow.width,
       `${HEIGHTS} heights: ${boxes.length} boxes (${sameSize} of them the size before), ${emulations} emulations, ${work.layouts / HEIGHTS} layouts a height in the window; last ${JSON.stringify(last)}`,
     )
     win.setSize(1441, 900)

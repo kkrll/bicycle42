@@ -23,27 +23,71 @@ export const HOSTED_PANES: readonly Pane[] = ["canvas", "motion", "facts"]
 
 /** What the page is shown as. "phone": as wide as the chosen phone's screen and at most as tall
  *  (CSS px), laid out as a phone's browser lays it out (the page's viewport tag counts,
- *  scrollbars take no room); the pointer is still a mouse, so every mode works as on a desktop
- *  page. */
+ *  scrollbars take no room). In Preview the pointer is a finger (no hover, taps, a coarse
+ *  pointer, main/page.ts setTouch); in the other modes it stays a mouse, which the overlay's
+ *  gestures are made for. */
 export type Device = "desktop" | "phone"
 
+/** What is cut out of the top of a phone's screen for its camera: an iPhone's Dynamic Island, an
+ *  older iPhone's notch, an Android's punch-hole (in the middle), or nothing (a phone with a
+ *  bezel above the screen). */
+export type Cutout = "island" | "notch" | "punch" | "none"
+
 /** A phone the page can be shown as: its screen in CSS px, upright, and how round the screen's
- *  corners are (the radius, in the same px: an iPhone's is large, an iPhone SE's screen is square). */
-export type Phone = { id: string; name: string; width: number; height: number; radius: number }
+ *  corners are (the radius, in the same px: an iPhone's is large, an iPhone SE's screen is
+ *  square). `top` and `bottom` are what the phone's browser keeps of the screen for itself above
+ *  and below the page (its status bar, and the strip of the home indicator): the window draws
+ *  them, and the page's viewport is the screen less both, as in a phone's browser with its own
+ *  bars out of the way, while `screen` is the whole screen. `home`: a home indicator (or an
+ *  Android's gesture handle) at the bottom; none on a phone with a home button. */
+export type Phone = { id: string; name: string; width: number; height: number; radius: number; top: number; bottom: number; cutout: Cutout; home: boolean }
 /** The phones on offer, small to large: this year's, and the two small sizes still in many
  *  pockets. Sizes are what the phone's browser reports as its screen: the iPhones' from Apple's
  *  own pixel counts over 3 (402 by 874 is also an iPhone 17's and a 17 Pro's); the Android ones
  *  are the usual figures for those screens, since Android publishes no one width per model.
- *  The iPhones' corners are the screens' own, the others' are near enough. */
+ *  The iPhones' corners are the screens' own, the others' are near enough.
+ *
+ *  Insets, in the same px (what UIKit calls the safe area in portrait):
+ *  - an iPhone with a Dynamic Island: 62 above and 34 below (iPhone 16 Pro, 17 Pro and Pro Max,
+ *    the same screens as the 18 Pro's), the iPhone Air 68 above. Use Your Loaf, "iPhone 17
+ *    Screen Sizes", https://useyourloaf.com/blog/iphone-17-screen-sizes/ and "iPhone 16 Screen
+ *    Sizes", https://useyourloaf.com/blog/iphone-16-screen-sizes/
+ *  - the iPhone 16e, with a notch: 47 and 34, the iPhone 14's (the same screen and notch). Use
+ *    Your Loaf, "iPhone 14 Screen Sizes", https://useyourloaf.com/blog/iphone-14-screen-sizes/
+ *  - the iPhone SE: a 20 px status bar, no cut-out, a home button: nothing below.
+ *  - an Android: a status bar of 24 dp (Material, "Android bars",
+ *    https://material.io/design/platform-guidance/android-bars.html), made at least as tall as
+ *    the camera's hole (AOSP, "Display cutouts",
+ *    https://source.android.com/docs/core/display/display-cutouts), and a gesture bar of 24 dp
+ *    (what Android 13 and later report on Pixels, by one developer's count:
+ *    https://community.appinventor.mit.edu/t/nav-bar-height-without-extensions/174318). The
+ *    Pixel's 32 above is an estimate for its larger hole: Android publishes no figure per model.
+ *  Where a strip is less tall than the corner is round, the page's corners are rounded to stay
+ *  inside the screen's (viewRadius). */
 export const PHONES: readonly Phone[] = [
-  { id: "galaxy-s26", name: "Galaxy S26", width: 360, height: 780, radius: 24 },
-  { id: "iphone-se", name: "iPhone SE", width: 375, height: 667, radius: 0 },
-  { id: "iphone-16e", name: "iPhone 16e", width: 390, height: 844, radius: 47 },
-  { id: "iphone-18-pro", name: "iPhone 18 Pro", width: 402, height: 874, radius: 62 },
-  { id: "pixel-11", name: "Pixel 11", width: 412, height: 923, radius: 30 },
-  { id: "iphone-air", name: "iPhone Air", width: 420, height: 912, radius: 62 },
-  { id: "iphone-18-pro-max", name: "iPhone 18 Pro Max", width: 440, height: 956, radius: 62 },
+  { id: "galaxy-s26", name: "Galaxy S26", width: 360, height: 780, radius: 24, top: 24, bottom: 24, cutout: "punch", home: true },
+  { id: "iphone-se", name: "iPhone SE", width: 375, height: 667, radius: 0, top: 20, bottom: 0, cutout: "none", home: false },
+  { id: "iphone-16e", name: "iPhone 16e", width: 390, height: 844, radius: 47, top: 47, bottom: 34, cutout: "notch", home: true },
+  { id: "iphone-18-pro", name: "iPhone 18 Pro", width: 402, height: 874, radius: 62, top: 62, bottom: 34, cutout: "island", home: true },
+  { id: "pixel-11", name: "Pixel 11", width: 412, height: 923, radius: 30, top: 32, bottom: 24, cutout: "punch", home: true },
+  { id: "iphone-air", name: "iPhone Air", width: 420, height: 912, radius: 62, top: 68, bottom: 34, cutout: "island", home: true },
+  { id: "iphone-18-pro-max", name: "iPhone 18 Pro Max", width: 440, height: 956, radius: 62, top: 62, bottom: 34, cutout: "island", home: true },
 ]
+/** The part of a phone's screen the page is laid out in (CSS px): the screen less its browser's
+ *  strips above and below. */
+export const viewportOf = (p: Phone) => ({ width: p.width, height: p.height - p.top - p.bottom })
+/** How round the page's own corners are, between the strips (CSS px, at life size). The page is a
+ *  native view the window cannot draw over, so it has to stay inside the screen's rounded
+ *  corners: square, it would reach past them wherever a strip is less tall than the corner is
+ *  round (an iPhone's 34 px below a corner of 62 px: 6.7 px past it, over the ring around the
+ *  phone). Rounded by the corner's radius less the shorter strip, its corner is inside the
+ *  screen's (the two circles touch), and 2 px more leaves room for the system's own curve
+ *  (on a Mac a continuous one, not a circle's arc). What shows between the two is the strip's
+ *  colour, the page's own at that edge. 0 when both strips are as tall as the corner is round. */
+export const viewRadius = (p: Phone) => {
+  const short = Math.min(p.top, p.bottom)
+  return short >= p.radius ? 0 : p.radius - short + 2
+}
 /** The phone a page is shown as until another is chosen. */
 export const PHONE: Phone = PHONES[2]!
 /** The phone of that id, or the usual one for an id that is not on the list. */
@@ -438,6 +482,10 @@ export type AppState = {
     canGoForward: boolean
     /** The page hot-reloads by itself, so the app leaves reloading to it. */
     hmr: boolean
+    /** A phone's page only: the colours of the strips the window draws above and below it, as
+     *  "#rrggbb": above, what a phone's browser gives its status bar for this page (its
+     *  theme-color, or else what is at its top); below, what is at its bottom. Absent until known. */
+    tint?: { top: string; bottom: string }
     /** Kept between starts; the window sizes the page's box by it. */
     device: Device
     /** Which phone a phone's page is (an id in PHONES); kept while the page is a desktop's. */
