@@ -74,6 +74,13 @@
   --lead: 24px;
   --edge-b: calc(var(--edge-a) + var(--lead) + 6px);
   --icon-lead: calc(var(--edge-b) - var(--edge-a) - 16px);
+
+  /* Sizes in motion the design system has no token for: how far a control gives when it is
+     pressed, how small a popover opened by a click starts (it grows out of what opened it), and
+     how small the settings dialog starts and leaves. */
+  --press-scale: 0.97;
+  --pop-scale: 0.97;
+  --dialog-scale: 0.98;
 }
 
 /* A lighter, neutral paper for the light theme. (The design system's default is a warm beige,
@@ -188,6 +195,24 @@ pre,
 @keyframes spin {
   to {
     rotate: 1turn;
+  }
+}
+
+/* A popover opened by a click grows a little out of what opened it as it fades in: each sets its
+   transform-origin at the side its control is on. A list that opens as one types (the / and @
+   list, a field's values) has no entrance: it keeps up with the keys. Without motion, it fades. */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    scale: var(--pop-scale);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+    }
   }
 }
 
@@ -354,7 +379,22 @@ pre,
 .meter,
 summary.tool-row,
 .thinking > summary {
-  transition: background-color var(--duration-micro) var(--ease-micro);
+  transition:
+    background-color var(--duration-micro) var(--ease-micro),
+    scale var(--duration-micro) var(--ease-micro);
+}
+
+/* Pressed, a button gives a little under the pointer, so a click is answered before what it does
+   shows. Buttons only: a row or a field that shrank would read as a jolt. Without motion, the
+   hover's fill says it alone. */
+:is(.icon-btn, .btn, .text-btn, .mode, .device, .counts-btn, .copy-btn, .more-btn, .repo-chip, .wait-cancel, .jump):not(:disabled):active {
+  scale: var(--press-scale);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.icon-btn, .btn, .text-btn, .mode, .device, .counts-btn, .copy-btn, .more-btn, .repo-chip, .wait-cancel, .jump):not(:disabled):active {
+    scale: none;
+  }
 }
 
 /* The cards (the place, the notes, the conversation) take the card's hover; what is laid in or
@@ -518,6 +558,12 @@ details[open] > summary > .caret {
   }
 }
 
+/* Beside a spinner (a turn at work, the "Working on" line) the spinner says it: the badge's outline
+   stands still, so the line has one rhythm, not two. */
+:is(.turn-head, .working) .badge::after {
+  animation: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .badge::after {
     animation: none !important;
@@ -651,7 +697,8 @@ details[open] > summary > .caret {
   height: 12px;
   border-radius: 6px;
   background: var(--background-05);
-  transition: background var(--duration-exit) var(--ease-micro);
+  /* The knob's curve too, so the colour has turned when the knob lands. */
+  transition: background-color var(--duration-exit) var(--ease-entrance);
 }
 
 .toggle-track::after {
@@ -825,6 +872,11 @@ details[open] > summary > .caret {
   white-space: nowrap;
   pointer-events: none;
   animation: hint-in var(--duration-micro) var(--ease-micro);
+}
+
+/* Shown at once on the way from one control to the next: no fade, it is the same hint going on. */
+.bar-hint.warm {
+  animation: none;
 }
 
 .bar-hint kbd {
@@ -1134,6 +1186,18 @@ details[open] > summary > .caret {
   border: 1px solid var(--background-05);
   border-radius: 10px;
   overflow: hidden;
+  position: relative;
+}
+
+/* The page as it was, while its view is away for a moment (app.tsx): where the view was and at
+   its size, so a dragged edge crops it rather than stretching it. */
+.page-still {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  pointer-events: none;
+  user-select: none;
 }
 
 /* The page as a phone's (the chosen one of PHONES in shared/types.ts: its screen, and the pane's
@@ -1312,8 +1376,13 @@ details[open] > summary > .caret {
   background: var(--background);
 }
 
-/* While an edge is dragged: how large the page will be, in the middle of where it will be. */
+/* While an edge is dragged: how large the page will be, in the middle of where it will be, on a
+   chip of the window's paper over the page's picture. */
 .page-size {
+  position: relative;
+  padding: 2px 8px;
+  border-radius: var(--radius);
+  background: var(--background);
   color: var(--muted);
   font-size: var(--text-control);
   font-variant-numeric: tabular-nums;
@@ -1888,7 +1957,8 @@ details[open] > summary > .caret {
   border-radius: 8px;
   background: var(--background);
   font-weight: 400;
-  animation: fadeIn var(--duration-enter) var(--ease-entrance);
+  animation: pop-in var(--duration-enter) var(--ease-entrance);
+  transform-origin: top left;
 }
 
 .agent-pop-row {
@@ -2077,13 +2147,17 @@ button.note-group-name:hover {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-.note.flash .note-main {
-  animation: note-flash calc(var(--duration-slow) * 5) var(--ease-exit);
+/* Pointed at, by a pin clicked on the page: the note's row and its message in the conversation
+   alike are lit with the accent, held a moment, and go back to their own colour. */
+.note.flash .note-main,
+.msg.flash {
+  animation: pointed calc(var(--duration-slow) * 5) var(--ease-micro);
 }
 
-@keyframes note-flash {
-  from {
-    background: color-mix(in srgb, var(--accent) 24%, var(--background));
+@keyframes pointed {
+  0%,
+  40% {
+    background-color: color-mix(in srgb, var(--accent) 24%, var(--background));
   }
 }
 
@@ -2284,12 +2358,24 @@ button.note-group-name:hover {
   color: var(--muted);
 }
 
-/* The list behind "+": a search field, rows chosen with the keyboard, the keys at the bottom. */
+/* The list behind "+": a search field, rows chosen with the keyboard, the keys at the bottom.
+   It is there the moment its keys are pressed and gone the moment one is chosen: typed into at
+   once, it has no entrance or exit. */
 .dialog.switcher {
   width: min(560px, calc(100vw - 32px));
   max-height: min(560px, calc(100vh - 64px));
   padding: 0;
   overflow: hidden;
+  animation: none;
+}
+
+.dialog.switcher::backdrop {
+  animation: none;
+}
+
+.dialog.switcher:not([open]),
+.dialog.switcher:not([open])::backdrop {
+  transition: none;
 }
 
 .switcher[open] {
@@ -2532,7 +2618,8 @@ button.note-group-name:hover {
   border-top: 0;
   border-radius: 0 0 var(--radius) var(--radius);
   background: var(--background);
-  animation: fadeIn var(--duration-enter) var(--ease-entrance);
+  animation: pop-in var(--duration-enter) var(--ease-entrance);
+  transform-origin: top left;
 }
 
 .menu button {
@@ -3860,19 +3947,55 @@ details[open] > summary > .caret {
   margin-top: 4px;
 }
 
+/* Settings grows a little into place where it stands, in the middle, as it fades in (pop-in, at
+   the dialog's own size), and leaves the same way, quicker: closed, it is still drawn, in the top
+   layer, until its exit is over, and the app keeps it that long (app.tsx). */
 .dialog {
+  --pop-scale: var(--dialog-scale);
   width: min(480px, calc(100vw - 32px));
   padding: 16px;
   border: 1px solid var(--background-05);
   border-radius: 10px;
   background: var(--background);
   color: var(--foreground);
-  animation: fadeInFromBottom var(--duration-enter) var(--ease-entrance);
+  animation: pop-in var(--duration-enter) var(--ease-entrance);
 }
 
 .dialog::backdrop {
   background: var(--overlay);
   animation: fadeIn var(--duration-enter) var(--ease-entrance);
+}
+
+.dialog:not([open]) {
+  opacity: 0;
+  scale: var(--dialog-scale);
+  transition:
+    opacity var(--duration-exit) var(--ease-exit),
+    scale var(--duration-exit) var(--ease-exit),
+    display var(--duration-exit) allow-discrete,
+    overlay var(--duration-exit) allow-discrete;
+}
+
+.dialog:not([open])::backdrop {
+  background: transparent;
+  transition:
+    background-color var(--duration-exit) var(--ease-exit),
+    display var(--duration-exit) allow-discrete,
+    overlay var(--duration-exit) allow-discrete;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog:not([open]) {
+    scale: none;
+  }
+}
+
+/* The page's picture is still being put in its place (app.tsx): a dialog that opened waits unseen,
+   at the start of its entrance, until the page's view has gone. It has the keyboard already. */
+.page-holding .dialog,
+.page-holding .dialog::backdrop {
+  opacity: 0;
+  animation-play-state: paused;
 }
 
 .dialog-head {

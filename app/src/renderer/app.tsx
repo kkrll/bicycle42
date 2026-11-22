@@ -7,7 +7,7 @@
 //   · no page is open yet, or the connect screen is up
 //   · the settings dialog is open
 //   · the panel is being resized (the native view would swallow the drag)
-import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
+import { For, Match, Show, Switch, batch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { PHONES, phoneOf, type Device, type Rect, type ReviewMode, type Shortcut } from "../shared/types"
 import { sizeOf } from "../shared/wire"
 import { DockRegion, PhoneAside, dockShown } from "./dock"
@@ -135,9 +135,12 @@ function UrlField(props: { ref: (el: HTMLInputElement) => void }) {
 
 type HintText = { text: string; keys: string[] }
 const [hint, setHint] = createSignal<HintText | null>(null)
-/** The pointer rests this long before a hint shows: a pointer on its way to a click never sees
- *  one. Once one is up, the next shows at once. */
-const HINT_DELAY = 2000
+/** The hint came up at once, the pointer going from one control to the next: it has no fade. */
+const [hintWarm, setHintWarm] = createSignal(false)
+/** The pointer rests this long before a hint shows: a pointer passing over on its way to a click
+ *  never sees one, one resting on a control it does not know is told soon. Once one is up, the
+ *  next shows at once. */
+const HINT_DELAY = 600
 const HINT_WARM = 400
 /** A hint stays this long after the pointer leaves its control: on the way to the control next
  *  to it the hint is not taken down and put up again (which blinked), only its words change. */
@@ -164,6 +167,7 @@ function hinted(what: () => HintText) {
       clearTimeout(hintTimer)
       clearTimeout(hintLeave)
       const warm = !!hint() || Date.now() - hintGone < HINT_WARM
+      setHintWarm(warm)
       if (warm) setHint(what())
       else hintTimer = setTimeout(() => setHint(what()), HINT_DELAY)
     },
@@ -178,6 +182,7 @@ let flashTimer: ReturnType<typeof setTimeout> | undefined
 function flashHint(text: string) {
   const shown: HintText = { text, keys: [] }
   clearTimeout(flashTimer)
+  setHintWarm(false)
   setHint(shown)
   flashTimer = setTimeout(() => hint() === shown && setHint(null), 1500)
 }
@@ -186,7 +191,7 @@ function Hint() {
   return (
     <Show when={hint()}>
       {(h) => (
-        <div class="bar-hint" role="tooltip">
+        <div class="bar-hint" classList={{ warm: hintWarm() }} role="tooltip">
           <span>{h().text}</span>
           <For each={h().keys}>{(k) => <Kbd keys={k} />}</For>
         </div>
@@ -611,6 +616,25 @@ export function App() {
   const [settings, setSettings] = createSignal(false)
   /** The sheet of keys ("?", Help ▸ Keyboard Shortcuts). */
   const [keysOpen, setKeysOpen] = createSignal(false)
+  /** Settings, closed, is still drawn while it leaves (.dialog:not([open]) in styles.css): it is
+   *  kept that long, with the page still away under it. */
+  const [settingsLeaving, setSettingsLeaving] = createSignal(false)
+  let settingsLeft = 0
+  const openSettings = () => {
+    clearTimeout(settingsLeft)
+    setSettingsLeaving(false) // (one still leaving goes first: the new one opens in its place)
+    setSettings(true)
+  }
+  const closeSettings = () => {
+    // (One change: a moment of neither would take the dialog away and draw it anew, open.)
+    batch(() => {
+      setSettings(false)
+      setSettingsLeaving(true)
+    })
+    const exit = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--duration-exit")) || 150
+    settingsLeft = window.setTimeout(() => setSettingsLeaving(false), exit)
+  }
+  onCleanup(() => clearTimeout(settingsLeft))
   const [resizing, setResizing] = createSignal(false)
   /** Which edge the resize is of: the dock's top (true), else the panel's side. */
   const [dockDragging, setDockDragging] = createSignal(false)
@@ -691,7 +715,67 @@ export function App() {
   }
   const canStart = () => state.connection.status === "online" && !!state.session && !state.startingSite
   // A page that failed to load is replaced by a card saying so, in the same place.
-  const pageHidden = () => setup() || settings() || keysOpen() || !!switcherOpen() || resizing() || state.page.url === "" || loadFailed() || pageCovered()
+  const pageHidden = () => setup() || settings() || settingsLeaving() || keysOpen() || !!switcherOpen() || resizing() || state.page.url === "" || loadFailed() || pageCovered()
+  /** The page is away for a moment: a dialog over the window, or an edge being dragged. */
+  const veiled = () => settings() || settingsLeaving() || keysOpen() || !!switcherOpen() || resizing()
+
+  // ── the page's still: while it is away for a moment, a picture of it as it was holds its
+  // place, so the window does not blank, a dialog's backdrop fades over the page, and a dragged
+  // edge crops it. The view stays until the picture is drawn under it (STILL_WAIT at most), and
+  // the picture until the view is back over it. ──
+  const STILL_WAIT = 150
+  const STILL_KEEP = 250
+  const [still, setStill] = createSignal<{ url: string; width: number; height: number } | null>(null)
+  /** "asking": the view waits for its picture; "drawn": it may go. */
+  let stillFor: "asking" | "drawn" | undefined
+  let stillAsk = 0
+  let stillTimer = 0
+  const dropStill = () => setStill(null)
+  /** Until the view has gone, a dialog that opened waits unseen at its start (.page-holding in
+   *  styles.css), so it comes in whole over the window, not partly under the page. */
+  const holding = (on: boolean) => document.documentElement.classList.toggle("page-holding", on)
+  const askStill = () => {
+    const ask = ++stillAsk
+    stillFor = "asking"
+    holding(true)
+    clearTimeout(stillTimer)
+    const go = () => {
+      if (ask !== stillAsk || stillFor !== "asking") return
+      clearTimeout(stillTimer)
+      stillFor = "drawn"
+      report()
+      holding(false)
+    }
+    stillTimer = window.setTimeout(go, STILL_WAIT)
+    b42
+      .invoke("pageStill")
+      .then(async (s) => {
+        if (!s || ask !== stillAsk) return
+        const img = new Image()
+        img.src = s.url
+        await img.decode()
+        if (ask !== stillAsk) return
+        setStill(s)
+        // Drawn in the window before the view goes: the next frame, and the one after it.
+        await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))
+      })
+      .catch(() => undefined)
+      .finally(go)
+  }
+  /** The moment is over: no picture is waited for any more, and the one drawn is let go once the
+   *  view surely covers it again. */
+  const stillBack = () => {
+    stillAsk++
+    stillFor = undefined
+    holding(false)
+    clearTimeout(stillTimer)
+    if (still()) stillTimer = window.setTimeout(dropStill, STILL_KEEP)
+  }
+  onCleanup(() => {
+    clearTimeout(stillTimer)
+    holding(false)
+    dropStill()
+  })
 
   // ── page bounds: one call per frame at most, none when nothing moved ──
   let sent: Rect | null | undefined
@@ -711,11 +795,21 @@ export function App() {
       bodyEl.style.top = to.y ? `${to.y}px` : ""
     }
     if (!pageHidden()) {
+      if (stillFor) stillBack()
       // Inside the pane's border, so the border stays visible around the page view.
       const r = pageEl.getBoundingClientRect()
       const x = Math.round(r.x + pageEl.clientLeft)
       const y = Math.round(r.y + pageEl.clientTop)
       if (pageEl.clientWidth >= 1 && pageEl.clientHeight >= 1) next = { x, y, width: pageEl.clientWidth, height: pageEl.clientHeight }
+    } else if (sent && veiled() && stillFor !== "drawn") {
+      // On screen and going away for a moment: its picture first, then it goes (askStill).
+      if (!stillFor) askStill()
+      return
+    } else if (!veiled() && stillFor) {
+      // Away for good (the page failed, the window went back to a setup step): no picture of it.
+      stillBack()
+      clearTimeout(stillTimer)
+      dropStill()
     }
     if (sameRect(sent, next)) return
     sent = next
@@ -1009,7 +1103,7 @@ export function App() {
         panelCrowded={panelOpen() && !panelShown()}
         togglePanel={togglePanel}
         showNotes={showNotes}
-        openSettings={() => setSettings(true)}
+        openSettings={openSettings}
       />
       <Show when={ready() && !setup()}>
         <Strips />
@@ -1022,7 +1116,7 @@ export function App() {
           hidden={!panelShown()}
           style={{ "--panel-width": `${panelWidth()}px`, "--panel-max": `${maxWidth()}px` }}
         >
-          <Panel composerRef={(el) => (composerEl = el)} openSettings={() => setSettings(true)} size={panelSize()} />
+          <Panel composerRef={(el) => (composerEl = el)} openSettings={openSettings} size={panelSize()} />
         </aside>
         <Show when={panelShown()}>
           <div
@@ -1085,15 +1179,19 @@ export function App() {
         <Show when={phone()}>
           <StatusStrip phone={phoneOf(state.page.phone)} height={drawn().top} scale={drawn().scale} tint={state.page.tint?.top} />
         </Show>
-        {/* While a dialog is open or the panel is resized the page view is away: a quiet surface
-            stands in for it, so the window does not go black. Behind a phone's page, the strips'
-            colours, which show in the corners it rounds to stay inside the screen's. */}
+        {/* While a dialog is open or an edge is dragged the page view is away: its picture as it was
+            stands in for it (the still, above), on a quiet surface, so the window does not go
+            blank. Behind a phone's page, the strips' colours, which show in the corners it rounds
+            to stay inside the screen's. */}
         <div
           class="page"
           ref={pageEl}
-          classList={{ veiled: settings() || keysOpen() || !!switcherOpen() || resizing() }}
+          classList={{ veiled: veiled() }}
           style={phone() && state.page.tint && !loadFailed() ? { "--tint-top": state.page.tint.top, "--tint-bottom": state.page.tint.bottom } : {}}
         >
+          <Show when={still()}>
+            {(s) => <img class="page-still" src={s().url} alt="" aria-hidden="true" style={{ width: `${s().width}px`, height: `${s().height}px` }} />}
+          </Show>
           <Show when={resizing() && state.page.url !== "" && !loadFailed()}>
             <p class="page-size" aria-hidden="true">
               {sizeSaid()}
@@ -1245,8 +1343,8 @@ export function App() {
       <Show when={keysOpen()}>
         <KeysSheet onClose={() => setKeysOpen(false)} />
       </Show>
-      <Show when={settings()}>
-        <SettingsDialog onClose={() => setSettings(false)} />
+      <Show when={settings() || settingsLeaving()}>
+        <SettingsDialog onClose={closeSettings} />
       </Show>
       <Show when={switcherOpen() && !setup()}>
         <Switcher projectsOnly={switcherOpen() === "projects"} onClose={() => setSwitcherOpen(false)} />

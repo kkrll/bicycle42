@@ -555,6 +555,10 @@ export type Commands = {
   forward(): void
   /** Where the page sits inside the window, in CSS pixels. `null` hides it (a dialog is open). */
   setPageBounds(bounds: Rect | null): void
+  /** A picture of the page as it is drawn now (a JPEG's data: address, in device pixels; the
+   *  window's images take no other kind of address) and the size it is drawn at (CSS px): what
+   *  holds its place while it is away for a moment. Null when it is not shown. */
+  pageStill(): { url: string; width: number; height: number } | null
   /** The page as a desktop's or as a phone's: how it is laid out, and how wide its box is. */
   setDevice(device: Device): void
   /** The download the page asked for (`AppState.page.download`, by its id) is saved: the system's

@@ -428,7 +428,7 @@ export function MotionDock() {
 
   // ── the popover ──
   let popEl: HTMLDivElement | undefined
-  const [popAt, setPopAt] = createSignal<{ left: number; top: number; max: number } | null>(null)
+  const [popAt, setPopAt] = createSignal<{ left: number; top: number; max: number; origin: string } | null>(null)
   createEffect(() => {
     const p = pop()
     if (!p || !popEl) return setPopAt(null)
@@ -441,9 +441,12 @@ export function MotionDock() {
       const above = a.top - box.top - 6, below = box.bottom - a.bottom - 6
       const max = Math.max(above, below) - 8
       const hh = Math.min(h, max)
-      const top = above >= hh + 8 || above > below ? a.top - box.top - 6 - hh : a.bottom - box.top + 6
+      const up = above >= hh + 8 || above > below
+      const top = up ? a.top - box.top - 6 - hh : a.bottom - box.top + 6
       const leftWant = p.kind === "list" ? a.left - box.left : a.right - box.left - w
-      setPopAt({ left: Math.min(Math.max(8, leftWant), box.width - w - 8), top: Math.max(8, top), max })
+      // (It grows out of the side of what opened it: its edge nearest it, at the end it is aligned to.)
+      const origin = `${p.kind === "list" ? "left" : "right"} ${up ? "bottom" : "top"}`
+      setPopAt({ left: Math.min(Math.max(8, leftWant), box.width - w - 8), top: Math.max(8, top), max, origin })
     })
   })
   /** The popover that is up goes, and `p` is up in its place. Its body is made here, under the
@@ -810,6 +813,7 @@ export function MotionDock() {
                 left: `${popAt()?.left ?? 0}px`,
                 top: `${popAt()?.top ?? 0}px`,
                 "max-height": popAt() ? `${popAt()!.max}px` : undefined,
+                "transform-origin": popAt()?.origin,
                 visibility: popAt() ? "visible" : "hidden",
               }}
             >

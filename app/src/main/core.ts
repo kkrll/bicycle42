@@ -397,6 +397,8 @@ export function createCore(host: Host): Core {
   type Site = { origin: string; review: Review }
 
   let page: Page | undefined
+  /** Where the window last put the page (CSS px), or null while it has it away. */
+  let pageShownAt: Rect | null = null
   let backend: Client | undefined
   let unlisten: (() => void) | undefined
   let connection: ConnectionState = { status: "unconfigured" }
@@ -2554,6 +2556,7 @@ export function createCore(host: Host): Core {
       line.held.cancel()
     },
     setPageBounds(bounds) {
+      pageShownAt = bounds
       page?.setBounds(bounds)
       // Kept for the next start, when the page is laid out before the window can say where it is
       // (lastPageBounds). Hidden (null) is no place to come back to. A window being resized says
@@ -2561,6 +2564,15 @@ export function createCore(host: Host): Core {
       // times a second for as long as the drag lasts.
       const at = bounds && { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
       if (at && JSON.stringify(at) !== JSON.stringify(store.settings().pageBounds)) store.settle((s) => void (s.pageBounds = at))
+    },
+
+    async pageStill() {
+      const at = pageShownAt
+      if (!page || !at) return null
+      const frame = await page.capture().catch(() => undefined)
+      // (A page that drew nothing has none.)
+      if (!frame || frame.getSize().width < 1) return null
+      return { url: `data:image/jpeg;base64,${frame.toJPEG(85).toString("base64")}`, width: at.width, height: at.height }
     },
 
     setDevice(d) {

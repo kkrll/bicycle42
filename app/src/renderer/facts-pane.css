@@ -233,13 +233,18 @@
   background: var(--hover-fill);
 }
 
-/* The row a count's click in the line above went to, a moment. */
-.fp-fact.fp-lit {
-  background: color-mix(in srgb, var(--foreground) 20%, var(--background));
+/* The row a count's click in the line above went to, a moment: lit at once, and fading slowly
+   once the moment is over. The light is a shadow laid over the row's fill, so that only it fades
+   slowly: the hover's fill comes and goes in the time every other hover takes. */
+.fp-fact {
+  transition:
+    background-color var(--duration-micro) var(--ease-micro),
+    box-shadow var(--duration-slow) var(--ease-exit);
 }
 
-.fp-fact {
-  transition: background var(--duration-slow) var(--ease-exit);
+.fp-fact.fp-lit {
+  box-shadow: inset 0 0 0 100vmax color-mix(in srgb, var(--foreground) 20%, var(--background));
+  transition: background-color var(--duration-micro) var(--ease-micro);
 }
 
 .fp-cells {

@@ -966,6 +966,11 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       if (bounds) Object.assign(page.style, { left: `${bounds.x}px`, top: `${bounds.y}px`, width: `${bounds.width}px`, height: `${bounds.height}px`, borderRadius: `${radius}px`, overflow: "hidden" })
       calls.push(bounds)
     },
+    // The mock's page is part of this window, not a view drawn over it: no picture of it is taken,
+    // and the surface stands in for it while it is away.
+    pageStill() {
+      return null
+    },
     toggleReview() {
       state.review.enabled = !state.review.enabled
       state.review.mode = state.review.enabled ? "notes" : "preview"

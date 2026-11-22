@@ -1,6 +1,6 @@
 // Every icon in the app: stroked paths on a 24 grid, drawn at 16 or 20. One component, one table,
 // so there is no icon font, no glyph character and no per-icon file.
-import { For, Show, type JSX } from "solid-js"
+import { For, Show, createEffect, type JSX } from "solid-js"
 import type { AgentKind } from "../shared/types"
 
 const PATHS = {
@@ -65,13 +65,27 @@ const PATHS = {
 
 export type IconName = keyof typeof PATHS
 
+/** Every spinner turns in step with every other: its turn is counted from the start of the
+ *  document's timeline, not from when it came. Two side by side (a turn at work, a tool it runs)
+ *  are one rhythm, never two out of phase. */
+function inStep(el: Element, again = true) {
+  const turning = el.getAnimations()
+  for (const a of turning) a.startTime = 0
+  // (Not drawn yet, it has no animation: it is put in step on the next frame.)
+  if (!turning.length && again) requestAnimationFrame(() => inStep(el, false))
+}
+
 /** `spin` turns any icon (the thought, say) while something is under way; the spinner always does. */
 export function Icon(props: { name: IconName; size?: 16 | 20 | 24; class?: string; spin?: boolean }): JSX.Element {
   const size = () => props.size ?? 16
+  const spinning = () => props.spin ?? props.name === "spinner"
+  let el!: SVGSVGElement
+  createEffect(() => spinning() && inStep(el))
   return (
     <svg
+      ref={el}
       class={props.class}
-      classList={{ icon: true, spin: props.spin ?? props.name === "spinner" }}
+      classList={{ icon: true, spin: spinning() }}
       width={size()}
       height={size()}
       viewBox="0 0 24 24"
