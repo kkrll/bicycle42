@@ -14,12 +14,14 @@ import type net from "node:net"
 import path from "node:path"
 import { test } from "node:test"
 import { timing } from "../src/main/acp"
-import { localAgents, PINS } from "../src/main/agents"
-import { thisMachine } from "../src/main/machine"
+import { ADAPTER_LOCKS } from "../src/main/adapters"
+import { adapterLock, PINS } from "../src/main/agents"
 import type { LocalAgent, RemoteInfo } from "../src/shared/types"
 import { sshTiming } from "../src/main/ssh"
 import { testShell, type TestShell } from "./stubs/host"
+import { fakeAdapterPackages, fakeRegistry } from "./fake-registry"
 import { fakeHost, sleep, until, type FakeHost } from "./ssh-fixture"
+import { lockManifest } from "../scripts/agent-pins.mjs"
 
 timing.retryMin = 50
 timing.retryMax = 200
@@ -134,10 +136,16 @@ test("an agent on another computer: the agents there are listed, it is started t
   }
 })
 
-test("Claude Code there is started with the same pinned adapter as here, @latest once asked for, and as it is now after a restart, not by the line saved before", async () => {
+test("Claude Code there is installed there from the app's lockfile at its first start (said), started from it, @latest through npx once asked for, and as it is now after a restart", async () => {
   const t = boot()
-  // That computer has Claude Code and an npx that says what it was asked for, then runs the fake
-  // agent; no adapter of its own (claude-agent-acp) anywhere on its PATH.
+  // A registry of the test's own with a fake adapter at the pinned version; that computer's npm
+  // gets packages from it (its own ~/.npmrc), and its PATH has Claude Code, node and npm, and an
+  // npx that says what it was asked for, then runs the fake agent. No adapter of its own there.
+  const registry = await fakeRegistry(path.join(t.h.root, "registry"), fakeAdapterPackages(path.join(t.h.root, "postinstall-ran")))
+  const keptLock = ADAPTER_LOCKS.claude
+  ADAPTER_LOCKS.claude = { manifest: lockManifest("claude", PINS.claude!), lock: await registry.lockFor(lockManifest("claude", PINS.claude!)) }
+  fs.writeFileSync(path.join(t.h.home, ".npmrc"), `registry=${registry.url}/\nfetch-retries=0\n`)
+  process.env.B42_FAKE_ADAPTER_STATE = path.join(t.h.root, "fake-agent.json")
   const bin = path.join(t.h.root, "there-bin")
   const asked = path.join(t.h.root, "npx-asked")
   fs.mkdirSync(bin)
@@ -147,34 +155,59 @@ test("Claude Code there is started with the same pinned adapter as here, @latest
   const kept = process.env.B42_PIN_CLAUDE
   delete process.env.B42_PIN_CLAUDE
   const lines = () => (fs.existsSync(asked) ? fs.readFileSync(asked, "utf8").trim().split("\n") : [])
-  const pinned = `-y @agentclientprotocol/claude-agent-acp@${PINS.claude!.version}`
+  const lock = adapterLock("claude")!
+  const folder = path.join(t.h.home, ".bicycle42", "adapters", lock.folder)
+  const line = `node ${path.join(folder, "node_modules", ...PINS.claude!.package.split("/"), "bin", "agent.js")}`
   try {
     const there = (await t.cmd("connectSsh", "dev-box")) as RemoteInfo
     const claude = there.agents.find((a) => a.id === "claude")!
-    assert.equal(claude.command, `npx ${pinned}`)
-    assert.deepEqual(claude.adapter, { version: PINS.claude!.version, tested: !!PINS.claude!.tested, latest: false, own: false })
-    // The same line as this computer's row says.
-    assert.equal((await localAgents(thisMachine(), { env: {} })).find((a) => a.id === "claude")!.command.replace(/^.*npx /, "npx "), `npx ${pinned}`)
-    await t.cmd("connectAgent", { id: "claude", host: "dev-box" })
-    await until(() => t.snap().connection.status === "online")
-    assert.deepEqual(lines(), [pinned])
-    // Always the newest: kept in the settings, said for that computer's row, used from the next start.
+    assert.equal(claude.command, line, "that computer's home, from this computer's lockfile")
+    assert.deepEqual(claude.adapter, { version: PINS.claude!.version, tested: !!PINS.claude!.tested, latest: false, own: false, locked: true, firstStart: true })
+    // Started: installed there first, the step said while it is.
+    const steps: string[] = []
+    const watch = setInterval(() => {
+      const s = t.snap().agentStep
+      if (s && !steps.includes(JSON.stringify(s))) steps.push(JSON.stringify(s))
+    }, 5)
+    try {
+      await t.cmd("connectAgent", { id: "claude", host: "dev-box" })
+      await until(() => t.snap().connection.status === "online")
+    } finally {
+      clearInterval(watch)
+    }
+    assert.deepEqual(steps.map((s) => JSON.parse(s)), [{ agent: "claude", host: "dev-box", text: "Installing the Claude Code adapter on dev-box (first start)…" }])
+    assert.equal(t.snap().agentStep, undefined)
+    assert.ok(fs.existsSync(path.join(folder, ".b42-installed")), "installed under that computer's HOME")
+    assert.deepEqual(lines(), [], "no npx")
+    assert.equal(fs.existsSync(path.join(t.h.root, "postinstall-ran")), false, "no install script ran there")
+    assert.equal(registry.tarballs().length, 2)
+    // Always the newest: kept in the settings, said for that computer's row, used from the next
+    // start, through npx.
     const toggled = (await t.cmd("setAgentLatest", { id: "claude", latest: true, host: "dev-box" })) as LocalAgent
     assert.equal(toggled.command, "npx -y @agentclientprotocol/claude-agent-acp@latest")
-    assert.equal(toggled.adapter?.latest, true)
+    assert.deepEqual(toggled.adapter, { version: "latest", tested: false, latest: true, own: false })
     // After a restart the saved agent starts again as it is now (the saved line was the pinned one).
     await t.restart()
-    await until(() => lines().length === 2)
-    assert.deepEqual(lines(), [pinned, "-y @agentclientprotocol/claude-agent-acp@latest"])
+    await until(() => lines().length === 1)
+    assert.deepEqual(lines(), ["-y @agentclientprotocol/claude-agent-acp@latest"])
     await until(() => t.snap().connection.status === "online")
-    // Turned off: the pin again, and the setting gone.
+    // Turned off: the pin again, installed there already, and the setting gone.
     const back = (await t.cmd("setAgentLatest", { id: "claude", latest: false, host: "dev-box" })) as LocalAgent
-    assert.equal(back.command, `npx ${pinned}`)
+    assert.equal(back.command, line)
+    assert.deepEqual(back.adapter, { version: PINS.claude!.version, tested: !!PINS.claude!.tested, latest: false, own: false, locked: true })
     await until(() => JSON.parse(fs.readFileSync(path.join(t.h.data, "settings.json"), "utf8")).agentLatest === undefined)
+    // Started again from the folder there: nothing fetched again.
+    await t.restart()
+    await until(() => t.snap().connection.status === "online")
+    assert.equal(registry.tarballs().length, 2)
+    assert.deepEqual(lines(), ["-y @agentclientprotocol/claude-agent-acp@latest"])
   } finally {
     delete process.env.B42_FAKE_SSH_PATH
+    delete process.env.B42_FAKE_ADAPTER_STATE
     if (kept !== undefined) process.env.B42_PIN_CLAUDE = kept
+    if (keptLock) ADAPTER_LOCKS.claude = keptLock
     await t.close()
+    await registry.close()
   }
 })
 

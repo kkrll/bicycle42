@@ -15,7 +15,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { createAcp } from "../src/main/acp"
-import { commandOf, KNOWN_AGENTS } from "../src/main/agents"
+import { KNOWN_AGENTS, prepareStart } from "../src/main/agents"
 import type { BackendEvent, ChatEvent, ChatItem } from "../src/shared/types"
 
 const [id = "opencode", model] = process.argv.slice(2)
@@ -71,7 +71,9 @@ const shape = (items: ChatItem[]) =>
   items.map((i) => (i.kind === "assistant" ? `${i.id}[${i.parts.map((p) => (p.kind === "tool" ? `tool:${p.key}:${p.status}` : `${p.key}`)).join(",")}]` : `${i.kind}:${i.id}`))
 
 async function main() {
-  const command = await commandOf(id)
+  // As the app starts it: the pinned adapter installed from the app's lockfile first (in
+  // ~/.bicycle42/adapters), or B42_PIN_<ID>'s version through npx.
+  const command = await prepareStart(id, undefined, {}, { onStep: (text) => console.log(text) })
   if (!command) throw new Error(`${known!.name} is not installed: ${known!.install}`)
   console.log(`${known!.name}: ${command.join(" ")}`)
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `b42-real-${id}-`))

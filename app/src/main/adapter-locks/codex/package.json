@@ -1,0 +1,7 @@
+{
+  "name": "bicycle42-adapter-codex",
+  "private": true,
+  "dependencies": {
+    "@agentclientprotocol/codex-acp": "2.9.0"
+  }
+}

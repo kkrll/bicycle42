@@ -692,6 +692,7 @@ function ConnectionBanner(props: { openSettings: () => void }) {
             <Icon name="spinner" />
             <div class="banner-body">
               <p>Connecting to {serverLabel(c().url)}</p>
+              <Show when={state.agentStep}>{(step) => <p>{step().text}</p>}</Show>
             </div>
           </div>
         )}
