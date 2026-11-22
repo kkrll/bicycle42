@@ -101,9 +101,9 @@ function mount() {
     domVersion++;
     const tree = records.some(addsOrRemoves);
     if (tree) treeVersion++;
-    // With review off and no pins there is nothing to follow; a variant group that came or went
-    // still needs its one frame, which hides all but the chosen option, review on or off.
-    if (S.enabled || S.pins.length) moved();
+    // With review off there is nothing to follow (Preview draws no pins); a variant group that
+    // came or went still needs its one frame, which hides all but the chosen option, review on or off.
+    if (S.enabled) moved();
     else if (tree) kick();
   }).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributeFilter: ["open"] });
   // Something of the page's entered the top layer after us: go back on top of it.

@@ -501,6 +501,12 @@ async function main() {
     await sleep(150)
     check("clicking a pin tells the app which note, and selects nothing", count("pin") === pinsBefore + 1 && messages.filter((m) => m.type === "pin").at(-1)?.id === "pin-a" && (await js(`${shadow}.querySelector('.card').hidden`)) === true)
   }
+  // Preview is the page alone: no pin; Annotate draws it again.
+  page.send({ type: "enabled", enabled: false })
+  const pinCount = () => js(`${shadow}.querySelectorAll('.pin').length`) as Promise<number>
+  check("in Preview no pin is drawn", (await until(async () => (await pinCount()) === 0, 2000)) === true, String(await pinCount()))
+  page.send({ type: "enabled", enabled: true })
+  check("…and back in Annotate it is", (await until(async () => (await pinCount()) === 1, 2000)) === true, String(await pinCount()))
 
   // ── the host's own picture, and a note shown: asked by message, nothing written into the page ──
   {

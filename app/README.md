@@ -696,23 +696,25 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   in `renderer/dock.tsx`). What the page is at this phone's size, each row an element of it: what
   sticks out past the screen's right edge (why a phone scrolls it sideways or zooms it out), tap
   targets under 44 px, fields whose text is under 16 px (iOS zooms into them), and no viewport
-  tag; one line when all is well. The pointer on a row outlines its element on the page, a click
+  tag. Each fact is said once: the phone's size is the picker's above the phone, how many of each
+  kind and "Fits this phone" are the line's (below), so the sections' headings have no counts and
+  the body only the page's height. The pointer on a row outlines its element on the page, a click
   brings it into view, and in Annotate "Note" makes it the note's selection (main puts the keys
   on the page then). Under them the files the agent changed, and the two keys worth knowing here.
   Every row is the same grid (words, number, a slot as wide as Note, empty where there is
-  none), so every number ends at one x; Note is words only until its row is pointed at (or it
-  has the focus), so nine of them do not outweigh the facts. 620 px wide or more, the facts and
+  none), so every number ends at one x; Note is out of sight until its row is pointed at (or has
+  the focus: it stays in the tab order), so nine of them do not outweigh the facts. 620 px wide or more, the facts and
   the changed files are two columns. Units are written with a space ("+134 px"). The changed
   files are words, not controls: the path's last two segments, the full one in the title.
 - **The phone line: the facts pane's header** (`PhoneLine` in `facts-pane.tsx`; Preview and
   Annotate only). 36 px, as the inspector's header, the words 12 px in; its accessible name is
   "This page on this phone". At its left the counts, each a quiet button with its kind's dot ("2
   stick out", "5 small taps", "2 fields zoom"; none for a kind with none), "Fits this phone" when
-  all are none, the missing viewport tag instead when there is none, "Looking at the page…" until
+  all are none (its title says what that means), the missing viewport tag instead when there is none, "Looking at the page…" until
   the first look. The pointer on a count (or the focus) marks that kind on the page while it is
   there; a click goes to the next of them (`nextOf`, cycling): the page scrolls to it and flashes
-  it, and the pane's row for it comes into view, lit a moment. At its right "Marks off" | "Marks
-  on" (its title says what it would do): every listed element outlined on the page in its kind's
+  it, and the pane's row for it comes into view, lit a moment. At its right the Marks switch
+  (the app's `Toggle`, from `connect.tsx`): every listed element outlined on the page in its kind's
   tone, the sections' dots their legend. Off until turned on (`facts.marks`): the page in Preview
   is the page, and an element is outlined only while its row or its kind's count is pointed at. A
   narrow line shortens the counts ("2 out · 5 taps · 2 zoom", then the numbers by their dots):

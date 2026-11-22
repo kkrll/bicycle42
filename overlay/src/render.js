@@ -162,11 +162,27 @@ export function render() {
   // notes mode's ink and card: after the boxes are written (notes/frame.js says why)
   Notes.frame(capturing);
 
-  // pins
-  const visible = [];
-  const unplaced = [];
   const now = performance.now();
   Canvas.readPathsIfDue(now);
+  pins(capturing, now, dpr);
+}
+
+/** The pins: drawn in Annotate, Edit and Motion; Preview is the page alone, so with review off
+ *  there are none, nothing is looked for or measured, and where they are is not told again (the
+ *  host keeps what it was last told). */
+function pins(capturing, now, dpr) {
+  if (!S.enabled) {
+    if (pinsEl.firstChild) pool(pinsEl, 0, makePin);
+    hideTip();
+    if (watchingScrolls) {
+      watchingScrolls = false;
+      window.removeEventListener("scroll", onScroll, { capture: true });
+      innerScrolls++; // (a scroll inside the page while unwatched: every pin is measured again)
+    }
+    return;
+  }
+  const visible = [];
+  const unplaced = [];
   if (S.pins.length && !watchingScrolls) {
     watchingScrolls = true;
     window.addEventListener("scroll", onScroll, { capture: true, passive: true });
@@ -226,24 +242,22 @@ export function render() {
 // and while what is selected is being animated. A selection or a note that only sits there is
 // no reason: then the layer redraws on the slow tick, which covers what nothing reports (late
 // images, a style the page's script set), so it costs a few redraws a second, not sixty. With
-// review off and no pins nothing is drawn at all: input, scroll and DOM changes ask for nothing.
+// review off nothing is drawn at all, pins or not: input, scroll and DOM changes ask for nothing.
 const IDLE_TICK_MS = 250;
 const ACTIVE_MS = 500;
 let idleTimer = 0;
 let lastInput = 0;
 let raf = 0; // the frame asked for, 0 when none is
 export function active() {
-  // Pins do not follow the pointer (their tooltip is the browser's hover): with review off,
-  // input asks for nothing; scroll and the page's changes go through moved().
+  // With review off, input asks for nothing (and there are no pins: Preview draws none).
   if (!S.enabled) return;
   lastInput = performance.now();
   kick();
 }
 /** The page changed or scrolled under the layer. With review on, as input does: frames for the
- *  next half second. With pins only, one frame to put them where their elements went. */
+ *  next half second. With review off, nothing (no pins are drawn then). */
 export function moved() {
   if (S.enabled) active();
-  else if (S.pins.length) kick();
 }
 /** A CSS animation or transition (or one the page's script started) is running on one of the
  *  elements, on an ancestor of one or inside one (a panel opening in a selected card resizes
@@ -264,7 +278,7 @@ function frame() {
   // second request here would start a second chain (two renders a frame until the selection goes).
   if (S.drag || S.pending || Canvas.busyFrames() || Motion.busyFrames() || performance.now() - lastInput < ACTIVE_MS || (S.enabled && animating(S.sel)))
     kick();
-  else if ((S.enabled || S.pins.length) && !idleTimer)
+  else if (S.enabled && !idleTimer)
     idleTimer = setTimeout(() => {
       idleTimer = 0;
       kick();
