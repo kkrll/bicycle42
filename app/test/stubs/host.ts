@@ -13,6 +13,9 @@ export type TestShell = {
   /** [stream, value] for everything the controller sent to the window. */
   sent: [string, unknown][]
   dialogs: unknown[]
+  /** The Save dialog: the name each one was opened for, and what it answers (a file, or
+   *  undefined as if cancelled), which the test sets before it is opened. */
+  saveDialog: { asked: string[]; answer?: string | Promise<string | undefined> }
   page: {
     load(url: string): void
     /** Speak as the overlay (which may say anything). */
@@ -36,10 +39,15 @@ export type TestShell = {
 export function testShell(dataDir: string, opts: { docks?: Pane[]; agent?: (command: string[]) => Transport } = {}): TestShell {
   const sent: TestShell["sent"] = []
   const dialogs: unknown[] = []
+  const saveDialog: TestShell["saveDialog"] = { asked: [] }
   const core = createCore({
     dataDir,
     emit: (stream, value) => void sent.push([stream, value]),
     dialog: (box) => void dialogs.push(box),
+    saveDialog: async (name) => {
+      saveDialog.asked.push(name)
+      return saveDialog.answer
+    },
     ...(opts.docks ? { docks: opts.docks } : {}),
     ...(opts.agent ? { agentTransport: opts.agent } : {}),
     log: (level, msg, data) => console[level === "info" ? "log" : level](`[bicycle42] ${msg}`, data === undefined ? "" : data),
@@ -99,5 +107,5 @@ export function testShell(dataDir: string, opts: { docks?: Pane[]; agent?: (comm
   page.setBounds(null)
   page.load(core.lastUrl())
   core.start()
-  return { core, sent, dialogs, page: stub }
+  return { core, sent, dialogs, saveDialog, page: stub }
 }

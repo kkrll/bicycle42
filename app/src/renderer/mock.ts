@@ -830,6 +830,10 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       state.review = { enabled: false, mode: "preview", brush: false, autoReload: false, notes: [], unplaced: 0, docks: [] }
       items = []
       break
+    case "download":
+      // The page started a download: held, and asked about.
+      state.page.download = { id: "d1", site: "localhost:5173", file: "orders-2026-11.csv", size: 12_480 }
+      break
     case "refused":
       // The page tried to open an app's link, and was stopped.
       state.page.refused = "zoommtg:"
@@ -903,6 +907,14 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     },
     back() {},
     forward() {},
+    saveDownload(id) {
+      if (state.page.download?.id === id) delete state.page.download
+      push()
+    },
+    dropDownload(id) {
+      if (state.page.download?.id === id) delete state.page.download
+      push()
+    },
     setDevice(device) {
       state.page.device = device
       push()

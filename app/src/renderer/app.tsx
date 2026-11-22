@@ -9,6 +9,7 @@
 //   · the panel is being resized (the native view would swallow the drag)
 import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { PHONES, phoneOf, type Device, type Rect, type ReviewMode, type Shortcut } from "../shared/types"
+import { sizeOf } from "../shared/wire"
 import { DockRegion, PhoneAside, dockShown } from "./dock"
 import { ConnectScreen, ModelScreen, ServerButton, SettingsDialog, SetupSteps, firstRunConnecting } from "./connect"
 import { Icon, Kbd, type IconName } from "./icons"
@@ -452,20 +453,40 @@ function NotesStatus(props: { panelOpen: boolean; showNotes: () => void }) {
   )
 }
 
-// ── strip ───────────────────────────────────────────────────────────────────────────────────────
+// ── strips ──────────────────────────────────────────────────────────────────────────────────────
 // A command failed and nothing else owns the message. Rare, and dismissed by the reviewer.
+// And the page asked to download a file: held, not saved, until the reviewer says (main/page.ts).
 
 function Strips() {
   return (
-    <Show when={notice()}>
-      <div class="strip bad" role="alert">
-        <Icon name="alert" />
-        <span class="strip-text">{notice()}</span>
-        <button class="icon-btn small" aria-label="Dismiss" title="Dismiss" onClick={() => setNotice("")}>
-          <Icon name="close" />
-        </button>
-      </div>
-    </Show>
+    <>
+      <Show when={state.page.download}>
+        {(d) => (
+          <div class="strip download-ask" role="alert">
+            <Icon name="download" />
+            <span class="strip-text" title={`${d().site} wants to download ${d().file}`}>
+              <span class="download-site">{d().site}</span> wants to download <span class="download-file">{d().file}</span>
+              {d().size !== undefined ? ` (${sizeOf(d().size!)})` : ""}
+            </span>
+            <button class="btn primary" onClick={() => act("saveDownload", d().id)}>
+              Save…
+            </button>
+            <button class="btn" onClick={() => act("dropDownload", d().id)}>
+              Don't
+            </button>
+          </div>
+        )}
+      </Show>
+      <Show when={notice()}>
+        <div class="strip bad" role="alert">
+          <Icon name="alert" />
+          <span class="strip-text">{notice()}</span>
+          <button class="icon-btn small" aria-label="Dismiss" title="Dismiss" onClick={() => setNotice("")}>
+            <Icon name="close" />
+          </button>
+        </div>
+      </Show>
+    </>
   )
 }
 

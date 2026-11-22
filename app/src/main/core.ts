@@ -70,7 +70,7 @@ import { HOSTED_PANES, PHONE, phoneOf } from "../shared/types"
 import { noteImages, notePicture, type Frame } from "./images"
 import { isPlaceholder, placeholderTitle, titleFrom } from "./naming"
 import { parseNote } from "./chat-items"
-import type { Page, PageMessage } from "./page"
+import type { HeldDownload, Page, PageMessage } from "./page"
 import { createReview, imageUri, pageNote, type PageNote, type Review } from "./review"
 import { createOutbox, type Outgoing } from "./outbox"
 import { createShots } from "./shots"
@@ -95,6 +95,9 @@ export type Host = {
   emit<K extends keyof Emitted>(stream: K, value: Emitted[K]): void
   /** Something the person has to be told before they go on, in a dialog of its own. */
   dialog(box: { type: "warning"; message: string; detail: string }): void
+  /** The system's Save dialog, for a file named `name` (in the person's Downloads folder to
+   *  begin with): the file they chose, or undefined when they cancelled it. */
+  saveDialog(name: string): Promise<string | undefined>
   /** The panes this shell's window draws itself. Without it, HOSTED_PANES (shared/types.ts). */
   docks?: readonly Pane[]
   /** For tests: the agent a command names, reached in this process instead of started (an agent
@@ -116,7 +119,14 @@ export type Core = {
   /** One of the conversation's pictures, by its b42-img: address (pictures.ts). */
   picture(url: string): Promise<Response>
   /** What the page is made with: where its overlay's messages go, and its changes of state. */
-  pageEvents: { onMessage(msg: PageMessage): void; onChange(): void }
+  pageEvents: {
+    onMessage(msg: PageMessage): void
+    onChange(): void
+    /** The page started a download and holds it (page.ts): the window asks what becomes of it. */
+    onDownload(download: HeldDownload): void
+    /** One asked about ended before it was answered. */
+    onDownloadGone(download: HeldDownload): void
+  }
   /** The page under review, once the shell has made it; `detach` when it is gone. */
   attach(page: Page): void
   detach(): void
@@ -262,6 +272,32 @@ export function createCore(host: Host): Core {
   /** An address an agent on another computer said its site is at that is not on that computer:
    *  offered to the reviewer, never opened by itself (hereFor). */
   let elsewhere: { url: string; computer: string } | undefined
+  /** A download the page started, held until the reviewer answers (`AppState.page.download`):
+   *  one at a time. `at` is the page it was asked on (its address without a #…): once the page is
+   *  anywhere else, it is not answered. `choosing` while the Save dialog is open for it. */
+  let download: { id: string; held: HeldDownload; at: string; choosing?: true } | undefined
+  const pageAt = () => (page?.state().url ?? "").replace(/#.*$/, "")
+  /** The download waiting is not saved: cancelled, and the line about it gone. */
+  function dropDownload(why: string) {
+    if (!download) return
+    const { held } = download
+    download = undefined
+    held.cancel()
+    log("info", `page: a download was not saved (${why})`, { site: held.site })
+    push()
+  }
+  function onDownload(held: HeldDownload) {
+    // A second one while one waits takes its place: one line, never a stack of them.
+    if (download) dropDownload("another took its place")
+    download = { id: crypto.randomUUID(), held, at: pageAt() }
+    push()
+  }
+  function onDownloadGone(held: HeldDownload) {
+    if (download?.held !== held) return
+    download = undefined
+    push()
+  }
+
   function block(url: string, error: string, again: () => Promise<void>) {
     log("warn", "can't open a site of the agent's computer", error)
     blocked = { url, error, again }
@@ -462,6 +498,7 @@ export function createCore(host: Host): Core {
         ...(p ?? { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }),
         ...(blocked && !p?.url ? { url: blocked.url, error: blocked.error, loading: false } : {}),
         ...(elsewhere && !blocked && !p?.url ? { elsewhere } : {}),
+        ...(download ? { download: { id: download.id, site: download.held.site, file: download.held.file, ...(download.held.size !== undefined ? { size: download.held.size } : {}) } } : {}),
         device: device(),
         phone: phone().id,
       },
@@ -674,6 +711,7 @@ export function createCore(host: Host): Core {
     chatPictures.clear()
     blocked = undefined
     elsewhere = undefined
+    dropDownload("another agent")
     // A site of another computer's opens once it is forwarded again (use): before, its address
     // could open whatever this computer has at that port.
     const last = store.settings().lastUrl ?? ""
@@ -1812,6 +1850,8 @@ export function createCore(host: Host): Core {
   function onPageChange() {
     const url = page?.state().url ?? ""
     if (url) (blocked = undefined), (elsewhere = undefined)
+    // The page went somewhere else (another address, or nothing): what it asked for there is not answered.
+    if (download && pageAt() !== download.at) dropDownload("the page went elsewhere")
     if (url && url !== store.settings().lastUrl) store.update((s) => void (s.lastUrl = url))
     const before = site?.origin
     switchSite(placeOf(url))
@@ -2388,6 +2428,34 @@ export function createCore(host: Host): Core {
     forward() {
       page?.forward()
     },
+    async saveDownload(id) {
+      const asked = download
+      if (!asked || asked.id !== id || asked.choosing) return
+      asked.choosing = true
+      let to: string | undefined
+      try {
+        to = await host.saveDialog(asked.held.file)
+      } finally {
+        delete asked.choosing
+      }
+      // Meanwhile another took its place, or the page went elsewhere: it was cancelled then.
+      if (download !== asked) return
+      if (!to) return dropDownload("the Save dialog was cancelled")
+      download = undefined
+      push()
+      const { site, file } = asked.held
+      log("info", "page: a download is saved", { site })
+      asked.held.save(to).then(
+        () => log("info", "page: a download is in place", { site }),
+        (err: unknown) => {
+          log("warn", "page: a download was not saved", { site, error: say(err) })
+          host.dialog({ type: "warning", message: `${file} was not saved`, detail: say(err) })
+        },
+      )
+    },
+    dropDownload(id) {
+      if (download?.id === id) dropDownload("the reviewer said no")
+    },
     setPageBounds(bounds) {
       page?.setBounds(bounds)
       // Kept for the next start, when the page is laid out before the window can say where it is
@@ -2770,6 +2838,8 @@ export function createCore(host: Host): Core {
       siteAsked = undefined
       starting = false
       if (here) return push() // already on one of its sites
+      // Another project: what the page asked for in this one is not answered, though the page stays.
+      dropDownload("another project")
       const to = known ? (known[1].url ?? addressOf(known[0])) : ""
       if (page?.state().url === to) switchSite(placeOf(to), true)
       else page?.load(to)
@@ -3025,13 +3095,17 @@ export function createCore(host: Host): Core {
       else toChat({ type: "reset", session: "", items: [] })
     },
     picture: (url) => chatPictures.serve(url),
-    pageEvents: { onMessage: onPage, onChange: onPageChange },
+    pageEvents: { onMessage: onPage, onChange: onPageChange, onDownload, onDownloadGone },
     attach(p) {
       page = p
       // A page is a desktop's until told otherwise: only a phone's is said.
       if (device() === "phone") p.setDevice("phone", phone())
     },
-    detach: () => void (page = undefined),
+    detach() {
+      // (The page cancels what it held as it closes.)
+      page = undefined
+      download = undefined
+    },
     // A site of another computer's is opened by the controller once it is forwarded (use).
     lastUrl() {
       const last = store.settings().lastUrl ?? ""

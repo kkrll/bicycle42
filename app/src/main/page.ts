@@ -10,7 +10,10 @@
 // offers load / capture / send. `Page` is what the controller has of it: what a page under review
 // does, with no word of Electron in it. What is made of Electron (the view) is on `PageView`,
 // which the shell that makes the page keeps; every script run in the page is in this file.
-import { WebContentsView, type BrowserWindow, type IpcMainEvent, type NativeImage, type Session, type WebContents } from "electron"
+import { WebContentsView, type BrowserWindow, type DownloadItem, type IpcMainEvent, type NativeImage, type Session, type WebContents } from "electron"
+import crypto from "node:crypto"
+import fs from "node:fs"
+import path from "node:path"
 import type { HostMessage, PageMessage } from "../../../overlay/protocol"
 import { PHONE, type Device, type Phone, type Rect } from "../shared/types"
 import type { Frame } from "./images"
@@ -75,6 +78,22 @@ export type Page = {
   dispose(): void
 }
 
+/** A download the page started, held until the reviewer says what becomes of it (see "downloads"
+ *  below): nothing of it is where they would find it, and no dialog was shown. */
+export type HeldDownload = {
+  /** Who asked, as the address bar says a site: "localhost:5173". */
+  site: string
+  /** The file's name, as the site gave it. */
+  file: string
+  /** Its size in bytes, when the site said. */
+  size?: number
+  /** It goes on, and once it has all come it is put at `to` (a file the reviewer chose; one
+   *  there is replaced). Resolves once it is there; rejects with what went wrong. */
+  save(to: string): Promise<void>
+  /** Not saved: it is stopped, and nothing of it is kept. */
+  cancel(): void
+}
+
 /** The page with the view it is made of: for whoever made it (the Electron shell, the tests that
  *  drive a real one), not for the controller. */
 export type PageView = Page & { readonly view: WebContentsView }
@@ -89,6 +108,11 @@ type Options = {
   /** state() changed. */
   onChange(): void
   onShortcut(key: "focus-url" | "toggle-panel" | "focus-chat" | "toggle-review"): void
+  /** What a download the page starts becomes: held in a folder of its own under `folder` (one
+   *  of the app's, not where the reviewer keeps files) and said to `ask`; `gone` once one that
+   *  was asked about and not answered ended by itself (it failed, or the page it was asked on
+   *  is closed). Without it, every download is refused. */
+  downloads?: { folder: string; ask(download: HeldDownload): void; gone(download: HeldDownload): void }
   log(level: "info" | "warn" | "error", msg: string, data?: unknown): void
 }
 
@@ -154,6 +178,9 @@ const schemeOf = (to: string) => `${/^([a-z][a-z0-9+.-]{0,30}):/i.exec(to)?.[1]?
 
 /** Each page's view, for the session's handlers: which page a request is from. */
 const refusers = new WeakMap<WebContents, (to: string) => void>()
+/** …and which page a download is of: what it does with one (it must give it a file then and
+ *  there, or Electron shows its own dialog). A download of a view not here is refused. */
+const holders = new WeakMap<WebContents, (event: Electron.Event, item: DownloadItem) => void>()
 const guarded = new WeakSet<Session>()
 /** A session the page is made in refuses everything, once and for every view in it. */
 function guard(session: Session) {
@@ -167,6 +194,42 @@ function guard(session: Session) {
   session.setPermissionCheckHandler(() => false)
   // USB, HID and serial devices (WebUSB, WebHID, Web Serial): Electron's default is no, said here too.
   session.setDevicePermissionHandler(() => false)
+  // Every download is the page's to hold, or refused (see "downloads" in createPage).
+  session.on("will-download", (event, item, contents) => {
+    const hold = contents && holders.get(contents)
+    if (hold) hold(event, item)
+    else event.preventDefault()
+  })
+}
+
+/** The host of a web address ("localhost:5173"), or "" for anything else (an opaque origin's
+ *  "null", a blob's, none). */
+const webHost = (address: string) => {
+  try {
+    const u = new URL(address)
+    return u.protocol === "http:" || u.protocol === "https:" ? u.host : ""
+  } catch {
+    return ""
+  }
+}
+
+/** A file's name as a site gave it, made a name and nothing more: no folder in it, none of the
+ *  characters a file system refuses, not hidden, not empty. */
+const fileName = (given: string) => {
+  const name = path.basename(given.replace(/\\/g, "/")).replace(/[\x00-\x1f<>:"|?*]/g, "_").replace(/^[.\s]+/, "").trim().slice(0, 200)
+  return name || "download"
+}
+
+/** A file moved from where it was held to where it was asked for: renamed, or copied when the
+ *  two are on different disks. */
+async function moveFile(from: string, to: string) {
+  try {
+    await fs.promises.rename(from, to)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err
+    await fs.promises.copyFile(from, to)
+    await fs.promises.rm(from, { force: true })
+  }
 }
 
 export async function createPage(window: BrowserWindow, opts: Options): Promise<PageView> {
@@ -482,6 +545,95 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       }),
     ),
   )
+  // ── downloads ──────────────────────────────────────────────────────────────────────────────
+  // A page can start a download whenever it likes: a link with `download`, a response that says
+  // it is an attachment, a script clicking a link to a blob it made, again and again. Electron's
+  // way is the system's Save dialog at once, which does not say which site asked. Here a
+  // download is held instead: it is given a file in a folder of its own under the app's
+  // (opts.downloads.folder) and paused, then and there, and the controller asks the reviewer in
+  // the window (core.ts). Saved, it goes on, and once it has all come it is moved to the file
+  // they chose; not saved, it is cancelled, and nothing of it is kept.
+  //
+  // Held, not stopped and asked for again once the reviewer says yes: a download a script made
+  // (a blob: address, gone once the page lets go of it) or the answer to a form's POST cannot be
+  // asked for again, and a second request could be answered with something else. Electron gives
+  // a download its file in will-download or not at all (no file given, it shows its dialog), so
+  // the file it is given is the held one, and the move to the reviewer's comes after.
+  /** Downloads asked about and not answered yet, of whichever view. */
+  const waiting = new Set<HeldDownload>()
+  function hold(w: WebContents, event: Electron.Event, item: DownloadItem) {
+    const downloads = opts.downloads
+    // Only the view the page is in now, and only with somewhere to hold it.
+    if (!downloads || w !== wc || gone()) return void event.preventDefault()
+    const file = fileName(item.getFilename())
+    const dir = path.join(downloads.folder, crypto.randomUUID())
+    item.setSavePath(path.join(dir, file))
+    item.pause()
+    const site = webHost(item.getInitiatorOrigin()) || webHost(url) || "The page"
+    const size = item.getTotalBytes()
+    const forget = () => void fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {})
+    /** The download has ended (done): it completed, or it never will. */
+    let ended = false
+    /** It completed before it was answered: the whole file is held. */
+    let arrived = false
+    /** Saved: where it goes, and the promise save() gave. */
+    let saved: { to: string; resolve(): void; reject(err: Error): void } | undefined
+    const place = async () => {
+      if (!saved) return
+      const { to, resolve, reject } = saved
+      try {
+        await moveFile(item.getSavePath(), to)
+        resolve()
+      } catch (err) {
+        reject(new Error(`It could not be put in ${to}: ${(err as Error).message}`))
+      } finally {
+        forget()
+      }
+    }
+    const download: HeldDownload = {
+      site,
+      file,
+      ...(size > 0 ? { size } : {}),
+      save(to) {
+        if (!waiting.delete(download)) return Promise.reject(new Error("The download is no longer there."))
+        const done = new Promise<void>((resolve, reject) => (saved = { to, resolve, reject }))
+        if (arrived) void place()
+        else if (!ended) item.resume()
+        return done
+      },
+      cancel() {
+        if (!waiting.delete(download)) return
+        if (ended) forget()
+        else item.cancel() // (its done removes the folder)
+      },
+    }
+    item.on("done", (_e, how) => {
+      ended = true
+      if (how === "completed") {
+        if (saved) void place()
+        else arrived = true // kept, held, until the reviewer answers
+        return
+      }
+      forget()
+      if (saved) saved.reject(new Error(how === "cancelled" ? "The download was cancelled." : "The download stopped before it had all come."))
+      else if (waiting.delete(download)) {
+        log("warn", "page: a download asked about ended before it was answered", { site, how })
+        downloads.gone(download)
+      }
+    })
+    waiting.add(download)
+    log("info", "page: a download is held until the reviewer answers", { site, size: size || undefined })
+    downloads.ask(download)
+  }
+  each((w) => holders.set(w, (event, item) => hold(w, event, item)))
+  /** The view the waiting downloads were asked in is closing: none of them is answered now. */
+  function dropWaiting() {
+    for (const d of [...waiting]) {
+      d.cancel()
+      opts.downloads?.gone(d)
+    }
+  }
+
   /** The page tried to go to `to`, of a scheme it may not: said once per scheme and document. */
   function refuse(to: string) {
     const scheme = schemeOf(to)
@@ -618,6 +770,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     shape()
     if (!window.isDestroyed()) window.contentView.removeChildView(old)
     if (!old.webContents.isDestroyed()) old.webContents.close()
+    dropWaiting()
     load("")
     return true
   }
@@ -667,6 +820,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       clearTimeout(reloadTimer)
       clearTimeout(probeTimer)
       if (inputHold) clearTimeout(inputHold.timer)
+      dropWaiting()
       if (!window.isDestroyed()) window.contentView.removeChildView(view)
       if (!wc.isDestroyed()) wc.close()
     },

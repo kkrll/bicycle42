@@ -37,8 +37,16 @@ async function until<T>(fn: () => T | Promise<T>, ms = 6000): Promise<T> {
   return fn()
 }
 
+/** What the site's download is: a CSV, named by `?name=`. */
+const REPORT = "order,total\n1042,12.50\n1043,99.00\n"
+
 function serveSite(): Promise<http.Server> {
   const server = http.createServer((req, res) => {
+    const asked = new URL(req.url ?? "/", "http://x")
+    if (asked.pathname === "/download") {
+      const name = (asked.searchParams.get("name") ?? "report.csv").replace(/[^\w.-]/g, "_")
+      return void res.writeHead(200, { "content-type": "text/csv", "content-disposition": `attachment; filename="${name}"`, "content-length": Buffer.byteLength(REPORT), "cache-control": "no-store" }).end(REPORT)
+    }
     const file = path.normalize(path.join(overlayDir, decodeURIComponent(new URL(req.url ?? "/", "http://x").pathname)))
     if (!file.startsWith(overlayDir)) return void res.writeHead(403).end()
     fs.readFile(file, (err, body) => {
@@ -983,6 +991,63 @@ async function main() {
   // ── commands answer with plain sentences ───────────────────────────────────────────────────
   const refused = (await ui(`window.b42.invoke("connectAgent", { id: "nope" }).then(() => "", (e) => e.message)`)) as string
   check("a bad command rejects with a sentence, not a stack", refused === "Type the command that starts the agent.", refused)
+
+  // ── a download the page asks for: a line in the window, held until Save… or Don't ──────────
+  {
+    const saveAsked: string[] = []
+    const savedDir = fs.mkdtempSync(path.join(os.tmpdir(), "bicycle42-e2e-saved-"))
+    let answer: string | undefined
+    ;(globalThis as { __b42SaveAs?: (name: string) => Promise<string | undefined> }).__b42SaveAs = async (name) => (saveAsked.push(name), answer)
+    // Where Electron was told each download goes, seen after the app's own handler.
+    const savePaths: string[] = []
+    page.view.webContents.session.on("will-download", (_e, item) => void savePaths.push(item.getSavePath()))
+    const heldDir = path.join(profile, "Held downloads")
+    const inHeld = () => (fs.existsSync(heldDir) ? fs.readdirSync(heldDir) : [])
+    const download = (name: string) => page.view.webContents.executeJavaScript(`Object.assign(document.createElement("a"), { href: "/download?name=${name}" }).click()`, true)
+    const strip = `document.querySelector(".download-ask")`
+    const stripText = () => ui(`${strip}?.innerText ?? ""`) as Promise<string>
+    const host = new URL(origin).host
+
+    await download("report.csv")
+    const line = await until(async () => /wants to download/.test(await stripText()) && (await stripText()))
+    check(
+      "a download the page starts is a line in the window: which site asked, the file and its size, Save… and Don't",
+      typeof line === "string" && line.includes(`${host} wants to download report.csv (${Buffer.byteLength(REPORT)} bytes)`) && line.includes("Save…") && line.includes("Don't") && state().page.download?.file === "report.csv",
+      String(line),
+    )
+    check("…held in the app's own folder, with no Save dialog: not until the reviewer asks", savePaths.length === 1 && savePaths[0]!.startsWith(heldDir + path.sep) && saveAsked.length === 0 && inHeld().length === 1, `${savePaths.join(" ")} ${saveAsked.join(" ")}`)
+
+    await ui(`[...${strip}.querySelectorAll("button")].find((b) => b.textContent === "Don't").click()`)
+    check("Don't: the line goes, and nothing of the file is kept", (await until(async () => !state().page.download && (await stripText()) === "" && inHeld().length === 0)) === true && saveAsked.length === 0, `${await stripText()} / ${inHeld().join(" ")}`)
+
+    await download("first.csv")
+    await until(async () => (await stripText()).includes("first.csv"))
+    const firstId = state().page.download?.id
+    await download("second.csv")
+    await until(async () => (await stripText()).includes("second.csv"))
+    check(
+      "a second download while one waits takes its place: one line, the first cancelled",
+      (await ui(`document.querySelectorAll(".download-ask").length`)) === 1 && state().page.download?.id !== firstId && (await until(() => inHeld().length === 1)) === true,
+      `${await stripText()} / ${inHeld().join(" ")}`,
+    )
+
+    answer = path.join(savedDir, "orders.csv")
+    await ui(`[...${strip}.querySelectorAll("button")].find((b) => b.textContent === "Save…").click()`)
+    check(
+      "Save…: the system's dialog is asked by the file's name, and the file is where it answered, whole",
+      (await until(async () => fs.existsSync(answer!) && fs.readFileSync(answer!, "utf8") === REPORT && !state().page.download && (await stripText()) === "")) === true && saveAsked.join(" ") === "second.csv",
+      `${saveAsked.join(" ")} ${fs.readdirSync(savedDir).join(" ")} / "${await stripText()}" ${JSON.stringify(state().page.download)}`,
+    )
+    check("…and nothing is left where it was held", (await until(() => inHeld().length === 0)) === true, inHeld().join(" "))
+
+    // A Save dialog cancelled is Don't.
+    answer = undefined
+    await download("again.csv")
+    await until(async () => (await stripText()).includes("again.csv"))
+    await ui(`[...${strip}.querySelectorAll("button")].find((b) => b.textContent === "Save…").click()`)
+    check("a Save dialog cancelled is Don't: the line goes, nothing kept", (await until(async () => !state().page.download && (await stripText()) === "" && inHeld().length === 0)) === true && fs.readdirSync(savedDir).join(" ") === "orders.csv")
+    fs.rmSync(savedDir, { recursive: true, force: true })
+  }
 
   // ── the page as a phone's: the switch beside the address ───────────────────────────────────
   const wide = page.view.getBounds()

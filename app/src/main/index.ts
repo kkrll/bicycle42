@@ -34,6 +34,12 @@ let page: PageView | undefined
 
 /** The end-to-end test's agent, in this process (test/app.e2e.ts sets it before loading the app). */
 const testAgent = process.env.BICYCLE42_TEST ? ((globalThis as Record<string, unknown>).__b42Agent as ((command: string[]) => Transport) | undefined) : undefined
+/** …and its Save dialog, asked at each one (the test changes its answer): the file it answers
+ *  for a name, or undefined (cancelled). */
+const testSaveAs = () => (process.env.BICYCLE42_TEST ? ((globalThis as Record<string, unknown>).__b42SaveAs as ((name: string) => Promise<string | undefined>) | undefined) : undefined)
+/** Where a download the page started is held until the reviewer answers (page.ts): the app's
+ *  own folder, emptied at every start of what an earlier run left there. */
+const heldDownloads = path.join(app.getPath("userData"), "Held downloads")
 
 const core = createCore({
   dataDir: app.getPath("userData"),
@@ -42,6 +48,16 @@ const core = createCore({
   },
   dialog(box) {
     if (window) void dialog.showMessageBox(window, box)
+  },
+  async saveDialog(name) {
+    const stand = testSaveAs()
+    if (stand) return stand(name)
+    if (!window) return undefined
+    const { canceled, filePath } = await dialog.showSaveDialog(window, {
+      defaultPath: path.join(app.getPath("downloads"), name),
+      properties: ["createDirectory", "showOverwriteConfirmation"],
+    })
+    return canceled || !filePath ? undefined : filePath
   },
   ...(testAgent ? { agentTransport: testAgent } : {}),
   log,
@@ -113,7 +129,9 @@ async function createWindow() {
     preload: path.join(__dirname, "page-preload.cjs"),
     // The session of the saved agent's computer's sites: the page loads in it before the agent is back.
     partition: core.partition(),
-    ...core.pageEvents,
+    onMessage: core.pageEvents.onMessage,
+    onChange: core.pageEvents.onChange,
+    downloads: { folder: heldDownloads, ask: core.pageEvents.onDownload, gone: core.pageEvents.onDownloadGone },
     onShortcut(key) {
       if (key === "toggle-review") return void core.commands.toggleReview()
       const shortcut: Shortcut = key
@@ -168,6 +186,8 @@ else {
     })
   })
   void app.whenReady().then(async () => {
+    // Downloads held when the app last ended, never answered: nothing of them is kept.
+    await fs.promises.rm(heldDownloads, { recursive: true, force: true }).catch(() => {})
     protocol.handle(SCHEME, (request) => core.picture(request.url))
     menu()
     // From source on macOS the dock would show Electron's own icon.

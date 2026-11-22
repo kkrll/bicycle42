@@ -10,7 +10,7 @@ import { app, BrowserWindow } from "electron"
 import fs from "node:fs"
 import http from "node:http"
 import path from "node:path"
-import { createPage, WORLD, type PageMessage } from "../src/main/page"
+import { createPage, WORLD, type HeldDownload, type PageMessage } from "../src/main/page"
 import { noteImages } from "../src/main/images"
 import { createReview, pageEdits, pageNote } from "../src/main/review"
 import { parseNote } from "../src/main/chat-items"
@@ -46,6 +46,10 @@ const SERVICE_WORKER = `self.addEventListener("install", () => self.skipWaiting(
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()))
 self.addEventListener("fetch", (e) => { if (new URL(e.request.url).pathname === "/who") e.respondWith(new Response("SERVED BY SITE A'S SERVICE WORKER")) })`
 
+/** What the downloads below are: a CSV, and a slow file of 64 KiB chunks, each filled with its number. */
+const REPORT = "order,total\n1042,12.50\n1043,99.00\n"
+const SLOW_CHUNKS = 32
+
 function serve(): Promise<http.Server> {
   const server = http.createServer((req, res) => {
     const asked = decodeURIComponent(new URL(req.url ?? "/", "http://x").pathname)
@@ -60,6 +64,21 @@ function serve(): Promise<http.Server> {
     // What a site's service worker can answer in its place (the session checks below).
     if (asked === "/who") return void res.writeHead(200, { "content-type": "text/plain", "cache-control": "no-store" }).end("SERVED BY THE SERVER")
     if (asked === "/sw.js") return void res.writeHead(200, { "content-type": "text/javascript", "cache-control": "no-store" }).end(SERVICE_WORKER)
+    // Downloads: a file the server says is an attachment, of a known size; and one that comes
+    // slowly, its size not said (a chunk every 30 ms, 2 MiB in all).
+    if (asked === "/download/report.csv")
+      return void res.writeHead(200, { "content-type": "text/csv", "content-disposition": 'attachment; filename="report.csv"', "content-length": Buffer.byteLength(REPORT), "cache-control": "no-store" }).end(REPORT)
+    if (asked === "/download/slow.bin") {
+      res.writeHead(200, { "content-type": "application/octet-stream", "content-disposition": 'attachment; filename="slow.bin"', "cache-control": "no-store" })
+      let sent = 0
+      const next = () => {
+        if (res.destroyed) return
+        if (sent === SLOW_CHUNKS) return void res.end()
+        sent++
+        res.write(Buffer.alloc(64 * 1024, sent % 251), () => setTimeout(next, 30))
+      }
+      return void next()
+    }
     // A redirect out of the web, to an app's scheme.
     if (asked === "/to-app") return void res.writeHead(302, { location: "b42probe://redirected", "cache-control": "no-store" }).end()
     const file = path.normalize(path.join(overlayDir, asked))
@@ -1008,6 +1027,117 @@ async function main() {
     await until(() => gjs("!!navigator.serviceWorker.controller"), 5000)
     check("back in the first computer's session, its site's service worker is there as it was", (await who()) === "SERVED BY SITE A'S SERVICE WORKER", await who())
     g.dispose()
+  }
+
+  // ── downloads: held, never the system's dialog, and saved only where the reviewer says ──────
+  {
+    const base = `http://127.0.0.1:${(again.address() as { port: number }).port}`
+    const held = path.join(out, "held")
+    const saved = path.join(out, "saved")
+    fs.rmSync(held, { recursive: true, force: true })
+    fs.rmSync(saved, { recursive: true, force: true })
+    fs.mkdirSync(saved, { recursive: true })
+    const asked: HeldDownload[] = []
+    const gone: HeldDownload[] = []
+    const dl = await createPage(win, {
+      preload: path.join(__dirname, "../page-preload.cjs"),
+      partition: "page-e2e-downloads",
+      onMessage: () => {},
+      onChange: () => {},
+      onShortcut: () => {},
+      downloads: { folder: held, ask: (d) => void asked.push(d), gone: (d) => void gone.push(d) },
+      log: () => {},
+    })
+    dl.setBounds({ x: 0, y: 0, width: 800, height: 600 })
+    const djs = (code: string) => dl.view.webContents.executeJavaScript(code, true)
+    // What Electron does with each download, seen after the page's own handler has: a file given
+    // there is what keeps Electron from showing its Save dialog (none given, it shows one).
+    // (Electron lets go of an item once it is done: how it ended is kept as it says it.)
+    type Seen = { item: Electron.DownloadItem; savePath: string; paused: boolean; end?: string }
+    const items: Seen[] = []
+    dl.view.webContents.session.on("will-download", (_e, item) => {
+      const seen: Seen = { item, savePath: item.getSavePath(), paused: item.isPaused() }
+      item.once("done", (_d, how) => void (seen.end = how))
+      items.push(seen)
+    })
+    dl.load(`${base}/wide.html`)
+    await until(() => !dl.state().loading && dl.view.webContents.getURL() === `${base}/wide.html`, 5000)
+    const click = (href: string, name = "") => djs(`Object.assign(document.createElement("a"), { href: ${JSON.stringify(href)}, download: ${JSON.stringify(name)} }).click()`)
+    const inHeld = () => (fs.existsSync(held) ? fs.readdirSync(held) : [])
+    const site = new URL(base).host
+
+    // A link to a file the server says is an attachment.
+    await click("/download/report.csv")
+    await until(() => asked.length === 1)
+    const csv = asked[0]!
+    const csvItem = items[0]!
+    check("a download the page starts is held and asked about: who asked, the file, its size", csv?.site === site && csv.file === "report.csv" && csv.size === Buffer.byteLength(REPORT), JSON.stringify(csv && { site: csv.site, file: csv.file, size: csv.size }))
+    check("…with no Save dialog of Electron's: it was given a file in the app's own folder, and paused", !!csvItem && csvItem.savePath.startsWith(held + path.sep) && csvItem.paused, csvItem && `${csvItem.savePath} paused=${csvItem.paused}`)
+    await sleep(500)
+    // (A file this small has all come by now, into the folder it is held in: it is kept there.)
+    check("…and nothing of it is anywhere the reviewer keeps files", fs.readdirSync(saved).length === 0 && csvItem.end !== "cancelled" && inHeld().length === 1, `${csvItem.end} ${inHeld().join(" ")}`)
+
+    const to = path.join(saved, "orders.csv")
+    const placed = await csv.save(to).then(() => "ok", (e: Error) => e.message)
+    check("Save puts it where the reviewer chose, whole", placed === "ok" && fs.existsSync(to) && fs.readFileSync(to, "utf8") === REPORT, placed)
+    check("…and nothing of it is kept where it was held", (await until(() => inHeld().length === 0, 2000)) === true, inHeld().join(" "))
+    check("an answer given twice does nothing", (await csv.save(path.join(saved, "twice.csv")).then(() => "saved", () => "refused")) === "refused" && !fs.existsSync(path.join(saved, "twice.csv")))
+
+    // A file a script made (a blob, gone once the page lets go of it: it can only be held).
+    await djs(`(() => { const url = URL.createObjectURL(new Blob(["made by the page"], { type: "text/plain" })); const a = Object.assign(document.createElement("a"), { href: url, download: "made.txt" }); a.click(); setTimeout(() => URL.revokeObjectURL(url), 100) })()`)
+    await until(() => asked.length === 2)
+    const blob = asked[1]!
+    check("a file a script made is asked about the same way, as the page's", blob?.site === site && blob.file === "made.txt", JSON.stringify(blob && { site: blob.site, file: blob.file }))
+    await sleep(400) // (the page has let go of it by now)
+    const blobTo = path.join(saved, "made.txt")
+    check("…and saved, though the page let go of it", (await blob.save(blobTo).then(() => "ok", (e: Error) => e.message)) === "ok" && fs.readFileSync(blobTo, "utf8") === "made by the page")
+
+    // Don't: cancelled, nothing kept.
+    await click("/download/report.csv", "again.csv")
+    await until(() => asked.length === 3)
+    const no = asked[2]!
+    const noItem = items[2]!
+    await sleep(300)
+    no.cancel()
+    // (Cancelled, or, a file this small, all come already and then thrown away.)
+    check("Don't cancels it, and nothing of it is kept", (await until(() => !!noItem.end && inHeld().length === 0, 3000)) === true && fs.readdirSync(saved).length === 2, `${noItem.end} ${inHeld().join(" ")}`)
+
+    // A slow one, its size not said: held while it waits, it does not go on coming.
+    await click("/download/slow.bin")
+    await until(() => asked.length === 4)
+    const slow = asked[3]!
+    const slowItem = items[3]!
+    check("a download whose size the site does not say is asked about without one", slow?.file === "slow.bin" && slow.size === undefined, JSON.stringify(slow && { file: slow.file, size: slow.size }))
+    await sleep(1500) // longer than the whole file takes to come once it goes on
+    const whileHeld = slowItem.item.getReceivedBytes()
+    check("…while it waits it is paused, and does not finish", slowItem.item.isPaused() && slowItem.item.getState() === "progressing" && whileHeld < SLOW_CHUNKS * 64 * 1024, `${slowItem.item.getState()} paused=${slowItem.item.isPaused()} ${whileHeld} bytes`)
+    const slowTo = path.join(saved, "slow.bin")
+    const slowDone = await slow.save(slowTo).then(() => "ok", (e: Error) => e.message)
+    const body = fs.existsSync(slowTo) ? fs.readFileSync(slowTo) : Buffer.alloc(0)
+    const whole = body.length === SLOW_CHUNKS * 64 * 1024 && Array.from({ length: SLOW_CHUNKS }, (_, i) => body[i * 64 * 1024] === (i + 1) % 251).every(Boolean)
+    check("…and saved, it goes on and comes whole, in order", slowDone === "ok" && whole, `${slowDone} ${body.length} bytes`)
+
+    // Closing the page cancels one that waits, and says it is gone.
+    await click("/download/slow.bin", "left.bin")
+    await until(() => asked.length === 5)
+    const left = asked[4]!
+    const leftItem = items[4]!
+    dl.dispose()
+    check("the page closing cancels the download waiting, and says so", gone.includes(left) && (await until(() => leftItem.end === "cancelled" && inHeld().length === 0, 3000)) === true, `${leftItem.end} ${inHeld().join(" ")}`)
+    check("(nothing else was saved)", fs.readdirSync(saved).sort().join(" ") === "made.txt orders.csv slow.bin", fs.readdirSync(saved).join(" "))
+
+    // A page made without anywhere to hold downloads refuses them.
+    const plain = await createPage(win, { preload: path.join(__dirname, "../page-preload.cjs"), partition: "page-e2e-downloads", onMessage: () => {}, onChange: () => {}, onShortcut: () => {}, log: () => {} })
+    plain.setBounds({ x: 0, y: 0, width: 800, height: 600 })
+    plain.load(`${base}/wide.html`)
+    await until(() => !plain.state().loading && plain.view.webContents.getURL() === `${base}/wide.html`, 5000)
+    const before = items.length
+    await plain.view.webContents.executeJavaScript(`Object.assign(document.createElement("a"), { href: "/download/report.csv" }).click()`, true)
+    await until(() => items.length > before, 3000)
+    const refusedItem = items[before]
+    await sleep(500)
+    check("a page that holds no downloads refuses them: not asked about, no file given, nothing written", !!refusedItem && refusedItem.savePath === "" && asked.length === 5 && inHeld().length === 0 && fs.readdirSync(saved).length === 3, refusedItem && `${refusedItem.end} "${refusedItem.savePath}"`)
+    plain.dispose()
   }
 
   // ── the page's renderer dies ───────────────────────────────────────────────────────────────

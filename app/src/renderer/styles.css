@@ -869,6 +869,16 @@ details[open] > summary > .caret {
   user-select: text;
 }
 
+/* The page asked to download a file: who asked and what, and the two answers. */
+.download-ask > .icon:first-child {
+  color: var(--muted);
+}
+
+.download-site,
+.download-file {
+  font-weight: 500;
+}
+
 .work {
   flex: 1;
   min-height: 0;
