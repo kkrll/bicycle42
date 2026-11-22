@@ -13,6 +13,9 @@ import { hostEl, treeVersion, variantsEl, variantStyle } from "./mount.js";
 // The page has no switching code. This layer hides all but the chosen one with a style rule
 // (no attribute is written, so a framework re-render can't undo it), draws a small switcher
 // over each group, and "Keep" starts a /keep note that tells the agent to delete the rest.
+// A group with data-b42-kind="states" (from /show-states) is one component in each of its states,
+// not options to choose from: its bar steps through states, and "Done" starts a /done note that
+// takes the scaffolding away. Nothing is kept.
 const V = { groups: [], choice: {}, version: -1, theme: "", css: "" };
 try {
   V.choice = JSON.parse(sessionStorage.getItem("b42-variants") || "{}") || {};
@@ -55,7 +58,7 @@ function scanVariants() {
     const options = [...el.children]
       .filter((c) => c.hasAttribute("data-b42-variant"))
       .map((c) => ({ k: c.getAttribute("data-b42-variant"), label: c.getAttribute("data-b42-label") || "", el: c }));
-    return { id, el, options };
+    return { id, el, options, states: el.getAttribute("data-b42-kind") === "states" };
   }).filter((g) => g.id && g.options.length > 1);
   let css = "";
   for (const g of V.groups) {
@@ -84,6 +87,12 @@ function keepVariant(g) {
   S.sel = [g.el];
   S.area = null;
   S.strokes = [];
+  if (g.states) {
+    Notes.setTemplate(S.templates.some((t) => t.name === "done") ? "done" : null);
+    Notes.textarea.value = `${S.template ? "" : "Remove "}the states of ${g.id}${S.template ? "" : " and their mock data"}`;
+    Notes.openCard();
+    return;
+  }
   Notes.setTemplate(S.templates.some((t) => t.name === "keep") ? "keep" : null);
   Notes.textarea.value = `${S.template ? "" : "Keep "}variant ${o.k}${o.label ? ` (${o.label})` : ""} of ${g.id}${S.template ? "" : ", delete the others"}`;
   Notes.openCard();
@@ -112,6 +121,20 @@ function makeVariantBar() {
   return bar;
 }
 
+/** A bar's words for its group's kind: variants to keep one of, or states to look through. */
+function nameBar(bar, states) {
+  if (bar._states === states) return;
+  bar._states = states;
+  const [prev, next, , keep] = bar.children;
+  const thing = states ? "state" : "variant";
+  for (const [b, title] of [[prev, `Previous ${thing}`], [next, `Next ${thing}`]]) {
+    b.title = title;
+    b.setAttribute("aria-label", title);
+  }
+  keep.textContent = states ? "Done" : "Keep";
+  keep.title = states ? "Done looking: remove these states and their mock data" : "Keep this variant and delete the others";
+}
+
 export function drawVariants(capturing) {
   scanVariants();
   const shown = S.enabled && !capturing ? V.groups.filter((g) => g.el.isConnected) : [];
@@ -119,6 +142,7 @@ export function drawVariants(capturing) {
   shown.forEach((g, i) => {
     const bar = bars[i];
     bar._group = g;
+    nameBar(bar, g.states);
     const at = g.options.findIndex((o) => o.k === V.choice[g.id]);
     const o = g.options[at];
     const r = rectOf(o && o.el.isConnected ? o.el : g.el);

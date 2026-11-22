@@ -78,6 +78,59 @@ export const TEMPLATES = [
       "Do not change any files. Grade the selected part as a strict senior designer would: a score out of 10, then the few changes that " +
       "would raise it most, most valuable first, each concrete (sizes, colours, spacing, words). Under 150 words.",
   },
+  // layout, polish and show-states are shortened from Jakub Krehel's better-layout, better-ui and
+  // state-machine skills (github.com/jakubkrehel/skills, MIT): the rules that can be checked.
+  {
+    name: "layout",
+    hint: "grouping, edges, order, room to grow",
+    prompt:
+      "Improve the layout of the selected part. You may restructure it; keep its content and the site's look, and write every fix in the " +
+      "project's spacing scale and tokens. Group with space before lines: the gap between groups at least twice the gap within one, a " +
+      "background or a line only where space cannot carry the grouping. Put things on a few shared edges. Make controls look like controls " +
+      "(a shape, a border, an underline or a toolbar), not like the text beside them. The most important content comes first, near the top " +
+      "and the leading edge, and the visual order matches the DOM's (no order, row-reverse or grid placement to reorder). One primary action; " +
+      "past three secondary actions, a menu. Boxes that hold text take min-height and max-width, never a fixed height or width; a grid track " +
+      "or flex child that overflows gets minmax(0, 1fr) or min-width: 0. Check it at 320 px wide and at 200% zoom: nothing clipped, nothing " +
+      "overlapping, no important action pushed out of reach. Each fix answers a failure you can point to (a clip, an overlap, a group that " +
+      "reads wrong), not a taste. Reply with one line per fix.",
+  },
+  {
+    name: "polish",
+    hint: "radii, optical alignment, shadows, icons",
+    prompt:
+      "Polish the selected part's surfaces and icons without changing its layout or its words. Keep the project's components, tokens and " +
+      "density: a convention used everywhere on purpose (no shadows, say) is not a problem, the same detail done two ways is. Check and fix: " +
+      "nested rounded surfaces with an even inset have an outer radius of the inner radius plus the padding (plus any border); icons and " +
+      "triangles look centred (nudge by eye, or give a button 2 px less padding on its icon side); depth comes from soft layered box-shadows, " +
+      "while borders stay for dividers, inputs and selected states (with border: 1px solid transparent under a shadow ring, for forced colours); " +
+      "content images get a 1 px inset outline of black at 10% (white at 10% in dark mode), never a tinted colour; hover styles only under " +
+      "@media (hover: hover); menus, drawers and dialogs that scroll get overscroll-behavior: contain; icons use currentColor, come from one " +
+      "set and have a stroke that matches the weight of the text beside them. Reply with one line per fix, then one line listing what you " +
+      "checked and found fine.",
+  },
+  {
+    name: "show-states",
+    hint: "every state it can be in, to flip through",
+    prompt:
+      "Do not redesign anything: show every state the selected component can be in, so the reviewer can look at each one on the page. Find " +
+      "the states in its code and its data code: loading, empty, error, one item, a typical set, one long enough to scroll, partly loaded or " +
+      "stale data, and the role, plan, permission and feature-flag branches it checks. A state the code cannot reach is not a state: name it " +
+      "as missing in your reply instead of adding it. At most 12. Use the review tool's variant convention: in one wrapper element with " +
+      'data-b42-variants="<short-kebab-id>" and data-b42-kind="states", render the live instance as data-b42-variant="0" with ' +
+      'data-b42-label="live", then one instance per state, numbered on, each with data-b42-label="<group> · <state>" in the product\'s words ' +
+      '("Data · empty", "Access · no permission"). Feed each instance its state where it gets its data (its props, or the app\'s own mock or ' +
+      "query-cache seam) with realistic data in realistic amounts, never \"Item 1\" or \"Test user\"; loading stays loading. Do not edit the " +
+      "component itself; if that is the only way in, say so and stop. Render them all and write no switching code: the review tool shows one " +
+      "at a time. This is temporary scaffolding, removed with /done. Reply with the states, grouped, then the ones you left out and why.",
+  },
+  {
+    name: "done",
+    hint: "remove the states shown by /show-states",
+    prompt:
+      "The reviewer is done looking at the states from an earlier /show-states note; the note above names the group's id. Remove the " +
+      "scaffolding: the extra instances, their mock data, every data-b42-* attribute and the wrapper element, so the component's call site is " +
+      "as it was before. Changes made to the component itself since then stay. Check the diff leaves nothing of the setup behind. Reply in one line.",
+  },
   {
     name: "explain",
     hint: "how it is built; changes nothing",
