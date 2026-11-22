@@ -183,8 +183,13 @@ const SHOTS = [
   { name: "question", mock: "question" },
   { name: "noconversation", mock: "noconversation" },
   { name: "offline", mock: "offline" },
-  // The same without `away` (an agent here, or one that is not kept running there): the shorter line.
-  { name: "offline-plain", mock: "offline", run: [`delete window.__mock.state.connection.away; 0`, ...resend], report: `document.querySelector(".banner p").textContent` },
+  // The same without `away` (an agent here, or one that is not kept running there), started again
+  // by itself: the shorter line, and what it was on paused.
+  { name: "offline-plain", mock: "offline", run: [`delete window.__mock.state.connection.away; window.__mock.state.connection.retry = true; 0`, ...resend], report: `document.querySelector(".banner p").textContent` },
+  // …and one that keeps stopping at start, which nothing starts again: the error, and what to do.
+  { name: "offline-stuck", mock: "offline", run: [`Object.assign(window.__mock.state.connection, { away: undefined, error: "Claude Code keeps stopping at start: it exited with code 1 (Invalid API key · Please run /login)." }); 0`, ...resend], report: `document.querySelector(".banner p").textContent` },
+  // The turn under way in the narrowest panel: its note's words give way before the time and counts.
+  { name: "offline-narrow", mock: "offline", run: [leastPanel], wait: 300 },
   { name: "pageerror", mock: "pageerror" },
   // The page tried to open an app (a scheme not the web's): stopped, said quietly by its address.
   { name: "page-refused", mock: "refused" },

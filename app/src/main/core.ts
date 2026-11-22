@@ -919,7 +919,7 @@ export function createCore(host: Host): Core {
       retryDelay = RETRY_FIRST_MS
     } catch (err) {
       if (backend || !store.settings().server) return
-      connection = { status: "offline", url, error: say(err) }
+      connection = { status: "offline", url, error: say(err), retry: true }
       push()
       retryTimer = setTimeout(() => void reconnectSaved(), retryDelay)
       retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS)

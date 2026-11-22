@@ -494,6 +494,12 @@ real check from the lockfile as it is, installed as the app does, and writes not
 - **One process for all of an agent's conversations.** Started on the first call, in its own
   process group, and started again with a growing pause (1 s to 30 s) when it dies; the app
   stops listening (quit, another agent) by ending the group, so what it started ends with it.
+  The connection is then `offline` with `retry`, and the panel's banner says only "Can't reach
+  Claude Code. Notes wait until it is back." One that dies five times in a row just after it
+  started is not started again by itself: no `retry`, and the banner prints the error and what to
+  do ("Claude Code keeps stopping at start: … Fix it, then Retry."), as for any start that nothing
+  tries again. While it is offline (and not `away`), the turn under way reads "Paused on ④", with
+  no spinner or clock, and Stop is disabled: the run it would end went with the process.
   A dev server the agent starts is a background command of its own shell tool, which ACP gives
   the client no way to list or stop: it lives as long as the agent's process. The request to get
   the site running says so (`startPrompt`).

@@ -956,6 +956,8 @@ test("the agent does not start at launch, and can later: the app tries again by 
     // The saved agent dies at once each time it is started: offline, and tried again.
     h.w.fa.dieAfterInit = true
     await until(() => h.snap().connection.status === "offline", 10_000)
+    const c = h.snap().connection
+    assert.equal(c.status === "offline" && c.retry, true, "said to be tried again")
     const starts = h.w.fa.starts
     h.w.fa.dieAfterInit = false
     await until(() => h.snap().connection.status === "online", 10_000)

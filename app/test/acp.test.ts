@@ -458,8 +458,11 @@ test("an agent that dies just after it starts: started again with a growing paus
     await until(() => fake.starts === 4 && of(events, "connection").at(-1)?.state.status === "offline")
     await sleep(300)
     assert.equal(fake.starts, 4)
+    // Each time but the last it is started again by itself, and says so; the last time it is not.
+    const offline = of(events, "connection").flatMap((e) => (e.state.status === "offline" ? [e.state] : []))
+    assert.deepEqual(offline.map((o) => !!o.retry), [true, true, true, false])
     const last = of(events, "connection").at(-1)!.state
-    assert.match(last.status === "offline" ? last.error : "", /stopped 4 times in a row just after it started, so it is not started again by itself/)
+    assert.equal(last.status === "offline" ? last.error : "", "Fake Agent keeps stopping at start: it exited with code 1.")
   } finally {
     timing.crashes = crashes
   }

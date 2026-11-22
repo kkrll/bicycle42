@@ -1565,8 +1565,26 @@
   margin-left: -4px;
 }
 
-/* The note in the header of the turn under way: "Working on ④ · 6m 0s". */
+/* The note in the header of the turn under way: "Working on ④ its words · 6m 0s · 1 read". */
 .turn-took .badge {
   vertical-align: middle;
   margin-top: -2px;
+}
+
+/* Its words give way first, to nothing if they must: they take only the room the rest leaves
+   (from nothing, up to their own width), so the time and the counts stay whole while they can. */
+.turn-note {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: max-content;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+}
+
+.turn-time {
+  flex: none;
+  margin-left: -4px;
+  font-variant-numeric: tabular-nums;
 }

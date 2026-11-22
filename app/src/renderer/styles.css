@@ -266,6 +266,16 @@ pre,
   border-color: var(--muted);
 }
 
+/* Read by a screen reader, not shown. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .text-btn {
   flex: none;
   height: 24px;
@@ -1461,30 +1471,34 @@ details[open] > summary > .caret {
 }
 
 /* Pins that lost their element: one more count in the header's words ("· 2 unpinned"), right
-   after the others, which opens what it means. The toggle then takes only its words' width. */
+   after the others, which opens what it means. The toggle then takes only its words' width, and
+   where there is no room it is this that gives way, not the counts. */
 .section-head:has(> .lost-btn) > .section-toggle {
-  flex: 0 1 auto;
+  flex: none;
 }
 
+/* A button, so it looks like Clear done (.text-btn): underlined words; the dot before them is
+   the header's, muted and not underlined. */
 .lost-btn {
-  flex: none;
-  height: 24px;
+  flex: 0 1 auto;
+  min-width: 0;
   margin: 0 auto 0 -10px;
   padding: 0 4px;
-  border-radius: var(--radius);
-  font-size: var(--text-control);
-  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-variant-numeric: tabular-nums;
 }
 
 .lost-btn::before {
   content: "·";
+  display: inline-block;
   padding-right: 5px;
+  color: var(--muted);
+  font-weight: 400;
 }
 
-.lost-btn:hover,
 .lost-btn[aria-expanded="true"] {
-  color: var(--foreground);
+  background: var(--surface-strong);
 }
 
 .notes-lost-more {

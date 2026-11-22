@@ -10,7 +10,7 @@ import { labelText, modelLabel } from "../shared/models"
 import { Icon, type IconName } from "./icons"
 import { SuggestMenu, type MenuItem } from "./menu"
 import { ContextMeter } from "./meter"
-import { act, chat, followUp, keys, mac, message, b42, setNotice, state } from "./store"
+import { act, awayHost, chat, followUp, keys, mac, message, b42, offline, setNotice, state } from "./store"
 
 // ── a line of news under the box ────────────────────────────────────────────────────────────────
 
@@ -723,7 +723,14 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
           <Show
             when={!(busy() && !text().trim() && !images().length)}
             fallback={
-              <button class="btn stop-btn" title="Stop the agent" onClick={() => act("stop")}>
+              // Offline, and not at work elsewhere: the agent's process is gone, and with it the
+              // run Stop would end.
+              <button
+                class="btn stop-btn"
+                disabled={offline() && !awayHost()}
+                title={offline() && !awayHost() ? "Nothing to stop while the agent can't be reached" : "Stop the agent"}
+                onClick={() => act("stop")}
+              >
                 <Icon name="stop" />
                 Stop
               </button>

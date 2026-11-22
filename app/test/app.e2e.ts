@@ -17,7 +17,7 @@ import path from "node:path"
 import type { AppState } from "../src/shared/types"
 import { commitPrompt } from "../src/main/asks"
 import type { PageView } from "../src/main/page"
-import type { Transport } from "../src/main/acp"
+import type { Transport, timing as acpTiming } from "../src/main/acp"
 import { playedAgent } from "./played-agent"
 
 const overlayDir = path.join(__dirname, "../../../overlay")
@@ -70,7 +70,7 @@ function serveSite(): Promise<http.Server> {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)))
 }
 
-type Hook = { window(): BrowserWindow | undefined; page(): PageView | undefined; snapshot(): AppState }
+type Hook = { window(): BrowserWindow | undefined; page(): PageView | undefined; snapshot(): AppState; acpTiming: typeof acpTiming }
 
 async function main() {
   const siteServer = await serveSite()
@@ -254,9 +254,16 @@ async function main() {
   )
   await (await turnNow())?.update({ sessionUpdate: "tool_call", toolCallId: "e2e-read", title: "Read", kind: "read", status: "completed", locations: [{ path: path.join(siteDir, "index.html") }] })
   check(
-    "once it takes a step, the turn's header says it, with the note, and no line at the foot",
-    (await until(() => ui(`(() => { const l = ${workingLines}; return l.length === 1 && /^turn-head live: Working on ?1 ?· \\d+s/.test(l[0]) })()`))) === true,
+    "once it takes a step, the turn's header says it, with the note's words, and no line at the foot",
+    (await until(() => ui(`(() => { const l = ${workingLines}; return l.length === 1 && /^turn-head live: Working on ?1 ?make this button bigger ?· \\d+s ?· 1 read$/.test(l[0]) })()`))) === true,
     JSON.stringify(await ui(workingLines)),
+  )
+  // Said to a screen reader as it changes, without the clock that ticks beside it.
+  const liveSaid = `[...document.querySelectorAll('.transcript .turn [aria-live="polite"]')].map((e) => e.textContent.trim())`
+  check(
+    "…and its words are a polite live region, outside the button",
+    JSON.stringify(await ui(liveSaid)) === JSON.stringify(["Working on note 1: make this button bigger"]),
+    JSON.stringify(await ui(liveSaid)),
   )
 
   // A second note while the first is in progress, sent before the agent replies.
@@ -282,6 +289,23 @@ async function main() {
   await reply("Tightened the heading.")
   await until(() => notes()[1]?.status === "done")
   check("the turn ending finishes the last note", notes().map((n) => n.status).join() === "done,done" && (await until(() => state().session?.busy === false)) === true, notes().map((n) => n.status).join())
+  // The notes header counts only while the list is shut: open, its groups say the same.
+  {
+    const head = `(() => { const h = document.querySelector(".notes .section-head"); return { open: h.querySelector(".section-toggle").getAttribute("aria-expanded"), name: h.querySelector(".section-name").textContent, meta: [...h.querySelectorAll(".section-meta:not(.hide)")].map((m) => m.textContent).join(), clear: !!h.querySelector(".text-btn") } })()`
+    type Head = { open: string; name: string; meta: string; clear: boolean }
+    const toggle = () => ui(`document.querySelector(".notes .section-toggle").click()`)
+    const first = (await ui(head)) as Head
+    if (first.open !== "true") await toggle()
+    const opened = (await until(() => ui(`${head}.open === "true" && ${head}`))) as Head
+    await toggle()
+    const shut = (await until(() => ui(`${head}.open === "false" && ${head}`))) as Head
+    if (first.open === "true") await toggle()
+    check(
+      "the notes header: with the list open, the total and Clear done; shut, the counts too",
+      opened.name === "2 notes" && opened.meta === "" && opened.clear && shut.name === "2 notes" && shut.meta === "2 done" && shut.clear,
+      JSON.stringify({ opened, shut }),
+    )
+  }
   check("the chat shows the agent's replies", (await until(async () => (await text()).includes("Made the button larger") && (await text()).includes("Tightened the heading."))) === true)
   check("the chat shows the note, not the whole prompt", !(await text()).includes("Make the smallest change that does this"), "prompt boilerplate visible")
   check("the page reloads to show the change", (await until(async () => (await js("window.__beforeReload")) === undefined)) === true)
@@ -1656,6 +1680,30 @@ async function main() {
     check("…and the same for a phone's page and its facts: gone with the renderer, worked out again once it is loaded", facts > 0 && noFacts === true && factsBack === true, `${facts} facts before, ${await factRows()} after`)
     await ui(`document.querySelector('[data-device="desktop"]').click()`)
     await until(() => state().page.device === "desktop")
+  }
+
+  // ── the agent stops: the banner says whether the app tries again by itself ─────────────────
+  {
+    const banner = () => ui(`document.querySelector(".banner.bad")?.textContent.replace(/\\s+/g, " ").trim() ?? ""`) as Promise<string>
+    // Shorter pauses, and two young deaths in a row are enough to give up.
+    Object.assign(hook.acpTiming, { retryMin: 300, healthy: 600_000, crashes: 2 })
+    const starts = agent.fa.starts
+    agent.fa.dieAfterInit = true
+    agent.fa.exit()
+    // Ended once: started again by itself after a pause, so the banner promises that.
+    const soon = await until(async () => (state().connection.status === "offline" ? banner() : ""), 4000)
+    check("an agent that stopped and is started again by itself: the banner says notes wait", /^Can't reach fake-agent\. Notes wait until it is back\. ?Retry/.test(soon), soon)
+    // Ended again just after it started: not started again, so the banner says why and what to do.
+    const stuck = await until(async () => (agent.fa.starts > starts && state().connection.status === "offline" && !(state().connection as { retry?: true }).retry ? banner() : ""), 6000)
+    check(
+      "…one that keeps stopping at start is not started again: the banner prints the error and says what to do",
+      /^fake-agent keeps stopping at start: it exited with code 1\. Fix it, then Retry\. ?Retry/.test(stuck) && !/Notes wait until it is back/.test(stuck),
+      stuck,
+    )
+    agent.fa.dieAfterInit = false
+    Object.assign(hook.acpTiming, { retryMin: 1_000, healthy: 60_000, crashes: 5 })
+    await ui(`[...document.querySelectorAll(".banner.bad .btn")].find((b) => b.textContent.trim() === "Retry").click()`)
+    check("…and Retry starts it again, in the same conversation", (await until(() => state().connection.status === "online" && state().session?.id === SES, 8000)) === true, JSON.stringify(state().connection))
   }
 
   // ── what is on disk ────────────────────────────────────────────────────────────────────────

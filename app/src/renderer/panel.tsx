@@ -93,6 +93,8 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
     const room = (props.width || 400) - 24 - 96 - (counts().done ? 84 : 0) - (state.review.unplaced ? 80 : 0)
     return text.length * 6.4 > room
   }
+  /** The list is on screen, with its groups. */
+  const listed = () => props.open && state.review.notes.length > 0
   // The list's height, cut back to the last whole row that fits, so no row shows half.
   const [snap, setSnap] = createSignal<number | null>(null)
   let list: HTMLUListElement | undefined
@@ -205,34 +207,34 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
   return (
     <section class="notes" aria-label="Notes" hidden={props.hidden}>
       <header class="section-head">
-        <button class="section-toggle" aria-expanded={props.open} onClick={props.onToggle}>
+        <button
+          class="section-toggle"
+          aria-expanded={props.open}
+          title={`${counts().total} notes: ${countWords(counts()).join(", ") || "none yet"}. ${LEGEND}`}
+          onClick={props.onToggle}
+        >
           <Icon name="right" class="caret" />
           {/* The total is the name: "12 notes", then what needs attention. */}
           <span class="section-name">
             {counts().total === 0 ? "Notes" : counts().total === 1 ? "1 note" : `${counts().total} notes`}
           </span>
-          {/* Every count in words; where they do not fit, the short form ("1 failed · 8 left"). */}
-          <span
-            class="section-meta meta-full"
-            classList={{ hide: tight() }}
-            title={`${counts().total} notes: ${countWords(counts()).join(", ")}. ${LEGEND}`}
-          >
-            <For each={countWords(counts())} fallback={<span>none yet</span>}>
-              {(part) => <span classList={{ bad: part.endsWith(" failed") }}>{part}</span>}
-            </For>
-          </span>
-          <span
-            class="section-meta meta-short"
-            classList={{ hide: !tight() }}
-            title={`${counts().total} notes: ${countWords(counts()).join(", ")}. ${LEGEND}`}
-          >
-            <For each={(shortWords(counts()) || "none yet").split(" · ")}>
-              {(part) => <span classList={{ bad: part.endsWith(" failed") }}>{part}</span>}
-            </For>
-          </span>
+          {/* The counts only while the list is shut: open, its groups say them ("Working · 2"). */}
+          <Show when={!listed()}>
+            {/* Every count in words; where they do not fit, the short form ("1 failed · 8 left"). */}
+            <span class="section-meta meta-full" classList={{ hide: tight() }}>
+              <For each={countWords(counts())} fallback={<span>none yet</span>}>
+                {(part) => <span classList={{ bad: part.endsWith(" failed") }}>{part}</span>}
+              </For>
+            </span>
+            <span class="section-meta meta-short" classList={{ hide: !tight() }}>
+              <For each={(shortWords(counts()) || "none yet").split(" · ")}>
+                {(part) => <span classList={{ bad: part.endsWith(" failed") }}>{part}</span>}
+              </For>
+            </span>
+          </Show>
         </button>
         <Show when={state.review.unplaced > 0}>
-          <button class="lost-btn" aria-expanded={why()} title={lostLabel()} onClick={() => setWhy(!why())}>
+          <button class="text-btn lost-btn" aria-expanded={why()} title={lostLabel()} onClick={() => setWhy(!why())}>
             {state.review.unplaced} unpinned
           </button>
         </Show>
@@ -644,6 +646,9 @@ function Setup() {
 
 // ── banners: the connection, a conversation that will not open ──────────────────────────────────
 
+/** An error as a sentence: with its full stop. */
+const sentence = (text: string) => (/[.!?…]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`)
+
 function ConnectionBanner(props: { openSettings: () => void }) {
   return (
     <Switch>
@@ -652,14 +657,15 @@ function ConnectionBanner(props: { openSettings: () => void }) {
           <div class="banner bad" role="alert">
             <Icon name="alert" />
             <div class="banner-body">
-              {/* Short: what it means for the reviewer. The error itself, and how long the agent
-                  keeps working, are in the tooltip. */}
+              {/* Short while the app tries again by itself: what it means for the reviewer, the
+                  error and how long the agent keeps working in the tooltip. When nothing will try
+                  again, the error itself, and what to do. */}
               <Show
                 when={c().away && harnessNow()}
                 fallback={
-                  <p title={c().error}>
-                    Can't reach {serverLabel(c().url)}. Notes wait until it is back.
-                  </p>
+                  <Show when={c().retry || c().away} fallback={<p>{sentence(c().error)} Fix it, then Retry.</p>}>
+                    <p title={c().error}>Can't reach {serverLabel(c().url)}. Notes wait until it is back.</p>
+                  </Show>
                 }
               >
                 {(a) => (

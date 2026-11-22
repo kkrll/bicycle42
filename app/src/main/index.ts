@@ -8,7 +8,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, prot
 import fs from "node:fs"
 import path from "node:path"
 import type { Shortcut } from "../shared/types"
-import type { Transport } from "./acp"
+import { timing as acpTiming, type Transport } from "./acp"
 import { createCore } from "./core"
 import { createPage, holdDownloadsIn, type PageView } from "./page"
 import { SCHEME } from "./pictures"
@@ -215,5 +215,6 @@ if (process.env.BICYCLE42_TEST) {
     window: () => window,
     page: () => page,
     snapshot: core.snapshot,
+    acpTiming,
   }
 }

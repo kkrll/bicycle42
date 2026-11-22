@@ -24,7 +24,7 @@ import { Icon, toolIcon } from "./icons"
 import { openLightbox } from "./lightbox"
 import { Markdown } from "./markdown"
 import { RepoBar } from "./repo"
-import { act, chat, focusedNote, keys, mac, message, b42, setNotice, setOpenedNote, setSwitcherOpen, state } from "./store"
+import { act, awayHost, chat, focusedNote, keys, mac, message, b42, offline, setNotice, setOpenedNote, setSwitcherOpen, state } from "./store"
 
 // ── diffs ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -161,6 +161,9 @@ function Tool(props: { part: ToolPart; quiet: boolean }) {
         <Counts additions={totals().additions} deletions={totals().deletions} />
       </Show>
       <Switch>
+        <Match when={props.part.status === "running" && paused()}>
+          <span class="tool-state">paused</span>
+        </Match>
         <Match when={props.part.status === "running"}>
           <Icon name="spinner" class="tool-state" />
         </Match>
@@ -440,11 +443,16 @@ function useClock(on: () => boolean) {
   })
 }
 
+/** The agent can't be reached, and is not at work elsewhere meanwhile: what it was on is paused
+ *  (as its pins and rows say). */
+const paused = () => offline() && !awayHost()
+
 /** One turn of the agent: the steps it took between two things said (one assistant item per
  *  step). What it did on the way (tools, thoughts, words between steps) folds into one line,
  *  "Worked for 15s"; the reply it ended with stays out. While it works, the fold is open and
- *  says so, with the note it works on ("Working on ④ · 6m 0s"): the one place the transcript
- *  says it. When it is done it closes, unless the reader opened or closed it. */
+ *  says so, with the note it works on and its words ("Working on ④ too much space… · 6m 0s"):
+ *  the one place the transcript says it. When it is done it closes, unless the reader opened or
+ *  closed it. */
 function Turn(props: { items: ChatAssistant[]; current: boolean; note?: NoteRow }) {
   // The turn's parts, in order. The store's own objects: rows are kept as parts are added.
   const parts = createMemo(() => props.items.flatMap((it) => it.parts))
@@ -461,7 +469,7 @@ function Turn(props: { items: ChatAssistant[]; current: boolean; note?: NoteRow 
   const end = () => props.items[props.items.length - 1]!
   const live = () => !end().done || props.current
   const failed = () => props.items.some((it) => it.error)
-  useClock(live)
+  useClock(() => live() && !paused())
   const elapsed = () => {
     const last = end()
     const until = live() ? now() : (last.ended ?? last.time)
@@ -494,20 +502,29 @@ function Turn(props: { items: ChatAssistant[]; current: boolean; note?: NoteRow 
           }}
         >
           <Show when={live()} fallback={<span class="turn-took">{elapsed() >= 1000 ? `Worked for ${took(elapsed())}` : "Worked"}</span>}>
-            <Icon name="spinner" />
-            <span class="turn-took">
-              <Show when={props.note} fallback={`Working for ${took(elapsed())}`}>
-                {(note) => (
-                  <>
-                    Working on{" "}
-                    <span class="badge" data-status="working" title={note().text}>
+            {/* Paused: the agent can't be reached and nothing goes on meanwhile; no spinner, no clock. */}
+            <Show when={!paused()}>
+              <Icon name="spinner" />
+            </Show>
+            <Show when={props.note} fallback={<span class="turn-took">{paused() ? "Paused" : `Working for ${took(elapsed())}`}</span>}>
+              {(note) => (
+                <>
+                  <span class="turn-took">
+                    {paused() ? "Paused on" : "Working on"}{" "}
+                    <span class="badge" data-status={paused() ? "paused" : "working"}>
                       {note().n}
-                    </span>{" "}
-                    · {took(elapsed())}
-                  </>
-                )}
-              </Show>
-            </span>
+                    </span>
+                  </span>
+                  {/* The note's words, cut first where the line is short. */}
+                  <span class="turn-note" title={note().text}>
+                    {note().text}
+                  </span>
+                  <Show when={!paused()}>
+                    <span class="turn-time">· {took(elapsed())}</span>
+                  </Show>
+                </>
+              )}
+            </Show>
           </Show>
           <Show when={model()}>
             <span class="turn-model" title={`Answered by ${model()}`}>
@@ -519,6 +536,11 @@ function Turn(props: { items: ChatAssistant[]; current: boolean; note?: NoteRow 
           </Show>
           <Icon name="right" class="caret" />
         </button>
+        {/* What the header says, as it changes, for a screen reader: outside the button (whose
+            insides are one name), and without the clock. */}
+        <span class="sr-only" aria-live="polite">
+          {live() && props.note ? `${paused() ? "Paused" : "Working"} on note ${props.note.n}: ${props.note.text}` : ""}
+        </span>
         <Show when={open()}>
           <div class="turn-steps">
             <For each={steps()}>
@@ -595,7 +617,7 @@ function suggestions(): Suggestion[] {
   return [
     ...(works ? [{ label: "Find the code for this page", text: `Which files make up the page at ${url}? List the route, its components and its styles, in a few lines.` }] : []),
     { label: "Show me around this repo", text: "Give me a short tour of this repo: what the site is built with, where pages, components and styles live, and how to run it." },
-    { label: "Where are the colours, type and spacing defined?", text: "Where does this project define its design tokens (colours, type, spacing, radii)? Name the files and how components use them." },
+    { label: "Find the colours, type and spacing", text: "Where does this project define its colours, type, spacing and radii? Name the files and how components use them." },
   ]
 }
 
@@ -634,12 +656,7 @@ function Empty() {
     <div class="chat-empty">
       <Show
         when={page()}
-        fallback={
-          <>
-            <p class="chat-empty-lead">The agent is in the repo. Ask it anything.</p>
-            <p>Once your site is open, you review it by clicking on it; each note goes to the agent on its own.</p>
-          </>
-        }
+        fallback={<p class="chat-empty-lead">The agent is in the repo. Ask it anything.</p>}
       >
         <p class="chat-empty-lead">Click anything on the page, write a note, press Enter.</p>
       </Show>
@@ -1590,12 +1607,14 @@ export function Chat(props: {
             </For>
             <Show when={state.session?.busy && !headed()}>
               <div class="working" role="status">
-                <Icon name="spinner" />
-                <Show when={workingNote()} fallback="Working">
+                <Show when={!paused()}>
+                  <Icon name="spinner" />
+                </Show>
+                <Show when={workingNote()} fallback={paused() ? "Paused" : "Working"}>
                   {(note) => (
                     <>
-                      <span>Working on</span>
-                      <span class="badge" data-status="working">
+                      <span>{paused() ? "Paused on" : "Working on"}</span>
+                      <span class="badge" data-status={paused() ? "paused" : "working"}>
                         {note().n}
                       </span>
                       <span class="working-note" title={note().text}>

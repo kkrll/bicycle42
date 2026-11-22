@@ -309,8 +309,10 @@ export type ConnectionState =
   | { status: "online"; url: string; version: string }
   /** `away`: the agent's computer can't be reached (an agent on another computer over ssh), and
    *  the agent works on there: nothing it was doing is lost, the app connects again by itself, and
-   *  notes wait meanwhile. */
-  | { status: "offline"; url: string; error: string; away?: true }
+   *  notes wait meanwhile. `retry`: the app starts the agent again by itself after a pause;
+   *  without it, nothing happens until the reviewer presses Retry (an agent that keeps stopping
+   *  just after it starts, one that failed to start from the connect screen). */
+  | { status: "offline"; url: string; error: string; away?: true; retry?: true }
 
 /** Which agent does the work, for the mark the window draws for it: one of the ACP agents the
  *  app knows (`localAgents`), or any other ACP command ("custom"). */

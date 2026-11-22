@@ -560,11 +560,11 @@ export function createAcp(opts: AcpOptions): Acp {
       retryDelay = timing.retryMin
     } else crashes++
     if (crashes >= timing.crashes) {
-      const error = `${why}. It stopped ${crashes} times in a row just after it started, so it is not started again by itself.`
-      log("warn", error)
-      return emit({ type: "connection", state: { status: "offline", url: url(), error } })
+      log("warn", `${why}. It stopped ${crashes} times in a row just after it started, so it is not started again by itself.`)
+      // No `retry`: the window says so, with the reason and its Retry.
+      return emit({ type: "connection", state: { status: "offline", url: url(), error: `${name} keeps stopping at start: ${why.replace(`${name} stopped: `, "")}.` } })
     }
-    emit({ type: "connection", state: { status: "offline", url: url(), error: why } })
+    emit({ type: "connection", state: { status: "offline", url: url(), error: why, ...(listener ? { retry: true as const } : {}) } })
     if (listener) restartLater()
   }
 
@@ -586,7 +586,7 @@ export function createAcp(opts: AcpOptions): Acp {
         // What was on screen was read from the process that ended.
         emit({ type: "resync" })
       } catch (err) {
-        emit({ type: "connection", state: { status: "offline", url: url(), error: err instanceof Error ? err.message : said(err) } })
+        emit({ type: "connection", state: { status: "offline", url: url(), error: err instanceof Error ? err.message : said(err), retry: true } })
         restartLater()
       }
     }, wait)
@@ -1761,7 +1761,7 @@ export function createAcp(opts: AcpOptions): Acp {
       void ensure().then(
         () => emit({ type: "connection", state: { status: "online", url: url(), version: version() } }),
         (err) => {
-          emit({ type: "connection", state: { status: "offline", url: url(), error: err instanceof Error ? err.message : said(err) } })
+          emit({ type: "connection", state: { status: "offline", url: url(), error: err instanceof Error ? err.message : said(err), retry: true } })
           restartLater()
         },
       )
