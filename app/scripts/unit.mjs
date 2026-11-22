@@ -33,6 +33,11 @@ if (!files.length) {
 const timeout = Number(process.env.UNIT_TIMEOUT_S ?? 600) * 1000
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "b42-unit-"))
 const ledgerFile = path.join(tmp, "ledger.json")
+// The test files' own temporary folders go here (TMPDIR), and go with it at the end: a test that
+// does not clean up after itself no longer leaves its folders behind in /tmp, which on a machine
+// whose /tmp is in memory filled it and made later runs fail on writes. Short, for unix sockets.
+const scratch = path.join(tmp, "t")
+fs.mkdirSync(scratch)
 
 // Its own process group, so that the watchdog ends the files' processes too.
 const child = spawn(
@@ -43,7 +48,7 @@ const child = spawn(
     `--test-reporter=${path.join(root, "scripts", "unit-ledger.mjs")}`, `--test-reporter-destination=${ledgerFile}`,
     ...files,
   ],
-  { stdio: "inherit", cwd: root, detached: true },
+  { stdio: "inherit", cwd: root, detached: true, env: { ...process.env, TMPDIR: scratch } },
 )
 let timedOut = false
 const watchdog = setTimeout(() => {
@@ -51,7 +56,7 @@ const watchdog = setTimeout(() => {
   try { process.kill(-child.pid, "SIGTERM") } catch {}
   setTimeout(() => { try { process.kill(-child.pid, "SIGKILL") } catch {} }, 5000).unref()
 }, timeout)
-for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { try { process.kill(-child.pid, sig) } catch {}; process.exit(130) })
+for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { try { process.kill(-child.pid, sig) } catch {}; fs.rmSync(tmp, { recursive: true, force: true }); process.exit(130) })
 
 child.on("exit", (code) => {
   clearTimeout(watchdog)
