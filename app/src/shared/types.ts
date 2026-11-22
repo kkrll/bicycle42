@@ -340,10 +340,13 @@ export type RemoteInfo = { host: string; computer: string; home: string; agents:
  *  `needs` says what to install when it was not, `install` is the one command that does.
  *  `signIn`: it is installed and no sign-in of it was found on this computer: the command to run
  *  in a terminal (it may still work: an API key in its own settings is not looked for).
- *  `adapter`: one that runs through an adapter from npm (Claude Code, Codex): the version npx
+ *  `adapter`: one that runs through an adapter from npm (Claude Code, Codex): the version that
  *  starts (pinned, or "latest" when the reviewer asked for the newest), whether that version
  *  passed the app's real check, and `own` when an adapter installed on its own is what starts
- *  instead (no pin applies). `env`: the version was forced with that variable (B42_PIN_CLAUDE). */
+ *  instead (no pin applies). `env`: the version was forced with that variable (B42_PIN_CLAUDE).
+ *  `locked`: the pin, installed from the app's lockfile (every package of it checked, no install
+ *  script run), and `firstStart` when that install is still to be done there; without it the
+ *  adapter (latest, forced) goes through npx, its packages not locked. */
 export type LocalAgent = {
   id: string
   name: string
@@ -352,7 +355,7 @@ export type LocalAgent = {
   needs?: string
   install?: string
   signIn?: string
-  adapter?: { version: string; tested: boolean; latest: boolean; own: boolean; env?: string }
+  adapter?: { version: string; tested: boolean; latest: boolean; own: boolean; env?: string; locked?: true; firstStart?: true }
 }
 
 export type SessionSummary = {
@@ -391,6 +394,10 @@ export type AppState = {
   /** A connection to another computer under way: its host as typed, and the step it is at
    *  ("Starting the app's helper on dev-box…"), which the connect screen says on a slow link. */
   sshStep?: { host: string; text: string }
+  /** A known agent being started that has a step of its own to say: its adapter installed at its
+   *  first start on that computer ("Installing the Codex adapter (first start)…"). `host` when
+   *  it is another computer's. */
+  agentStep?: { agent: string; host?: string; text: string }
   /** The agent in use (or being connected to again, while offline or connecting): its mark,
    *  name and where it runs. Absent while none is set up. */
   harness?: Harness

@@ -3,20 +3,25 @@
 //
 // An agent here is a program that speaks ACP (the Agent Client Protocol) on its stdin and
 // stdout; acp.ts starts it and talks to it. Some speak it themselves (`opencode acp`, `gemini
-// --experimental-acp`); Claude Code and Codex need an adapter from npm, which npx fetches the
-// first time (it then uses the person's own login of that tool).
+// --experimental-acp`); Claude Code and Codex need an adapter from npm, which the app installs
+// at its first start on that computer from a lockfile of its own (adapters.ts), and which then
+// uses the person's own login of that tool.
 //
 // What is on the PATH of an app started from the desktop is often not what a terminal has
 // (mise, nvm, npm's global folder are set up by the shell's profile), so a command is looked
 // for on both: this process's PATH, then the one the person's login shell has.
 //
-// An adapter fetched with npx is pinned (agent-pins.json): the version that was tested, the same
-// on every computer, never whatever npm has newest at that start. The reviewer can ask for the
-// newest per agent instead ("Always the newest" on the connect screen: `latest` below), and
-// `npm run agents:check` (scripts/agents-check.mjs) says when there is a newer one and tests it.
+// An adapter is pinned (agent-pins.json): the version that was tested, the same on every
+// computer, never whatever npm has newest at that start; and so is every package under it, by the
+// lockfile it is installed from (adapter-locks/), with no package's install script run. The
+// reviewer can ask for the newest per agent instead ("Always the newest" on the connect screen:
+// `latest` below), which has no lockfile and goes through npx, as a version forced with
+// B42_PIN_<ID> does. `npm run agents:check` (scripts/agents-check.mjs) says when there is a newer
+// one, tests it, and pins it with its lockfile.
 import path from "node:path"
 import type { LocalAgent } from "../shared/types"
 import pins from "./agent-pins.json"
+import { ADAPTER_LOCKS, adapterInstalled, installAdapter, lineOf, lockOf, markUsed, tidyAdapters, type AdapterLock } from "./adapters"
 import { thisMachine, type Machine } from "./machine"
 
 /** An adapter from npm, as agent-pins.json keeps it: its package, the program it installs, the
@@ -34,16 +39,37 @@ export const pinEnv = (id: string) => `B42_PIN_${id.toUpperCase()}`
  *  override is read from (this process's). */
 export type StartPrefs = { latest?: (id: string) => boolean; env?: Record<string, string | undefined> }
 
-/** Which version of a known agent's adapter npx is to start, and why. Undefined for an agent with
- *  no adapter (Gemini CLI, OpenCode: the person's own CLI). */
-export function adapterOf(id: string, prefs: StartPrefs = {}): { pin: Pin; version: string; tested: boolean; latest: boolean; env?: string } | undefined {
+/** The lockfile the pin of `id` is installed from, undefined when the app has none of that
+ *  version (a pin moved by hand without `agents:check`): that pin then goes through npx. */
+export function adapterLock(id: string): AdapterLock | undefined {
+  const pin = PINS[id]
+  const files = ADAPTER_LOCKS[id]
+  if (!pin || !files) return undefined
+  // Made once per lockfile and pin (its hash is of a 60 KB text, and every row of the connect
+  // screen asks): a lockfile replaced (the tests do) is another.
+  const key = `${pin.package}@${pin.version}#${pin.bin}`
+  let made = lockCache.get(files)
+  if (!made) lockCache.set(files, (made = new Map()))
+  if (!made.has(key)) made.set(key, lockOf(id, pin, files.manifest, files.lock))
+  return made.get(key)
+}
+const lockCache = new WeakMap<object, Map<string, AdapterLock | undefined>>()
+
+/** Which version of a known agent's adapter is to start, and why: `lock` when it is the pin,
+ *  installed from the app's lockfile; else (the newest, a version forced, a pin with no lockfile)
+ *  it is npx's. Undefined for an agent with no adapter (Gemini CLI, OpenCode: the person's own CLI). */
+export function adapterOf(
+  id: string,
+  prefs: StartPrefs = {},
+): { pin: Pin; version: string; tested: boolean; latest: boolean; env?: string; lock?: AdapterLock } | undefined {
   const pin = PINS[id]
   if (!pin) return undefined
   const name = pinEnv(id)
   const forced = (prefs.env ?? process.env)[name]?.trim()
   if (forced) return { pin, version: forced, tested: false, latest: false, env: name }
   if (prefs.latest?.(id)) return { pin, version: "latest", tested: false, latest: true }
-  return { pin, version: pin.version, tested: !!pin.tested, latest: false }
+  const lock = adapterLock(id)
+  return { pin, version: pin.version, tested: !!pin.tested, latest: false, ...(lock ? { lock } : {}) }
 }
 
 /** What a check of a sign-in looks at, on the computer the agent is on. */
@@ -60,7 +86,7 @@ type Known = {
   id: string
   name: string
   /** How to start it when it speaks ACP itself. One with an adapter (PINS) has none here: its
-   *  adapter installed on its own, else npx with the adapter's version (`commandsOf`). */
+   *  adapter installed on its own, else the pin from its lockfile, else npx (`waysOf`). */
   commands?: string[][]
   /** The program it needs to be of any use (the CLI whose login the adapter uses). */
   needs: string
@@ -153,26 +179,70 @@ export const agentEnv = () => thisMachine().agentEnv()
 /** Where `program` is on that PATH, or undefined. */
 export const which = (program: string, env?: Record<string, string | undefined>) => thisMachine().which(program, env)
 
+/** A way to start a known agent: its line, and for the pin from its lockfile, that lockfile
+ *  (installed on that computer at its first start: `prepareStart`). */
+type Way = { line: string[]; lock?: AdapterLock }
+
 /** The ways to start a known agent, the one to use first first: its adapter installed on its
- *  own (the person's: no pin applies to it), then npx with the adapter's version. A version
+ *  own (the person's: no pin applies to it), then the pin from the app's lockfile (node and the
+ *  adapter's program in its folder), or npx for the newest and a pin with no lockfile. A version
  *  forced with B42_PIN_<ID> is npx's only: it is what is asked for, whatever is installed. */
-function commandsOf(known: Known, prefs: StartPrefs): string[][] {
+function waysOf(known: Known, m: Machine, prefs: StartPrefs): Way[] {
   const adapter = adapterOf(known.id, prefs)
-  if (!adapter) return known.commands ?? []
-  const npx = ["npx", "-y", `${adapter.pin.package}@${adapter.version}`]
-  return adapter.env ? [npx] : [[adapter.pin.bin], npx]
+  if (!adapter) return (known.commands ?? []).map((line) => ({ line }))
+  if (adapter.lock) return [{ line: [adapter.pin.bin] }, { line: lineOf(m, adapter.lock), lock: adapter.lock }]
+  const npx = { line: ["npx", "-y", `${adapter.pin.package}@${adapter.version}`] }
+  return adapter.env ? [npx] : [{ line: [adapter.pin.bin] }, npx]
 }
 
-/** How to start a known agent on a computer (this one unless said): its own adapter if one is
- *  installed, else the first way whose program is there. Undefined when what it needs is not
- *  installed. The same line on another computer as here: its adapter's version is decided here. */
-export async function commandOf(id: string, m: Machine = thisMachine(), prefs: StartPrefs = {}): Promise<string[] | undefined> {
+/** Whether a way can start there: its program is on the PATH; for the pin from its lockfile, node
+ *  is (npm, to install it, is asked for at its start, which says so when it is not there). */
+async function usable(way: Way, m: Machine, env: Record<string, string | undefined>): Promise<boolean> {
+  return !!(await m.which(way.lock ? "node" : way.line[0]!, env))
+}
+
+/** How to start a known agent on that computer (this one unless said), as `commandOf` says, with
+ *  the lockfile to install it from first when that is the way. Undefined when it can't start. */
+export async function startOf(id: string, m: Machine = thisMachine(), prefs: StartPrefs = {}): Promise<Way | undefined> {
   const known = KNOWN_AGENTS.find((a) => a.id === id)
   if (!known) return undefined
   const env = await m.agentEnv()
   if (!(await m.which(known.needs, env))) return undefined
-  for (const command of commandsOf(known, prefs)) if (await m.which(command[0]!, env)) return command
+  for (const way of waysOf(known, m, prefs)) if (await usable(way, m, env)) return way
   return undefined
+}
+
+/** How to start a known agent on a computer (this one unless said): its own adapter if one is
+ *  installed, else the first way whose program is there. Undefined when what it needs is not
+ *  installed. Its adapter's version is decided here, the same for another computer as for this. */
+export async function commandOf(id: string, m: Machine = thisMachine(), prefs: StartPrefs = {}): Promise<string[] | undefined> {
+  return (await startOf(id, m, prefs))?.line
+}
+
+/** The line to start a known agent with, once what it needs is there: the pin's adapter is
+ *  installed from its lockfile on that computer first when it is not yet (`onStep` says so), and
+ *  older installs of it are tidied after. Undefined when it can't start; rejects with a sentence
+ *  when the install fails. */
+export async function prepareStart(
+  id: string,
+  m: Machine = thisMachine(),
+  prefs: StartPrefs = {},
+  o: { onStep?(text: string): void; log?: (level: "info" | "warn" | "error", msg: string, data?: unknown) => void } = {},
+): Promise<string[] | undefined> {
+  const way = await startOf(id, m, prefs)
+  if (!way?.lock) return way?.line
+  const known = KNOWN_AGENTS.find((a) => a.id === id)!
+  const env = await m.agentEnv()
+  // Marked used now (that computer's clock), and the other installs of it there not used for 14
+  // days go (never one running). Another app's tidying may take this one away between its install
+  // and its mark (it had been unused for 14 days): then it is installed again, once.
+  for (let tries = 0; ; tries++) {
+    await installAdapter(m, way.lock, { name: known.name, env, ...(o.onStep ? { onStep: o.onStep } : {}), ...(o.log ? { log: o.log } : {}) })
+    if ((await markUsed(m, way.lock, o.log)) && (await adapterInstalled(m, way.lock))) break
+    if (tries) throw new Error(`The ${known.name} adapter on ${m.local ? "this computer" : m.where} was taken away as it started (another app tidying its old installs). Start it again.`)
+  }
+  void tidyAdapters(m, way.lock, o.log)
+  return way.line
 }
 
 /** The known agents, each with whether it can run on that computer, for the connect screen. */
@@ -188,16 +258,27 @@ export async function localAgent(id: string, m: Machine = thisMachine(), prefs: 
 }
 
 async function describeAgent(a: Known, m: Machine, p: Probe, prefs: StartPrefs): Promise<LocalAgent> {
-  const command = await commandOf(a.id, m, prefs)
+  const way = await startOf(a.id, m, prefs)
+  const command = way?.line
   const signIn = command && a.login && (await a.signedIn?.(p)) === false ? { signIn: a.login } : {}
   const adapter = adapterOf(a.id, prefs)
+  const own = !!command && command[0] === adapter?.pin.bin
   const version = adapter && {
-    adapter: { version: adapter.version, tested: adapter.tested, latest: adapter.latest, own: !!command && command[0] === adapter.pin.bin, ...(adapter.env ? { env: adapter.env } : {}) },
+    adapter: {
+      version: adapter.version,
+      tested: adapter.tested,
+      latest: adapter.latest,
+      own,
+      ...(adapter.env ? { env: adapter.env } : {}),
+      // From the app's lockfile, unless the person's own install is what starts: and whether its
+      // first start installs it there.
+      ...(adapter.lock && !own ? { locked: true as const, ...(way?.lock && !(await adapterInstalled(m, way.lock)) ? { firstStart: true as const } : {}) } : {}),
+    },
   }
   return {
     id: a.id,
     name: a.name,
-    command: (command ?? commandsOf(a, prefs).at(-1)!).join(" "),
+    command: (command ?? waysOf(a, m, prefs).at(-1)!.line).join(" "),
     installed: !!command,
     ...version,
     ...(command ? signIn : { needs: a.install, install: a.installCommand }),

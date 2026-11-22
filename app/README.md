@@ -371,8 +371,8 @@ is a record): a pin moved on, or "Always the newest" turned on, applies to it at
 
 | Agent | Command |
 |---|---|
-| Claude Code | `claude-agent-acp` if installed, else `npx -y @agentclientprotocol/claude-agent-acp@<pin>` (needs `claude`, signed in) |
-| Codex | `codex-acp` if installed, else `npx -y @agentclientprotocol/codex-acp@<pin>` (needs `codex`, signed in) |
+| Claude Code | `claude-agent-acp` if installed, else `node ~/.bicycle42/adapters/<package>@<pin>-<lock hash>/…/dist/index.js`, installed there from the app's lockfile at its first start (needs `claude`, signed in, and node and npm) |
+| Codex | `codex-acp` if installed, else the same from its own lockfile (needs `codex`, signed in, and node and npm) |
 | Gemini CLI | `gemini --experimental-acp` |
 | OpenCode | `opencode acp` |
 
@@ -381,11 +381,85 @@ computer and on another one over ssh (the line is built here): each start runs w
 never what npm has newest that minute, with the reviewer's login, keys and repos. The Claude
 adapter bundles its own Claude Code (it pins `@anthropic-ai/claude-agent-sdk`), so a new model
 arrives with a new adapter. Gemini CLI and OpenCode are the person's own CLIs: nothing to pin.
-On the connect screen, an agent's "Command" shows the version it runs ("Adapter 0.109.1, tested")
-and an "Always the newest" switch, kept per agent in `settings.agentLatest`, which starts
-`<package>@latest` from its next start. An adapter installed on its own still wins over both
-(the row says "your own install"), and `B42_PIN_CLAUDE` / `B42_PIN_CODEX` win over everything
-(how the check below tries a version before it is pinned).
+
+So is everything under a pinned adapter. `npx -y <package>@<pin>` pinned only the adapter: npm
+resolved the rest of its tree afresh on each computer (Codex's asks for `@openai/codex ^0.171.0`,
+`zod ^4`, `open ^11`… as ranges) and ran every package's install script as the reviewer, here
+and on the computer the agent runs on. Now each pin has a lockfile beside it,
+`src/main/adapter-locks/<id>/` (a `package.json` asking for the adapter at its pin, and the
+`package-lock.json` npm made for it: every package of the tree with its address and sha512, the
+per-platform ones of macOS, Linux and Windows included), bundled into main. At the adapter's
+first start on a computer, `main/adapters.ts` writes those two files there through `Machine` (no
+change to the helper: the same calls on this computer and over ssh) into
+`~/.bicycle42/adapters/.installing-<folder>-<random>/` (`~/.bicycle42` and `adapters/` made the
+person's alone, 0700, here as the helper makes them there; here, one that is a link or another
+user's folder is refused, never installed into) and runs that computer's own
+`npm ci --ignore-scripts --no-audit --no-fund --include=optional --include=peer
+--legacy-peer-deps=false --install-strategy=hoisted` in it. npm refuses any package whose
+download is not the sha512 in the lockfile, and no package's script runs: Claude's and Codex's
+adapters, and the Claude Code and Codex programs they bring (one package per platform, about 440
+MB with it), need none. Once npm is done, the app checks what it installed against the lockfile:
+every package the lockfile names for that computer (its os, cpu and libc, as npm tells them) must
+be in npm's own record of the install (`node_modules/.package-lock.json`) at its version, or the
+install is refused ("npm said it was done, but left out a package its lockfile names for linux
+x64 (…)", an npmrc's `cpu=` or a failed optional download) and nothing is kept. A computer the
+lockfile has no build of the program for (Linux on riscv64 or 32-bit arm, FreeBSD, a Linux whose
+libc can't be told), where npm installs none and says it is done, is refused the same way ("its
+lockfile has no build of its program for linux riscv64 glibc…"); Claude's is 108
+packages of its lockfile's 115 on one computer, Codex's 25 of 30. Only then, with the adapter's
+program where the lockfile says, is the folder renamed to `<package>@<version>-<hash of both
+files>` (`@agentclientprotocol+codex-acp@2.9.0-…`), its hash written in it last (`.b42-installed`):
+a folder at that name with that hash is a whole install. Anything else at that name (half a copy,
+another lockfile's, a file) is moved aside to `.removing-…` and removed, and the install goes
+ahead; if the name still can't be had, a sentence says so. One that failed or was cut off is never
+used, and is taken away at a later install once it is an hour old. The agent is then `node <that
+folder>/node_modules/<package>/<its bin>`, no npx, and later starts use the folder as it is. A
+changed lockfile is another folder. npm's settings from a script it runs (`npm_config_*` of an
+app started with `npm start`) and `NPM_CONFIG_*` are left out of the install; the reviewer's own
+`~/.npmrc` (a mirror, a proxy) is read, with a mirror npm still checks every sha512, and what in
+it could leave packages out (`legacy-peer-deps`, `omit=peer`, which left Claude's adapter with 6
+packages of 108, said to be done) is overruled by the words above.
+
+The first start says "Installing the Codex adapter (first start)…" (on dev-box: "…adapter on
+dev-box…") under the agent's row on the connect screen, and in the panel's "Connecting" banner
+(`agentStep`). An install that fails says why in a sentence: npm not there ("npm was not found
+there (it comes with node)…"), offline ("npm could not reach its registry (registry.npmjs.org).
+Is dev-box offline?"), a download refused ("npm refused it, because what it downloaded (…)
+differs from what the app tested: its sha512 is not the one in the app's lockfile. Nothing of it
+was installed."), a full disk, or npm's own last words. npm runs under a watchdog of node's, in a
+process group of its own, which the watchdog ends with SIGKILL after 15 minutes (npm ignores
+SIGTERM while a download hangs, and macOS has no `timeout`); when the watchdog itself is ended
+(the app's own timeout, output too long); and when the app no longer says it waits: it writes the
+install's lease file (`.b42-lease`) every 10 s, and once the watchdog has not seen its time change
+for a minute, on its own monotonic clock (the app quit, or the link to dev-box dropped, where the
+helper runs on) it ends npm and removes the install's folder, also when nothing reads its output
+any more. Never by comparing the file's time with the clock: a computer that slept does not end a
+healthy install on waking, nor does a home folder on a server whose clock is off. A start whose
+install another app's tidying took away just then installs it again, once. A link that drops during an install is said as "The
+connection to dev-box ended while installing the Codex adapter; it will be tried again at the
+next start." A refused download is retried after seconds, not npm's minute, so a refusal is said
+in about 20 s. Two starts at once wait for one install.
+
+Each start marks the install it uses (`.b42-used`, its time that computer's clock's), and tidies
+the other installs of the same adapter there: one goes only once it has not been used for 14 days
+(one from before the mark counts from its install), whatever its version. So two builds of the app
+with the same version from other lockfiles, or two apps reaching one computer over ssh, each keep
+theirs while they are used, and neither takes the other's away for it to install again at its
+next start (each start taking away the other's, as tidying by version and install time did). One
+whose program runs now is kept too: any process whose command line names its folder (`ps -A -ww
+-o args=`; PowerShell's process list on Windows), such as an agent the helper keeps while the app
+is away, or another app's; it goes at a later start. When the processes can't be listed nothing
+is taken away. A folder is renamed to `.removing-…` before it is removed, so a start never finds
+half of one, and put back if a start marked it used meanwhile.
+
+On the connect screen, an agent's "Command" shows the version it runs ("Adapter 0.109.1, tested,
+every package locked", with "(installed at its first start)" until it is) and an "Always the
+newest" switch, kept per agent in `settings.agentLatest`, which starts `<package>@latest` from its
+next start. The newest has no lockfile: it goes through npx as before, and the row says so
+("through npx: untested, its packages not locked"). An adapter installed on its own still wins over
+both (the row says "your own install"), and `B42_PIN_CLAUDE` / `B42_PIN_CODEX` win over everything
+(how the check below tries a version before it is pinned): through npx too, said the same way. A
+pin with no lockfile of its version (moved by hand) also goes through npx.
 
 ### Updating the agents' adapters
 
@@ -398,11 +472,24 @@ npm run agents:check -- --test claude --model haiku   # the real check against t
 npm run agents:check -- --test claude --bump          # …and pin it, only if every check passed
 ```
 
-The first only asks npm. `--test` builds the tests and runs `test/acp.real.ts` with
-`B42_PIN_<ID>=<newest>`: it starts the agent with your login in a throwaway folder and spends your
-tokens on a few tiny prompts (it says so before it starts). `--bump` writes the new version, the
-date and the count into `agent-pins.json` only when all checks passed; commit that file. A pin
-can also be moved by hand (the date `tested` then goes, unless you ran the check).
+The first only asks npm, and says how each pin's lockfile stands. `--test` builds the tests and
+runs `test/acp.real.ts` with `B42_PIN_<ID>=<newest>`: it starts the agent with your login in a
+throwaway folder and spends your tokens on a few tiny prompts (it says so before it starts).
+`--bump` goes on only when all checks passed: it makes the lockfile (`npm install
+--package-lock-only --ignore-scripts --registry=https://registry.npmjs.org/` in a throwaway
+folder, whatever your npmrc says: only the packages' metadata is fetched, nothing installed, no
+script run), and refuses it when it can't be used (a package with no sha512, one not from
+`https://registry.npmjs.org/`, one that needs its install script, one of the four platforms
+macOS arm64 and x64, Linux x64 and arm64 missing). The check ran npx's tree, resolved then, and
+the app installs the lockfile's, resolved after: so `--bump` writes the lockfile into
+`src/main/adapter-locks/<id>/` and the new version, the date and the count into
+`agent-pins.json`, builds again, and runs the check once more from that lockfile as the app
+installs it (`B42_REAL_FROM_LOCK`: into `~/.bicycle42/adapters` with npm ci, never npx or your
+own install, and it must say it ran from that lockfile's folder). Only when that passes in full
+is the pin kept; otherwise both files are put back as they were. Commit both. `npm run
+agents:check -- --lock <id>` makes the lockfile of the version pinned now again (after moving a
+pin by hand), and says it is untested: `npm run agents:check -- --test <id> --from-lock` runs the
+real check from the lockfile as it is, installed as the app does, and writes nothing.
 
 - **One process for all of an agent's conversations.** Started on the first call, in its own
   process group, and started again with a growing pause (1 s to 30 s) when it dies; the app

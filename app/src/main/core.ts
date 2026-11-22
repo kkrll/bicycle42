@@ -27,7 +27,7 @@ import crypto from "node:crypto"
 import path from "node:path"
 import { notePrompt, noteWords, TEMPLATES } from "../../../overlay/prompt.js"
 import { createAcp, type Acp, type AcpOptions, type Transport } from "./acp"
-import { commandOf, customName, KNOWN_AGENTS, localAgent, localAgents, splitCommand, type StartPrefs } from "./agents"
+import { customName, KNOWN_AGENTS, localAgent, localAgents, prepareStart, splitCommand, type StartPrefs } from "./agents"
 import { commitPrompt, parseAsk, splitTold, startPrompt, takeBackPrompt, toldLine } from "./asks"
 import type {
   AgentInfo,
@@ -205,6 +205,8 @@ export function createCore(host: Host): Core {
   }
   /** The step a connection to another computer is at, while one is made. */
   let sshStep: { host: string; text: string } | undefined
+  /** The step a known agent being started is at, when it has one to say (its adapter installed). */
+  let agentStep: { agent: string; host?: string; text: string } | undefined
   /** Hosts an agent is being started on: their connection is not let go meanwhile. */
   const startingOn = new Set<string>()
   /** Lets go of another computer no agent in use is on: its connection and forwards end. */
@@ -524,6 +526,7 @@ export function createCore(host: Host): Core {
       ...(serverName() ? { serverName: serverName() } : {}),
       ...(store.settings().serversRetired ? { serversRetired: true as const } : {}),
       ...(sshStep ? { sshStep } : {}),
+      ...(agentStep ? { agentStep } : {}),
       ...(harness() ? { harness: harness() } : {}),
       home: machine.home,
       page: {
@@ -767,8 +770,17 @@ export function createCore(host: Host): Core {
     // On another computer: its connection first (made once, kept while one of its agents is in use).
     const m: Machine = where ? await remoteOf(where) : thisMachine()
     // A known agent is started as it is now, never by the line saved when it last was: a pin
-    // moved on, "Always the newest" turned on or off, an adapter installed meanwhile.
-    const line = known ? await commandOf(id, m, startPrefs()) : command?.length ? command : undefined
+    // moved on, "Always the newest" turned on or off, an adapter installed meanwhile. Its pinned
+    // adapter is installed there from the app's lockfile first, when it is not yet.
+    let line: string[] | undefined
+    if (known) {
+      const step = { agent: id, ...(where ? { host: where } : {}) }
+      try {
+        line = await prepareStart(id, m, startPrefs(), { log, onStep: (text) => ((agentStep = { ...step, text }), push()) })
+      } finally {
+        if (agentStep?.agent === id && agentStep.host === where) (agentStep = undefined), push()
+      }
+    } else line = command?.length ? command : undefined
     if (!line) throw new Error(known ? `${known.name} is not installed on ${m.where}. ${known.install}.` : "Type the command that starts the agent.")
     // A custom command is told apart by the command itself: two are two agents.
     const agent = known ? id : `custom-${crypto.createHash("sha1").update(line.join("\0")).digest("hex").slice(0, 8)}`

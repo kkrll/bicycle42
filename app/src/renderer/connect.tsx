@@ -171,6 +171,13 @@ function AgentRow(props: { agent: LocalAgent; using: boolean; busy: boolean; err
             {props.error}
           </span>
         </Show>
+        <Show when={props.busy && state.agentStep?.agent === a().id && state.agentStep.host === props.where ? state.agentStep.text : ""}>
+          {(text) => (
+            <span class="agent-row-step" aria-live="polite">
+              {text()}
+            </span>
+          )}
+        </Show>
         <Show when={how()}>
           <code class="agent-command">{a().command}</code>
           <AdapterVersion agent={a()} using={props.using} onLatest={setLatest} />
@@ -198,15 +205,18 @@ function AgentRow(props: { agent: LocalAgent; using: boolean; busy: boolean; err
 }
 
 /** Which version of its adapter from npm an agent runs, under its command: the app's pin ("0.109.1,
- *  tested"), the newest ("latest"), or the reviewer's own install, which wins over both. */
+ *  tested", installed from the app's lockfile), the newest ("latest", through npx), or the
+ *  reviewer's own install, which wins over both. */
 function AdapterVersion(props: { agent: LocalAgent; using: boolean; onLatest: (latest: boolean) => void }) {
   const v = () => props.agent.adapter
   const said = () => {
     const x = v()!
+    const npx = "through npx: untested, its packages not locked"
     if (x.own) return "Adapter: your own install, found on the PATH (it wins over the app's version)"
-    if (x.env) return `Adapter ${x.version}, set by ${x.env}`
-    if (x.latest) return "Adapter: latest"
-    return `Adapter ${x.version}${x.tested ? ", tested" : ""}`
+    if (x.env) return `Adapter ${x.version}, set by ${x.env}, ${npx}`
+    if (x.latest) return `Adapter: latest, ${npx}`
+    if (!x.locked) return `Adapter ${x.version}${x.tested ? ", tested" : ""}, through npx: its packages not locked`
+    return `Adapter ${x.version}${x.tested ? ", tested" : ""}, every package locked${x.firstStart ? " (installed at its first start)" : ""}`
   }
   return (
     <Show when={v()}>
