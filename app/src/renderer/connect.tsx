@@ -161,7 +161,7 @@ function AgentRow(props: { agent: LocalAgent; using: boolean; busy: boolean; err
               Not installed: <code>{a().install ?? a().needs}</code>
             </Match>
             <Match when={st() === "signin"}>
-              Needs you to sign in: run <code>{login()}</code> in a terminal
+              Sign in: <code>{login()}</code>
             </Match>
             <Match when={true}>{props.where ? `Ready on ${props.where}` : "Ready"}</Match>
           </Switch>
@@ -493,6 +493,7 @@ export function ConnectScreen() {
       <div class="connect-card">
         <SetupSteps at={1} />
         <h1>Connect an agent</h1>
+        <p class="connect-lead">Choose the coding agent that changes your site.</p>
         <ConnectForm autofocus onBusy={setFirstRunConnecting} />
       </div>
     </div>

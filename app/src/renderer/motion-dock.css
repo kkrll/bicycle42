@@ -964,7 +964,7 @@
    box, never the box itself.) */
 @container mdock (max-width: 719px) {
   .mdock-grid {
-    --lab: 104px;
+    --lab: 136px;
   }
 
   .mdock-grid {
