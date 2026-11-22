@@ -536,6 +536,8 @@ export function App() {
   const [resizing, setResizing] = createSignal(false)
   /** Which edge the resize is of: the dock's top (true), else the panel's side. */
   const [dockDragging, setDockDragging] = createSignal(false)
+  /** …or the left edge of the column at a phone's right. */
+  const [columnDragging, setColumnDragging] = createSignal(false)
   // The panel's size, for the panel to decide whether its notes list fits.
   const [panelSize, setPanelSize] = createSignal({ width: 0, height: 0 })
   let panelEl!: HTMLElement
@@ -586,6 +588,12 @@ export function App() {
     Math.max(DOCK_MIN, dockChosen() ?? (colHeight() > 0 ? Math.min(DOCK_DEFAULT, Math.round(Math.max((colHeight() - 16) * 0.5, colHeight() - 16 - PAGE_SHORT))) : DOCK_DEFAULT))
   // (With no page open the box holds the window's own words, at its whole width.)
   const phone = () => state.page.device === "phone" && state.page.url !== ""
+  // The column at a phone's right: until its edge is dragged, the room the phone's column leaves
+  // (styles.css); dragged, that width, in every mode, kept across launches. The stage's width and
+  // the column's as drawn, for its limits and for its edge to say.
+  const [columnChosen, setColumnWidth] = createSignal<number | undefined>(Number(recall("dock.width")) || undefined)
+  const [stageWidth, setStageWidth] = createSignal(0)
+  const [columnSeen, setColumnSeen] = createSignal(0)
   let urlEl: HTMLInputElement | undefined
   let composerEl: HTMLTextAreaElement | undefined
 
@@ -633,11 +641,17 @@ export function App() {
     // centred in: that room is observed too.
     const observer = new ResizeObserver(() => {
       setColHeight(stageEl.clientHeight)
+      setStageWidth(stageEl.clientWidth)
+      const column = stageEl.querySelector(":scope > .dock")
+      if (column) setColumnSeen(Math.round(column.getBoundingClientRect().width))
       setPageSize({ width: pageEl.clientWidth, height: pageEl.clientHeight })
       schedule()
     })
     observer.observe(pageEl)
     observer.observe(stageEl)
+    // (A phone's column: the column at its right, dragged, moves the phone and resizes neither
+    // the page nor the stage.)
+    observer.observe(stageEl.querySelector(":scope > .device-col")!)
     const resized = () => {
       setWinWidth(window.innerWidth)
       // The stage's new height now, not when the observer says it: the window's size event
@@ -757,6 +771,49 @@ export function App() {
     remember("dock.height", "")
   }
 
+  // ── the column at a phone's right: its width, dragged by its left edge ──
+  // At least COLUMN_MIN, at most what leaves the phone its column (the phone as it is drawn, its
+  // hairline and 8px of air at each side: `.stage.phone > .device-col`'s min-width) and the dock's
+  // own 8px at the window's edge. Wider than that the phone would be cut: it is drawn smaller
+  // only for the window's height (fit).
+  const columnMax = () => Math.max(COLUMN_MIN, stageWidth() - (pageBox().width + 18) - 8)
+  const clampColumn = (w: number) => Math.min(columnMax(), Math.max(COLUMN_MIN, Math.round(w)))
+  const columnWidth = () => {
+    const chosen = columnChosen()
+    return chosen === undefined ? undefined : clampColumn(chosen)
+  }
+  const columnNow = () => columnWidth() ?? columnSeen()
+  const columnShown = () => phone() && (!!dockShown() || asideShown())
+  let columnFrom: { x: number; width: number } | undefined
+  const columnDragStart = (e: PointerEvent) => {
+    if (e.button !== 0) return
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    columnFrom = { x: e.clientX, width: clampColumn(columnNow()) }
+  }
+  const columnDragMove = (e: PointerEvent) => {
+    if (!columnFrom) return
+    setResizing(true)
+    setColumnDragging(true)
+    // (The column is at the right: its edge is dragged left to widen it.)
+    setColumnWidth(clampColumn(columnFrom.width + columnFrom.x - e.clientX))
+  }
+  const columnDragEnd = () => {
+    if (!columnFrom) return
+    columnFrom = undefined
+    setResizing(false)
+    setColumnDragging(false)
+    remember("dock.width", String(columnWidth()))
+  }
+  const columnNudge = (by: number) => {
+    setColumnWidth(clampColumn(clampColumn(columnNow()) + by))
+    remember("dock.width", String(columnWidth()))
+  }
+  /** Back to the room that is left (a double click on its edge, as on the others). */
+  const columnReset = () => {
+    setColumnWidth(undefined)
+    remember("dock.width", "")
+  }
+
   // ── focus and shortcuts ──
   const focusUrl = () => {
     window.focus()
@@ -872,7 +929,7 @@ export function App() {
         <Show when={panelShown()}>
           <div
             class="resizer"
-            classList={{ active: resizing() && !dockDragging() }}
+            classList={{ active: resizing() && !dockDragging() && !columnDragging() }}
             role="separator"
             aria-orientation="vertical"
             aria-label="Resize the panel"
@@ -900,7 +957,12 @@ export function App() {
         {/* The page and, when the window draws the dock of the mode that is on, that dock: under
             the page. A phone's page has a column beside it in every mode (the dock, or the page's facts),
             so it stays where it is when the mode changes. */}
-        <div class="stage" ref={stageEl} classList={{ phone: phone() }} style={{ "--dock-height": `${dockHeight()}px` }}>
+        <div
+          class="stage"
+          ref={stageEl}
+          classList={{ phone: phone(), sized: columnWidth() !== undefined }}
+          style={{ "--dock-height": `${dockHeight()}px`, "--dock-width": columnWidth() === undefined ? undefined : `${columnWidth()}px` }}
+        >
         {/* A phone's page has a column of its own: in the middle of it, with air around, and
             which phone it is above it. (A desktop's page is the stage's own child: the wrapper
             makes no box then.) */}
@@ -992,6 +1054,34 @@ export function App() {
           </Show>
         </div>
         </div>
+        {/* The column at a phone's right, in every mode: its left edge, as the panel's right one. */}
+        <Show when={columnShown()}>
+          <div
+            class="resizer column-resizer"
+            classList={{ active: columnDragging() }}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize the column"
+            aria-valuemin={COLUMN_MIN}
+            aria-valuemax={columnMax()}
+            aria-valuenow={columnNow()}
+            tabindex="0"
+            onPointerDown={columnDragStart}
+            onPointerMove={columnDragMove}
+            onPointerUp={columnDragEnd}
+            onPointerCancel={columnDragEnd}
+            onLostPointerCapture={columnDragEnd}
+            onDblClick={columnReset}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft") columnNudge(16)
+              else if (e.key === "ArrowRight") columnNudge(-16)
+              else if (e.key === "Home") columnNudge(COLUMN_MIN - clampColumn(columnNow()))
+              else if (e.key === "End") columnNudge(columnMax() - clampColumn(columnNow()))
+              else return
+              e.preventDefault()
+            }}
+          />
+        </Show>
         <Show when={dockShown()} fallback={<Show when={asideShown()}><PhoneAside /></Show>}>
           {(dock) => (
             <>

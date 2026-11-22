@@ -697,8 +697,19 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   phone's (the emulation's `scale`, with the phone's own size as the page's): `100vh` is the
   phone's height in a short window too, and the picker says "· 94%". The column is as wide as
   the widest phone, so another phone or another scale moves nothing beside it; the column at
-  its right is 300 to 720px wide, and the panel cannot be dragged so wide that it gets less
-  (`maxWidth`, `--panel-max`).
+  its right is 300 to 720px wide until its edge is dragged, and the panel cannot be dragged so
+  wide that it gets less than 300 (`maxWidth`, `--panel-max`).
+- **The column at a phone's right is as wide as its left edge is dragged** (`.column-resizer`,
+  `columnChosen` in `renderer/app.tsx`; kept as `dock.width`, as the dock's height is
+  `dock.height`). The edge is the panel's, mirrored: its pill where the pointer is, arrows step
+  16 px (left wider), Home and End go to its limits, a double click gives the column the room
+  that is left again, and the page is away while it is dragged. At least 300 px, at most what
+  leaves the phone its own column (the phone as drawn, its hairline and 8 px of air at each side,
+  `.device-col`'s min-width): the phone is drawn smaller only for the window's height (`fit`),
+  so a wider column stops at the phone, and the phone stays whole in the middle of its column.
+  Chosen, the column keeps its width in every mode; a panel dragged wider, or a narrower window,
+  takes it down to 300 and gives it back. Set on the stage as `--dock-width`, which does not
+  inherit, as `--dock-height` does not.
 - **A phone's document is one from its first script on, as far as its width goes.** Emulation
   goes with the document before it, and main can only ask for it again once the new one has
   begun (`did-navigate`); a script of the page's that measures something before then has it laid
@@ -773,7 +784,18 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   kept, so no pane shows a page that is not there; loaded again, the overlay starts anew and its
   first views are whole ones. The dock's component goes into
   `DOCKS` in `renderer/dock.tsx`; the window puts it under the page (its top edge drags, as the
-  panel's side does) or, beside a phone's page, in the column at the page's right.
+  panel's side does) or, beside a phone's page, in the column at the page's right (its left edge
+  drags).
+- **A dock is a card, as the panel's sections are**, under the page and beside a phone's alike
+  (the facts pane, the inspector, Motion's dock): `--card`, the quieter rule, 10 px corners, and
+  8 px from the window's edge and from what is next to it (`.dock` in `styles.css`). What is in
+  it was tuned for paper and is tuned for the card: every control's hover is `--card-hover`
+  (`--hover-fill` on `.dock`), fields are paper set into the card as the message box is (their
+  edge shows on Motion's fields' hover; an inspector value turns paper on its row's hover), the
+  Element | Global track is a ring, and Motion's ruler is the card's colour; the popovers over
+  a dock (suggestions, keys, edits, Motion's sheets) are paper and keep the paper's hover. Each
+  fill is 1.16 to 1.22:1 on the card in either theme, where the paper's fills were 1.03 to 1.05
+  on it.
   What a view and an act carry is each pane's own file: `overlay/protocol-motion.ts`,
   `overlay/protocol-canvas.ts`, `overlay/protocol-facts.ts`.
 - **Motion's dock is the window's** (`renderer/motion-dock.tsx`, its own `motion-dock.css`):
@@ -841,7 +863,8 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   them as text and never as markup, and keeps nothing of the page's that the overlay does not
   also have (a reload of either side loses nothing). `dockPing` measures the way to the overlay
   and back.
-- Shots: `phone`, `phone-se`, `phone-wide`, `phone-clear`, `dock`, `phone-dock`,
+- Shots: `phone`, `phone-se`, `phone-wide`, `phone-clear`, `phone-column-wide`,
+  `phone-column-narrow` (the column at its most and its least), `dock`, `phone-dock`,
   `phone-dock-keys`, `phone-least-dock`, `phone-motion-dock`, `dock-more`, `dock-narrow`,
   `canvas-dock`, `canvas-dock-edits` (the footer's list of edits open), `canvas-dock-narrow` (the mock takes `&device=phone`,
   `&docks=motion,canvas`, `&mode=preview|edit|motion`, `&facts=clear`; it feeds motion's dock a
