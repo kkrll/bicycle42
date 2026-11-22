@@ -13,7 +13,7 @@
     "build": "node scripts/build.mjs",
     "check": "tsc --noEmit",
     "harness": "node scripts/serve.mjs",
-    "test": "node ../app/scripts/heavy-lock-run.mjs node --test --test-concurrency=4 test/*.test.mjs",
+    "test": "node ../app/scripts/heavy-lock-run.mjs node --test test/*.test.mjs",
     "bench": "node bench/bench.mjs"
   },
   "devDependencies": {
