@@ -35,7 +35,6 @@
 .mdock-fld,
 .mdock-unit,
 .mdock-p,
-.mdock-time,
 .mdock-chip.mono,
 .mdock-gname {
   font-family: var(--font-mono);
@@ -301,14 +300,29 @@
   margin-left: -8px;
 }
 
-.mdock .mdock-rate {
-  min-width: 32px;
+.mdock .mdock-rate,
+.mdock .mdock-solo {
   height: 28px;
-  font-family: var(--font-mono);
   text-decoration: none;
 }
 
-.mdock .icon-btn[aria-pressed="true"] {
+.mdock .mdock-rate {
+  min-width: 32px;
+  font-family: var(--font-mono);
+}
+
+/* (Words, so muted and not faded, as the window's disabled buttons are.) */
+.mdock .mdock-solo:disabled {
+  background: none;
+  color: var(--muted);
+}
+
+.mdock .mdock-reset {
+  margin-left: 4px;
+}
+
+.mdock .icon-btn[aria-pressed="true"],
+.mdock .text-btn[aria-pressed="true"] {
   color: var(--accent);
 }
 
@@ -329,15 +343,23 @@
   white-space: nowrap;
 }
 
-/* Not much room: the fields keep their values and lose their names. */
-@container mdock-main (max-width: 900px) {
-  .mdock-tf > span:first-child,
-  .mdock-timing .mdock-cv {
-    display: none;
+/* A field's name has a short form for a dock with hardly any room (see the narrow dock's). */
+.mdock-tn > span + span {
+  display: none;
+}
+
+/* Not room for all of it in one row: the timing fields take a row of their own under the rest,
+   with their names (a value alone, "900 ms", leaves one guessing which it is) and the easing
+   whole. */
+@container mdock-main (max-width: 1100px) {
+  .mdock-hd {
+    flex-wrap: wrap;
+    row-gap: 6px;
   }
 
-  .mdock-hd {
-    gap: 10px;
+  .mdock-timing {
+    order: 1;
+    flex: 1 0 100%;
   }
 }
 
@@ -450,12 +472,6 @@
 
 .mdock .mdock-play {
   color: var(--foreground);
-}
-
-.mdock-time {
-  min-width: 40px;
-  line-height: 28px;
-  font-variant-numeric: tabular-nums;
 }
 
 .mdock-tick {
@@ -984,12 +1000,16 @@
     margin-left: 0;
   }
 
-  /* the second row: the timing fields, then undo and put back */
+  /* the second row: the timing fields, then undo and Reset */
   .mdock-timing {
     order: 1;
-    flex: 1 0 calc(100% - 68px);
+    flex: 1 0 calc(100% - 112px);
     flex-wrap: wrap;
     gap: 6px 10px;
+  }
+
+  .mdock-timing .mdock-cv {
+    display: none;
   }
 
   /* An easing is long (a cubic-bezier with its four numbers): where it does not fit whole beside
@@ -1029,6 +1049,17 @@
 
   .mdock-lane .mdock-lab {
     padding-left: 24px;
+  }
+}
+
+/* Hardly any room: "Duration" says itself as "Dur.", so its row still has Delay beside it. */
+@container mdock (max-width: 459px) {
+  .mdock-tn > span:first-child:not(:last-child) {
+    display: none;
+  }
+
+  .mdock-tn > span + span {
+    display: inline;
   }
 }
 

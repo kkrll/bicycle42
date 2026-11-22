@@ -933,7 +933,17 @@ export function CanvasDock() {
   }
   onMount(() => document.addEventListener("pointerdown", outside, true))
   onCleanup(() => document.removeEventListener("pointerdown", outside, true))
-  const KEYS = editKeys(mac())
+  // The two boxes' words, which their headings no longer say, said with the keys: before the
+  // computed values' own keys.
+  const KEYS = (() => {
+    const all = editKeys(mac()), at = all.findIndex(([k]) => k.includes("computed value"))
+    const boxes: Array<[string, string]> = [
+      ["Element styles", "this element only · & nests a rule: &:hover { … }"],
+      ["a computed value", "edit it to override: it goes into Element styles"],
+    ]
+    all.splice(at < 0 ? all.length : at, 0, ...boxes)
+    return all
+  })()
 
   return (
     <div
@@ -1082,7 +1092,7 @@ export function CanvasDock() {
                 onBlur={() => leaveField("classes")}
               />
               <label class="cd-sec" for="cd-css">
-                Element styles <i>only this element · & nests</i>
+                Element styles
               </label>
               <CssBox
                 id="cd-css"
@@ -1098,7 +1108,7 @@ export function CanvasDock() {
             </div>
             <div class="cd-col cd-comp thin-scroll">
               <div class="cd-sec">
-                Computed <i>edit a value to add it to Element styles</i>
+                Computed <i>edit to override</i>
               </div>
               <Index each={view()?.computed ?? []}>
                 {(row) => (

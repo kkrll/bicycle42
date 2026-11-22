@@ -748,7 +748,13 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   layout asks its own box (container queries, which style what is in the box, never the box):
   wide, the list beside what is open; narrower than 720, one or the other with a way back and
   narrower lane names; narrow and at least 600 tall (beside a phone's page), the list above
-  what is open. A list that is not the whole page's (the overlay looked at a part of a very
+  what is open. The timing fields keep their names at every width ("900 ms" alone leaves one
+  guessing which it is): where the header has no room for them in one row (under 1100 px) they
+  take a row of their own, and under 460 Duration is "Dur.". The header's controls are words
+  where a picture would need its title: "Only this" (show only this element), and "Reset" (put
+  back as the page has it, or remove a new animation), named as the inspector's footer names it;
+  undo stays an icon, as everywhere in the window. The playhead's flag is its time ("0.38s"),
+  with no second number beside Play. A list that is not the whole page's (the overlay looked at a part of a very
   large page: `partial`) says so in a line under it. A field that comes with a view (a new animation's name, a new lane's or
   keyframe's value) gets the caret once the view has drawn it. Typing, a keyframe dragged and the
   playhead scrubbed are drawn from the hand until the view agrees (an act's view comes back on
@@ -769,6 +775,9 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   handles) sizes the tree: its height above the styles, its width beside them; arrows step 16
   px, Home and End go to the limits, a double click gives it its share again; kept
   (`canvas.tree.h`, `canvas.tree.w`). The tree scrolls up and down only: a long row ends in "…".
+  The headings say no more than "Element styles" and "Computed · edit to override": what the
+  boxes are (this element only, `&` nests; a computed value edited goes into Element styles) is
+  in the "?" list, put there by the window ahead of the overlay's keys.
 - **The bar is the inspector's footer.** The page has no bar over it in Edit: the footer has how
   many edits ("No edits", "3 edits"), undo, redo, Reset, the note ("Add a note…"; Enter sends,
   alt+Enter to the background, mod+Enter from the inspector's fields), Send and, in the note's
