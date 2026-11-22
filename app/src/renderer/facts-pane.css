@@ -29,7 +29,8 @@
   gap: 8px;
   height: 36px;
   padding: 0 4px 0 12px;
-  border-bottom: 1px solid var(--rule);
+  /* (Its rule a shadow, not a border: what is in it is centred in 36px, on whole pixels.) */
+  box-shadow: inset 0 -1px 0 var(--rule);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
   white-space: nowrap;
@@ -93,6 +94,11 @@
   color: var(--foreground);
 }
 
+/* (The ring inside the count: the line cuts what is outside it.) */
+.pl-count:focus-visible {
+  outline-offset: -2px;
+}
+
 /* A count's long words, its short ones ("5 taps") or its number alone: the longest that fits,
    before anything is cut. Widths of the line, the toggle's included. */
 .pl-short,
@@ -121,8 +127,8 @@
 }
 
 /* Marks: the app's switch (.toggle in styles.css), as tall as the counts. Its words end 12px in
-   from the right edge. */
-.pl-marks {
+   from the right edge. (Named with the line: the switch's own rule comes later and would win.) */
+.pl .pl-marks {
   flex: none;
   height: 24px;
 }

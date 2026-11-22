@@ -52,11 +52,12 @@
   gap: 10px;
   height: 36px;
   padding: 0 6px 0 12px;
-  border-bottom: 1px solid var(--rule);
+  /* (Its rule a shadow, not a border: what is in it is centred in 36px, on whole pixels.) */
+  box-shadow: inset 0 -1px 0 var(--rule);
 }
 
 .cd.shut .cd-head {
-  border-bottom: 0;
+  box-shadow: none;
 }
 
 .cd-title {
@@ -143,8 +144,67 @@
   font-size: var(--text-control);
 }
 
+/* (The window's ring, inside: the inspector's box cuts what is outside it.) */
 .cd-tree:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--accent);
+  outline-offset: -2px;
+}
+
+/* The tree and the computed values are cut where they scroll: the end with more beyond it fades
+   over 24px (by how far each is scrolled: none at its top or its foot, none in one that fits).
+   The second, solid layer keeps the 8px scrollbar whole. With the keyboard in the tree its ring
+   frames it, whole. */
+@property --cd-fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --cd-fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes cd-fade-top {
+  to {
+    --cd-fade-top: 24px;
+  }
+}
+
+@keyframes cd-fade-bottom {
+  from {
+    --cd-fade-bottom: 24px;
+  }
+
+  to {
+    --cd-fade-bottom: 0px;
+  }
+}
+
+.cd-tree,
+.cd-comp {
+  /* (Only the colours' alpha counts in a mask.) */
+  --cd-fade: linear-gradient(to bottom, transparent, var(--foreground) var(--cd-fade-top), var(--foreground) calc(100% - var(--cd-fade-bottom)), transparent);
+  --cd-solid: linear-gradient(var(--foreground), var(--foreground));
+  mask-image: var(--cd-fade), var(--cd-solid);
+  mask-size:
+    calc(100% - 8px) 100%,
+    8px 100%;
+  mask-position:
+    0 0,
+    100% 0;
+  mask-repeat: no-repeat;
+  animation:
+    cd-fade-top linear both,
+    cd-fade-bottom linear both;
+  animation-timeline: scroll(self), scroll(self);
+  animation-range:
+    0 24px,
+    calc(100% - 24px) 100%;
+}
+
+.cd-tree:focus-visible {
+  mask-image: none;
 }
 
 .cd-tspace {
@@ -355,11 +415,15 @@
   user-select: text;
 }
 
+/* The window's one focus for a text field (its border and 1px around it in the accent; these
+   have no border, so it is an inset shadow and nothing under the text moves). */
 .cd-cls:focus,
 .cd-css:focus,
 .cd-cval:focus {
   outline: none;
-  box-shadow: 0 0 0 2px var(--accent);
+  box-shadow:
+    inset 0 0 0 1px var(--accent),
+    0 0 0 1px var(--accent);
 }
 
 .cd-cls:disabled,
@@ -650,6 +714,16 @@
     flex: 0 0 clamp(66px, var(--cd-tree-h, 38%), calc(100% - 120px));
     border-right: 0;
     border-bottom: 1px solid var(--rule);
+    /* (Its rule under it, whole: a third layer of the fade's mask.) */
+    mask-image: var(--cd-fade), var(--cd-solid), var(--cd-solid);
+    mask-size:
+      calc(100% - 8px) 100%,
+      8px 100%,
+      100% 1px;
+    mask-position:
+      0 0,
+      100% 0,
+      0 100%;
   }
 
   .cd-grip {
@@ -696,13 +770,16 @@
   gap: 8px;
   min-height: 52px;
   padding: 8px 8px 8px 12px;
-  border-top: 1px solid var(--rule);
+  /* (A shadow, not a border: what is in it is on whole pixels.) */
+  box-shadow: inset 0 1px 0 var(--rule);
   color: var(--muted);
   white-space: nowrap;
 }
 
-/* How many edits: a button that opens the list of them, the chevron after the words. */
-.cd .cd-count {
+/* How many edits: a button that opens the list of them, the chevron after the words. Its words
+   on the 12px line the title's are on, in the foreground's ink. (Named as the window's labelled
+   button is, which comes later and would win.) */
+.cd .icon-btn.labelled.cd-count {
   grid-area: count;
   justify-self: start;
   min-width: 52px;
@@ -712,7 +789,7 @@
   color: var(--foreground);
 }
 
-.cd .cd-count:disabled {
+.cd .icon-btn.labelled.cd-count:disabled {
   opacity: 1;
   color: var(--muted);
 }

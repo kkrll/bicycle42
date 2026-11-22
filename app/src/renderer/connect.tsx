@@ -9,6 +9,7 @@ import { CopyButton } from "./copy"
 import { AgentMark, Icon } from "./icons"
 import { soundOn, toggleSound } from "./sound"
 import { act, host, message, b42, setNotice, state } from "./store"
+import "./connect.css"
 
 /** True from pressing Connect on the first-run screen until main answers: the window keeps
  *  showing that screen meanwhile, whatever the connection state says. Only that screen's form

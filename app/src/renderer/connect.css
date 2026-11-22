@@ -1,0 +1,14 @@
+/* The connect screen's own rules (an agent's row); the rest of its look is in styles.css. This
+   sheet comes before styles.css and chat.css, so each rule names its row's parts to win. */
+
+/* Pressed, a row's actions keep their place and width. "Command" takes the room "Hide command"
+   needs (96px); Copy is Start's size (28px high, 12px in) with the room "Copied" needs (88px). */
+.agent-acts > .text-btn.agent-how {
+  min-width: 96px;
+}
+
+.agent-acts > .btn.copy-btn {
+  min-width: 88px;
+  height: 28px;
+  padding: 0 12px;
+}
