@@ -56,7 +56,7 @@ const leastPanel = `document.querySelector(".resizer").dispatchEvent(new Keyboar
 /** Makes the mock send its state again after `window.__mock.state` was changed by hand. */
 const resend = [click("[data-action=draw]"), click("[data-action=draw]")]
 /** What the place row shows, and whether any part of it is cut or runs past the row. */
-const PLACE = `(() => { const p = document.querySelector(".place"), r = p.getBoundingClientRect(); const out = [...p.querySelectorAll(".place-agent, .place-folder, .place-settings")].filter((e) => e.getBoundingClientRect().right > r.right + 0.5).map((e) => e.className); return Math.round(r.width) + " wide: " + [...p.querySelectorAll(".place-agent-name, .place-word, .place-folder-name")].map((e) => e.textContent).join(" | ") + "; past the row: " + (out.join(" ") || "nothing") })()`
+const PLACE = `(() => { const p = document.querySelector(".place"), r = p.getBoundingClientRect(); const out = [...p.querySelectorAll(".place-agent, .place-folder, .place-settings")].filter((e) => e.getBoundingClientRect().right > r.right + 0.5).map((e) => e.className); return Math.round(r.width) + " wide: " + [...p.querySelectorAll(".place-agent-name, .place-host, .place-word, .place-folder-name")].filter((e) => e.getClientRects().length).map((e) => e.textContent).join(" | ") + "; past the row: " + (out.join(" ") || "nothing") })()`
 
 const SHOTS = [
   { name: "connect", mock: "connect" },
@@ -190,7 +190,9 @@ const SHOTS = [
   // by itself: the shorter line, and what it was on paused.
   { name: "offline-plain", mock: "offline", run: [`delete window.__mock.state.connection.away; window.__mock.state.connection.retry = true; 0`, ...resend], report: `document.querySelector(".banner p").textContent` },
   // …and one that keeps stopping at start, which nothing starts again: the error, and what to do.
-  { name: "offline-stuck", mock: "offline", run: [`Object.assign(window.__mock.state.connection, { away: undefined, error: "Claude Code keeps stopping at start: it exited with code 1 (Invalid API key · Please run /login)." }); 0`, ...resend], report: `document.querySelector(".banner p").textContent` },
+  { name: "offline-stuck", mock: "offline", run: [`Object.assign(window.__mock.state.connection, { away: undefined, error: "Claude Code keeps stopping at start: it exited with code 1 (Error: Cannot find module 'node:sqlite')." }); 0`, ...resend], report: `document.querySelector(".banner p").textContent` },
+  // …and one that stops at start for want of a sign-in: that, and its sign-in command to copy.
+  { name: "offline-signin", mock: "offline", query: "&agent=claude", run: [`Object.assign(window.__mock.state.connection, { away: undefined, error: "Claude Code keeps stopping at start: it exited with code 1 (Invalid API key · Please run /login).", signIn: { command: "claude" } }); 0`, ...resend], report: `document.querySelector(".banner p").textContent` },
   // The turn under way in the narrowest panel: its note's words give way before the time and counts.
   { name: "offline-narrow", mock: "offline", run: [leastPanel], wait: 300 },
   { name: "pageerror", mock: "pageerror" },

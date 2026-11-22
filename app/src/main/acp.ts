@@ -93,6 +93,9 @@ export type AcpOptions = {
   id: string
   /** What the person calls it: "Claude Code". */
   name: string
+  /** How it is signed in to, in a terminal on its computer ("codex login"): said with an error
+   *  that is a sign-in's, so the window can say what to do (a known agent's). */
+  signIn?: string
   /** The program and its arguments. */
   command: string[]
   /** The folder the ledger is kept in. Without one it is kept in memory only. */
@@ -562,9 +565,9 @@ export function createAcp(opts: AcpOptions): Acp {
     if (crashes >= timing.crashes) {
       log("warn", `${why}. It stopped ${crashes} times in a row just after it started, so it is not started again by itself.`)
       // No `retry`: the window says so, with the reason and its Retry.
-      return emit({ type: "connection", state: { status: "offline", url: url(), error: `${name} keeps stopping at start: ${why.replace(`${name} stopped: `, "")}.` } })
+      return emit({ type: "connection", state: { status: "offline", url: url(), error: `${name} keeps stopping at start: ${why.replace(`${name} stopped: `, "")}.`, ...signedOut(why) } })
     }
-    emit({ type: "connection", state: { status: "offline", url: url(), error: why, ...(listener ? { retry: true as const } : {}) } })
+    emit({ type: "connection", state: { status: "offline", url: url(), error: why, ...(listener ? { retry: true as const } : {}), ...signedOut(why) } })
     if (listener) restartLater()
   }
 
@@ -586,13 +589,16 @@ export function createAcp(opts: AcpOptions): Acp {
         // What was on screen was read from the process that ended.
         emit({ type: "resync" })
       } catch (err) {
-        emit({ type: "connection", state: { status: "offline", url: url(), error: err instanceof Error ? err.message : said(err), retry: true } })
+        emit({ type: "connection", state: { status: "offline", url: url(), error: err instanceof Error ? err.message : said(err), retry: true, ...signedOut(err) } })
         restartLater()
       }
     }, wait)
   }
 
   const url = () => `acp://${opts.id}`
+  /** The offline state's `signIn` when what stopped the agent is a sign-in it wants: in a field,
+   *  so the window need not read the agent's own words ("Please run /login"). */
+  const signedOut = (err: unknown) => (needsSignIn(err) ? { signIn: opts.signIn ? { command: opts.signIn } : {} } : {})
   const version = () => str(rec(proc?.init.agentInfo).version) ?? "?"
   const sessionCaps = () => rec(caps.sessionCapabilities)
   const has = (cap: string) => sessionCaps()[cap] !== undefined && sessionCaps()[cap] !== null
@@ -1761,7 +1767,7 @@ export function createAcp(opts: AcpOptions): Acp {
       void ensure().then(
         () => emit({ type: "connection", state: { status: "online", url: url(), version: version() } }),
         (err) => {
-          emit({ type: "connection", state: { status: "offline", url: url(), error: err instanceof Error ? err.message : said(err), retry: true } })
+          emit({ type: "connection", state: { status: "offline", url: url(), error: err instanceof Error ? err.message : said(err), retry: true, ...signedOut(err) } })
           restartLater()
         },
       )

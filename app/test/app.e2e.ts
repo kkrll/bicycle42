@@ -1737,6 +1737,22 @@ async function main() {
     await until(() => state().page.device === "desktop")
   }
 
+  // ── busy and offline: the box keeps Send while paused, Stop while the agent works elsewhere ─
+  // A real death clears busy, so the window is handed that state as main would send it: the box
+  // must not offer a Stop with nothing to stop (round 3's `!(offline() && !awayHost())`).
+  {
+    const button = () => ui(`(() => { const s = document.querySelector(".composer .icon-btn.send"), t = document.querySelector(".composer .stop-btn"); return s ? "send" + (s.disabled ? " (disabled)" : "") : t ? "stop" + (t.disabled ? " (disabled)" : "") : "none" })()`) as Promise<string>
+    const pose = (connection: Record<string, unknown>) => win.webContents.send("b42:state", { ...state(), connection: { status: "offline", url: "acp://fake", error: "it exited", ...connection }, session: { ...state().session!, busy: true } })
+    await ui(`(() => { const f = document.querySelector(".composer textarea"); f.value = ""; f.dispatchEvent(new Event("input", { bubbles: true })) })()`)
+    pose({ retry: true })
+    const paused = await until(async () => ((await button()).startsWith("send") ? button() : ""), 3000)
+    pose({ away: true })
+    const away = await until(async () => ((await button()) === "stop" ? "stop" : ""), 3000)
+    win.webContents.send("b42:state", state())
+    check("busy and paused (offline, not away), the box offers Send, not a Stop with nothing to stop; away, it offers Stop", /^send/.test(paused || "") && away === "stop", `${paused || await button()} / ${away || await button()}`)
+    await until(async () => (await button()).startsWith("send"), 3000)
+  }
+
   // ── the agent stops: the banner says whether the app tries again by itself ─────────────────
   {
     const banner = () => ui(`document.querySelector(".banner.bad")?.textContent.replace(/\\s+/g, " ").trim() ?? ""`) as Promise<string>
@@ -1759,6 +1775,22 @@ async function main() {
     Object.assign(hook.acpTiming, { retryMin: 1_000, healthy: 60_000, crashes: 5 })
     await ui(`[...document.querySelectorAll(".banner.bad .btn")].find((b) => b.textContent.trim() === "Retry").click()`)
     check("…and Retry starts it again, in the same conversation", (await until(() => state().connection.status === "online" && state().session?.id === SES, 8000)) === true, JSON.stringify(state().connection))
+    // Stopped for want of a sign-in: the banner says that, and how, never the agent's own "/login",
+    // which reads as a command to type in the box below.
+    Object.assign(hook.acpTiming, { retryMin: 300, healthy: 600_000, crashes: 2 })
+    agent.fa.dieAfterInit = "it exited with code 1 (Invalid API key · Please run /login)"
+    agent.fa.exit()
+    const signIn = await until(async () => (state().connection.status === "offline" && !(state().connection as { retry?: true }).retry ? banner() : ""), 6000)
+    const tip = (await ui(`document.querySelector(".banner.bad p")?.title ?? ""`)) as string
+    check(
+      "…one that stops for want of a sign-in: the banner says it isn't signed in and what to do, the agent's words in its title",
+      /^fake-agent isn't signed in\. Sign in to it in a terminal, then Retry\. ?Retry/.test(signIn) && !/\/login/.test(signIn) && /Invalid API key/.test(tip),
+      `${signIn} | ${tip}`,
+    )
+    agent.fa.dieAfterInit = false
+    Object.assign(hook.acpTiming, { retryMin: 1_000, healthy: 60_000, crashes: 5 })
+    await ui(`[...document.querySelectorAll(".banner.bad .btn")].find((b) => b.textContent.trim() === "Retry").click()`)
+    check("…and Retry once signed in starts it again", (await until(() => state().connection.status === "online" && state().session?.id === SES, 8000)) === true, JSON.stringify(state().connection))
   }
 
   // ── what is on disk ────────────────────────────────────────────────────────────────────────

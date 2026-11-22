@@ -4,6 +4,7 @@
 import { For, Match, Show, Switch, createEffect, createMemo, createResource, createSelector, createSignal, on, onCleanup } from "solid-js"
 import { AWAY_HOURS, type NoteRow } from "../shared/types"
 import { Chat } from "./chat"
+import { CopyButton } from "./copy"
 import { AgentSwitch, MiddlePath, harnessNow, homePath, ownHome, whereOf } from "./agents"
 import { SetupSteps, serverLabel, setSettingsAt } from "./connect"
 import { AgentMark, Icon } from "./icons"
@@ -661,22 +662,42 @@ function ConnectionBanner(props: { openSettings: () => void }) {
             <Icon name="alert" />
             <div class="banner-body">
               {/* Short while the app tries again by itself: what it means for the reviewer, the
-                  error and how long the agent keeps working in the tooltip. When nothing will try
+                  error and how long the agent keeps working in the tooltip. An agent that wants a
+                  sign-in: that, and its command to copy (its own words, "Please run /login", read
+                  as something to type in the box below: in the tooltip). When nothing will try
                   again, the error itself, and what to do. */}
-              <Show
-                when={c().away && harnessNow()}
-                fallback={
-                  <Show when={c().retry || c().away} fallback={<p>{sentence(c().error)} Fix it, then Retry.</p>}>
-                    <p title={c().error}>Can't reach {serverLabel(c().url)}. Notes wait until it is back.</p>
-                  </Show>
-                }
-              >
-                {(a) => (
-                  <p title={`${c().error} ${a().name} keeps working on ${a().host ?? "it"} for up to ${AWAY_HOURS} hours.`}>
-                    Can't reach {a().host ?? serverLabel(c().url)}. The agent keeps working there; notes wait, and the app reconnects by itself.
-                  </p>
-                )}
-              </Show>
+              <Switch fallback={<p>{sentence(c().error)} Fix it, then Retry.</p>}>
+                <Match when={c().away && harnessNow()}>
+                  {(a) => (
+                    <p title={`${c().error} ${a().name} keeps working on ${a().host ?? "it"} for up to ${AWAY_HOURS} hours.`}>
+                      Can't reach {a().host ?? serverLabel(c().url)}. The agent keeps working there; notes wait, and the app reconnects by itself.
+                    </p>
+                  )}
+                </Match>
+                <Match when={c().signIn}>
+                  {(signIn) => (
+                    <p title={c().error}>
+                      {harnessNow()?.name ?? serverLabel(c().url)} isn't signed in.{" "}
+                      <Show when={signIn().command} fallback="Sign in to it in a terminal, then Retry.">
+                        {(command) => (
+                          <>
+                            Sign in{harnessNow()?.host ? ` on ${harnessNow()!.host}` : ""}:{" "}
+                            {/* The comma with them, so a line never starts with it. */}
+                            <span class="banner-command">
+                              <code>{command()}</code>
+                              <CopyButton text={command} label="Copy the sign-in command" />,
+                            </span>{" "}
+                            then Retry.
+                          </>
+                        )}
+                      </Show>
+                    </p>
+                  )}
+                </Match>
+                <Match when={c().retry || c().away}>
+                  <p title={c().error}>Can't reach {serverLabel(c().url)}. Notes wait until it is back.</p>
+                </Match>
+              </Switch>
               <div class="banner-actions">
                 {/* The window never holds the password: main tries again with the one it saved. */}
                 <button class="btn" onClick={() => act("reconnect")}>
@@ -796,7 +817,7 @@ function Place(props: { openSettings: () => void }) {
         )}
       </Show>
       <button class="icon-btn small place-settings" data-action="settings" data-status={status()} aria-label="Settings" title="Settings" onClick={props.openSettings}>
-        <Icon name="mode" />
+        <Icon name="gear" />
       </button>
       <Show when={switching()}>
         <AgentSwitch

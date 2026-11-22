@@ -42,8 +42,9 @@ export type FakeAgent = {
   onLoad?: (session: string) => Promise<void>
   /** A turn goes on after session/cancel, as an agent that ignores it does. */
   ignoreCancel: boolean
-  /** Each "process" ends a moment after it answered `initialize`: a crash at start. */
-  dieAfterInit: boolean
+  /** Each "process" ends a moment after it answered `initialize`: a crash at start. A string is
+   *  the reason it ends with ("it exited with code 1 (Invalid API key)"). */
+  dieAfterInit: boolean | string
   /** The "process" is seen to exit while its pipes still carry what it wrote (the exit event
    *  comes before its output closes). */
   holdStreams: boolean
@@ -135,7 +136,7 @@ export function fakeAgent(opts: { file?: string } = {}): FakeAgent {
       const app = agent({ name: "fake" })
         .onRequest("initialize", ({ params }) => {
           record("initialize")(params)
-          if (fake.dieAfterInit) setTimeout(() => exit("it exited with code 1"), 5)
+          if (fake.dieAfterInit) setTimeout(() => exit(typeof fake.dieAfterInit === "string" ? fake.dieAfterInit : "it exited with code 1"), 5)
           return { protocolVersion: 1, agentCapabilities: fake.capabilities as never, agentInfo: { name: "fake", version: "9.9" }, authMethods: fake.authMethods as never, _meta: { steering: { supported: true } } }
         })
         .onRequest("session/new", ({ params, client }) => {
