@@ -463,6 +463,11 @@
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
+/* "Show the change" after its chevron on --edge-b, as the panel's other words after a mark. */
+.ask .more-btn > .caret {
+  margin-right: calc(var(--icon-lead) - 4px);
+}
+
 .ask .more-btn .counts {
   margin-left: 4px;
 }
@@ -495,44 +500,48 @@
 
 /* ── the "Latest" button ──────────────────────────────────────────────────────────────────── */
 
-/* It sits on the transcript's bottom edge, and while it shows the last 40px of the transcript
-   fade out under it: it never lies on top of words or pictures. */
+/* It sits on the transcript's bottom edge, and while it shows the transcript's foot fades out
+   under it (below): it never lies on top of words or pictures. */
 .jump {
   bottom: 6px;
   z-index: 1;
   height: 26px;
 }
 
-/* Once something has scrolled under the conversation bar, the top edge fades over 28px, so a
-   line cut by the edge disappears instead of showing as a sliver. */
-/* Painted as gradients of the card's colour (the conversation is on one) lying over the edges, not as a mask on the scrolling
-   transcript: a mask makes the whole transcript repaint through it on every scrolled or streamed
-   frame, and a gradient on top costs nothing. */
-.transcript-wrap::before,
-.transcript-wrap::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 8px; /* the scrollbar stays clear */
-  pointer-events: none;
-  opacity: 0;
+/* The transcript's edges feather. Once something has scrolled under the conversation's header,
+   its top 24px fade out, so a line cut by the edge goes instead of showing as a sliver; while the
+   reader is up in the conversation (Latest shows), its last 64px fade under that button. At the
+   very top and at the end, no mask at all.
+   A mask on the scroller, not a gradient of the card's colour laid over it: it fades to whatever
+   is behind in either theme, and nothing paints over a selection or a picture. (The gradient that
+   was here lay under the messages: each is a paint container, painted after it.) The second,
+   solid layer keeps the 8px scrollbar whole. */
+.transcript {
+  --fade-top: 0px;
+  --fade-bottom: 0px;
 }
 
-.transcript-wrap::before {
-  top: 0;
-  height: 28px;
-  background: linear-gradient(to bottom, var(--card) 4px, transparent);
+.transcript.scrolled {
+  --fade-top: 24px;
 }
 
-.transcript-wrap::after {
-  bottom: 0;
-  height: 64px;
-  background: linear-gradient(to top, var(--card) 26px, transparent);
+.transcript-wrap.away > .transcript {
+  --fade-bottom: 64px;
 }
 
-.transcript-wrap:has(> .transcript.scrolled)::before,
-.transcript-wrap.away::after {
-  opacity: 1;
+.transcript.scrolled,
+.transcript-wrap.away > .transcript {
+  /* (Only the colours' alpha counts in a mask.) */
+  mask-image:
+    linear-gradient(to bottom, transparent, var(--foreground) var(--fade-top), var(--foreground) calc(100% - var(--fade-bottom)), transparent),
+    linear-gradient(var(--foreground), var(--foreground));
+  mask-size:
+    calc(100% - 8px) 100%,
+    8px 100%;
+  mask-position:
+    0 0,
+    100% 0;
+  mask-repeat: no-repeat;
 }
 
 /* ── a long conversation ──────────────────────────────────────────────────────────────────── */
@@ -1176,7 +1185,7 @@
   align-items: center;
   gap: 6px;
   height: 28px;
-  padding: 0 8px 0 4px;
+  padding: 0 8px 0 calc(var(--edge-a) - 4px);
   margin-right: auto;
   border-radius: var(--radius);
   font-size: var(--text-control);
@@ -1185,6 +1194,11 @@
 
 .note-back:hover {
   background: var(--surface);
+}
+
+/* The arrow on --edge-a, "Notes" on --edge-b, as in the notes' own header. */
+.note-back > .icon {
+  margin-right: calc(var(--icon-lead) - 6px);
 }
 
 .note-at {
@@ -1209,7 +1223,8 @@
 .note-said {
   display: flex;
   align-items: center;
-  gap: 10px;
+  /* Its state on --edge-b, as a note's words in the list. */
+  gap: calc(var(--edge-b) - var(--edge-a) - var(--lead));
 }
 
 /* The conversation the note is in, when it is not the open one: at the end of its status line. */
@@ -1284,6 +1299,10 @@
 .note-diff-btn {
   align-self: flex-start;
   gap: 6px;
+}
+
+.note-diff-btn > .icon:first-child {
+  margin-right: calc(var(--icon-lead) - 6px);
 }
 
 .note-acts {

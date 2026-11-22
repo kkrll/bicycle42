@@ -421,12 +421,45 @@ async function main() {
   await hover(".url")
   await sleep(100)
   check("…and it goes when the pointer leaves", (await until(async () => (await hintText()) === "", 600)) === true, await hintText())
+  // Every control in the top bar keeps its place and width whatever is chosen or pressed.
+  const barLayout = () => ui(`[...document.querySelectorAll(".topbar button")].filter((b) => b.checkVisibility()).map((b) => { const r = b.getBoundingClientRect(); return b.className + "@" + r.left.toFixed(1) + "+" + r.width.toFixed(1) }).join(" ")`) as Promise<string>
   await ui(`document.querySelector('.mode[data-mode="preview"]').click()`)
   check("Preview turns review off", (await until(async () => !state().review.enabled && (await modeShown()) === "preview")) === true)
+  await sleep(250) // past the switch's own transition
+  const inPreview = await barLayout()
   await ui(`document.querySelector('[data-action="draw"]').click()`)
   check("the pencil turns review on, in Annotate", (await until(async () => state().review.brush && (await modeShown()) === "notes" && (await ui(`document.querySelector('[data-action="draw"]').getAttribute("aria-pressed")`)) === "true")) === true)
+  await sleep(250)
+  check("…and nothing in the top bar moves or changes width", (await barLayout()) === inPreview, `${inPreview}\n→ ${await barLayout()}`)
+  check(
+    "…and the pencil pressed has no word and not the accent the chosen mode has",
+    (await ui(`(() => { const d = document.querySelector('[data-action="draw"]'); return d.textContent.trim() === "" && getComputedStyle(d).backgroundColor !== getComputedStyle(document.querySelector('.mode[aria-checked="true"]')).backgroundColor })()`)) === true,
+  )
   await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
   check("…and Edit turns the pencil off", (await until(async () => (await inspector()) && !state().review.brush && state().review.mode === "edit")) === true)
+  await sleep(250)
+  check("…still with nothing in the top bar moved", (await barLayout()) === inPreview, `${inPreview}\n→ ${await barLayout()}`)
+  // The panel's cards share two left edges: what is in a card on one, the words after a leading
+  // mark on the other.
+  const edges = (await ui(`(() => {
+    const x0 = document.querySelector(".panel > .place").getBoundingClientRect().left
+    const box = (s) => Math.round(document.querySelector(s).getBoundingClientRect().left - x0)
+    const words = (s) => { const r = document.createRange(); const el = document.querySelector(s); const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.textContent.trim() ? 1 : 3) }); r.selectNodeContents(w.nextNode()); return Math.round(r.getClientRects()[0].left - x0) }
+    const t = document.querySelector(".transcript-content"), pad = Math.round(t.getBoundingClientRect().left + parseFloat(getComputedStyle(t).paddingLeft) - x0)
+    return { a: [box(".place-mark"), box(".notes .section-toggle .caret"), words(".convo-title"), pad], b: [words(".place-agent-name"), words(".notes .section-name")] }
+  })()`)) as { a: number[]; b: number[] }
+  check("the panel's leading marks, titles and transcript start on one edge, the words after a mark on another", new Set(edges.a).size === 1 && new Set(edges.b).size === 1 && edges.b[0]! > edges.a[0]!, JSON.stringify(edges))
+  // The transcript fades under the conversation's header once something has scrolled under it,
+  // and not at its very top.
+  const fade = () => ui(`getComputedStyle(document.querySelector(".transcript")).maskImage`) as Promise<string>
+  await ui(`(() => { const d = document.createElement("div"); d.id = "e2e-tall"; d.style.height = "3000px"; document.querySelector(".transcript-content").append(d); const t = document.querySelector(".transcript"); t.scrollTop = 0; t.dispatchEvent(new Event("scroll")) })()`)
+  await sleep(100)
+  const atTop = await fade()
+  await ui(`(() => { const t = document.querySelector(".transcript"); t.scrollTop = 200; t.dispatchEvent(new Event("scroll")) })()`)
+  const scrolled = await until(async () => (/ 24px/.test(await fade()) ? await fade() : ""), 2000)
+  // (At the top it is far from the end, so its foot fades under Latest: the top's stop is 0px.)
+  check("the transcript has no fade at its top, and fades under the header once scrolled", !/ 24px/.test(atTop) && / 24px/.test(scrolled || ""), `${atTop} / ${scrolled}`)
+  await ui(`(() => { document.getElementById("e2e-tall").remove(); const t = document.querySelector(".transcript"); t.scrollTop = t.scrollHeight; t.dispatchEvent(new Event("scroll")) })()`)
   // The window's inspector drives the real page: an element clicked on the page is its selection;
   // a row of its tree selects another; a style typed in it changes the page; mod+Enter sends.
   const windowDbg = win.webContents.debugger

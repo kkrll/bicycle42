@@ -52,6 +52,18 @@
   --radius: 6px;
   --bar: 40px;
   --gutter: 4px;
+
+  /* The panel's two left edges, the same in each of its cards (and its banners):
+     · --edge-a, the content's inset: the agent's mark, the notes' chevron and badges, the
+       conversation's title, the transcript and its suggestions, a banner's icon;
+     · --edge-b, the words after a leading mark: the agent's name, "12 notes", a note's words and
+       the line under it, the unpinned pins' explanation, a tool's verb, a banner's words.
+     --lead is the room a leading mark takes, a note's badge: a 16px icon sits at its left, and
+     --icon-lead is from that icon's left to the words. */
+  --edge-a: 8px;
+  --lead: 20px;
+  --edge-b: calc(var(--edge-a) + var(--lead) + 6px);
+  --icon-lead: calc(var(--edge-b) - var(--edge-a) - 16px);
 }
 
 /* A lighter, neutral paper for the light theme. (The design system's default is a warm beige,
@@ -598,22 +610,12 @@ details[open] > summary > .caret {
   color: var(--ink-bad);
 }
 
-/* The brush: a button with a surface of its own, beside the mode switch, and its word as the
-   modes have theirs (dropped with theirs in a narrow window). On, it is the accent. */
+/* The brush: the pen alone on a surface of its own, beside the mode switch, not a fourth mode in
+   it (pressed, it turns Annotate on, and the accent is that mode's). Pressed, a light chip with
+   the foreground's ink, as the chosen device has. One size in every state. */
 .draw-btn {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 12px 0 10px;
-  border-radius: var(--radius);
   background: var(--surface);
-  font-size: var(--text-control);
-  font-weight: 500;
-  white-space: nowrap;
   color: var(--muted);
-  transition: background var(--duration-micro) var(--ease-micro);
 }
 
 .draw-btn:not(:disabled):not([aria-pressed="true"]):hover {
@@ -622,13 +624,8 @@ details[open] > summary > .caret {
 }
 
 .draw-btn[aria-pressed="true"] {
-  background: var(--accent);
-  color: var(--background);
-  font-weight: 600;
-}
-
-.draw-btn:disabled {
-  opacity: 0.55;
+  background: color-mix(in srgb, var(--foreground) 26%, var(--background));
+  color: var(--foreground);
 }
 
 /* Preview | Notes | Edit. The one in use is the accent: it says what a click on the page does.
@@ -660,6 +657,22 @@ details[open] > summary > .caret {
   white-space: nowrap;
   color: var(--muted);
   transition: background var(--duration-micro) var(--ease-micro);
+}
+
+/* The chosen mode's words are bolder; each keeps the width of its bold words either way, so
+   choosing one moves nothing in the bar. */
+.mode-label {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.mode-label::after {
+  content: attr(data-label);
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  font-weight: 600;
 }
 
 /* Hover belongs to the ones not chosen: on the chosen one, the accent stays as it is. */
@@ -739,10 +752,6 @@ details[open] > summary > .caret {
 @media (max-width: 900px) {
   .mode {
     padding: 0 8px;
-  }
-
-  .draw-btn {
-    padding: 0 6px;
   }
 
   .mode-label {
@@ -1327,13 +1336,13 @@ details[open] > summary > .caret {
 /* The panel is three cards, one under another with 8px between: where its notes and
    conversation are (the server and the folder), the notes, and the conversation with its message
    box. Each a step lighter than the window, with the hairline and the corners the page's pane
-   and the docks have, so one section does not run into the next. What is in a card starts
-   --gutter in from its edge. */
+   and the docks have, so one section does not run into the next. What is in a card starts on
+   --edge-a (:root), and words after a leading mark on --edge-b. */
 .panel {
   /* At the window's left edge: 8px in, as the bar above it starts and the panes beside it end. */
   padding: 0 0 8px 8px;
   gap: 8px;
-  --gutter: 8px;
+  --gutter: var(--edge-a);
   flex: none;
   /* (--panel-max: half the window, or less beside a phone's page; maxWidth in app.tsx.) */
   width: clamp(320px, var(--panel-width), var(--panel-max, 50vw));
@@ -1426,13 +1435,18 @@ details[open] > summary > .caret {
   align-items: center;
   gap: 6px;
   height: 28px;
-  padding: 0 6px 0 4px;
+  padding: 0 6px 0 calc(var(--edge-a) - 4px);
   border-radius: var(--radius);
   text-align: left;
 }
 
 .section-toggle:hover {
   background: var(--surface);
+}
+
+/* (The head's 4 and its own 4: the chevron on --edge-a, the name on --edge-b.) */
+.section-toggle > .caret {
+  margin-right: calc(var(--icon-lead) - 6px);
 }
 
 .section-name {
@@ -1505,7 +1519,7 @@ details[open] > summary > .caret {
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
-  padding: 0 var(--gutter) 10px calc(var(--gutter) + 30px);
+  padding: 0 var(--gutter) 10px var(--edge-b);
   color: var(--muted);
 }
 
@@ -1556,7 +1570,8 @@ details[open] > summary > .caret {
 .place-agent {
   flex: none;
   max-width: 50%;
-  padding-right: 4px;
+  /* (The row's 4 and its own: the mark on --edge-a.) */
+  padding: 0 4px 0 calc(var(--edge-a) - 4px);
   font-weight: 600;
 }
 
@@ -1565,6 +1580,8 @@ details[open] > summary > .caret {
   flex: none;
   display: inline-grid;
   place-items: center;
+  /* The name after it on --edge-b. */
+  margin-right: calc(var(--icon-lead) - 6px);
 }
 
 .place-mark > .dot {
@@ -1759,6 +1776,11 @@ details[open] > summary > .caret {
   font-variant-numeric: tabular-nums;
 }
 
+/* "Done · 3" after its chevron on --edge-b, as the notes' words under it. */
+.note-group-name > .caret {
+  margin-right: calc(var(--icon-lead) - 4px);
+}
+
 button.note-group-name {
   height: 20px;
   padding-left: 0;
@@ -1788,7 +1810,7 @@ button.note-group-name:hover {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: calc(var(--edge-b) - var(--edge-a) - var(--lead));
   height: 32px;
   padding: 0 var(--gutter);
   text-align: left;
@@ -1856,9 +1878,9 @@ button.note-group-name:hover {
   flex: none;
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--icon-lead);
   margin: 0 8px 8px 0;
-  padding: 10px 12px;
+  padding: 10px 12px 10px var(--edge-a);
   border: 1px solid var(--background-05);
   border-radius: 8px;
   background: var(--background-07);
@@ -1920,10 +1942,10 @@ button.note-group-name:hover {
   color: var(--muted);
 }
 
-/* Why it failed, under the note's words: gutter + badge + gap. */
+/* Why it failed, under the note's words. */
 .note-error {
   margin-top: -4px;
-  padding: 0 var(--gutter) 6px calc(var(--gutter) + 30px);
+  padding: 0 var(--gutter) 6px var(--edge-b);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1936,7 +1958,7 @@ button.note-group-name:hover {
    clicked. Set like the line under a stopped note. */
 .note-edits {
   margin: -4px 0 0;
-  padding: 0 var(--gutter) 6px calc(var(--gutter) + 30px);
+  padding: 0 var(--gutter) 6px var(--edge-b);
   list-style: none;
   font-size: var(--text-control);
   color: var(--muted);
@@ -2245,7 +2267,7 @@ button.note-group-name:hover {
   align-items: center;
   gap: 6px;
   height: 28px;
-  padding: 0 6px 0 8px;
+  padding: 0 6px 0 calc(var(--edge-a) - 4px);
   margin-right: auto;
   border-radius: var(--radius);
   font-size: var(--text-control);
@@ -2259,6 +2281,15 @@ button.note-group-name:hover {
 
 .convo-current > .icon {
   color: var(--muted);
+}
+
+/* At work: the dot after the title, so the title stays on --edge-a. */
+.convo-current > .dot {
+  order: 1;
+}
+
+.convo-current > .icon {
+  order: 2;
 }
 
 .convo-title,
@@ -2679,6 +2710,14 @@ summary::-webkit-details-marker {
 .tool-row > .icon:first-child,
 .thinking > summary > .icon:first-child {
   color: var(--muted);
+}
+
+/* A row's leading icon puts its words on --edge-b, as a note's badge does (each row's gap is 8). */
+.tool-row > .icon:first-child,
+.thinking > summary > .icon:first-child,
+.turn-head > .icon:first-child,
+.working > .icon:first-child {
+  margin-right: calc(var(--icon-lead) - 8px);
 }
 
 /* A run of tool calls reads as one list, not as separate paragraphs. */
