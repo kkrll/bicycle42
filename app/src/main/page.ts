@@ -143,11 +143,14 @@ type Options = {
 }
 
 const PAGE_EVENTS = new Set(["ready", "toggle", "mode", "draft", "note", "pins-placement", "pin", "edits-shown", "frame-shown", "panel"])
-/** After a note finishes, give the dev server a moment to write and rebuild before reloading. */
-const RELOAD_DELAY = 400
-const BUSY_RETRY = 700
-/** How long after a real Enter a note may arrive. The overlay sends it two frames after the key. */
-const ENTER_WINDOW = 1000
+/** Exported so tests can shorten them. Milliseconds. */
+export const pageTiming = {
+  /** After a note finishes, give the dev server a moment to write and rebuild before reloading. */
+  reloadDelay: 400,
+  busyRetry: 700,
+  /** How long after a real Enter a note may arrive. The overlay sends it two frames after the key. */
+  enterWindow: 1000,
+}
 
 // Signs that a page hot-reloads itself: Vite's client (also Astro, SvelteKit, Remix-Vite), React
 // Refresh, webpack/Next/Parcel HMR, or a livereload script. Reloading those would only lose state.
@@ -620,7 +623,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     // knowingly for a button to click.
     if ((msg as PageMessage).type === "note") {
       const since = enterAt || clickAt ? Date.now() - Math.max(enterAt, clickAt) : undefined
-      const real = since !== undefined && since <= ENTER_WINDOW
+      const real = since !== undefined && since <= pageTiming.enterWindow
       enterAt = clickAt = 0
       if (!real) {
         if (!forgeryLogged) log("warn", "page: dropped a note that no Enter key press or click came with (sent by the page's own script?)", { url, msSinceInput: since })
@@ -666,11 +669,11 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     }
   }
   /** A real Enter or click may send a note, which the overlay does two frames later: the page
-   *  keeps drawing for as long as page.ts would count it (ENTER_WINDOW). */
+   *  keeps drawing for as long as page.ts would count it (pageTiming.enterWindow). */
   function holdForInput() {
     if (inputHold) clearTimeout(inputHold.timer)
     const release = inputHold?.release ?? holdFrames()
-    inputHold = { release, timer: setTimeout(() => ((inputHold = undefined), release()), ENTER_WINDOW) }
+    inputHold = { release, timer: setTimeout(() => ((inputHold = undefined), release()), pageTiming.enterWindow) }
   }
 
   /** Navigations the app starts. */
@@ -1086,10 +1089,10 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       if (gone() || url !== from) return // the reviewer went elsewhere: nothing stale to refresh
       const midNote = await busy()
       if (gone() || url !== from) return
-      if (midNote) reloadTimer = setTimeout(() => void tryNow(), BUSY_RETRY)
+      if (midNote) reloadTimer = setTimeout(() => void tryNow(), pageTiming.busyRetry)
       else reload()
     }
-    reloadTimer = setTimeout(() => void tryNow(), RELOAD_DELAY)
+    reloadTimer = setTimeout(() => void tryNow(), pageTiming.reloadDelay)
   }
 
   function setPartition(name: string): boolean {

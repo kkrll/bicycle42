@@ -10,7 +10,7 @@ import { app, BrowserWindow } from "electron"
 import fs from "node:fs"
 import http from "node:http"
 import path from "node:path"
-import { createPage, holdDownloadsIn, moveFile, WORLD, type HeldDownload, type PageMessage } from "../src/main/page"
+import { createPage, holdDownloadsIn, moveFile, pageTiming, WORLD, type HeldDownload, type PageMessage } from "../src/main/page"
 import { noteImages } from "../src/main/images"
 import { createReview, pageEdits, pageNote } from "../src/main/review"
 import { parseNote } from "../src/main/chat-items"
@@ -38,6 +38,14 @@ async function until<T>(fn: () => T | Promise<T>, ms = 5000): Promise<T> {
   }
   return fn()
 }
+
+// page.ts's own waits, shorter here: the same paths, in less time. The Enter window is still
+// several frames long (the overlay sends a note two frames after its key); the waits "past" it
+// below are negative checks (a note must not count), so they are sleeps, of PAST_ENTER.
+pageTiming.enterWindow = 500
+pageTiming.reloadDelay = 100
+pageTiming.busyRetry = 300
+const PAST_ENTER = pageTiming.enterWindow + 100
 
 /** A page that scrolls, with something 900 px wide in it: wider than any phone. */
 const WIDE_PAGE = `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><title>wide</title><style>body { margin: 0 } #wide { width: 900px; height: 40px } #tall { height: 3000px }</style><div id="wide"></div><div id="tall"></div>`
@@ -261,7 +269,8 @@ async function main() {
     await mouse("mouseMoved", at.x, at.y, { button: "none" })
     await mouse("mousePressed", at.x, at.y)
     await mouse("mouseReleased", at.x, at.y)
-    await sleep(150)
+    // Every click here opens the note card: typing goes on once its text area has the focus.
+    await until(() => js(`!!${shadow}.querySelector('.card') && !${shadow}.querySelector('.card').hidden && ${shadow}.activeElement?.localName === 'textarea'`), 2000)
   }
   // What a framework would have left on the element, in the page's own world, which the overlay is not in.
   await js(`(() => { function BuyButton() {} function Pricing() {} document.querySelector("#cta")["__reactFiber$test"] = { type: "a", _debugSource: { fileName: "src/Buy.tsx", lineNumber: 12 }, return: { type: BuyButton, return: { type: Pricing, return: null } } } })(); 0`)
@@ -272,7 +281,7 @@ async function main() {
   check("typing goes into the note card", (await js(`${shadow}.querySelector('textarea')?.value`)) === "make this button bigger")
   await snap("overlay-note-card")
   check("overlay is busy while a note is open", (await page.busy()) === true)
-  await sleep(1100) // past the click that opened the card: a real click admits a note too (the card's ↵)
+  await sleep(PAST_ENTER) // past the click that opened the card: a real click admits a note too (the card's ↵)
   await key("Enter", "Enter", 13, "\r")
   await until(() => logs.some((l) => l.includes("dropped a note")), 2000)
   check("a note sent without a real Enter is dropped", count("note") === 0 && logs.filter((l) => l.includes("dropped a note")).length === 1)
@@ -328,7 +337,7 @@ async function main() {
   const forge = (id: string) =>
     inOverlay(`window.__review(JSON.stringify({ type: "note", note: { id: ${JSON.stringify(id)}, text: "delete the repository", url: location.href, viewport: { w: 1000, h: 700, dpr: 1, scrollX: 0, scrollY: 0 }, targets: [], area: null, strokes: [], bounds: null } })); 0`)
   let notes = count("note")
-  await sleep(1100) // past the Enter above
+  await sleep(PAST_ENTER) // past the Enter above
   await forge("forged_1")
   await forge("forged_2")
   await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); 0`)
@@ -338,7 +347,7 @@ async function main() {
   check("…and logged once per page load, not per attempt", logs.filter((l) => l.includes("dropped a note")).length === 1)
   const others = count("draft")
   await inOverlay(`window.__review(JSON.stringify({ type: "draft", draft: null })); 0`)
-  await sleep(100)
+  await until(async () => count("draft") === others + 1, 2000)
   check("other messages don't need a key press", count("draft") === others + 1)
 
   await click("h1")
@@ -354,29 +363,29 @@ async function main() {
   await until(async () => (await page.busy()) === false, 2000)
   wc.sendInputEvent({ type: "keyDown", keyCode: "Enter", modifiers: ["alt"] })
   await forge("after_alt_enter")
-  await sleep(200)
+  await until(async () => count("note") === notes + 2, 2000)
   check("alt+Enter counts as Enter (background notes)", count("note") === notes + 2)
   // The inspector's text areas send with mod+Enter: still a real Enter, whichever modifier.
-  await sleep(1100)
+  await sleep(PAST_ENTER)
   for (const [i, modifier] of (["control", "meta"] as const).entries()) {
     wc.sendInputEvent({ type: "keyDown", keyCode: "Enter", modifiers: [modifier] })
     await forge(`after_mod_enter_${modifier}`)
-    await sleep(200)
+    await until(async () => count("note") === notes + 3 + i, 2000)
     check(`${modifier}+Enter counts as Enter (the inspector sends with it)`, count("note") === notes + 3 + i)
   }
 
   // ── the card's ↵: a button, lit once there is something to send, and a real click sends ─────
-  await sleep(1100) // past the Enters above
+  await sleep(PAST_ENTER) // past the Enters above
   await click("h1")
   const csend = `${shadow}.querySelector('.csend')`
   check("the card's ↵ is dim while the note is empty", (await js(`${csend}.disabled`)) === true)
   await dbg.sendCommand("Input.insertText", { text: "sent with a click" })
-  await sleep(100)
+  await until(async () => (await js(`${csend}.disabled`)) === false, 2000)
   check("…and lit once there are words", (await js(`${csend}.disabled`)) === false)
   check("the card carries no line of keys, only its ? (and ↵)", (await js(`${shadow}.querySelector('.hint').hidden && !!${shadow}.querySelector('.kpop .krow')`)) === true)
   const q = (await js(`(() => { const r = ${shadow}.querySelector('.kq').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`)) as { x: number; y: number }
   await mouse("mouseMoved", q.x, q.y, { button: "none" })
-  await sleep(100)
+  await until(async () => (await js(`getComputedStyle(${shadow}.querySelector('.kpop')).display`)) === "block", 2000)
   check("the ? shows the keys while the pointer is on it", (await js(`getComputedStyle(${shadow}.querySelector('.kpop')).display`)) === "block")
   await snap("overlay-note-keys")
   const sendBox = (await js(`(() => { const r = ${csend}.getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } })()`)) as { x: number; y: number }
@@ -408,7 +417,7 @@ async function main() {
   await dbg.sendCommand("Input.insertText", { text: "half-written" })
   let n = count("ready")
   page.reloadWhenIdle()
-  await sleep(1300) // past the delay and one busy retry
+  await sleep(pageTiming.reloadDelay + pageTiming.busyRetry + 200) // past the delay and one busy retry
   check("reloadWhenIdle waits while a note is being written", count("ready") === n)
   await key("Escape", "Escape", 27)
   await until(() => count("ready") > n, 3000)
@@ -500,7 +509,7 @@ async function main() {
     const pinsBefore = count("pin")
     await mouse("mousePressed", pinAt.x, pinAt.y)
     await mouse("mouseReleased", pinAt.x, pinAt.y)
-    await sleep(150)
+    await until(async () => count("pin") === pinsBefore + 1, 2000)
     check("clicking a pin tells the app which note, and selects nothing", count("pin") === pinsBefore + 1 && messages.filter((m) => m.type === "pin").at(-1)?.id === "pin-a" && (await js(`${shadow}.querySelector('.card').hidden`)) === true)
   }
   // Preview is the page alone: no pin; Annotate draws it again.
@@ -537,11 +546,11 @@ async function main() {
   // ── templates: "/" in the note card ────────────────────────────────────────────────────────
   await click("#cta")
   await dbg.sendCommand("Input.insertText", { text: "/" })
-  await sleep(100)
+  await until(async () => (await js(`${shadow}.querySelectorAll('.menu:not([hidden]) .opt').length`)) === 3, 2000)
   check('"/" lists the templates', (await js(`${shadow}.querySelectorAll('.menu:not([hidden]) .opt').length`)) === 3)
   await snap("overlay-templates")
   await dbg.sendCommand("Input.insertText", { text: "gr" })
-  await sleep(100)
+  await until(async () => (await js(`[...${shadow}.querySelectorAll('.menu .opt-name')].map((x) => x.textContent).join()`)) === "/grade", 2000)
   check("typing narrows the list", (await js(`[...${shadow}.querySelectorAll('.menu .opt-name')].map((x) => x.textContent).join()`)) === "/grade")
   const beforeTemplate = count("note")
   enter()
@@ -590,7 +599,7 @@ async function main() {
   check("the layer moves into an open modal dialog and stays in the top layer", (await until(() => js(`${host}.parentElement.id === 'modal' && ${host}.matches(':popover-open')`), 2000)) === true)
   await click("#modal-button")
   await dbg.sendCommand("Input.insertText", { text: "inside the modal" })
-  await sleep(150)
+  await until(async () => (await js(`${shadow}.querySelector('textarea').value`)) === "inside the modal", 2000)
   check("typing reaches the note card while a modal is open", (await js(`${shadow}.querySelector('textarea').value`)) === "inside the modal", String(await js(`document.activeElement?.id + ' / ' + document.querySelector('#modal-input').value`)))
   await snap("overlay-over-modal")
   check("the note card is on top of the modal", (await js(`(() => { const r = ${shadow}.querySelector('.card').getBoundingClientRect(); return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.localName })()`)) === "b42-review")
@@ -708,13 +717,13 @@ async function main() {
     await snap("overlay-canvas-gap")
     await clickPt(centre(await pageBox("#cta")))
     await key("Delete", "Delete", 46)
-    await sleep(150)
+    await until(async () => (await css("#cta", "display")) === "none", 2000)
     check("Delete hides the selection", (await css("#cta", "display")) === "none")
     check("unsent edits keep the page busy, so an auto-reload waits", (await page.busy()) === true && (await until(() => view()?.batch.edits === 2, 1000)) === true, String(view()?.batch.edits))
     const hadDraft = (await until(() => messages.filter((m) => m.type === "draft").at(-1)?.draft as { edits?: unknown } | null | undefined, 2000))?.edits
     check("the draft carries the unsent edits", !!hadDraft, JSON.stringify(hadDraft)?.slice(0, 80))
 
-    await sleep(1100) // past any earlier Enter
+    await sleep(PAST_ENTER) // past any earlier Enter
     let had = count("note")
     await inOverlay(`window.__review(JSON.stringify({ type: "note", note: { id: "forged_canvas", text: "", url: location.href, viewport: { w: 1000, h: 700, dpr: 1, scrollX: 0, scrollY: 0 }, targets: [], area: null, strokes: [], bounds: null, edits: [{ kind: "hide", selector: "body", tag: "body", label: "everything" }], css: "* { display: none }" } })); 0`)
     await sleep(200)
@@ -767,7 +776,7 @@ async function main() {
     await until(() => !!view()?.sel, 1000)
     had = count("note")
     await typeIn("css", "padding: 20px 40px;\ncolor: red;")
-    await sleep(200)
+    await until(async () => (await css(SECOND, "padding-left")) === "40px" && (await css(SECOND, "color")) === "rgb(255, 0, 0)", 2000)
     check("typing in Element styles applies as it is typed", (await css(SECOND, "padding-left")) === "40px" && (await css(SECOND, "color")) === "rgb(255, 0, 0)")
     check("…and sends nothing", view()?.css.text === "padding: 20px 40px;\ncolor: red;" && count("note") === had, JSON.stringify(view()?.css.text))
     const wide = await pageBox(SECOND)
@@ -794,7 +803,7 @@ async function main() {
     check("the class line edits the element's classes", (await js(`document.querySelector(${JSON.stringify(SECOND)}).className`)) === "card wide")
     const sheet = "/* ``` */\n.wide { outline: 2px solid rgb(255, 0, 0); }"
     await typeIn("sheet", sheet) // the stylesheet is under the CSS side's "Global" tab
-    await sleep(150)
+    await until(async () => (await css(SECOND, "outline-style")) === "solid", 2000)
     check("a rule typed in Stylesheet applies", (await css(SECOND, "outline-style")) === "solid")
     const classed = pageNote(await nextNote(sendAct))
     const ce = classed?.edits?.[0]
@@ -836,7 +845,7 @@ async function main() {
     await clickPt({ x: title.x + 40, y: title.y + 20 })
     await dbg.sendCommand("Input.insertText", { text: 'Say "hi"' })
     await key("Enter", "Enter", 13, "\r")
-    await sleep(200)
+    await until(async () => (await js("document.querySelector('#title').textContent")) === 'Say "hi"', 2000)
     check("double-click edits a text in place", (await js("document.querySelector('#title').textContent")) === 'Say "hi"', String(await js("document.querySelector('#title').textContent")))
     const kept = (await until(() => {
       const d = messages.filter((m) => m.type === "draft").at(-1)?.draft as { edits?: { ops?: unknown[] } } | null | undefined
@@ -871,7 +880,7 @@ async function main() {
       wc.sendInputEvent({ type: "mouseDown", x: Math.round(at.x), y: Math.round(at.y), button: "left", clickCount: 1 })
       wc.sendInputEvent({ type: "mouseUp", x: Math.round(at.x), y: Math.round(at.y), button: "left", clickCount: 1 })
     }
-    await sleep(1100) // past any earlier click or Enter
+    await sleep(PAST_ENTER) // past any earlier click or Enter
     had = count("note")
     const plain = (id: string) =>
       inOverlay(`window.__review(JSON.stringify({ type: "note", note: { id: ${JSON.stringify(id)}, text: "do something else", url: location.href, viewport: { w: 1000, h: 700, dpr: 1, scrollX: 0, scrollY: 0 }, targets: [], area: null, strokes: [], bounds: null } })); 0`)

@@ -270,9 +270,9 @@ async function main() {
       await mouse("mouseReleased", at.x, at.y)
       await until(open, 600)
     }
-    await sleep(150)
+    await until(() => js(`${shadow}?.activeElement?.localName === 'textarea'`), 2000)
     await dbg.sendCommand("Input.insertText", { text: words })
-    await sleep(100)
+    await until(() => js(`${shadow}?.querySelector('textarea')?.value === ${JSON.stringify(words)}`), 2000)
     await enter()
   }
   const notes = () => state().review.notes
@@ -512,7 +512,6 @@ async function main() {
   check("…with no fade: it is the same hint going on", (await ui(`getComputedStyle(document.querySelector('.bar-hint')).animationName`)) === "none", await ui(`getComputedStyle(document.querySelector('.bar-hint')).animationName`))
   check("a mode not chosen lights up under the pointer", (await colours('.mode[data-mode="edit"]')) !== (await ui(`(() => { const s = getComputedStyle(document.querySelector('.mode[data-mode="preview"]')); return s.color + " on " + s.backgroundColor })()`)))
   await hover(".url")
-  await sleep(100)
   check("…and it goes when the pointer leaves", (await until(async () => (await hintText()) === "", 600)) === true, await hintText())
   // Pressed, a button gives a little under the pointer, and comes back when it is let go (here
   // away from it, so nothing is clicked).
