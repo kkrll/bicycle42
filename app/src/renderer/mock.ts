@@ -34,7 +34,7 @@ import type {
   Shortcut,
   SlashCommand,
 } from "../shared/types"
-import { PHONE, phoneOf, viewRadius } from "../shared/types"
+import { PHONE, phoneEdge, phoneOf, type PhoneSurround } from "../shared/types"
 import { canvasView } from "./mock-canvas"
 import { setFocusedNote } from "./store"
 import type { MotionView } from "../../../overlay/protocol-motion"
@@ -904,12 +904,37 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   if (params.get("mode") === "edit" || params.get("mode") === "motion") state.review.mode = params.get("mode") as "edit" | "motion"
   if (params.get("mode") === "preview") (state.review.enabled = false), (state.review.mode = "preview")
 
-  // &page=dark: the page dark by its own color-scheme, and the strips as main would find them.
+  // &page=dark: the page dark by its own color-scheme, and the status bar as main would find it.
+  // &theme=…: the page's theme-color.
   const darkPage = params.get("page") === "dark"
-  state.page.tint = darkPage ? { top: "#121212", bottom: "#121212" } : { top: "#ffffff", bottom: "#ffffff" }
+  state.page.tint = params.get("theme") ? `#${params.get("theme")}` : darkPage ? "#121212" : "#ffffff"
   const page = fakePage(state.review.notes.length > 0)
   if (darkPage) page.style.colorScheme = "dark"
+  // (A page with a theme-color has its header in it, as such a page has.)
+  if (params.get("theme")) page.querySelector<HTMLElement>(":scope > div")!.style.background = state.page.tint
   page.querySelector<HTMLElement>("[data-pins]")!.hidden = !state.review.enabled
+
+  // What the page's overlay draws over a phone's page (overlay/src/device.js), drawn here as it
+  // does, with its styles: the screen's bottom corners and the home indicator, at the size the
+  // page is drawn (the fake page is in the window's px).
+  let surround: PhoneSurround | undefined
+  const edgeEl = document.createElement("div")
+  edgeEl.style.cssText = "position:absolute;left:0;right:0;bottom:0;height:0;pointer-events:none"
+  page.append(edgeEl)
+  const drawPhoneEdge = (bounds: Rect | null) => {
+    const phone = phoneOf(state.page.phone)
+    const k = bounds ? Math.min(1, bounds.width / phone.width) : 1
+    const edge = state.page.device === "phone" && bounds ? phoneEdge(phone, k, surround) : null
+    edgeEl.innerHTML = ""
+    if (!edge) return
+    const r = edge.radius * k
+    if (r > 0 && edge.ring !== undefined && bounds)
+      edgeEl.insertAdjacentHTML("beforeend", `<i style="position:absolute;left:0;bottom:0;width:${bounds.width}px;height:${bounds.height}px;border-radius:0 0 ${r}px ${r}px;corner-shape:${edge.shape};box-shadow:0 0 0 ${edge.ring * k}px ${edge.ringColour}, 0 0 0 4000px ${edge.around}"></i>`)
+    if (edge.home) {
+      const { width, height, bottom } = edge.home
+      edgeEl.insertAdjacentHTML("beforeend", `<i style="position:absolute;left:50%;bottom:${bottom * k}px;width:${width * k}px;height:${height * k}px;margin-left:${(-width * k) / 2}px;border-radius:${(height * k) / 2}px;backdrop-filter:blur(4px) grayscale(1) invert(1) brightness(0.926) contrast(1000)"></i>`)
+    }
+  }
 
   const commands: { [K in CommandName]: (...args: Parameters<Commands[K]>) => ReturnType<Commands[K]> | Promise<ReturnType<Commands[K]>> } = {
     navigate(url) {
@@ -959,12 +984,15 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     },
     setPageBounds(bounds: Rect | null) {
       page.style.display = bounds ? "block" : "none"
-      // Rounded like the real page view (PAGE_RADIUS in main/page.ts; a phone's, viewRadius at the
-      // size it is drawn).
-      const phone = phoneOf(state.page.phone)
-      const radius = state.page.device === "phone" && bounds ? Math.round(viewRadius(phone) * Math.min(1, bounds.width / phone.width)) : 9
+      // Rounded like the real page view (PAGE_RADIUS in main/page.ts; a phone's square).
+      const radius = state.page.device === "phone" ? 0 : 9
       if (bounds) Object.assign(page.style, { left: `${bounds.x}px`, top: `${bounds.y}px`, width: `${bounds.width}px`, height: `${bounds.height}px`, borderRadius: `${radius}px`, overflow: "hidden" })
       calls.push(bounds)
+      drawPhoneEdge(bounds)
+    },
+    setPhoneSurround(around) {
+      surround = around
+      drawPhoneEdge(calls.at(-1) ?? null)
     },
     // The mock's page is part of this window, not a view drawn over it: no picture of it is taken,
     // and the surface stands in for it while it is away.

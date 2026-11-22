@@ -9,7 +9,7 @@
 //   node_modules/.bin/electron --ozone-platform=headless --disable-gpu dist/test/app.e2e.cjs
 //
 // Exits 0 when every check passes.
-import { Menu, app, contentTracing, type BrowserWindow } from "electron"
+import { Menu, app, contentTracing, nativeTheme, type BrowserWindow } from "electron"
 import fs from "node:fs"
 import http from "node:http"
 import os from "node:os"
@@ -1610,7 +1610,7 @@ async function main() {
   const wide = page.view.getBounds()
   await ui(`document.querySelector('[data-device="phone"]').click()`)
   // (The phone's shape, as large as life or as large as fits this window: never cut.)
-  // (The page's box is the screen less the phone's strips, which the window draws above and below it.)
+  // (The page's box is the screen less the phone's status bar, which the window draws above it.)
   const VIEW = viewportOf(phoneOf("iphone-16e"))
   const VIEW_SE = viewportOf(phoneOf("iphone-se"))
   const shaped = (b: { width: number; height: number }, w: number, h: number) => b.width <= w && b.width > 100 && Math.abs(b.width / b.height - w / h) < 0.01
@@ -1621,12 +1621,13 @@ async function main() {
   check("the phone switch gives the page a phone's box, and Edit's inspector the column beside it", shaped(narrow, VIEW.width, VIEW.height) && state().page.device === "phone" && column.x >= narrow.x + narrow.width && column.height > 600, `${JSON.stringify(narrow)} ${JSON.stringify(column)}`)
   check("…tall and narrow: the tree above the styles", column.stacked, JSON.stringify(column))
   // The phone the window draws: its body the screen's shape with the ring around it, the status
-  // strip above the page view and the home strip below, edge to edge; the strips in the page's colours.
+  // strip above the page view, which runs to the body's bottom edge (no strip below it: the home
+  // indicator is the overlay's, over the page); the strip in the page's colour.
   const frameNow = async () => (await ui(`(() => {
     const r = (s) => { const b = document.querySelector(s).getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height } }
     const cs = getComputedStyle(document.querySelector(".stage.phone .device-body"))
-    return { body: r(".device-body"), status: r(".pf-status"), home: r(".pf-home"), ring: cs.outlineWidth + " " + cs.outlineStyle, radius: cs.borderRadius, notch: !!document.querySelector(".pf-status[data-cutout=notch] .pf-cutout"), time: document.querySelector(".pf-time").textContent, bg: getComputedStyle(document.querySelector(".pf-status")).backgroundColor }
-  })()`)) as { body: Rect; status: Rect; home: Rect; ring: string; radius: string; notch: boolean; time: string; bg: string }
+    return { body: r(".device-body"), status: r(".pf-status"), home: !!document.querySelector(".pf-home"), ring: cs.outlineWidth + " " + cs.outlineStyle, radius: cs.borderRadius, notch: !!document.querySelector(".pf-status[data-cutout=notch] .pf-cutout"), time: document.querySelector(".pf-time").textContent, bg: getComputedStyle(document.querySelector(".pf-status")).backgroundColor }
+  })()`)) as { body: Rect; status: Rect; home: boolean; ring: string; radius: string; notch: boolean; time: string; bg: string }
   const fills = (body: Awaited<ReturnType<typeof frameNow>>, inBody: Rect) =>
     body.ring === "8px solid" &&
       body.notch &&
@@ -1635,25 +1636,82 @@ async function main() {
       Number.isInteger(body.body.y) &&
       Math.abs(body.status.y - body.body.y) < 0.5 &&
       Math.abs(body.status.y + body.status.height - inBody.y) < 0.5 &&
-      Math.abs(inBody.y + inBody.height - body.home.y) < 0.5 &&
-      Math.abs(body.home.y + body.home.height - (body.body.y + body.body.height)) < 0.5 &&
+      !body.home &&
+      Math.abs(inBody.y + inBody.height - (body.body.y + body.body.height)) < 0.5 &&
       Math.abs(inBody.x - body.body.x) < 0.5 &&
       inBody.width === Math.round(body.body.width)
   const framed = await until(async () => fills(await frameNow(), page.view.getBounds()), 3000)
   check(
-    "a phone's page sits in the phone the window draws on whole pixels: the status strip, the page and the home strip fill its body, with the 8px ring around it",
+    "a phone's page sits in the phone the window draws on whole pixels: the status strip and the page fill its body, with no strip below and the 8px ring around it",
     framed === true,
     `${JSON.stringify(await frameNow())} view ${JSON.stringify(page.view.getBounds())}`,
   )
   const tinted = await until(async () => {
     const t = state().page.tint
-    return !!t && (await ui(`getComputedStyle(document.querySelector(".pf-status")).backgroundColor`)) === `rgb(${parseInt(t.top.slice(1, 3), 16)}, ${parseInt(t.top.slice(3, 5), 16)}, ${parseInt(t.top.slice(5, 7), 16)})`
+    return !!t && (await ui(`getComputedStyle(document.querySelector(".pf-status")).backgroundColor`)) === `rgb(${parseInt(t.slice(1, 3), 16)}, ${parseInt(t.slice(3, 5), 16)}, ${parseInt(t.slice(5, 7), 16)})`
   }, 3000)
   check("…its status strip in the colour main found for the page", tinted === true, `${JSON.stringify(state().page.tint)} ${await ui(`getComputedStyle(document.querySelector(".pf-status")).backgroundColor`)}`)
   win.setSize(1440, 900) // (headless: the view's renderer hears of its size with the window's)
   await sleep(200)
   win.setSize(1441, 900)
   check("and the page is laid out as a phone's", (await until(() => js("document.documentElement.clientWidth === 390"), 3000)) === true, String(await js("document.documentElement.clientWidth")))
+  // The page view runs to the screen's bottom edge and the window cannot draw over it: the
+  // screen's bottom corners are the overlay's, in the window's shape and colours there (its
+  // squircle, its ring, and what is around the phone). Compared with the window's own picture,
+  // pixel by pixel over both corners, in light and in dark: where the page shows ring or what is
+  // around, the window shows the same. Only what is outside the curve is compared: past the
+  // corner's circle by a tenth of its radius and a pixel, which a squircle's curve (8% further
+  // out across the diagonal) never reaches. (Inside it the page shows itself and the window
+  // what is behind the phone.) A circle for a squircle puts the ring 4 px off across the diagonal.
+  const corners = async () => {
+    const v = page.view.getBounds()
+    const r = parseFloat((await ui(`getComputedStyle(document.querySelector(".stage.phone .device-body")).borderTopLeftRadius`)) as string)
+    const [pageShot, winShot] = [await wc.capturePage(), await win.webContents.capturePage()]
+    const reader = (img: Electron.NativeImage, w: number) => {
+      const k = img.getSize().width / w
+      const b = img.toBitmap()
+      return (x: number, y: number) => {
+        const i = (Math.floor(y * k) * img.getSize().width + Math.floor(x * k)) * 4
+        return [b[i + 2]!, b[i + 1]!, b[i]!]
+      }
+    }
+    const pg = reader(pageShot, v.width)
+    const wn = reader(winShot, win.getContentBounds().width)
+    const near = (a: number[], b: number[], by: number) => a.every((n, i) => Math.abs(n - b[i]!) <= by)
+    const around = wn(v.x + 0.5, v.y + v.height - 0.5)
+    const ring = wn(v.x - 4, v.y + v.height - r - 4) // the ring's straight part, beside the page
+    let compared = 0
+    let off = 0
+    const offAt: string[] = []
+    for (const right of [false, true])
+      for (let dy = 0; dy < r; dy++)
+        for (let dx = 0; dx < r; dx++) {
+          // (dx, dy) from the view's bottom corner; the corner's circle is centred r in from both edges.
+          if (Math.hypot(r - dx - 0.5, r - dy - 0.5) < r * 1.1 + 1) continue
+          const x = (right ? v.width - 1 - dx : dx) + 0.5
+          const y = v.height - 1 - dy + 0.5
+          compared++
+          if (!near(pg(x, y), wn(v.x + x, v.y + y), 8)) off++, offAt.length < 8 && offAt.push(`${right ? "R" : "L"}${dx},${dy}:${pg(x, y)[0]}/${wn(v.x + x, v.y + y)[0]}`)
+        }
+    return { compared, off, ring, around, offAt }
+  }
+  const cornersMatch = async () => {
+    const c = await corners()
+    return c.compared > 100 && c.off <= c.compared * 0.03 && JSON.stringify(c.ring) !== JSON.stringify(c.around)
+  }
+  const lightCorners = await until(cornersMatch, 3000)
+  const lightSeen = await corners()
+  const dark = nativeTheme.shouldUseDarkColors
+  nativeTheme.themeSource = dark ? "light" : "dark"
+  const darkCorners = await until(async () => (await cornersMatch()) && JSON.stringify((await corners()).around) !== JSON.stringify(lightSeen.around), 3000)
+  const darkSeen = await corners()
+  nativeTheme.themeSource = "system"
+  await until(cornersMatch, 3000)
+  check(
+    "the page's bottom corners are drawn over it in the window's shape and colours there, so the screen is round: its ring, and what is around the phone, in light and dark",
+    lightCorners === true && darkCorners === true && JSON.stringify(lightSeen) !== JSON.stringify(darkSeen),
+    JSON.stringify({ lightSeen, darkSeen }),
+  )
   // A phone taller than its room is drawn smaller, whole: the page's own size is the phone's.
   // (The harness page has something wider than the phone, which a phone shows zoomed out to
   // fit: innerWidth is then that wider width, and the height in the phone's proportion to it.)

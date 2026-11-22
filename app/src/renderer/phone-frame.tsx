@@ -1,15 +1,17 @@
 // The phone the window draws around a phone's page: the status strip above it (the time, the
-// camera's cut-out, signal, wifi and battery) and the home strip below (the home indicator).
-// The page itself is a native view between the two (app.tsx lays the three out in the phone's
-// body, with the ring around it; phone.ts has the sizes). Nothing here can be over the page: the
-// view paints above this document, so the strips sit beside it, never on it.
+// camera's cut-out, signal, wifi and battery). The page itself is a native view below the strip,
+// down to the screen's bottom edge (app.tsx lays the two out in the phone's body, with the ring
+// around it; phone.ts has the sizes). Nothing here can be over the page: the view paints above
+// this document. So what of the phone is over the page (the home indicator, the screen's rounded
+// bottom corners) is drawn by the page's overlay, in the colours the window has around the
+// screen, which surroundOf reads and main passes on.
 //
-// Each strip is drawn at life size and zoomed to the size the phone is drawn, so a phone drawn at
-// 80% has its time at 80% too. Its colour is the page's own at that edge (page.tint, which main
-// asks the page for), its ink black or white by contrast, as a phone's browser colours its bars;
-// black with white ink until main knows.
+// The strip is drawn at life size and zoomed to the size the phone is drawn, so a phone drawn at
+// 80% has its time at 80% too. Its colour is what a phone's browser gives its status bar for the
+// page (page.tint, which main asks the page for), its ink black or white by contrast; black with
+// white ink until main knows.
 import { Show } from "solid-js"
-import type { Phone } from "../shared/types"
+import type { Phone, PhoneSurround } from "../shared/types"
 import { inkOn } from "./phone"
 import "./phone-frame.css"
 
@@ -72,19 +74,42 @@ export function StatusStrip(props: { phone: Phone; height: number; scale: number
   )
 }
 
-/** The strip below the page, with the home indicator (or an Android's gesture handle). None on a
- *  phone with a home button: its page goes down to the screen's edge. */
-export function HomeStrip(props: { phone: Phone; height: number; scale: number; tint?: string }) {
-  const tint = () => props.tint ?? UNKNOWN
-  return (
-    <Show when={props.height > 0}>
-      <div class="pf-home" data-cutout={props.phone.cutout} style={{ height: `${props.height}px`, background: tint(), color: inkOn(tint()) }} aria-hidden="true">
-        <div class="pf-in" style={{ width: `${props.phone.width}px`, height: `${props.phone.bottom}px`, zoom: props.scale }}>
-          <Show when={props.phone.home}>
-            <span class="pf-indicator" />
-          </Show>
-        </div>
-      </div>
-    </Show>
-  )
+/** What the window draws around the phone's screen: its corners' shape (the design system's
+ *  squircle), the body's ring (its outline, over what is behind the body) and what is behind it,
+ *  opaque, as "#rrggbb", in the theme on now. The page's overlay paints them outside the screen's
+ *  bottom corners, where the page view covers the window (setPhoneSurround). Undefined when the
+ *  body has no ring (not a phone's). */
+export function surroundOf(body: HTMLElement): PhoneSurround | undefined {
+  const ring = parseFloat(getComputedStyle(body).outlineWidth)
+  if (getComputedStyle(body).outlineStyle === "none" || !(ring > 0)) return undefined
+  const g = document.createElement("canvas").getContext("2d", { willReadFrequently: true })
+  if (!g) return undefined
+  g.canvas.width = g.canvas.height = 1
+  // What is behind the body, as the window composites it: each ancestor's background, from the
+  // first opaque one (or the window's own) in.
+  const layers: string[] = []
+  for (let el = body.parentElement; el; el = el.parentElement) {
+    const c = getComputedStyle(el).backgroundColor
+    layers.unshift(c)
+    if (alpha(g, c) >= 1) break
+  }
+  const hex = () => {
+    const d = g.getImageData(0, 0, 1, 1).data
+    return "#" + [d[0]!, d[1]!, d[2]!].map((n) => n.toString(16).padStart(2, "0")).join("")
+  }
+  g.fillStyle = "#ffffff" // kkrll-ignore: a window with no background of its own anywhere is white, as Chromium draws it
+  g.fillRect(0, 0, 1, 1)
+  for (const c of layers) (g.fillStyle = c), g.fillRect(0, 0, 1, 1)
+  const around = hex()
+  g.fillStyle = getComputedStyle(body).outlineColor
+  g.fillRect(0, 0, 1, 1)
+  return { shape: getComputedStyle(body).getPropertyValue("corner-shape") || "round", ring, ringColour: hex(), around }
+}
+
+/** How opaque a CSS colour is, 0 to 1, as the canvas reads it. */
+function alpha(g: CanvasRenderingContext2D, colour: string) {
+  g.clearRect(0, 0, 1, 1)
+  g.fillStyle = colour
+  g.fillRect(0, 0, 1, 1)
+  return g.getImageData(0, 0, 1, 1).data[3]! / 255
 }

@@ -81,6 +81,7 @@ export function testShell(dataDir: string, opts: { docks?: Pane[]; agent?: (comm
       touch = on
       stub.calls.push(["touch", on])
     },
+    setSurround: () => undefined,
     admitNote: () => void stub.calls.push(["admit", null]),
     send(msg) {
       stub.sent.push(msg)

@@ -17,7 +17,7 @@ import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
 import type { HostMessage, PageMessage } from "../../../overlay/protocol"
-import { PHONE, viewportOf, viewRadius, type Device, type Phone, type Rect } from "../shared/types"
+import { PHONE, phoneEdge, viewportOf, type Device, type Phone, type PhoneSurround, type Rect } from "../shared/types"
 import type { Frame } from "./images"
 
 export type PageState = {
@@ -33,8 +33,8 @@ export type PageState = {
   canGoBack: boolean
   canGoForward: boolean
   hmr: boolean
-  /** A phone's page: the colours of the strips above and below it (AppState's page.tint). */
-  tint?: { top: string; bottom: string }
+  /** A phone's page: the colour of the status bar above it (AppState's page.tint). */
+  tint?: string
 }
 
 /** overlay → host, as the overlay's protocol has it. What arrives is only known to have one of
@@ -58,6 +58,9 @@ export type Page = {
    *  off, the mouse is a mouse again (what the overlay's modes need). The page is not reloaded
    *  either way. */
   setTouch(on: boolean): void
+  /** What the window draws around a phone's screen, which the overlay paints in the screen's
+   *  bottom corners over the page (phoneEdge); undefined until the window says. */
+  setSurround(around: PhoneSurround | undefined): void
   /** host → overlay (window.__b42.receive). */
   send(msg: HostMessage): void
   /** The reviewer asked for a note outside this view: Send in a dock the window draws. The next
@@ -154,11 +157,18 @@ const HMR_PROBE = `!!(window.$RefreshReg$ || window.$RefreshHelpers$ || window._
   document.querySelector('script[src*="/@vite/client"],script[src*="react-refresh"],script[src*="webpack-hot"],script[src*="livereload"],nextjs-portal'))`
 
 const BUSY = "!!(window.__b42 && window.__b42.busy && window.__b42.busy())"
-/** The colours of a phone's strips for this page (PageState's tint), asked in the overlay's
- *  world: above, the page's theme-color (the first whose media matches), else the first opaque
- *  background at its top; below, the same at its bottom; else the page's canvas, white or, for
- *  a page that is dark by its color-scheme, Chromium's dark one. Any way CSS writes a colour is
- *  read by drawing it, and the overlay's own element is passed over. */
+/** The colour of a phone's status bar for this page (PageState's tint), asked in the overlay's
+ *  world. Its theme-color, the first whose media matches (Chrome on Android colours its bar so,
+ *  and Safari did until 26). Else what Safari 26 takes, which ignores theme-color: a bar fixed or
+ *  sticky across the page's top (at most 4 px down, 80% of the width at least, over 10 px tall),
+ *  its background made opaque; not what scrolls with the page, a hero or a header in the flow.
+ *  Else the page's background: the root's, else the body's (CSS gives the body's to the canvas
+ *  when the root has none), else the canvas, white or, for a page dark by its color-scheme,
+ *  Chromium's dark one. Any way CSS writes a colour is read by drawing it. (Safari 26's rules are
+ *  not Apple's documents but what was measured on iPhones: https://1ar.io/updates/safari-26-liquid-glass-web/,
+ *  https://hawkshift.com/research/ios-26-safari-status-bar,
+ *  https://arpit.blog/articles/2025/11/safari-drops-support-theme-color/.) The overlay's own
+ *  element takes no pointer, so no hit test finds it; it is passed over all the same. */
 const TINT_PROBE = `(() => {
   const g = new OffscreenCanvas(1, 1).getContext("2d", { willReadFrequently: true })
   const rgba = (c) => {
@@ -172,24 +182,27 @@ const TINT_PROBE = `(() => {
   }
   const hex = (c) => "#" + c.slice(0, 3).map((n) => n.toString(16).padStart(2, "0")).join("")
   const opaque = (c) => (c && c[3] >= 250 ? c : null)
+  const meta = [...document.querySelectorAll('meta[name="theme-color" i]')].find((m) => !m.media || matchMedia(m.media).matches)
+  const theme = opaque(rgba(meta && meta.content))
+  if (theme) return hex(theme)
+  for (const el of document.elementsFromPoint(innerWidth / 2, 2)) {
+    if (el.localName === "b42-review") continue
+    const s = getComputedStyle(el)
+    if (s.position !== "fixed" && s.position !== "sticky") continue
+    const r = el.getBoundingClientRect()
+    if (r.top > 4 || r.width < innerWidth * 0.8 || r.height <= 10) continue
+    // (Drawn opaque whatever its alpha; one with no colour of its own leaves it to the page's.)
+    const c = rgba(s.backgroundColor)
+    if (c && c[3] > 0) return hex(c)
+    break
+  }
   const root = document.documentElement
   const scheme = getComputedStyle(root).colorScheme
   const dark = /dark/.test(scheme) && (!/light/.test(scheme) || matchMedia("(prefers-color-scheme: dark)").matches)
-  const canvas = opaque(rgba(getComputedStyle(root).backgroundColor)) ?? (document.body && opaque(rgba(getComputedStyle(document.body).backgroundColor))) ?? (dark ? [18, 18, 18, 255] : [255, 255, 255, 255])
-  const at = (y) => {
-    for (const el of document.elementsFromPoint(innerWidth / 2, y)) {
-      if (el.localName === "b42-review") continue
-      const c = opaque(rgba(getComputedStyle(el).backgroundColor))
-      if (c) return c
-    }
-    return canvas
-  }
-  const meta = [...document.querySelectorAll('meta[name="theme-color" i]')].find((m) => !m.media || matchMedia(m.media).matches)
-  const theme = opaque(rgba(meta && meta.content))
-  return { top: hex(theme ?? at(0)), bottom: hex(at(innerHeight - 1)) }
+  return hex(opaque(rgba(getComputedStyle(root).backgroundColor)) ?? (document.body && opaque(rgba(getComputedStyle(document.body).backgroundColor))) ?? (dark ? [18, 18, 18, 255] : [255, 255, 255, 255]))
 })()`
-/** How long after a tap, a drag or the wheel the strips' colours are asked again (the page may
- *  have changed its theme, or scrolled another colour to its bottom). */
+/** How long after a tap, a drag or the wheel the status bar's colour is asked again (the page may
+ *  have changed its theme, or scrolled a bar of another colour to its top). */
 const TINT_AFTER_INPUT = 250
 /** The script world the overlay and window.__review live in, apart from the page's own: the one
  *  Electron runs a preload in when contextIsolation is on. */
@@ -435,10 +448,11 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   // another site starts a new one: asked for again once each navigation commits, which is before
   // the new document's first script runs.
   //
-  // The window draws the phone around the view: its body, the status strip above and the home
-  // strip below. The view is the part of the screen between them, as a phone's browser gives a
-  // page: `screen` is the whole screen, the viewport (innerHeight, 100vh) is the screen less the
-  // two strips (viewportOf).
+  // The window draws the phone around the view: its body and the status strip above. The view is
+  // the rest of the screen, down to its bottom edge, as iOS 26's Safari gives a page: `screen` is
+  // the whole screen, the viewport (innerHeight, 100vh) is the screen less the status bar
+  // (viewportOf). What of the phone is over the page there (the home indicator, the screen's
+  // rounded bottom corners) the window cannot draw: the overlay does (tellEdge, below).
   //
   // The page's viewport is the phone's screen whatever room the window has for it: a view
   // narrower than the phone (the window gives it the phone's shape, smaller, when the phone is
@@ -459,12 +473,13 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     return w > 0 && w < phone.width ? w / phone.width : 1
   }
   let fitted = 1
-  /** The view's corners: the pane's (inside its hairline), or, between a phone's strips, only as
-   *  round as keeps them inside the screen's corners the window draws (viewRadius), at the size
-   *  the phone is drawn. */
+  /** The view's corners: the pane's (inside its hairline), or a phone's, square: its top corners
+   *  are under the status strip, which is as tall as the screen's corners are round, and its
+   *  bottom ones are the overlay's to round (phoneEdge). One radius rounds all four: any would
+   *  show the window behind the page's top corners, below the strip. */
   const shape = () => {
     if (gone()) return
-    view.setBorderRadius(device === "phone" ? Math.round(viewRadius(phone) * fit()) : PAGE_RADIUS)
+    view.setBorderRadius(device === "phone" ? 0 : PAGE_RADIUS)
   }
   const emulate = () => {
     shape()
@@ -473,6 +488,27 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       fitted = fit()
       wc.enableDeviceEmulation({ screenPosition: "mobile", screenSize: { width: phone.width, height: phone.height }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: viewportOf(phone), scale: fitted })
     } else wc.disableDeviceEmulation()
+    tellEdge()
+  }
+
+  // ── what of the phone is over its page: the overlay draws it ─────────────────────────────────
+  // The home indicator and the screen's two bottom corners, over the page, in the colours the
+  // window has around the screen (setSurround, from the window): PhoneEdge in overlay/protocol.ts,
+  // at the size the page is drawn. Told to each new document's overlay (its "ready"), and again
+  // when the phone, its size or those colours change; null to a desktop's page. Leaving
+  // env(safe-area-inset-bottom) at 0: Chromium can set it (Emulation.setSafeAreaInsetsOverride),
+  // but only over the debugger, which is attached for the finger in Preview alone, and a page
+  // given 34 there without viewport-fit=cover would be given what Safari gives it only with it.
+  let surround: PhoneSurround | undefined
+  /** What the overlay of this document was last told, as JSON ("" for nothing yet). */
+  let edgeSaid = ""
+  function tellEdge() {
+    if (gone() || !committed || wc.isCrashed()) return
+    const edge = device === "phone" ? phoneEdge(phone, fitted, surround) : null
+    const said = JSON.stringify(edge)
+    if (said === edgeSaid) return
+    edgeSaid = said
+    send({ type: "device", phone: edge })
   }
   each((w) => w.on("did-navigate", mine(w, () => {
     committed = true
@@ -526,20 +562,20 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     d.sendCommand("Emulation.setEmitTouchEventsForMouse", touch ? { enabled: true, configuration: "mobile" } : { enabled: false }).catch(failed)
   }
 
-  // ── the strips' colours (a phone's page) ─────────────────────────────────────────────────────
-  // A phone's browser colours its status bar for the page: by its theme-color, or by what is at
-  // its top. Asked once a load is done (and once more a moment later, as the HMR probe looks
-  // twice), after a move within the page, a tap, a drag or the wheel (debounced), and when the
-  // system's theme changes. Only as a phone's: a desktop's page has no strips.
+  // ── the status bar's colour (a phone's page) ─────────────────────────────────────────────────
+  // A phone's browser colours its status bar for the page: by its theme-color, else by a bar
+  // fixed across its top, else by its background (TINT_PROBE). Asked once a load is done (and
+  // once more a moment later, as the HMR probe looks twice), after a move within the page, a
+  // tap, a drag or the wheel (debounced), and when the system's theme changes (a theme-color
+  // for dark, a page's own dark colours). Only as a phone's: a desktop's page has no status bar.
   let tint: PageState["tint"]
   let tintTimer: ReturnType<typeof setTimeout> | undefined
   async function probeTint() {
     if (gone() || device !== "phone" || !committed || wc.isCrashed() || internal(wc.getURL())) return
     const at = wc.getURL()
-    const found = (await wc.executeJavaScriptInIsolatedWorld(WORLD, [{ code: TINT_PROBE }]).catch(() => undefined)) as PageState["tint"] | undefined
-    if (gone() || wc.getURL() !== at || !found || typeof found.top !== "string" || typeof found.bottom !== "string") return
-    if (tint?.top === found.top && tint.bottom === found.bottom) return
-    tint = { top: found.top, bottom: found.bottom }
+    const found = (await wc.executeJavaScriptInIsolatedWorld(WORLD, [{ code: TINT_PROBE }]).catch(() => undefined)) as unknown
+    if (gone() || wc.getURL() !== at || typeof found !== "string" || !/^#[0-9a-f]{6}$/.test(found) || found === tint) return
+    tint = found
     opts.onChange()
   }
   const tintSoon = () => {
@@ -604,6 +640,11 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       opts.onMessage(msg as PageMessage)
     } catch (err) {
       log("error", "page: handling an overlay message failed", { type: (msg as PageMessage).type, error: String(err) })
+    }
+    // A new document's overlay knows nothing of the phone yet.
+    if ((msg as PageMessage).type === "ready") {
+      edgeSaid = ""
+      tellEdge()
     }
   })))
   // A preload that fails (a missing file, an error in it) leaves the page without the overlay.
@@ -1071,6 +1112,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     committed = false
     fitted = 1
     tint = undefined
+    edgeSaid = ""
     attachedTo = touchedIn = undefined
     overlayError = undefined
     clearTimeout(probeTimer)
@@ -1114,6 +1156,10 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       if (on === touch) return
       touch = on
       applyTouch()
+    },
+    setSurround(around) {
+      surround = around
+      tellEdge()
     },
     send,
     admitNote() {

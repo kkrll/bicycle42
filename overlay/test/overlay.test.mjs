@@ -324,15 +324,23 @@ test("mod+U inside the page is Preview, and again goes back; mod+I from Preview 
   await page.close();
 });
 
-test("alt+A held hides the layer and lets hover through; the note, its focus and the mode stay; letting go of either key, or the window's focus, brings it back", async () => {
+test("alt+A held hides the layer and lets hover through; the note, its focus and the mode stay; letting go of either key, or the window's focus, brings it back; a phone's home indicator stays", async () => {
   const { page, f } = await open();
+  // The page as a phone's: what of the phone is over it is the phone, not the layer.
+  await f.evaluate(() => window.__b42.receive({ type: "device", phone: { radius: 40, ring: 8, ringColour: "#dddddd", around: "#f5f5f5", home: { width: 134, height: 5, bottom: 8 } } }));
   await clickAt(page, f, "#cta"); // focus lands in the card
   await page.keyboard.type("bigger");
   const layer = () =>
     shadow(f, () => {
       const host = document.querySelector("b42-review");
       const ta = host.shadowRoot.querySelector("textarea");
-      return { opacity: getComputedStyle(host).opacity, text: ta.value, focused: host.shadowRoot.activeElement === ta };
+      // (The layer's own elements go transparent, not its element: the phone's stay.)
+      return { opacity: getComputedStyle(host.shadowRoot.querySelector(".card")).opacity, text: ta.value, focused: host.shadowRoot.activeElement === ta };
+    });
+  const phone = () =>
+    shadow(f, () => {
+      const d = document.querySelector("b42-review").shadowRoot.querySelector(".device");
+      return !d.hidden && getComputedStyle(d).opacity === "1" && getComputedStyle(document.querySelector("b42-review")).opacity === "1" && [...d.children].every((c) => getComputedStyle(c).display === "block");
     });
   await f.evaluate(() => {
     window.peekHovers = 0;
@@ -342,6 +350,7 @@ test("alt+A held hides the layer and lets hover through; the note, its focus and
   await page.keyboard.down("Alt");
   await page.keyboard.down("KeyA");
   assert.deepEqual(await layer(), { opacity: "0", text: "bigger", focused: true });
+  assert.equal(await phone(), true, "the home indicator and the corners stay");
   await page.keyboard.press("KeyX"); // typed out of sight: nowhere
   const [x, y] = center(await box(f, "#menu"));
   await page.mouse.move(x, y, { steps: 3 });
@@ -379,7 +388,7 @@ test("alt+A held in edit mode, with the page focused: letting go brings the laye
   await page.keyboard.press(`${MOD}+KeyO`);
   await page.waitForFunction(() => window.__harness.mode === "canvas");
   await clickAt(page, f, "#cta");
-  const opacity = () => shadow(f, () => getComputedStyle(document.querySelector("b42-review")).opacity);
+  const opacity = () => shadow(f, () => getComputedStyle(document.querySelector("b42-review").shadowRoot.querySelector(".boxes")).opacity);
   for (const last of ["KeyA", "Alt"]) {
     await page.keyboard.down("Alt");
     await page.keyboard.down("KeyA");

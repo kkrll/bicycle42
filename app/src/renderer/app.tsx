@@ -15,7 +15,7 @@ import { copyText } from "./copy"
 import { ConnectScreen, ModelScreen, ServerButton, SettingsDialog, SetupSteps, firstRunConnecting } from "./connect"
 import { Icon, Kbd, type IconName } from "./icons"
 import { frameOf } from "./phone"
-import { HomeStrip, StatusStrip } from "./phone-frame"
+import { StatusStrip, surroundOf } from "./phone-frame"
 import { KeysSheet } from "./keys-sheet"
 import { Switcher } from "./switcher"
 import { Panel, RepoScreen, countNotes, countWords, shortWords } from "./panel"
@@ -862,6 +862,27 @@ export function App() {
     phone()
     schedule()
   })
+  // What the window draws around a phone's screen, which the page's overlay paints in the
+  // screen's bottom corners (the page view covers the window there): said to main once the
+  // phone is drawn, and again when the theme changes (main.tsx's class is on by then).
+  const [theme, setTheme] = createSignal(0)
+  onMount(() => {
+    const dark = matchMedia("(prefers-color-scheme: dark)")
+    const changed = () => setTheme((n) => n + 1)
+    dark.addEventListener("change", changed)
+    onCleanup(() => dark.removeEventListener("change", changed))
+  })
+  let surroundSaid = ""
+  createEffect(() => {
+    theme()
+    if (!phone()) return
+    requestAnimationFrame(() => {
+      const around = phone() ? surroundOf(bodyEl) : undefined
+      if (!around || JSON.stringify(around) === surroundSaid) return
+      surroundSaid = JSON.stringify(around)
+      act("setPhoneSurround", around)
+    })
+  })
 
   // ── panel ──
   const togglePanel = () => {
@@ -1173,21 +1194,19 @@ export function App() {
             <PhonePick fit={drawn().scale} />
           </div>
         </Show>
-        {/* A phone's body: the status strip, the page's box and the home strip, with the ring
-            around it (phone-frame.tsx). A desktop's page has none: the wrapper makes no box. */}
+        {/* A phone's body: the status strip and the page's box, down to its bottom edge, with the
+            ring around it (phone-frame.tsx). A desktop's page has none: the wrapper makes no box. */}
         <div class="device-body" ref={bodyEl}>
         <Show when={phone()}>
-          <StatusStrip phone={phoneOf(state.page.phone)} height={drawn().top} scale={drawn().scale} tint={state.page.tint?.top} />
+          <StatusStrip phone={phoneOf(state.page.phone)} height={drawn().top} scale={drawn().scale} tint={state.page.tint} />
         </Show>
         {/* While a dialog is open or an edge is dragged the page view is away: its picture as it was
             stands in for it (the still, above), on a quiet surface, so the window does not go
-            blank. Behind a phone's page, the strips' colours, which show in the corners it rounds
-            to stay inside the screen's. */}
+            blank. */}
         <div
           class="page"
           ref={pageEl}
           classList={{ veiled: veiled() }}
-          style={phone() && state.page.tint && !loadFailed() ? { "--tint-top": state.page.tint.top, "--tint-bottom": state.page.tint.bottom } : {}}
         >
           <Show when={still()}>
             {(s) => <img class="page-still" src={s().url} alt="" aria-hidden="true" style={{ width: `${s().width}px`, height: `${s().height}px` }} />}
@@ -1264,9 +1283,6 @@ export function App() {
             </div>
           </Show>
         </div>
-        <Show when={phone()}>
-          <HomeStrip phone={phoneOf(state.page.phone)} height={drawn().bottom} scale={drawn().scale} tint={state.page.tint?.bottom} />
-        </Show>
         </div>
         </div>
         {/* The column at a phone's right, in every mode: its left edge, as the panel's right one. */}

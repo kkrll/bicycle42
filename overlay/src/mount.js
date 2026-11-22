@@ -10,12 +10,15 @@ import { hostMode, retellMode } from "./mode.js";
 import { hostAct, setHosted } from "./panel.js";
 import { blockIfActive, endPeek, isOurs, LEFT_FOR_US, leftForUs, onKeyDown, onKeyUp, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, OURS_ONLY, oursOnly, setEnabled, setPins } from "./input.js";
 import { active, kick, moved } from "./render.js";
+import { setDevice } from "./device.js";
 import STYLES from "./styles.css"; // its text: the build loads a stylesheet as a string
 
 // ── mount ───────────────────────────────────────────────────────────────────────────────────
 // The layer's own elements, made by mount(). A file can only assign what it declares, so they
 // are here and not with the rest of the state; every other file reads them.
 export let hostEl, root, boxes, pinsEl, cursorStyle, tip, variantsEl, variantStyle;
+// The phone over a phone's page (device.js): first in the layer, so all the layer's own is drawn over it.
+export let deviceEl;
 // Outlines that move with the page and not with the window: a second element of the layer's, in
 // the document's flow (absolute at its origin, not fixed, not in the top layer), so the compositor
 // scrolls them with what they outline in the same frame. Put in the document the first time it
@@ -69,12 +72,14 @@ function mount() {
   window.addEventListener("blur", (e) => e.target === window && endPeek());
   document.addEventListener("visibilitychange", endPeek);
   root.innerHTML = `<style>${STYLES}</style>
+    <div class="device" hidden><i class="dv-screen"></i><i class="dv-home"></i></div>
     ${Notes.inkHtml}
     <div class="boxes"></div><div class="pins"></div>
     ${Notes.cardHtml}
     <div class="variants"></div><div class="tip" hidden></div><div class="sent" hidden></div>
     ${Canvas.html}
     <div class="m-tag" hidden></div>`;
+  deviceEl = root.querySelector(".device");
   boxes = root.querySelector(".boxes");
   docHost = document.createElement("b42-marks");
   docHost.setAttribute("style", "all:initial;position:absolute;left:0;top:0;width:0;height:0;overflow:visible;z-index:2147483647;pointer-events:none;display:block");
@@ -191,6 +196,9 @@ window.__b42 = {
         break;
       case "panel":
         hostAct(msg);
+        break;
+      case "device":
+        setDevice(msg.phone);
         break;
     }
   },

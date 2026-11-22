@@ -135,9 +135,10 @@ function startPeek() {
   if (S.peek || S.drag || Canvas.dragging() || Motion.busy()) return;
   S.peek = true;
   S.hover = null;
-  hostEl.toggleAttribute("data-peek", true); // the layer's own elements let the pointer through (styles.css)
-  hostEl.style.setProperty("opacity", "0", "important"); // (inline, over the element's all:initial)
-  docHost.style.setProperty("opacity", "0", "important");
+  // The layer's own elements are transparent and let the pointer through (styles.css); the phone
+  // over a phone's page stays, since it is the phone (device.js).
+  hostEl.toggleAttribute("data-peek", true);
+  docHost.style.setProperty("opacity", "0", "important"); // (inline, over the element's all:initial)
   hideTip();
 }
 
@@ -145,7 +146,6 @@ export function endPeek() {
   if (!S.peek) return;
   S.peek = false;
   hostEl.toggleAttribute("data-peek", false);
-  hostEl.style.removeProperty("opacity");
   docHost.style.removeProperty("opacity");
   kick();
 }

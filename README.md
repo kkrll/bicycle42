@@ -161,10 +161,12 @@ what moves on the page, change one animation, then send it), with **Draw** (the 
 them. In a narrow window the address gives up its width first; past that, each mode's name goes
 under its icon. Beside the address, **Desktop | Phone** shows the page as wide as its pane or as a phone
 has it; which phone (iPhone SE to iPhone 18 Pro Max, a Pixel, a Galaxy) is the list above the
-page. The window draws the phone around the page: its screen's shape with a faint ring, the
+page. The window draws the phone around the page: its screen's shape with a faint ring and the
 status bar above (the time, the camera's island, notch or hole, signal and battery, in the page's
-own colour) and the home indicator below. The page gets what a phone's browser gives it, the
-screen less those two bars. In Preview the mouse acts as a finger: no hover, taps, a coarse
+theme-color, else its background, with black or white ink). The page runs to the screen's bottom
+edge, as in iOS 26's Safari, and gets the screen less the status bar; the home indicator (dark on
+a light page, light on a dark one) and the screen's rounded bottom corners are drawn over it, in
+every mode and in no note's picture. In Preview the mouse acts as a finger: no hover, taps, a coarse
 pointer; in the other modes it is a mouse again. A phone taller than the window is drawn smaller,
 whole, and still laid out at its real size. The notes and the conversation are at the window's left; a phone's page sits next to
 them, with the mode's panel on its right: Edit's inspector, Motion's animations, and in Preview
