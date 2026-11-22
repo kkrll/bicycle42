@@ -25,7 +25,7 @@ test("a note's pictures are saved, read back and dropped; the id never becomes a
     await shots.drop(id)
     assert.deepEqual(await shots.read(id), {})
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true })
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
@@ -43,6 +43,6 @@ test("a picture dropped while it is being written stays dropped; its bytes are t
     assert.deepEqual(fs.readdirSync(path.join(dir, "shots")), [])
     assert.equal(await shots.bytes("n1", "after"), undefined)
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true })
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })

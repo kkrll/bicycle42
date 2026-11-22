@@ -8,7 +8,7 @@ import { createOutbox } from "../src/main/outbox"
 
 test("the outbox writes in the order asked: a read waits for the write before it, a drop wins over a write under way", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bicycle42-outbox-"))
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const outbox = createOutbox(dir)
   const payload = { text: "UI review note 1", files: [{ name: "note-1.jpg", uri: "data:image/jpeg;base64,QUJD" }] }
   const first = outbox.save("../n1", payload)
@@ -30,7 +30,7 @@ test("the outbox writes in the order asked: a read waits for the write before it
 
 test("an outbox that can't be written says false and keeps going", async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bicycle42-outbox-"))
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   fs.writeFileSync(path.join(dir, "outbox"), "in the way")
   const said: string[] = []
   const outbox = createOutbox(dir, (_level, msg) => void said.push(msg))

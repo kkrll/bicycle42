@@ -248,7 +248,7 @@ test("the helper not starting is said with its code and a sentence, never node's
     })
   } finally {
     await deep.end()
-    fs.rmSync(path.join(os.tmpdir(), `b42-long-${"x".repeat(60)}`), { recursive: true, force: true })
+    fs.rmSync(path.join(os.tmpdir(), `b42-long-${"x".repeat(60)}`), { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 

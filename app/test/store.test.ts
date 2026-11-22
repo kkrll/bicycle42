@@ -13,7 +13,7 @@ type Logged = { level: string; msg: string; data?: unknown }
 
 function setup(t: { after(fn: () => void): void }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bicycle42-store-"))
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
   const logs: Logged[] = []
   const log = (level: string, msg: string, data?: unknown) => void logs.push({ level, msg, data })
   // A long debounce, so nothing reaches the disk in a test unless the test says so.

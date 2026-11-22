@@ -64,7 +64,7 @@ export function fakeHost(o: { under?: string } = {}): FakeHost {
           process.kill(Number(fs.readFileSync(path.join(root, "forwards", f), "utf8")))
         } catch {}
       }
-      fs.rmSync(root, { recursive: true, force: true })
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     },
   }
 }

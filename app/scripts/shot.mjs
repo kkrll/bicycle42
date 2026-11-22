@@ -9,6 +9,7 @@ import { app, BrowserWindow, nativeTheme } from "electron"
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { heavyLock } from "./heavy-lock.mjs"
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..")
 const page = path.join(root, "dist/renderer/index.html")
@@ -292,6 +293,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 app.on("window-all-closed", () => {})
 
 app.whenReady().then(async () => {
+  await heavyLock("screenshots")
   fs.mkdirSync(out, { recursive: true })
   const only = process.argv.slice(2).filter((a) => !a.startsWith("-") && !a.endsWith("shot.mjs"))
   const shots = only.length ? SHOTS.filter((s) => only.includes(s.name)) : SHOTS

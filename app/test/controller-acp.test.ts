@@ -78,8 +78,8 @@ function boot() {
     async close() {
       for (const s of shells) await s.core.dispose()
       Object.assign(console, quiet)
-      fs.rmSync(dir, { recursive: true, force: true })
-      fs.rmSync(repo, { recursive: true, force: true })
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+      fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     },
   }
 }

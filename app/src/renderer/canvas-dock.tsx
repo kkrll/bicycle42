@@ -154,12 +154,15 @@ export function CanvasDock() {
   const viewText = (k: TextKind) => (k === "classes" ? view()?.classes.text : view()?.[k].text) ?? ""
   const shown = (k: TextKind) => local[k] ?? viewText(k)
   const settle: Record<TextKind, number> = { classes: 0, css: 0, sheet: 0 }
+  /** The value last sent live (a step, a value shown from the list): the page has it already. */
+  let liveSent: { id: number; prop: string; value: string } | null = null
   createEffect(() => {
     for (const k of ["classes", "css", "sheet"] as const) if (!editing[k] && local[k] !== null && local[k] === viewText(k)) setLocal(k, null)
   })
   // Undo, redo, a value set, a drag on the page: the batch's text wins, typed or not.
   // (A value just written from the computed list is shown as written until the view has it.)
   createEffect(on(() => view()?.force, () => batch(() => {
+    liveSent = null
     setLocal({ classes: null, css: null, sheet: null })
     setVal((v) => (v?.until ? v : null))
   }), { defer: true }))
@@ -195,6 +198,7 @@ export function CanvasDock() {
   const [val, setVal] = createSignal<{ prop: string; text: string; until?: number } | null>(null)
   const [bad, setBad] = createStore<Record<string, string>>({})
   createEffect(on(() => sel()?.id, () => batch(() => {
+    liveSent = null
     setVal(null)
     setBad(Object.fromEntries(Object.keys(bad).map((k) => [k, undefined as unknown as string])))
   }), { defer: true }))
@@ -240,6 +244,20 @@ export function CanvasDock() {
     if (!supports(row.prop, v)) return void setBad(row.prop, v)
     if (bad[row.prop] !== undefined) setBad(row.prop, undefined as unknown as string)
     send({ type: "value", id: sel()!.id, prop: row.prop, value: v, live: true, ...(hold ? { hold: true } : {}) })
+    liveSent = { id: sel()!.id, prop: row.prop, value: v }
+  }
+  /** A computed row's field left with a value typed or stepped in it: written, unless it is the one
+   *  just sent live, whose step then closes. (Not sent again: a value set makes the overlay put the
+   *  batch's text into every field, and the view, still behind, would say the page has the old
+   *  value. What the next field was given meanwhile, typing in Element styles, would be lost.) */
+  function leaveValue(row: CanvasComputed, text: string) {
+    const v = oneLine(clean(text)), s = liveSent
+    if (s && s.id === sel()?.id && s.prop === row.prop && s.value === v) {
+      liveSent = null
+      send({ type: "commit" })
+      return void written(row.prop, v)
+    }
+    setValue(row, text)
   }
   const rowOf = (prop: string) => view()?.computed.find((r) => r.prop === prop)
 
@@ -669,7 +687,7 @@ export function CanvasDock() {
       } else if (valueRow && f) {
         e.preventDefault()
         const row = rowOf(valueRow)
-        if (row) setValue(row, f.value)
+        if (row) leaveValue(row, f.value)
       } else if (!f && !t.closest("button")) {
         e.preventDefault()
         send({ type: "step", ...(e.shiftKey ? { out: true } : {}) })
@@ -684,6 +702,7 @@ export function CanvasDock() {
     if (modKey(e) && !e.altKey && e.key.toLowerCase() === "z") {
       e.preventDefault()
       send({ type: e.shiftKey ? "redo" : "undo" })
+      liveSent = null
       if (valueRow) {
         // The field shows what the page has after it, not the text just taken back.
         setVal(null)
@@ -1153,7 +1172,7 @@ export function CanvasDock() {
                           if (live) send({ type: "commit" })
                         }
                         const v = val()
-                        if (v && v.prop === row().prop && !v.until) setValue(row(), e.currentTarget.value)
+                        if (v && v.prop === row().prop && !v.until) leaveValue(row(), e.currentTarget.value)
                       }}
                     />
                     <Show when={row().tokens}>

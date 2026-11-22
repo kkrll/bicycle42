@@ -516,7 +516,7 @@ test("a take-back with an agent on another computer never touches this computer'
     assert.equal(fs.existsSync(path.join(t.h.data, "snapshots")), false)
   } finally {
     await t.close()
-    fs.rmSync(base, { recursive: true, force: true })
+    fs.rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
 })
 
