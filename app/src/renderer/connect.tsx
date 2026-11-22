@@ -63,7 +63,7 @@ function ServerName(props: { url: string; version: string }) {
               {`${state.harness?.host ? `On ${state.harness.host}, over ssh and ACP` : "On this computer, over ACP"} · ${props.version}`}
             </span>
             <button class="text-btn" data-action="rename-server" onClick={() => setEditing(true)}>
-              {state.serverName ? "Rename" : "Name it"}
+              {state.serverName ? "Rename agent" : "Name agent"}
             </button>
           </>
         }
@@ -790,7 +790,6 @@ export function SettingsDialog(props: { onClose: () => void }) {
             <p class="dialog-status">
               <span>
                 Default model: {defaultName()}
-                <span class="dialog-sub">Used for new conversations</span>
               </span>
             </p>
             <button class="btn" data-action="default-model" aria-expanded={choosing()} onClick={() => setChoosing(!choosing())}>

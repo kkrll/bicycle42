@@ -166,11 +166,11 @@ export function FactsPane() {
           </Show>
         </div>
       </div>
-      {/* The two keys worth knowing while annotating. In Preview there is no layer to look
-          under and nothing to draw on: no line. */}
+      {/* The one key worth knowing while annotating that no control shows (Draw is in the top
+          bar, its key in its hint). In Preview there is no layer to look under: no line. */}
       <Show when={state.review.enabled}>
         <footer class="fp-foot">
-          Hold <Kbd keys={keys("alt", "A")} /> to look under the layer · <Kbd keys={keys("mod", "shift", "P")} /> to draw
+          Hold <Kbd keys={keys("alt", "A")} /> to look under the layer
         </footer>
       </Show>
     </section>
