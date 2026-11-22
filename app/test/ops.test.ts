@@ -19,7 +19,7 @@ import { opsOf } from "../src/main/ops"
 import { createSnapshots, EMPTY_TREE, Refused } from "../src/main/snapshots"
 import { connectSsh, type RemoteMachine } from "../src/main/ssh"
 import { vcs } from "../src/main/vcs"
-import { fakeHost, sleep } from "./ssh-fixture"
+import { fakeHost, sleep, until } from "./ssh-fixture"
 
 const write = (dir: string, file: string, body: string) => {
   fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true })
@@ -51,7 +51,7 @@ test("over ssh, each operation on a folder is one call to the helper, and answer
       // waited for.
       const first = await sn.snapshot(dir)
       await sn.idle()
-      assert.deepEqual(c.take(), ["ops.snapshot", "ops.readLog", "ops.writeLog", "ops.keep"])
+      assert.deepEqual(c.take(), ["ops.snapshot", "ops.readLog", "ops.editLog", "ops.keep"])
       // The next run's first: the snapshot, and the log read (pruned today: nothing more).
       sn = createSnapshots(h.data, { shadows: opsOf(m).shadows(root) })
       assert.equal(await sn.snapshot(dir), first)
@@ -65,7 +65,7 @@ test("over ssh, each operation on a folder is one call to the helper, and answer
       const after = (await sn.snapshot(dir))!
       assert.deepEqual(c.take(), ["ops.snapshot", "ops.snapshot"])
       const turn = await sn.addTurn(dir, { session: "s", start, before, after, messages: ["m"] })
-      assert.deepEqual(c.take(), ["ops.writeLog"])
+      assert.deepEqual(c.take(), ["ops.editLog"])
       // The diff is the one this computer's snapshots give of the same folder.
       const diff = await sn.diff(dir, before, after)
       const here = createSnapshots(fs.mkdtempSync(path.join(os.tmpdir(), "b42-ops-here-")))
@@ -181,6 +181,12 @@ test("the helper checks the params of the work it does: a root that is not a ful
     ["ops.reverse", { root, dir, turns: [], was: { from: "a", to: "b" } }, /was must be \{from, to, files\}/],
     ["ops.keep", { root, dir, trees: "all" }, /trees must be a list of strings/],
     ["ops.vcs", { dir, max: -1 }, /max must be a whole number/],
+    ["ops.editLog", { root, dir, edit: { op: "rewrite", text: "{}" } }, /edit must be addTurn, addRestore, updateRestore or prune/],
+    ["ops.editLog", { root, dir, edit: { op: "addTurn", turn: { id: "t", session: "s", before: "a", after: "b", messages: [] } } }, /addTurn's turn must be/],
+    ["ops.editLog", { root, dir, edit: { op: "updateRestore", id: "r", change: { from: "x" } } }, /may say only told/],
+    ["ops.takeBack", { root, dir, turns: [], restore: { id: "r", session: "s" } }, /takeBack: restore must be \{id, session, time, turns, notes, told\?\}/],
+    ["ops.bringBack", { root, dir, restore: { id: "r" } }, /bringBack: restore must be \{id, from, to\}/],
+    ["ops.writeLog", { root, dir, text: "{}" }, /no such call/],
     ["ops.nope", {}, /no such call/],
   ]
   for (const [method, params, want] of cases) {
@@ -192,4 +198,130 @@ test("the helper checks the params of the work it does: a root that is not a ful
   assert.match(String((await ask("ops.snapshot", { root, dir })).result), /^[0-9a-f]{40}$/)
   assert.equal((await ask("ops.readLog", { root, dir })).result, null)
   h.detach(c)
+})
+
+const logOf = (root: string) => JSON.parse(fs.readFileSync(path.join(root, fs.readdirSync(root).find((d) => d.endsWith(".git"))!, "b42.json"), "utf8")) as { turns: Array<{ messages: string[] }>; restores: unknown[] }
+
+test("over ssh, a log that can't be read now (the link is down) is never taken for an empty one, nor written over: the next change adds to what is there", async () => {
+  const h = fakeHost()
+  try {
+    const m = await connectSsh({ host: "dev-box", dataDir: h.data })
+    try {
+      const root = path.join(h.home, ".bicycle42", "snapshots", "own")
+      const dir = path.join(h.home, "work")
+      write(dir, "a.css", "a\n")
+      let sn = createSnapshots(h.data, { shadows: opsOf(m).shadows(root) })
+      const t0 = (await sn.snapshot(dir))!
+      write(dir, "a.css", "b\n")
+      const t1 = (await sn.snapshot(dir))!
+      const one = await sn.addTurn(dir, { session: "s", start: Date.now(), before: t0, after: t1, messages: ["m1"] })
+      await sn.addTurn(dir, { session: "s", start: Date.now(), before: t1, after: t1, messages: ["m2"] })
+      await sn.addRestore(dir, { session: "s", time: Date.now(), turns: [one.id], from: t1, to: t0, notes: ["n1"] })
+      await sn.idle()
+      // The app's next run reads the log first while the computer can't be reached.
+      sn = createSnapshots(h.data, { shadows: opsOf(m).shadows(root) })
+      h.drop()
+      await until(() => m.reach().status === "down")
+      await assert.rejects(sn.history(dir), /Can't reach dev-box/)
+      h.up()
+      m.retry()
+      await until(() => m.reach().status === "up")
+      // Read again, whole; and a change adds to it.
+      assert.deepEqual((await sn.history(dir)).turns.map((t) => t.messages[0]), ["m1", "m2"])
+      await sn.addTurn(dir, { session: "s", start: Date.now(), before: t1, after: t1, messages: ["m3"] })
+      assert.deepEqual([logOf(root).turns.map((t) => t.messages[0]), logOf(root).restores.length], [["m1", "m2", "m3"], 1])
+      await sn.idle()
+    } finally {
+      await m.close()
+    }
+  } finally {
+    await h.end()
+  }
+})
+
+test("over ssh, one install connected to one computer two ways (dev-box, k@dev-box): each adds to the log the other wrote", async () => {
+  const h = fakeHost()
+  try {
+    const m1 = await connectSsh({ host: "dev-box", dataDir: h.data })
+    const m2 = await connectSsh({ host: "k@dev-box", dataDir: h.data })
+    try {
+      const root = path.join(h.home, ".bicycle42", "snapshots", m1.owner)
+      const dir = path.join(h.home, "work")
+      write(dir, "a.css", "a\n")
+      const s1 = createSnapshots(h.data, { shadows: opsOf(m1).shadows(root) })
+      const s2 = createSnapshots(h.data, { shadows: opsOf(m2).shadows(root) })
+      const t0 = (await s1.snapshot(dir))!
+      await s1.addTurn(dir, { session: "s", start: Date.now(), before: t0, after: t0, messages: ["by dev-box 1"] })
+      await s2.snapshot(dir)
+      await s2.addTurn(dir, { session: "s", start: Date.now(), before: t0, after: t0, messages: ["by k@dev-box"] })
+      await s1.addTurn(dir, { session: "s", start: Date.now(), before: t0, after: t0, messages: ["by dev-box 2"] })
+      await Promise.all([s1.idle(), s2.idle()])
+      assert.deepEqual(logOf(root).turns.map((t) => t.messages[0]), ["by dev-box 1", "by k@dev-box", "by dev-box 2"])
+      // And each keeps the log as its last change left it there.
+      assert.equal((await s1.history(dir)).turns.length, 3)
+    } finally {
+      await m1.close()
+      await m2.close()
+    }
+  } finally {
+    await h.end()
+  }
+})
+
+test("on this computer, a log that can't be read rejects (never read as empty), and one that is not JSON is moved aside before a change", async () => {
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), "b42-ops-log-"))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b42-ops-logdir-"))
+  write(dir, "a.css", "a\n")
+  const sn = createSnapshots(data)
+  const t0 = (await sn.snapshot(dir))!
+  await sn.addTurn(dir, { session: "s", start: Date.now(), before: t0, after: t0, messages: ["m1"] })
+  await sn.idle()
+  const shadow = path.join(data, "snapshots", fs.readdirSync(path.join(data, "snapshots"))[0]!)
+  const file = path.join(shadow, "b42.json")
+  // Not readable: rejects, and is not kept as an empty log.
+  fs.renameSync(file, `${file}.real`)
+  fs.mkdirSync(file)
+  const again = createSnapshots(data)
+  await assert.rejects(again.history(dir), /EISDIR/)
+  fs.rmdirSync(file)
+  fs.renameSync(`${file}.real`, file)
+  assert.deepEqual((await again.history(dir)).turns.map((t) => t.messages[0]), ["m1"])
+  // Not JSON: read as empty, and kept aside when the next change is written.
+  fs.writeFileSync(file, "{ not json")
+  const third = createSnapshots(data)
+  assert.deepEqual((await third.history(dir)).turns, [])
+  await third.addTurn(dir, { session: "s", start: Date.now(), before: t0, after: t0, messages: ["m2"] })
+  assert.ok(fs.readdirSync(shadow).some((f) => f.startsWith("b42.json.unreadable-")))
+  await third.idle()
+})
+
+test("over ssh, a turn whose patch is more than the app holds (a large file) is not taken back by it, with a sentence, and the helper and its agents stay", { timeout: 120_000 }, async () => {
+  const h = fakeHost()
+  // 64 MiB unless said: here 1 MiB and a file of 2 (the review's probe had 70 MB, and the helper
+  // held the whole patch), so the test does not weigh on the others beside it.
+  process.env.B42_GIT_MAX = String(1024 * 1024)
+  try {
+    const m = await connectSsh({ host: "dev-box", dataDir: h.data })
+    try {
+      const dir = path.join(h.home, "work")
+      write(dir, "a.css", "a\n")
+      const sn = createSnapshots(h.data, { shadows: opsOf(m).shadows(path.join(h.home, ".bicycle42", "snapshots", m.owner)) })
+      const before = (await sn.snapshot(dir))!
+      execFileSync("sh", ["-c", `head -c ${2 * 1024 * 1024} /dev/urandom > "${path.join(dir, "model.bin")}"`])
+      const after = (await sn.snapshot(dir))!
+      const agent = m.spawn(process.execPath, ["-e", "setInterval(() => {}, 1e6)"])
+      await assert.rejects(sn.reverse(dir, [{ before, after, start: Date.now() - 60_000 }], true), /more than 1 MiB \(a large file the folder does not ignore\), more than the app takes back by itself/)
+      // Still there: the same helper answers, and its agent runs.
+      assert.equal(m.reach().status, "up")
+      assert.equal((await m.run("sh", ["-c", "echo ok"])).out.trim(), "ok")
+      void agent.kill()
+      await agent.exited
+      await sn.idle()
+    } finally {
+      await m.close()
+    }
+  } finally {
+    delete process.env.B42_GIT_MAX
+    await h.end()
+  }
 })

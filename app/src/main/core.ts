@@ -1656,20 +1656,25 @@ export function createCore(host: Host): Core {
    *  sentence for the reviewer when it does not apply. `was`: what a dry run of the same turns
    *  found just before, taken as it is when the files have not changed since. */
   async function restore(dir: string, session: string, turns: Turn[], on: On = here(), was?: Reversal) {
-    const done = await on.sn.reverse(dir, turns, false, was).catch((err) => {
+    const notes = notesOf(turns)
+    // The files and the restore's record are one step where the files are: a link that drops
+    // meanwhile leaves both made, or neither.
+    const done = await on.sn.takeBack(dir, turns, { session, time: Date.now(), turns: turns.map((t) => t.id), notes: notes.map((x) => x.id) }, was).catch((err) => {
       if (err instanceof Refused) throw err
       log("warn", "can't take back from the file history", say(err))
+      if (cutOff(on.m, err)) throw new Error(`The connection to ${on.m.where} ended while the app was taking this back there, so it may have been done. Look at the note again once ${on.m.where} is back.`)
       throw new Error("The app could not read its own history of these files, so it can't take this back by itself. Ask the agent to reverse it instead.")
     })
     if (!done) throw new Error("Its files were changed since in the same places, so the app can't take it back by itself. Ask the agent to reverse it instead.")
     // Nothing changed: there is nothing to tell the agent, nor to bring back.
     if (!done.files.length) throw new Error("The app saw no file change of the agent's there, so it has nothing to put back. Ask the agent to reverse it instead.")
-    const notes = notesOf(turns)
-    await on.sn.addRestore(dir, { session, time: Date.now(), turns: turns.map((t) => t.id), from: done.from, to: done.to, notes: notes.map((x) => x.id) })
     for (const x of notes) if (x.s.review.mark(x.id, { takenBack: "restored" })) changed(x.s)
     showFiles(site)
     return notes
   }
+
+  /** Whether a call to another computer failed because its link went, not by what it found. */
+  const cutOff = (m: Machine, err: unknown) => !m.local && (m.reach().status !== "up" || /connection ended|Can't reach|was closed/.test(String((err as Error)?.message ?? err)))
 
   /** The newest restore of a conversation that can still be brought back: the agent has not
    *  been told of it yet. */
@@ -1681,14 +1686,15 @@ export function createCore(host: Host): Core {
 
   /** Brings a restore back: the files go forward again, its notes are no longer taken back. */
   async function unrestore(dir: string, r: Restore, on: On = here()) {
-    const applied = await on.sn.apply(dir, r.to, r.from).catch((err) => {
+    // The files and forgetting the restore are one step where the files are.
+    const applied = await on.sn.bringBack(dir, r).catch((err) => {
       if (err instanceof Refused) throw err
       log("warn", "can't bring back from the file history", say(err))
+      if (cutOff(on.m, err)) throw new Error(`The connection to ${on.m.where} ended while the app was bringing this back there, so it may have been done. Look again once ${on.m.where} is back.`)
       return false
     })
     if (!applied)
       throw new Error("Those files were changed since in the same places, so the app can't bring it back by itself.")
-    await on.sn.updateRestore(dir, r.id, null)
     for (const s of sites.values()) {
       let touched = false
       for (const id of r.notes) if (s.review.note(id)?.takenBack === "restored") touched = s.review.mark(id, { takenBack: undefined }) || touched
@@ -1724,7 +1730,10 @@ export function createCore(host: Host): Core {
     const on = here()
     const dir = historyDir(knownDir(session))
     if (!dir) return send(text, id)
-    const h = await on.sn.history(dir)
+    // A log that can't be read now (the link is down) says nothing this time; what it holds is
+    // kept there, and the next message says it.
+    const h = await on.sn.history(dir).catch((err) => void log("warn", "can't read the file history before a message", say(err)))
+    if (!h) return send(text, id)
     const untold = h.restores.filter((r) => r.session === session && !r.told)
     if (!untold.length) return send(text, id)
     const mid = id ?? need().messageId()
@@ -1752,7 +1761,7 @@ export function createCore(host: Host): Core {
   async function tellFirst(session: string) {
     const on = here()
     const dir = historyDir(knownDir(session))
-    if (!dir || !(await on.sn.history(dir)).restores.some((r) => r.session === session && !r.told)) return
+    if (!dir || !(await on.sn.history(dir).catch(() => undefined))?.restores.some((r) => r.session === session && !r.told)) return
     const b = need()
     await startsRun(session, () => telling(session, "", (text, id) => b.prompt(session, { ...(id ? { id } : {}), text })))
   }
@@ -2156,6 +2165,17 @@ export function createCore(host: Host): Core {
     const info = await b.session(note.session)
     if (!info) throw new Error("Its conversation no longer exists.")
     const mine = await noteTurn(s, note, on)
+    // Taken back already, and the note does not say so: the take-back was made there while the
+    // link dropped before its answer came. Its notes say so now.
+    if (mine?.reversed) {
+      const r = (await on.sn.history(mine.dir)).restores.find((x) => x.turns.includes(mine.turn.id))
+      for (const st of sites.values()) {
+        let touched = false
+        for (const nid of r?.notes ?? [note.id]) if (st.review.note(nid) && !st.review.note(nid)!.takenBack) touched = st.review.mark(nid, { takenBack: "restored" }) || touched
+        if (touched) changed(st)
+      }
+      throw new Error("This note was already taken back.")
+    }
     // A turn that changed nothing the app saw (the agent worked in a nested repository, an
     // ignored file, outside the folder) has nothing to put back: the agent is asked.
     const usable = !!mine && !mine.reversed && !mine.turn.shared && !mine.turn.untrusted && mine.turn.before !== mine.turn.after

@@ -34,14 +34,20 @@
 // Two halves. `createShadows` is the git side, done where the files are: on this computer by the
 // app, on another by its helper (src/helper/host.ts), with this very code over that computer's own
 // files, so a snapshot or a take-back is one call over ssh however many git commands it takes
-// (ops.ts). `createSnapshots` is the app's side: the log, read once and kept in memory, each
-// change written whole in one call, and when to prune. Nothing here is Electron's: the helper
-// bundles this file.
+// (ops.ts). `createSnapshots` is the app's side: the log, read once and kept in memory, and when
+// to prune. A change of the log is made where it is, on the log as it is on disk (read, changed,
+// written whole, one call: `editLog`), so a log that could not be read is never written over,
+// and two apps of one install writing it each add to the other's; only a missing log is an
+// empty one. A take-back and its record, and a /redo and forgetting it, are each one step there
+// (`takeBack`, `bringBack`): a link that drops meanwhile leaves both made or neither. git's
+// output is read up to GIT_MAX: a turn whose patch is longer is left to the agent. Nothing here
+// is Electron's: the helper bundles this file.
 import { createHash, randomBytes } from "node:crypto"
 import path from "node:path"
 import type { FileChange } from "../shared/types"
 import { thisMachine, type Machine } from "./machine"
 import { createQueue } from "./queue"
+import { sizeOf } from "../shared/wire"
 
 type Log = (level: "info" | "warn" | "error", msg: string, data?: unknown) => void
 
@@ -85,7 +91,57 @@ export class Refused extends Error {
 export const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 
-type History = { turns: Turn[]; restores: Restore[]; pruned?: number }
+export type History = { turns: Turn[]; restores: Restore[]; pruned?: number }
+
+/** One change to a folder's log, made where the log is, on the log as it is on disk then: read,
+ *  changed and written in one step (Shadows.editLog), so a log that could not be read is never
+ *  written over, and two apps writing one folder's log (one install connected to one computer
+ *  two ways) each add to what the other wrote. */
+export type LogEdit =
+  | { op: "addTurn"; turn: Turn }
+  | { op: "addRestore"; restore: Restore }
+  | { op: "updateRestore"; id: string; change: Partial<Restore> | null }
+  /** Turns older than KEEP_DAYS (or beyond KEEP_TURNS) leave the log, as of `now`. */
+  | { op: "prune"; now: number }
+
+/** A restore to be kept once its take-back is made: its two trees are the take-back's. */
+export type RestoreRecord = Omit<Restore, "from" | "to">
+
+/** The log as read from its text: what is not a turn or a restore is left out. Throws when the
+ *  text is not JSON. */
+export function parseHistory(text: string): History {
+  const raw = JSON.parse(text) as Partial<History>
+  return {
+    turns: Array.isArray(raw.turns) ? raw.turns.filter((t) => t && typeof t.before === "string" && typeof t.after === "string" && typeof t.session === "string") : [],
+    restores: Array.isArray(raw.restores) ? raw.restores.filter((r) => r && typeof r.from === "string" && typeof r.to === "string" && Array.isArray(r.turns)) : [],
+    ...(typeof raw.pruned === "number" ? { pruned: raw.pruned } : {}),
+  }
+}
+
+/** The log after one change. */
+export function edited(h: History, e: LogEdit): History {
+  const x: History = { ...h, turns: [...h.turns], restores: [...h.restores] }
+  if (e.op === "addTurn") x.turns.push(e.turn)
+  else if (e.op === "addRestore") x.restores.push(e.restore)
+  else if (e.op === "updateRestore") {
+    const i = x.restores.findIndex((r) => r.id === e.id)
+    if (i >= 0) {
+      if (e.change === null) x.restores.splice(i, 1)
+      else x.restores[i] = { ...x.restores[i]!, ...e.change, id: e.id }
+    }
+  } else if (e.op === "prune") {
+    const cut = e.now - KEEP_DAYS * DAY
+    // A take-back the agent has not been told of stays, old or not, with its turns: /redo can
+    // still bring it back, and the next message must still say it.
+    const untold = new Set(x.restores.filter((r) => !r.told).flatMap((r) => r.turns))
+    const recent = new Set(x.turns.filter((t) => t.start >= cut).slice(-KEEP_TURNS).map((t) => t.id))
+    x.turns = x.turns.filter((t) => recent.has(t.id) || untold.has(t.id))
+    const kept = new Set(x.turns.map((t) => t.id))
+    x.restores = x.restores.filter((r) => !r.told || (r.time >= cut && r.turns.some((t) => kept.has(t))))
+    x.pruned = e.now
+  }
+  return x
+}
 
 export type Snapshots = {
   /** The folder's files as they are now, as a tree id; undefined when it can't be read (logged). */
@@ -102,6 +158,13 @@ export type Snapshots = {
   /** Changes the files by the difference between two trees (a redo is a restore's `to` → `from`).
    *  False, and nothing touched, when it does not apply; throws `Refused` as `reverse` does. */
   apply(dir: string, from: string, to: string): Promise<boolean>
+  /** Takes the turns back (as `reverse`) and keeps the restore in the folder's log, in one step
+   *  where the files are: a link that drops meanwhile never leaves files put back with no record
+   *  of it. The restore is kept only when files changed. */
+  takeBack(dir: string, turns: Array<Pick<Turn, "before" | "after"> & { start?: number }>, restore: Omit<RestoreRecord, "id">, was?: Reversal): Promise<Reversal | undefined>
+  /** Brings a restore back (its `to` → `from`) and forgets it, in one step. False, and nothing
+   *  touched, when it does not apply. */
+  bringBack(dir: string, restore: Pick<Restore, "id" | "from" | "to">): Promise<boolean>
   /** The folder's log, read from disk the first time. Change it with the calls below. */
   history(dir: string): Promise<Readonly<History>>
   addTurn(dir: string, turn: Omit<Turn, "id">): Promise<Turn>
@@ -119,6 +182,10 @@ const KEEP_TURNS = 2000
 const DAY = 86_400_000
 /** A snapshot of a large folder with nothing ignored should not hang a turn. */
 const GIT_TIMEOUT = 60_000
+/** The most of git's output read (a patch, a list of paths): a turn whose patch is longer is not
+ *  taken back by the app, which would hold it whole (on another computer, in its helper, beside
+ *  the agent); the agent is asked. It is what a line of the wire takes. */
+export const GIT_MAX = Number(process.env.B42_GIT_MAX) || 64 * 1024 * 1024
 /** A change that deletes at least this many files, and this share of the folder's, is refused. */
 const GONE_MIN = 20
 const GONE_SHARE = 0.5
@@ -159,10 +226,16 @@ export type Shadows = {
    *  files are still the tree it went from, its answer is taken as it is. */
   reverse(dir: string, turns: Array<Pick<Turn, "before" | "after"> & { start?: number }>, dry?: boolean, was?: Reversal): Promise<Reversal | undefined>
   apply(dir: string, from: string, to: string): Promise<boolean>
-  /** The folder's log as it is on disk, or undefined when there is none (or it can't be read). */
+  /** The folder's log as it is on disk, or undefined when there is none. Throws when it is there
+   *  and can't be read: never taken for an empty one. */
   readLog(dir: string): Promise<string | undefined>
-  /** Writes the folder's log whole, atomically. */
-  writeLog(dir: string, text: string): Promise<void>
+  /** Changes the folder's log as it is on disk (read, changed, written whole and atomically, one
+   *  change of a folder's log at a time), and gives it as it is now. */
+  editLog(dir: string, edit: LogEdit): Promise<History>
+  /** reverse, not dry, then the restore kept in the log in the same step (Snapshots.takeBack). */
+  takeBack(dir: string, turns: Array<Pick<Turn, "before" | "after"> & { start?: number }>, restore: RestoreRecord, was?: Reversal): Promise<{ done?: Reversal; history?: History }>
+  /** apply, then the restore forgotten in the same step (Snapshots.bringBack). */
+  bringBack(dir: string, restore: Pick<Restore, "id" | "from" | "to">): Promise<{ applied: boolean; history?: History }>
   /** The trees named are kept, and those no longer named go with git's gc (a tree younger than
    *  an hour is kept whatever is named: it may be a turn's "before" under way). */
   keep(dir: string, trees: string[]): Promise<void>
@@ -197,7 +270,10 @@ export function createShadows(m: Machine, root: string): Shadows {
       },
       input: o.input ?? "",
       timeout: GIT_TIMEOUT,
+      maxBuffer: GIT_MAX,
     })
+    if (r.error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" || r.error?.code === "ERR_STRING_TOO_LONG")
+      throw new Error(`git ${args[0]}: what it says of these files is more than ${sizeOf(GIT_MAX)} (a large file the folder does not ignore), more than the app takes back by itself`)
     // Not started at all (no git): as spawn's error was, a rejection.
     if (r.error && r.code === null && !r.signal) throw new Error(r.error.message)
     // A timeout or a signal is `code: null`: never read as one of git's own exit codes.
@@ -210,6 +286,12 @@ export function createShadows(m: Machine, root: string): Shadows {
   }
 
   const read = (p: string) => m.readFile(p).catch(() => undefined)
+  /** A file's text, or undefined when it is not there; any other failure is thrown. */
+  const readIfThere = (p: string) =>
+    m.readFile(p).catch((err: NodeJS.ErrnoException) => {
+      if (err?.code === "ENOENT") return undefined
+      throw err
+    })
 
   /** Makes the shadow the first time, and brings its settings and excludes up to date when they
    *  were written from anything else (looked at once per run of whoever asks). */
@@ -308,6 +390,63 @@ export function createShadows(m: Machine, root: string): Shadows {
     return deleted.filter((_, i) => kept[i])
   }
 
+  async function reverseIn(dir: string, turns: Array<Pick<Turn, "before" | "after"> & { start?: number }>, dry: boolean, was?: Reversal): Promise<Reversal | undefined> {
+    await open(dir)
+    return queue.run(dir, async () => {
+      const now = await snap(dir)
+      // The dry run just now found where these files go, and they are as they were then.
+      if (!dry && was && was.from === now) return (await move(dir, now, was.to)) ? { from: now, to: was.to, files: was.files } : undefined
+      // A scratch index of the files as they are now; the turns come out of it newest first.
+      const index = P.join(shadowOf(dir), `index.${randomBytes(4).toString("hex")}`)
+      try {
+        await must(dir, ["read-tree", now], { index })
+        for (const t of [...turns].reverse()) {
+          const patch = await patchOf(dir, t.before, t.after)
+          if (!patch.trim()) continue
+          const r = await git(dir, ["apply", "--cached", "--reverse", "--whitespace=nowarn", "-"], { input: patch, index })
+          if (r.code !== 0) return undefined
+        }
+        let to = (await must(dir, ["write-tree"], { index })).trim()
+        // What was on disk before the turn stays, as it is now.
+        const keep = new Set(await onDiskBefore(dir, turns, await namesOf(dir, now, to, "D")))
+        if (keep.size) {
+          const entries = (await must(dir, ["ls-tree", "-r", "-z", "--full-tree", now])).split("\0").filter((e) => keep.has(e.slice(e.indexOf("\t") + 1)))
+          await must(dir, ["update-index", "-z", "--index-info"], { input: entries.map((e) => `${e}\0`).join(""), index })
+          to = (await must(dir, ["write-tree"], { index })).trim()
+        }
+        await guard(dir, now, to)
+        const done = { from: now, to, files: now === to ? [] : await namesOf(dir, now, to) }
+        if (dry) return done
+        return (await move(dir, now, to)) ? done : undefined
+      } finally {
+        await m.rm(index).catch(() => undefined)
+      }
+    })
+  }
+
+  /** One change of the log on disk: read (ENOENT is an empty log; a log that is not JSON is
+   *  moved aside, never written over unseen), changed, written whole. */
+  function editLog(dir: string, edit: LogEdit): Promise<History> {
+    return queue.run(`log:${dir}`, async () => {
+      const file = logFile(dir)
+      const text = await readIfThere(file)
+      let h: History = { turns: [], restores: [] }
+      if (text !== undefined)
+        try {
+          h = parseHistory(text)
+        } catch {
+          await m.rename(file, `${file}.unreadable-${Date.now()}`).catch(() => undefined)
+        }
+      const now = edited(h, edit)
+      await m.mkdir(P.dirname(file))
+      // Its own name: two writers never share it.
+      const tmp = `${file}.${randomBytes(4).toString("hex")}.tmp`
+      await m.writeFile(tmp, JSON.stringify(now))
+      await m.rename(tmp, file)
+      return now
+    })
+  }
+
   return {
     async snapshot(dir) {
       try {
@@ -331,54 +470,29 @@ export function createShadows(m: Machine, root: string): Shadows {
       })
     },
 
-    async reverse(dir, turns, dry = false, was) {
-      await open(dir)
-      return queue.run(dir, async () => {
-        const now = await snap(dir)
-        // The dry run just now found where these files go, and they are as they were then.
-        if (!dry && was && was.from === now) return (await move(dir, now, was.to)) ? { from: now, to: was.to, files: was.files } : undefined
-        // A scratch index of the files as they are now; the turns come out of it newest first.
-        const index = P.join(shadowOf(dir), `index.${randomBytes(4).toString("hex")}`)
-        try {
-          await must(dir, ["read-tree", now], { index })
-          for (const t of [...turns].reverse()) {
-            const patch = await patchOf(dir, t.before, t.after)
-            if (!patch.trim()) continue
-            const r = await git(dir, ["apply", "--cached", "--reverse", "--whitespace=nowarn", "-"], { input: patch, index })
-            if (r.code !== 0) return undefined
-          }
-          let to = (await must(dir, ["write-tree"], { index })).trim()
-          // What was on disk before the turn stays, as it is now.
-          const keep = new Set(await onDiskBefore(dir, turns, await namesOf(dir, now, to, "D")))
-          if (keep.size) {
-            const entries = (await must(dir, ["ls-tree", "-r", "-z", "--full-tree", now])).split("\0").filter((e) => keep.has(e.slice(e.indexOf("\t") + 1)))
-            await must(dir, ["update-index", "-z", "--index-info"], { input: entries.map((e) => `${e}\0`).join(""), index })
-            to = (await must(dir, ["write-tree"], { index })).trim()
-          }
-          await guard(dir, now, to)
-          const done = { from: now, to, files: now === to ? [] : await namesOf(dir, now, to) }
-          if (dry) return done
-          return (await move(dir, now, to)) ? done : undefined
-        } finally {
-          await m.rm(index).catch(() => undefined)
-        }
-      })
-    },
+    reverse: (dir, turns, dry = false, was) => reverseIn(dir, turns, dry, was),
 
     async apply(dir, from, to) {
       await open(dir)
       return queue.run(dir, () => move(dir, from, to))
     },
 
-    readLog: (dir) => read(logFile(dir)),
+    readLog: (dir) => readIfThere(logFile(dir)),
+    editLog,
 
-    async writeLog(dir, text) {
-      const file = logFile(dir)
-      await m.mkdir(P.dirname(file))
-      // Its own name: two apps of one install (two connections to this computer) never share it.
-      const tmp = `${file}.${randomBytes(4).toString("hex")}.tmp`
-      await m.writeFile(tmp, text)
-      await m.rename(tmp, file)
+    async takeBack(dir, turns, restore, was) {
+      const done = await reverseIn(dir, turns, false, was)
+      if (!done || !done.files.length) return done ? { done } : {}
+      // Kept in the same step: whoever asked may be gone by now (its link dropped).
+      const history = await editLog(dir, { op: "addRestore", restore: { ...restore, from: done.from, to: done.to } })
+      return { done, history }
+    },
+
+    async bringBack(dir, restore) {
+      await open(dir)
+      const applied = await queue.run(dir, () => move(dir, restore.to, restore.from))
+      if (!applied) return { applied }
+      return { applied, history: await editLog(dir, { op: "updateRestore", id: restore.id, change: null }) }
     },
 
     async keep(dir, trees) {
@@ -410,33 +524,46 @@ export function createSnapshots(dataDir: string, opts: { log?: Log; machine?: Ma
   const pruneSeen = new Set<string>()
   const pruning = new Set<Promise<void>>()
 
+  /** The folder's log, read once and kept. A read that fails (the link dropped, a file that
+   *  can't be read) is not kept: it rejects, and the next asks again. Never an empty log in its
+   *  place, which a later change would have written over the real one. */
   function history(dir: string): Promise<History> {
     let h = histories.get(dir)
     if (!h) {
-      h = (async () => {
+      const reading: Promise<History> = (async () => {
+        const text = await sh.readLog(dir)
+        if (text === undefined) return { turns: [], restores: [] }
         try {
-          const raw = JSON.parse((await sh.readLog(dir)) ?? "") as Partial<History>
-          return {
-            turns: Array.isArray(raw.turns) ? raw.turns.filter((t) => t && typeof t.before === "string" && typeof t.after === "string" && typeof t.session === "string") : [],
-            restores: Array.isArray(raw.restores) ? raw.restores.filter((r) => r && typeof r.from === "string" && typeof r.to === "string" && Array.isArray(r.turns)) : [],
-            ...(typeof raw.pruned === "number" ? { pruned: raw.pruned } : {}),
-          }
+          return parseHistory(text)
         } catch {
+          // Not JSON: an empty log here; the first change moves it aside where it is.
           return { turns: [], restores: [] }
         }
       })()
+      h = reading
       histories.set(dir, h)
+      reading.catch(() => histories.get(dir) === reading && histories.delete(dir))
     }
     return h
   }
+  /** The log as a change where it is left it, kept; when that change may or may not have been
+   *  made (its answer never came), nothing is kept, and the log is read again next time. */
+  function kept(dir: string, now: Promise<History | undefined>) {
+    return now.then(
+      (h) => {
+        if (h) histories.set(dir, Promise.resolve(h))
+        return h
+      },
+      (err) => {
+        histories.delete(dir)
+        throw err
+      },
+    )
+  }
 
-  /** Writes the log whole, atomically, after the change `edit` makes to it. */
-  function write(dir: string, edit: (h: History) => void) {
-    return queue.run(`log:${dir}`, async () => {
-      const h = await history(dir)
-      edit(h)
-      await sh.writeLog(dir, JSON.stringify(h))
-    })
+  /** One change of the log, made where it is, on the log as it is there. */
+  function write(dir: string, edit: LogEdit) {
+    return queue.run(`log:${dir}`, () => kept(dir, sh.editLog(dir, edit)))
   }
 
   /** Once a day per folder: turns older than KEEP_DAYS (or beyond KEEP_TURNS) leave the log, and
@@ -445,18 +572,7 @@ export function createSnapshots(dataDir: string, opts: { log?: Log; machine?: Ma
     const run = (async () => {
       const h = await history(dir)
       if (h.pruned && Date.now() - h.pruned < DAY) return
-      const cut = Date.now() - KEEP_DAYS * DAY
-      await write(dir, (x) => {
-        // A take-back the agent has not been told of stays, old or not, with its turns: /redo can
-        // still bring it back, and the next message must still say it.
-        const untold = new Set(x.restores.filter((r) => !r.told).flatMap((r) => r.turns))
-        const recent = new Set(x.turns.filter((t) => t.start >= cut).slice(-KEEP_TURNS).map((t) => t.id))
-        x.turns = x.turns.filter((t) => recent.has(t.id) || untold.has(t.id))
-        const kept = new Set(x.turns.map((t) => t.id))
-        x.restores = x.restores.filter((r) => !r.told || (r.time >= cut && r.turns.some((t) => kept.has(t))))
-        x.pruned = Date.now()
-      })
-      const now = await history(dir)
+      const now = (await write(dir, { op: "prune", now: Date.now() }))!
       await sh.keep(dir, [...new Set([...now.turns.flatMap((t) => [t.before, t.after]), ...now.restores.flatMap((r) => [r.from, r.to])])])
     })().catch((err) => log("warn", "can't prune the file history", String(err)))
     pruning.add(run)
@@ -479,26 +595,44 @@ export function createSnapshots(dataDir: string, opts: { log?: Log; machine?: Ma
     reverse: (dir, turns, dry = false, was) => sh.reverse(dir, turns, dry, was),
     apply: (dir, from, to) => sh.apply(dir, from, to),
 
+    async takeBack(dir, turns, restore, was) {
+      let done: Reversal | undefined
+      await queue.run(`log:${dir}`, () =>
+        kept(
+          dir,
+          sh.takeBack(dir, turns, { id: id(), ...restore }, was).then((r) => ((done = r.done), r.history)),
+        ),
+      )
+      return done
+    },
+
+    async bringBack(dir, restore) {
+      let applied = false
+      await queue.run(`log:${dir}`, () =>
+        kept(
+          dir,
+          sh.bringBack(dir, restore).then((r) => ((applied = r.applied), r.history)),
+        ),
+      )
+      return applied
+    },
+
     history,
 
     async addTurn(dir, turn) {
       const made: Turn = { id: id(), ...turn }
-      await write(dir, (h) => void h.turns.push(made))
+      await write(dir, { op: "addTurn", turn: made })
       return made
     },
     async addRestore(dir, restore) {
       const made: Restore = { id: id(), ...restore }
-      await write(dir, (h) => void h.restores.push(made))
+      await write(dir, { op: "addRestore", restore: made })
       return made
     },
     async updateRestore(dir, rid, change) {
-      await write(dir, (h) => {
-        const i = h.restores.findIndex((r) => r.id === rid)
-        if (i < 0) return
-        if (change === null) h.restores.splice(i, 1)
-        else h.restores[i] = { ...h.restores[i]!, ...change, id: rid }
-      })
+      await write(dir, { op: "updateRestore", id: rid, change })
     },
+
 
     async idle() {
       while (pruning.size) await Promise.all(pruning)

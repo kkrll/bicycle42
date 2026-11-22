@@ -241,7 +241,7 @@ test("take back with an agent there: an older note's files are put back from the
   }
 })
 
-test("with an agent there, a turn's snapshots are one call each, and a take-back is its dry run and its run, one call each", async () => {
+test("with an agent there, a turn's snapshots are one call each, and a take-back is its dry run and its run with the restore written, one call each", async () => {
   const t = boot()
   try {
     const a = path.join(t.repo, "a.css")
@@ -282,16 +282,116 @@ test("with an agent there, a turn's snapshots are one call each, and a take-back
     // written down in one; the panel's line in one each time it is read.
     const tally = () => aboutRepo().filter((m) => m !== "ops.vcs").sort().join(" ")
     await until(() => turns() === 2)
-    await until(() => tally() === "ops.snapshot ops.snapshot ops.snapshot ops.writeLog").catch(() => assert.fail(tally()))
+    await until(() => tally() === "ops.editLog ops.snapshot ops.snapshot ops.snapshot").catch(() => assert.fail(tally()))
     fs.writeFileSync(sent, "")
     assert.equal(await t.cmd("takeBackNote", first, "restored"), "restored")
     assert.equal(fs.readFileSync(a, "utf8"), "a { color: black }\n\n\n\n\nb { pad: 8px }\n")
-    // Whether the folder is there, the dry run, the run (given the dry run's answer), the restore written down.
-    assert.deepEqual(aboutRepo().filter((m) => m !== "ops.vcs"), ["stat", "ops.reverse", "ops.reverse", "ops.writeLog"])
-    const [dry, run] = calls().filter((m) => m.method === "ops.reverse")
+    // Whether the folder is there, the dry run, then the run (given the dry run's answer) with the
+    // restore written down in the same call.
+    assert.deepEqual(aboutRepo().filter((m) => m !== "ops.vcs"), ["stat", "ops.reverse", "ops.takeBack"])
+    const [dry] = calls().filter((m) => m.method === "ops.reverse")
+    const [run] = calls().filter((m) => m.method === "ops.takeBack")
     assert.equal(dry!.params?.was, undefined)
     assert.ok(run!.params?.was)
     fs.rmSync(sent)
+  } finally {
+    await t.close()
+  }
+})
+
+/** The folder's log there, as it is on disk. */
+function logThere(t: ReturnType<typeof boot>) {
+  const root = path.join(t.h.home, ".bicycle42", "snapshots", fs.readFileSync(path.join(t.h.data, "ssh", "owner"), "utf8"))
+  const file = path.join(root, fs.readdirSync(root).find((d) => d.endsWith(".git"))!, "b42.json")
+  return { file, read: () => JSON.parse(fs.readFileSync(file, "utf8")) as { turns: Array<{ messages: string[] }>; restores: Array<{ told?: true; notes: string[] }> } }
+}
+/** That computer's git, slow while the returned flag file is there. */
+function slowGit(t: ReturnType<typeof boot>, seconds: number) {
+  const bin = path.join(t.h.root, "slowbin")
+  const flag = path.join(t.h.root, "slow")
+  fs.mkdirSync(bin, { recursive: true })
+  const real = (process.env.PATH ?? "").split(path.delimiter).map((d) => path.join(d, "git")).find((f) => fs.existsSync(f))!
+  fs.writeFileSync(path.join(bin, "git"), `#!/bin/sh\n[ -f "${flag}" ] && sleep ${seconds}\nexec "${real}" "$@"\n`, { mode: 0o755 })
+  process.env.B42_FAKE_SSH_PATH = `${bin}${path.delimiter}${process.env.PATH}`
+  return flag
+}
+
+test("the link drops while a take-back runs there: the files and its record are both made, the reviewer is told the link dropped, and once back the note says it is taken back (the agent is never asked to reverse it again)", async () => {
+  const t = boot()
+  try {
+    const flag = slowGit(t, 0.4)
+    const a = path.join(t.repo, "a.css")
+    fs.writeFileSync(a, "a { color: black }\n\n\n\n\nb { pad: 4px }\n")
+    await t.ready()
+    const first = t.note(`EDIT ${a} black red`)
+    await until(() => t.notes() === "1:done")
+    t.note(`EDIT ${a} 4px 8px`)
+    await until(() => t.notes() === "1:done 2:done")
+    await until(() => logThere(t).read().turns.length === 2)
+    const sent = path.join(t.h.root, "sent")
+    fs.writeFileSync(sent, "")
+    fs.writeFileSync(flag, "")
+    const taking = (t.cmd("takeBackNote", first, "restored") as Promise<unknown>).then(String, (e: Error) => e.message)
+    await until(() => /"ops\.takeBack".*"was"/.test(fs.readFileSync(sent, "utf8")), 30_000)
+    await sleep(100)
+    t.h.drop()
+    assert.equal(await taking, "The connection to dev-box ended while the app was taking this back there, so it may have been done. Look at the note again once dev-box is back.")
+    // Done there all the same, with its record.
+    await until(() => fs.readFileSync(a, "utf8").startsWith("a { color: black }") && logThere(t).read().restores.length === 1, 20_000)
+    fs.rmSync(flag)
+    fs.rmSync(sent)
+    t.h.up()
+    await t.cmd("reconnect")
+    await until(() => t.snap().connection.status === "online", 20_000)
+    await assert.rejects(t.cmd("takeBackWay", first), /This note was already taken back/)
+    assert.equal(t.snap().review.notes[0]!.takenBack, "restored")
+    assert.equal(fs.readFileSync(a, "utf8"), "a { color: black }\n\n\n\n\nb { pad: 8px }\n")
+  } finally {
+    delete process.env.B42_FAKE_SSH_PATH
+    await t.close()
+  }
+})
+
+test("the app starts again and the link drops while it first reads the folder's log there: the log is read again once back, nothing of it is lost, and the take-back it holds is told with the next note", async () => {
+  const t = boot()
+  try {
+    const a = path.join(t.repo, "a.css")
+    fs.writeFileSync(a, "a { color: black }\n\n\n\n\nb { pad: 4px }\n\n\n\n\nc { gap: 1px }\n")
+    await t.ready()
+    const first = t.note(`EDIT ${a} black red`)
+    await until(() => t.notes() === "1:done")
+    const second = t.note(`EDIT ${a} 4px 8px`)
+    await until(() => t.notes() === "1:done 2:done")
+    assert.equal(await t.cmd("takeBackNote", first, "restored"), "restored")
+    await until(() => logThere(t).read().turns.length === 2 && logThere(t).read().restores.length === 1)
+    // Quit; the log's file is held (a pipe nobody writes to) as the next run first reads it, and
+    // the link drops then: that read fails, as any call under way does.
+    const { file } = logThere(t)
+    const sent = path.join(t.h.root, "sent")
+    await t.restart()
+    fs.renameSync(file, `${file}.real`)
+    execFileSync("mkfifo", [file])
+    fs.writeFileSync(sent, "")
+    t.shell().page.load(`${SITE}/`)
+    await until(() => /"ops\.readLog"/.test(fs.readFileSync(sent, "utf8")), 20_000)
+    await sleep(200)
+    t.h.drop()
+    await until(() => t.snap().connection.status === "offline", 20_000)
+    const fd = fs.openSync(file, "r+")
+    fs.rmSync(file)
+    fs.closeSync(fd)
+    fs.renameSync(`${file}.real`, file)
+    fs.rmSync(sent)
+    t.h.up()
+    await t.cmd("reconnect")
+    await until(() => t.snap().connection.status === "online", 20_000)
+    assert.equal(await t.cmd("takeBackWay", second), "restored", "the second note's turn is still in the history")
+    t.note(`EDIT ${a} 1px 2px`)
+    await until(() => /3:done/.test(t.notes()), 20_000)
+    // Its turn is added to the log as it was; the take-back is kept, and told with note 3.
+    await until(() => logThere(t).read().turns.length === 3)
+    await until(() => logThere(t).read().restores[0]?.told === true)
+    assert.equal(logThere(t).read().restores.length, 1)
   } finally {
     await t.close()
   }

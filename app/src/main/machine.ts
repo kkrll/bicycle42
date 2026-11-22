@@ -183,7 +183,18 @@ export function createLocalMachine(): Machine {
           error ??= { code: (e as NodeJS.ErrnoException).code, message: e.message }
         })
         // A timeout or a signal is `code: null`: never read as one of the program's own exit codes.
-        child.on("close", (code, signal) => resolve({ code: error ? null : code, signal, out: Buffer.concat(out).toString("utf8"), err: Buffer.concat(err).toString("utf8"), ...(error ? { error } : {}) }))
+        child.on("close", (code, signal) => {
+          // Output too long for a string (512 MiB, with no maxBuffer): said, never thrown from
+          // here, where nothing would catch it (in the helper, that ended it and every agent).
+          let text: { out: string; err: string }
+          try {
+            text = { out: Buffer.concat(out).toString("utf8"), err: Buffer.concat(err).toString("utf8") }
+          } catch (e) {
+            error ??= { code: (e as NodeJS.ErrnoException).code ?? "ERR_STRING_TOO_LONG", message: `${program}: its output was too long to read (${size} bytes)` }
+            text = { out: "", err: "" }
+          }
+          resolve({ code: error ? null : code, signal, ...text, ...(error ? { error } : {}) })
+        })
         child.stdin!.on("error", () => undefined)
         child.stdin!.end(o.input ?? "")
       })
