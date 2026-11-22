@@ -644,7 +644,7 @@ async function main() {
   // The keys list: from the "?", inside the inspector's box; Escape shuts it.
   await ui(`(() => { const b = document.querySelector('.cd-help'); b.focus(); b.click() })()`)
   const keysList = (await ui(`(() => { const k = document.querySelector('.cd-keys'); if (!k) return null; const b = k.getBoundingClientRect(), d = document.querySelector('.dock .cd').getBoundingClientRect(); return { text: k.textContent, inside: b.top >= d.top && b.bottom <= d.bottom && b.left >= d.left && b.right <= d.right } })()`)) as { text: string; inside: boolean } | null
-  check("the \"?\" lists the keys and gestures, inside the inspector's box", !!keysList && keysList.inside && /double-click text/.test(keysList.text) && /Delete/.test(keysList.text) && /drag the space between items/.test(keysList.text), JSON.stringify(keysList))
+  check("the \"?\" lists the keys and gestures, and what the two style boxes are, inside the inspector's box", !!keysList && keysList.inside && /double-click text/.test(keysList.text) && /Delete/.test(keysList.text) && /drag the space between items/.test(keysList.text) && /& nests a rule/.test(keysList.text) && /edit it to override/.test(keysList.text), JSON.stringify(keysList))
   await keyW("Escape")
   check("…and Escape shuts it", (await until(() => ui(`!document.querySelector('.cd-keys')`))) === true)
 
@@ -1517,7 +1517,7 @@ async function main() {
   })()`)) as string
   check("the way from the window's dock to the overlay and back is measured", rtt.split(",").filter(Boolean).length === 5, `ping, ms: ${rtt}; act to view, ms: ${trips}`)
   // Keys while the dock has the keyboard: → steps the page's animation, space plays it.
-  const at = () => ui(`document.querySelector(".mdock-time")?.textContent ?? ""`) as Promise<string>
+  const at = () => ui(`document.querySelector(".mdock-flag")?.dataset.ms ?? ""`) as Promise<string>
   await until(async () => (await at()) === "450")
   await ui(`document.querySelector(".mdock-tl").focus()`)
   win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Right" })
@@ -1578,13 +1578,18 @@ async function main() {
   win.setSize(1000, 900)
   const mshape = () => ui(`(() => { const shown = (s) => { const e = document.querySelector(s); return !!e && getComputedStyle(e).display !== "none" }; return [shown(".mdock-list"), shown(".mdock-main"), shown(".mdock-back"), getComputedStyle(document.querySelector(".mdock-tl") ?? document.body).getPropertyValue("--lab").trim()].join("|") })()`) as Promise<string>
   const narrowOpen = await until(async () => ((await mshape()).startsWith("false|true") ? mshape() : null), 3000)
+  // The timing fields keep their names there ("900 ms" alone leaves one guessing), on a row of
+  // their own, and the same names for a screen reader.
+  const tnames = (await ui(
+    `[...document.querySelectorAll(".mdock-tn span")].filter((e) => e.getClientRects().length).map((e) => e.textContent).join("|") + " / " + [...document.querySelectorAll(".mdock-timing .mdock-fld")].map((f) => f.getAttribute("aria-label")).join("|")`,
+  )) as string
   await ui(`document.querySelector(".mdock-back").click()`)
   const narrowList = await until(async () => ((await mshape()).startsWith("true|false") ? mshape() : null), 3000)
   const mdockW = await ui(`Math.round(document.querySelector(".mdock").getBoundingClientRect().width)`)
   check(
-    "a narrow dock shows what is open, with a way back, and narrower lane names; back, the list",
-    narrowOpen === "false|true|true|104px" && narrowList?.startsWith("true|false|false") === true,
-    `${mdockW} wide: ${narrowOpen} / ${narrowList}`,
+    "a narrow dock shows what is open, with a way back, narrower lane names and named timing fields; back, the list",
+    narrowOpen === "false|true|true|104px" && narrowList?.startsWith("true|false|false") === true && tnames === "Duration|Delay|Easing / Duration|Delay|Easing",
+    `${mdockW} wide: ${narrowOpen} / ${narrowList}; names ${tnames}`,
   )
   win.setSize(1441, 900)
   // New: the new animation's name has the caret, to be named at once.

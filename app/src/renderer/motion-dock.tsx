@@ -39,9 +39,7 @@ const MPATHS = {
   play: "M7.5 4.8v14.4L18.75 12z",
   pause: "M8.25 5.25v13.5M15.75 5.25v13.5",
   loop: "M4.5 11.25V10.5a4.5 4.5 0 0 1 4.5-4.5h10.5M16.5 3l3 3-3 3M19.5 12.75v.75a4.5 4.5 0 0 1-4.5 4.5H4.5M7.5 21l-3-3 3-3",
-  iso: "M12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6zM12 2.25V6M12 18v3.75M2.25 12H6M18 12h3.75",
   undo: "M9 5.25 4.5 9.75l4.5 4.5M4.5 9.75h9.375a4.875 4.875 0 0 1 0 9.75H10.5",
-  reset: "M3.75 12a8.25 8.25 0 1 0 2.4-5.85M3.75 3.75v4.5h4.5",
   more: "M5.25 12h.01M12 12h.01M18.75 12h.01",
   link: "M10.5 13.5a3.75 3.75 0 0 0 5.25 0l3-3A3.75 3.75 0 0 0 13.5 5.25l-.75.75M13.5 10.5a3.75 3.75 0 0 0-5.25 0l-3 3a3.75 3.75 0 0 0 5.25 5.25l.75-.75",
 } as const
@@ -820,6 +818,19 @@ export function MotionDock() {
 
 // ── the header ──────────────────────────────────────────────────────────────────────────────────
 
+/** A timing field's name: whole where there is room, short (when it has a short form) where
+ *  there is not. Seen only: the field carries its whole name for a screen reader. */
+function TName(props: { long: string; short?: string }) {
+  return (
+    <span class="mdock-tn" aria-hidden="true">
+      <span>{props.long}</span>
+      <Show when={props.short}>
+        <span>{props.short}</span>
+      </Show>
+    </span>
+  )
+}
+
 function Header(props: { open: MotionOpen; view: MotionView }) {
   const pop = usePop()
   const t = () => props.open.timing
@@ -842,10 +853,11 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
       </div>
       <div class="mdock-timing">
         <label class="mdock-tf">
-          <span>Duration</span>
+          <TName long="Duration" short="Dur." />
           <Field
             class="num"
             attr="tduration"
+            label="Duration"
             value={String(t().duration)}
             disabled={ro()}
             inputmode="numeric"
@@ -856,10 +868,11 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
           <span class="mdock-unit">ms</span>
         </label>
         <label class="mdock-tf">
-          <span>Delay</span>
+          <TName long="Delay" />
           <Field
             class="num"
             attr="tdelay"
+            label="Delay"
             value={String(t().delay)}
             disabled={ro()}
             inputmode="numeric"
@@ -870,10 +883,11 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
           <span class="mdock-unit">ms</span>
         </label>
         <label class="mdock-tf">
-          <span>Easing</span>
+          <TName long="Easing" />
           <Field
             class="ease"
             attr="teasing"
+            label="Easing"
             value={t().easing}
             disabled={ro()}
             ok={easingOk}
@@ -905,14 +919,13 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
         </button>
         <button
           type="button"
-          class="icon-btn"
+          class="text-btn mdock-solo"
           aria-pressed={props.view.isolate}
           disabled={!props.view.sel}
           title="Show only this element"
-          aria-label="Show only this element"
           onClick={() => send({ type: "isolate", on: !props.view.isolate })}
         >
-          <MIcon name="iso" />
+          Only this
         </button>
       </div>
       <div class="mdock-tools">
@@ -921,13 +934,12 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
         </button>
         <button
           type="button"
-          class="icon-btn"
+          class="btn mdock-reset"
           disabled={!props.open.dirty}
           title={props.open.removable ? "Remove this new animation" : "Put back as the page has it"}
-          aria-label={props.open.removable ? "Remove this new animation" : "Put back as the page has it"}
           onClick={() => send({ type: "discard" })}
         >
-          <MIcon name="reset" />
+          Reset
         </button>
       </div>
     </>
@@ -1048,7 +1060,6 @@ function Timeline(props: {
           >
             <MIcon name={props.playing ? "pause" : "play"} />
           </button>
-          <span class="mdock-time">{props.pos === null ? "" : Math.round(props.pos * T())}</span>
         </div>
         <div class="mdock-trk" data-ruler>
           <For each={ticks()}>
@@ -1182,7 +1193,7 @@ function Timeline(props: {
       </Show>
       <div class="mdock-phl">
         <Show when={props.pos !== null}>
-          <div class="mdock-flag" style={{ "--x": props.pos! }}>
+          <div class="mdock-flag" style={{ "--x": props.pos! }} data-ms={Math.round(props.pos! * T())}>
             <b>{secs(Math.round(props.pos! * T()))}</b>
           </div>
         </Show>
