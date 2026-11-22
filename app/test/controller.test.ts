@@ -204,6 +204,9 @@ test("Stop from the app empties both queues: the notes waiting in the app and wh
     assert.equal(h.w.prompts.length, 1)
 
     await h.cmd("stop")
+    // The cancel is a notification: sent once stop resolves, read by the agent a few ticks later
+    // (its two pipes are streams), so it is waited for, then said exactly once.
+    await until(() => h.w.fa.calls.some((c) => c.method === "session/cancel"))
     assert.equal(h.w.fa.calls.filter((c) => c.method === "session/cancel").length, 1)
     await until(() => h.notes() === "1:failed 2:failed 3:failed")
     assert.deepEqual(h.snap().review.notes.map((n) => !!n.stopped), [true, true, true], "each is stopped, with Retry")
