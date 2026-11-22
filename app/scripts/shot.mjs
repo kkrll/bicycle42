@@ -145,6 +145,8 @@ const SHOTS = [
   { name: "folder-browse", mock: "folder", run: [click(".folder .folder-actions .btn")], wait: 500 },
   { name: "fresh", mock: "fresh" },
   { name: "review", mock: "review" },
+  // "· 2 unpinned" clicked: which notes, and that nothing needs doing.
+  { name: "review-unpinned", mock: "review", run: [click(".lost-btn")], wait: 300 },
   { name: "review-mac", mock: "review", query: "&platform=darwin" },
   { name: "review-menu", mock: "review", run: [click(".convo-current")] },
   { name: "review-open", mock: "review", run: [`document.querySelectorAll(".transcript details").forEach((d) => (d.open = true))`] },

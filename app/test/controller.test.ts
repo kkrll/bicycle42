@@ -1476,6 +1476,98 @@ test("one model: nothing is asked, it is saved, and setup goes on", async () => 
   }
 })
 
+test("the agent's process dies and its first load after says the conversation is not found: the same conversation stays open, and is read once the agent can", async () => {
+  // Claude Code's adapter answers a load with -32002 "Resource not found" whenever the Claude
+  // program it starts quits before it answers ("Query closed before response received"), as it
+  // does while whatever ended the process before is still wrong. The conversation is there.
+  const h = await boot()
+  try {
+    const first = await h.ready()
+    h.note("hello there")
+    await h.agent.finishes(first)
+    await until(() => h.notes() === "1:done")
+    const site = () => (settingsOf(h).sites as Record<string, { session?: string }> | undefined)?.[SITE]?.session
+    await until(() => site() === first)
+    let refuse = 2
+    h.w.fa.onLoad = async () => {
+      if (refuse-- > 0) throw Object.assign(new Error("Resource not found"), { code: -32002 })
+    }
+    h.w.fa.exit()
+    await until(() => h.snap().connection.status === "offline")
+    // Started again by itself, and the open conversation read again (resync): refused.
+    await until(() => h.snap().connection.status === "online")
+    await sleep(300)
+    assert.equal(h.snap().session?.id, first, "the conversation it was in stays open")
+    assert.equal(site(), first, "and stays the site's")
+    assert.equal(h.w.creates, 1, "no new conversation is made")
+    // What it showed before stays readable, with why it was not read again under it.
+    const last = h.chat().filter((e) => e.type === "reset" && e.session === first).at(-1)
+    const items = last?.type === "reset" ? last.items : []
+    assert.ok(items.some((i) => i.kind === "user" && i.text.includes("hello there")), JSON.stringify(items))
+    const end = items.at(-1)
+    assert.match(end?.kind === "marker" ? end.text : "", /^fake-agent can't open this conversation again now: Resource not found/)
+    // Retry, as the banner's, once the agent can load it: the same conversation, with what was said.
+    await h.cmd("reconnect")
+    await until(() => h.snap().connection.status === "online" && h.snap().session?.id === first)
+    await until(() => h.chat().some((e) => e.type === "reset" && e.session === first && e.items.some((i) => i.kind === "user" && i.text.includes("hello there"))))
+    assert.equal(site(), first)
+    assert.equal(h.w.creates, 1)
+  } finally {
+    await h.close()
+  }
+})
+
+test("a conversation the agent really no longer has (not in its list either) is let go, and the site gets a new one", async () => {
+  const h = await boot()
+  try {
+    const first = await h.ready()
+    h.w.fa.sessions.delete(first)
+    h.w.fa.exit()
+    await until(() => h.snap().connection.status === "online" && !!h.snap().session && h.snap().session!.id !== first)
+    assert.equal(h.w.creates, 2)
+  } finally {
+    await h.close()
+  }
+})
+
+test("unpinned counts the list's notes the page says it can't place now, and nothing in Preview or after a new document", async () => {
+  const h = await boot()
+  try {
+    await h.ready()
+    h.page.message({ type: "ready" })
+    const [a, b] = [h.note("a"), h.note("b")]
+    await until(() => h.snap().review.notes.length === 2)
+    const unpinned = () => h.snap().review.unplaced
+    h.page.message({ type: "pins-placement", unplaced: [a, b] })
+    assert.equal(unpinned(), 2)
+    await h.cmd("setMode", "preview")
+    assert.equal(unpinned(), 0, "Preview draws no pins: nothing is said of them")
+    await h.cmd("setMode", "notes")
+    assert.equal(unpinned(), 2, "back in review, what the page said last")
+
+    // The owner's way into "4 unpinned" that nothing cleared: the notes go while in Preview, where
+    // the page reports no placement, and a reload starts the page's report over from nothing, so
+    // an empty list is never reported.
+    await h.cmd("setMode", "preview")
+    await h.cmd("removeNote", a)
+    await h.cmd("removeNote", b)
+    h.page.message({ type: "ready" })
+    await h.cmd("setMode", "notes")
+    await until(() => h.snap().review.notes.length === 0)
+    assert.equal(unpinned(), 0, "no notes, nothing unpinned")
+
+    // A new document has placed nothing yet: what the last one said is gone.
+    const c = h.note("c")
+    await until(() => h.snap().review.notes.length === 1)
+    h.page.message({ type: "pins-placement", unplaced: [c] })
+    assert.equal(unpinned(), 1)
+    h.page.message({ type: "ready" })
+    assert.equal(unpinned(), 0, "a new document starts with nothing said")
+  } finally {
+    await h.close()
+  }
+})
+
 test("the top bar's switch: Preview, Notes and Edit, and the brush, go to the page; what the page says back is what shows", async () => {
   const h = await boot()
   try {

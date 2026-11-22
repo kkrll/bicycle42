@@ -50,7 +50,10 @@ export type Review = {
   enabled: boolean
   autoReload: boolean
   draft: unknown
+  /** The page's word on which pins it can't place now (a new document has said nothing yet: []). */
   setUnplaced(ids: string[]): void
+  /** Of the notes on the list and not done, those whose pin the page said it can't place: 0 with
+   *  review off, where no pin is drawn, so nothing is known of them. */
   readonly unplaced: number
   /** A submitted note: numbers it, status "capturing", clears the draft. Undefined for an id
    *  already in the list (the page sent it twice): nothing is added. */
@@ -469,6 +472,10 @@ export function createReview(saved?: unknown): Review {
     if (n && !notes.some((x) => x.id === n.id)) notes.push(n)
   }
   let unplaced: string[] = []
+  // Counted from the list, not from what the page said: the page says nothing in Preview (it
+  // draws no pins), so a note taken off there stays in its last word. A done note is not
+  // counted: the agent's change is often what moved its element.
+  const lost = (n: Note) => review.enabled && n.status !== "done" && unplaced.includes(n.id)
 
   // The backend's reply to a prompt (which carries the message id) races the event stream (which
   // says what happened to that id). When the events win, they are about an id no note owns yet:
@@ -486,7 +493,7 @@ export function createReview(saved?: unknown): Review {
       unplaced = ids
     },
     get unplaced() {
-      return unplaced.length
+      return notes.filter(lost).length
     },
 
     add(pn) {
@@ -702,7 +709,7 @@ export function createReview(saved?: unknown): Review {
         ...(n.pictures ? { pictures: n.pictures } : {}),
         ...(n.takenBack ? { takenBack: n.takenBack } : {}),
         ...(n.status === "failed" && (n.error === ERR.interrupted || n.error === ERR.cancelled) ? { stopped: true as const } : {}),
-        ...(unplaced.includes(n.id) ? { lost: true as const } : {}),
+        ...(lost(n) ? { lost: true as const } : {}),
       })),
 
     pins: () =>

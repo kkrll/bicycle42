@@ -448,11 +448,26 @@ test("a row names the conversation that took its note, once one has", () => {
   assert.equal(row(main).session, undefined, "a retry is not anybody's yet")
 })
 
-test("unplaced pins are counted", () => {
+test("unplaced pins are counted: only those of unfinished notes on the list, and only while pins are drawn", () => {
   const r = createReview()
   assert.equal(r.unplaced, 0)
-  r.setUnplaced(["a", "b"])
+  const [a, b, done] = [noteAt(r, "queued"), noteAt(r, "working"), noteAt(r, "done")]
+  const lost = () => r.rows().filter((x) => x.lost).map((x) => x.id)
+  // An id no note on the list has (another site's, a note taken off since) is not counted, nor a
+  // done note: the agent's change is often what moved its element.
+  r.setUnplaced([a, b, done, "gone"])
   assert.equal(r.unplaced, 2)
+  assert.deepEqual(lost(), [a, b])
+  // Preview draws no pins, so nothing is known of them there: nothing is said.
+  r.enabled = false
+  assert.deepEqual([r.unplaced, lost()], [0, []])
+  // Back in review, what the page said last holds until it says otherwise.
+  r.enabled = true
+  assert.equal(r.unplaced, 2)
+  // Taken off the list with no word from the page (in Preview the page says none): not counted.
+  r.remove(a)
+  r.remove(b)
+  assert.deepEqual([r.unplaced, lost()], [0, []])
   r.setUnplaced([])
   assert.equal(r.unplaced, 0)
 })

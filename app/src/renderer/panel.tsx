@@ -141,11 +141,10 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
     const note = state.review.notes.find((n) => n.id === id)
     if (note && groupOf(note) === "done" && !doneOpen()) setDoneOpenSignal(true)
   }
-  /** "Note 5" or "Notes 5 and 7", when main says which ones. */
-  const lostNumbers = () => {
+  /** "Note 5's pin" or "The pins of notes 5 and 7": the ones the count counts (main marks them). */
+  const lostPins = () => {
     const ns = state.review.notes.filter((n) => n.lost).map((n) => n.n)
-    if (!ns.length) return ""
-    return ns.length === 1 ? `Note ${ns[0]}` : `Notes ${ns.slice(0, -1).join(", ")} and ${ns[ns.length - 1]}`
+    return ns.length === 1 ? `Note ${ns[0]}'s pin` : `The pins of notes ${ns.slice(0, -1).join(", ")} and ${ns[ns.length - 1]}`
   }
   const rows = new Map<string, HTMLLIElement>()
   /** The row of the pin clicked last: a click touches the row it leaves and the row it lands on,
@@ -249,15 +248,11 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
       </header>
       <Show when={state.review.unplaced > 0 && why()}>
         <div class="notes-lost-more">
+          {/* Nothing to do: a pin finds its element again by itself once it is back on the page. */}
           <p>
-            <strong>{lostLabel()}. </strong>
-            <Show when={lostNumbers()}>{(which) => <>{which()}. </>}</Show>
-            The page changed under {state.review.unplaced === 1 ? "that pin" : "those pins"}: the element moved or is
-            gone. The notes still go to the agent. Reloading places the pins again once the element is back.
+            {lostPins()} can't find {state.review.unplaced === 1 ? "its" : "their"} element on this page.{" "}
+            {state.review.unplaced === 1 ? "The note still goes" : "The notes still go"} to the agent.
           </p>
-          <button class="btn" onClick={() => act("reload")}>
-            Reload page
-          </button>
         </div>
       </Show>
       <Show when={props.open}>

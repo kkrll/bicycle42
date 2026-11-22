@@ -1906,6 +1906,9 @@ export function createCore(host: Host): Core {
     }
     const before = site?.origin
     switchSite(placeOf(url))
+    // No document to place pins on (the load failed, the page crashed or is empty): no pin is
+    // unplaced. A new one says again ("ready").
+    if (!url || page?.state().error) site?.review.setUnplaced([])
     // Where a project's site was last open, and when, for coming back to it (openProject): said
     // when the page comes to the site too, at the address it had before or not.
     const at = originOf(url) ? site?.origin : undefined
@@ -1922,6 +1925,8 @@ export function createCore(host: Host): Core {
         // A new document starts in notes mode with the brush off; if it comes back in edit mode
         // (a reload while editing), the overlay says so right after this.
         pageMode = { canvas: false, motion: false, brush: false }
+        // Nor has it placed any pin yet: what the document before said is not this one's.
+        review.setUnplaced([])
         page?.send({ type: "state", enabled: review.enabled, draft: review.draft, pins: pinsOf(review), templates: NOTE_TEMPLATES })
         // The docks the window draws: none of the overlay's own for those, from the first frame.
         if (docks.length) page?.send({ type: "docks", hosted: [...docks] })

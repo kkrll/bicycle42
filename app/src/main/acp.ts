@@ -1046,6 +1046,9 @@ export function createAcp(opts: AcpOptions): Acp {
     if (!k) throw gone(c.id)
     c.loading = (async () => {
       if (caps.loadSession === true) {
+        // What this process showed of it, put back if the load fails: it stays readable.
+        const shown = { items: c.items, tools: new Map(c.tools) }
+        let failed = false
         c.replay = { cursor: 0, count: 0 }
         c.items = []
         c.turn = undefined
@@ -1054,13 +1057,19 @@ export function createAcp(opts: AcpOptions): Acp {
           const res = await call("session/load", { sessionId: c.id, cwd: k.cwd, mcpServers: [] }, timing.start)
           configured(c, res)
         } catch (err) {
-          if (code(err) === -32002 || /not found/i.test(said(err))) throw gone(c.id)
+          failed = true
+          // Claude Code's adapter answers "not found" (-32002) also when the program it starts to
+          // resume the conversation quits before answering, whatever ended it: a guess that
+          // would drop the conversation for good, and open a new one in its place. It is let go
+          // only when the agent's own list has no such conversation either.
+          if (notFound(err) && (await notListed(c.id, k.cwd))) throw gone(c.id)
           throw err
         } finally {
           endGroup(c)
           endTurn(c)
           c.replay = undefined
           c.turn = undefined
+          if (failed) (c.items = shown.items), (c.tools = shown.tools)
         }
         for (const item of c.items) if (item.kind === "assistant") item.done = true
       } else if (has("resume")) {
@@ -1080,6 +1089,31 @@ export function createAcp(opts: AcpOptions): Acp {
       c.loading = undefined
     }
     return p
+  }
+
+  /** The agent says it has no such conversation (or resource). */
+  const notFound = (err: unknown) => code(err) === -32002 || /\b(session|conversation|resource)\b[^.]*\bnot found\b/i.test(said(err))
+
+  /** True only when the agent's own list of `cwd`'s conversations, read to its end, lacks `id`;
+   *  false when it has it or can't say (no list, a list that fails or goes on too long). */
+  async function notListed(id: string, cwd: string): Promise<boolean> {
+    if (!has("list")) return false
+    try {
+      for (const archived of has("archive") ? ["exclude", "only"] : [undefined]) {
+        let cursor: string | undefined
+        for (let page = 0; ; page++) {
+          if (page === 20) return false
+          const res = await call("session/list", defined({ cwd, cursor, archived }))
+          if (list(res.sessions).some((raw) => str(rec(raw).sessionId) === id)) return false
+          cursor = str(res.nextCursor)
+          if (!cursor) break
+        }
+      }
+      return true
+    } catch (err) {
+      warn("Could not list the agent's conversations", said(err))
+      return false
+    }
   }
 
   function gone(id: string): Error {
@@ -1711,7 +1745,14 @@ export function createAcp(opts: AcpOptions): Acp {
 
     async transcript(id) {
       const c = conv(id)
-      await attach(c)
+      try {
+        await attach(c)
+      } catch (err) {
+        // Not read again (the agent can't now): what was shown of it stays, with why under it.
+        if (!c.items.length || convs.get(id) !== c) throw err
+        const why: ChatItem = { kind: "marker", id: `unread_${id}`, time: Date.now(), tone: "error", text: clip(`${name} can't open this conversation again now: ${said(err)}`, 400) }
+        return { items: [...copy(c.items), why], permissions: [], questions: [] }
+      }
       return {
         items: copy(c.items),
         permissions: [...permissionsPending.values()].filter((p) => p.session === id).map((p) => p.ask),

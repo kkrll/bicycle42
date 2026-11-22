@@ -207,6 +207,13 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   (`NoteRow.session`), so the note's view can name one that is not open and Follow up can open
   it first; a background note's follow-up stays in the open conversation, since the background
   one is not a conversation to talk in.
+- **"· 2 unpinned" counts what the page says now.** The overlay reports which pins it can't place
+  (`pins-placement`) only while it draws them, so main counts, of the notes on the list that are
+  not done, those in the last report: none in Preview, none of a note taken off meanwhile, and
+  none after a new document ("ready") or a page that failed, until the page says again. A done
+  note is not counted (the agent's change is often what moved its element). There is nothing to
+  do about one: a pin finds its element again by itself once it is back, and its note goes to the
+  agent as written, as the explanation under the count says.
 - **Take back says its way before it goes.** `takeBackWay` answers "restored" (the app reverses
   the note's turn from its own file history, below) or "asked" (the agent is asked to reverse it); the view puts that in its question and hands it to
   `takeBackNote`, which does nothing when things have moved to another way meanwhile.
@@ -542,6 +549,14 @@ real check from the lockfile as it is, installed as the app does, and writes not
   ("Claude Code stopped: it exited with code 1 (its last line on stderr)"), what waits is
   cancelled: each note with Retry. Quitting with work in flight puts its ids in the ledger
   (`lost`), and the controller stops those notes when it next settles them.
+- **A conversation is let go only when the agent's list lacks it too.** A `session/load` that
+  answers "not found" (-32002) is not enough: Claude Code's adapter says that whenever the program
+  it starts to resume a conversation quits before answering, as it does while whatever ended the
+  process before is still wrong, and the app used to drop the conversation from the ledger and
+  open a new one in the site's place (after the agent died and came back, or Retry). Now, unless
+  `session/list` for its folder, read to its end, lacks it, the conversation stays open and the
+  site's, what this process showed of it stays readable with "Claude Code can't open this
+  conversation again now: …" under it, and the next message or re-read tries again.
 - **What the agent offers** comes per conversation: models, effort and modes are its config
   options (category model, thought_level, mode; an agent from before those, `models` and
   `session/set_model`), slash commands its `available_commands_update`, the context's fill its
