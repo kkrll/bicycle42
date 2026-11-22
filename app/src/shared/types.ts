@@ -413,10 +413,16 @@ export type AppState = {
      *  Only while no page is there. */
     elsewhere?: { url: string; computer: string }
     /** The page started a download, which is held, not saved, until the reviewer says
-     *  (`saveDownload`, `dropDownload`): who asked (a site as the address bar says it), the
-     *  file's name, and its size in bytes when the site said. One at a time: a second one takes
-     *  the place of the first, which is cancelled. Gone once the page is elsewhere. */
-    download?: { id: string; site: string; file: string; size?: number }
+     *  (`saveDownload`, `dropDownload`): who asked (a site as the address bar says it; with
+     *  `frame`, the page's site, and what asked is a frame in it of no site of its own), the site
+     *  the file comes from when it is another (`from`), the file's name, and its size in bytes
+     *  when the site said. One at a time: a second one takes the place of the first, which is
+     *  cancelled. Gone once the page is at another site (a move within the site keeps it). */
+    download?: { id: string; site: string; frame?: true; from?: string; file: string; size?: number }
+    /** Downloads the reviewer saved that are still coming: how many bytes have come, of `size`
+     *  when the site said. Each goes once it is in place (or failed, which a dialog says);
+     *  `dropDownload` with its id stops it. */
+    saving?: { id: string; file: string; received: number; size?: number }[]
     canGoBack: boolean
     canGoForward: boolean
     /** The page hot-reloads by itself, so the app leaves reloading to it. */
@@ -495,7 +501,8 @@ export type Commands = {
   /** The download the page asked for (`AppState.page.download`, by its id) is saved: the system's
    *  Save dialog asks where, and cancelling it is `dropDownload`. */
   saveDownload(id: string): void
-  /** The download the page asked for is not saved: it is cancelled, and nothing of it kept. */
+  /** The download the page asked for is not saved: it is cancelled, and nothing of it kept. Of
+   *  one being saved (`AppState.page.saving`), it is stopped, and nothing of it kept. */
   dropDownload(id: string): void
   /** Which phone a phone's page is: an id in PHONES. */
   setPhone(id: string): void

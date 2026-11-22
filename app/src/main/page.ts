@@ -10,7 +10,7 @@
 // offers load / capture / send. `Page` is what the controller has of it: what a page under review
 // does, with no word of Electron in it. What is made of Electron (the view) is on `PageView`,
 // which the shell that makes the page keeps; every script run in the page is in this file.
-import { WebContentsView, type BrowserWindow, type DownloadItem, type IpcMainEvent, type NativeImage, type Session, type WebContents } from "electron"
+import { app, WebContentsView, type BrowserWindow, type DownloadItem, type IpcMainEvent, type NativeImage, type Session, type WebContents } from "electron"
 import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
@@ -79,18 +79,25 @@ export type Page = {
 }
 
 /** A download the page started, held until the reviewer says what becomes of it (see "downloads"
- *  below): nothing of it is where they would find it, and no dialog was shown. */
+ *  below): no dialog was shown, and it is paused in the app's own folder. (What came before the
+ *  pause took hold is there too: a fast server's file can have come whole.) */
 export type HeldDownload = {
-  /** Who asked, as the address bar says a site: "localhost:5173". */
+  /** Who asked, as the address bar says a site: "localhost:5173". When `frame`, the page's site,
+   *  and what asked is a frame in it of no site of its own (a sandboxed one, a data: one). */
   site: string
+  frame?: true
+  /** The site the file itself comes from, when it is not the one that asked ("files.example.com"). */
+  from?: string
   /** The file's name, as the site gave it. */
   file: string
   /** Its size in bytes, when the site said. */
   size?: number
   /** It goes on, and once it has all come it is put at `to` (a file the reviewer chose; one
-   *  there is replaced). Resolves once it is there; rejects with what went wrong. */
-  save(to: string): Promise<void>
-  /** Not saved: it is stopped, and nothing of it is kept. */
+   *  there is replaced). Resolves once it is there; rejects with what went wrong (it stopped
+   *  coming, nothing more of it came for a while, it could not be put there, or cancel()).
+   *  `progress` hears the bytes that have come, as more comes (about once a second at most). */
+  save(to: string, progress?: (received: number) => void): Promise<void>
+  /** Not saved, or no longer: it is stopped, and nothing of it is kept. */
   cancel(): void
 }
 
@@ -108,11 +115,18 @@ type Options = {
   /** state() changed. */
   onChange(): void
   onShortcut(key: "focus-url" | "toggle-panel" | "focus-chat" | "toggle-review"): void
-  /** What a download the page starts becomes: held in a folder of its own under `folder` (one
-   *  of the app's, not where the reviewer keeps files) and said to `ask`; `gone` once one that
-   *  was asked about and not answered ended by itself (it failed, or the page it was asked on
-   *  is closed). Without it, every download is refused. */
-  downloads?: { folder: string; ask(download: HeldDownload): void; gone(download: HeldDownload): void }
+  /** What a download the page starts becomes: held in a file of its own in `folder` (one of
+   *  the app's, not where the reviewer keeps files; see holdDownloadsIn) and said to `ask`;
+   *  `gone` once one that was asked about and not answered ended by itself (it failed, or the
+   *  page it was asked on is closed). Without it, every download is refused. */
+  downloads?: {
+    folder: string
+    ask(download: HeldDownload): void
+    gone(download: HeldDownload): void
+    /** How long a saved download may go with nothing more of it coming before it is given up
+     *  (save() rejects). Default 60 s. */
+    stallMs?: number
+  }
   log(level: "info" | "warn" | "error", msg: string, data?: unknown): void
 }
 
@@ -213,23 +227,80 @@ const webHost = (address: string) => {
   }
 }
 
+/** A file system takes a name of 255 bytes at most (ext4, APFS, NTFS's 255 UTF-16 units): a
+ *  name is kept to this many bytes of UTF-8, with room to spare for what a disk adds. */
+const NAME_BYTES = 200
+/** `text` cut to at most `max` bytes of UTF-8, whole characters only (a pair of surrogates, a
+ *  character of three bytes, is never split). */
+function fitBytes(text: string, max: number) {
+  let out = ""
+  let bytes = 0
+  for (const ch of text) {
+    const n = Buffer.byteLength(ch)
+    if (bytes + n > max) break
+    out += ch
+    bytes += n
+  }
+  return out
+}
 /** A file's name as a site gave it, made a name and nothing more: no folder in it, none of the
- *  characters a file system refuses, not hidden, not empty. */
+ *  characters a file system refuses, not hidden, not empty, and not longer than a disk takes
+ *  (cut by bytes, its extension kept). */
 const fileName = (given: string) => {
-  const name = path.basename(given.replace(/\\/g, "/")).replace(/[\x00-\x1f<>:"|?*]/g, "_").replace(/^[.\s]+/, "").trim().slice(0, 200)
-  return name || "download"
+  const name = path.basename(given.replace(/\\/g, "/")).replace(/[\x00-\x1f<>:"|?*]/g, "_").replace(/^[.\s]+/, "").trim()
+  if (Buffer.byteLength(name) <= NAME_BYTES) return name || "download"
+  const dot = name.lastIndexOf(".")
+  const ext = dot > 0 && Buffer.byteLength(name.slice(dot)) <= 32 ? name.slice(dot) : ""
+  return fitBytes(name.slice(0, name.length - ext.length), NAME_BYTES - Buffer.byteLength(ext)).trim() + ext || "download"
 }
 
-/** A file moved from where it was held to where it was asked for: renamed, or copied when the
- *  two are on different disks. */
-async function moveFile(from: string, to: string) {
+/** Who a download is said to be from (HeldDownload's site, frame, from), the page being at
+ *  `pageUrl`. Electron 44 says to name it by its initiator origin, not by the URL or the
+ *  webContents: a frame of another site is named as itself. An opaque one ("null": a sandboxed
+ *  frame, a data: one) has no name, and does not borrow the page's: it is a frame in the page. No
+ *  initiator at all is the app's own load (an address typed): named by the file's site. The
+ *  file's site is said too when it is another (a link to another site's file); a blob: or data:
+ *  file is the initiator's own. */
+function askerOf(item: DownloadItem, pageUrl: string): Pick<HeldDownload, "site" | "frame" | "from"> {
+  const initiator = item.getInitiatorOrigin()
+  const chain = item.getURLChain()
+  const fileHost = webHost(chain[chain.length - 1] ?? item.getURL())
+  const pageHost = webHost(pageUrl)
+  const asker = initiator === "null" ? { site: pageHost || "the page", frame: true as const } : { site: webHost(initiator) || fileHost || pageHost || "The page" }
+  return { ...asker, ...(fileHost && fileHost !== asker.site ? { from: fileHost } : {}) }
+}
+
+/** A file moved from where it was held to where it was asked for: renamed, or, when the two are
+ *  on different disks, copied to a name of its own beside it and then renamed over it, so a file
+ *  of the reviewer's that was there is only replaced once the copy is whole (a copy that fails
+ *  leaves it as it was, and nothing of the copy). `ops` is for the tests. */
+export async function moveFile(from: string, to: string, ops = { rename: fs.promises.rename, copy: (a: string, b: string) => fs.promises.copyFile(a, b, fs.constants.COPYFILE_EXCL) }) {
   try {
-    await fs.promises.rename(from, to)
+    await ops.rename(from, to)
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err
-    await fs.promises.copyFile(from, to)
+    const part = path.join(path.dirname(to), `.${fitBytes(path.basename(to), 60)}.${crypto.randomUUID().slice(0, 8)}.part`)
+    try {
+      await ops.copy(from, part)
+      await fs.promises.rename(part, to)
+    } catch (err) {
+      await fs.promises.rm(part, { force: true }).catch(() => {})
+      throw err
+    }
     await fs.promises.rm(from, { force: true })
   }
+}
+
+/** Chromium writes every download first to a hidden file of its own (.org.chromium.Chromium.…)
+ *  in the folder the app's "downloads" path names, before the download has a file of its own
+ *  (will-download) and before it can be paused, and moves it to that file then. So that path is
+ *  made `folder` (the held one), never the reviewer's Downloads: what comes before the pause
+ *  takes hold comes there. (A session's setDownloadPath does not do it: the temporary file goes
+ *  by the app's path, read at each download.) Whoever opens a Save dialog takes the reviewer's
+ *  Downloads folder before this. */
+export function holdDownloadsIn(folder: string) {
+  fs.mkdirSync(folder, { recursive: true })
+  app.setPath("downloads", folder)
 }
 
 export async function createPage(window: BrowserWindow, opts: Options): Promise<PageView> {
@@ -549,38 +620,100 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   // A page can start a download whenever it likes: a link with `download`, a response that says
   // it is an attachment, a script clicking a link to a blob it made, again and again. Electron's
   // way is the system's Save dialog at once, which does not say which site asked. Here a
-  // download is held instead: it is given a file in a folder of its own under the app's
+  // download is held instead: it is given a file of its own in a folder of the app's
   // (opts.downloads.folder) and paused, then and there, and the controller asks the reviewer in
   // the window (core.ts). Saved, it goes on, and once it has all come it is moved to the file
-  // they chose; not saved, it is cancelled, and nothing of it is kept.
+  // they chose; not saved, it is cancelled, and nothing of it is kept. One that stops by itself
+  // ("interrupted": Electron says so only as "updated", and never ends it) is cancelled while
+  // held, and tried once more once saved; a saved one that nothing more of comes for stallMs is
+  // given up. Neither is left pending for ever.
   //
   // Held, not stopped and asked for again once the reviewer says yes: a download a script made
   // (a blob: address, gone once the page lets go of it) or the answer to a form's POST cannot be
   // asked for again, and a second request could be answered with something else. Electron gives
   // a download its file in will-download or not at all (no file given, it shows its dialog), so
   // the file it is given is the held one, and the move to the reviewer's comes after.
+  //
+  // What is not held: Chromium writes a download to a file of its own before will-download, and
+  // the pause takes hold only once the download has its file, so what a fast server sent by then
+  // has come (a local one's can be the whole file, hundreds of MB). It comes into the app's
+  // folder (holdDownloadsIn), not the reviewer's Downloads, and is thrown away with the rest.
   /** Downloads asked about and not answered yet, of whichever view. */
   const waiting = new Set<HeldDownload>()
+  /** The address of a load of the app's own (load()) that became a download: not a failure. */
+  let loadDownloaded: string | undefined
+  /** load()s so far: a later one's failure is its own. */
+  let loads = 0
+  const sameAddress = (a: string, b: string) => {
+    try {
+      return new URL(a).href === new URL(b).href
+    } catch {
+      return a === b
+    }
+  }
   function hold(w: WebContents, event: Electron.Event, item: DownloadItem) {
     const downloads = opts.downloads
     // Only the view the page is in now, and only with somewhere to hold it.
     if (!downloads || w !== wc || gone()) return void event.preventDefault()
     const file = fileName(item.getFilename())
-    const dir = path.join(downloads.folder, crypto.randomUUID())
-    item.setSavePath(path.join(dir, file))
+    // A file of its own in the held folder itself, by a name no other has (not a folder of its
+    // own: Chromium makes a download's folder as it settles its file, after will-download, so a
+    // folder removed by a cancel that soon came back, empty).
+    const heldAt = path.join(downloads.folder, `${crypto.randomUUID()}-${file}`)
+    item.setSavePath(heldAt)
     item.pause()
-    const site = webHost(item.getInitiatorOrigin()) || webHost(url) || "The page"
+    // An address typed (load()) that is a download: the page stays where it was, and the load
+    // did not fail (Electron rejects it, ERR_FAILED, before will-download).
+    const first = item.getURLChain()[0] ?? item.getURL()
+    if (sameAddress(first, url) && !sameAddress(wc.getURL(), url)) {
+      loadDownloaded = url
+      url = internal(wc.getURL()) ? "" : wc.getURL()
+      error = undefined
+      opts.onChange()
+    }
+    const asker = askerOf(item, url)
+    const { site } = asker
     const size = item.getTotalBytes()
-    const forget = () => void fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {})
-    /** The download has ended (done): it completed, or it never will. */
-    let ended = false
+    const stallMs = downloads.stallMs ?? 60_000
+    const forget = () => void fs.promises.rm(heldAt, { force: true }).catch(() => {})
+    /** Chromium is done with it (done): it completed, was cancelled, or failed for good. */
+    let finished = false
     /** It completed before it was answered: the whole file is held. */
     let arrived = false
-    /** Saved: where it goes, and the promise save() gave. */
-    let saved: { to: string; resolve(): void; reject(err: Error): void } | undefined
+    /** It is over for us: placed, or given up and cancelled. Nothing more is done with it. */
+    let over = false
+    /** Saved after an interruption once already (resume() is tried once). */
+    let resumed = false
+    /** Saved: where it goes, the promise save() gave, and who hears how much has come. */
+    let saved: { to: string; resolve(): void; reject(err: Error): void; progress?: (received: number) => void } | undefined
+    /** Nothing more of a saved one came for stallMs: it is given up. */
+    let stall: ReturnType<typeof setTimeout> | undefined
+    let received = -1
+    const watch = () => {
+      clearTimeout(stall)
+      stall = setTimeout(() => stop(`Nothing more of it came for ${Math.round(stallMs / 1000)} s.`), stallMs)
+    }
+    /** It will not come: stopped (its file goes with it), nothing kept, and whoever waits told. */
+    const stop = (why: string) => {
+      if (over) return
+      over = true
+      clearTimeout(stall)
+      if (!finished) item.cancel()
+      forget()
+      const s = saved
+      saved = undefined
+      if (s) s.reject(new Error(why))
+      else if (waiting.delete(download)) {
+        log("warn", "page: a download asked about ended before it was answered", { site, why })
+        downloads.gone(download)
+      }
+    }
     const place = async () => {
-      if (!saved) return
+      if (!saved || over) return
+      over = true
+      clearTimeout(stall)
       const { to, resolve, reject } = saved
+      saved = undefined
       try {
         await moveFile(item.getSavePath(), to)
         resolve()
@@ -591,35 +724,58 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       }
     }
     const download: HeldDownload = {
-      site,
+      ...asker,
       file,
       ...(size > 0 ? { size } : {}),
-      save(to) {
-        if (!waiting.delete(download)) return Promise.reject(new Error("The download is no longer there."))
-        const done = new Promise<void>((resolve, reject) => (saved = { to, resolve, reject }))
+      save(to, progress) {
+        if (over || saved || !waiting.delete(download)) return Promise.reject(new Error("The download is no longer there."))
+        const done = new Promise<void>((resolve, reject) => (saved = { to, resolve, reject, ...(progress ? { progress } : {}) }))
         if (arrived) void place()
-        else if (!ended) item.resume()
+        else {
+          // (resume() says "updated" before it returns: what has come is counted from here.)
+          received = item.getReceivedBytes()
+          watch()
+          item.resume()
+        }
         return done
       },
       cancel() {
-        if (!waiting.delete(download)) return
-        if (ended) forget()
-        else item.cancel() // (its done removes the folder)
+        if (over) return
+        // Asked about and not answered: whoever cancels it knows (no `gone`). Saved: save() rejects.
+        if (saved || waiting.delete(download)) stop("The download was cancelled.")
       },
     }
+    item.on("updated", (_e, state) => {
+      if (over) return
+      if (state === "interrupted") {
+        // It stopped, and Chromium says it may go on (a file that could not be made, a link
+        // that dropped): it does not, by itself. Held, it is not answered now; saved, it is tried
+        // once more, and given up if it stops again.
+        if (saved && !resumed && item.canResume()) {
+          resumed = true
+          log("warn", "page: a saved download stopped, trying once more", { site })
+          watch()
+          return void item.resume()
+        }
+        return stop("The download stopped before it had all come.")
+      }
+      if (!saved) return
+      // (Chromium says "updated" about once a second at most, and again with nothing new.)
+      const now = item.getReceivedBytes()
+      if (now === received) return
+      received = now
+      watch()
+      if (now > 0) saved.progress?.(now)
+    })
     item.on("done", (_e, how) => {
-      ended = true
+      finished = true
+      if (over) return forget()
       if (how === "completed") {
         if (saved) void place()
         else arrived = true // kept, held, until the reviewer answers
         return
       }
-      forget()
-      if (saved) saved.reject(new Error(how === "cancelled" ? "The download was cancelled." : "The download stopped before it had all come."))
-      else if (waiting.delete(download)) {
-        log("warn", "page: a download asked about ended before it was answered", { site, how })
-        downloads.gone(download)
-      }
+      stop(how === "cancelled" ? "The download was cancelled." : "The download stopped before it had all come.")
     })
     waiting.add(download)
     log("info", "page: a download is held until the reviewer answers", { site, size: size || undefined })
@@ -685,13 +841,20 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     error = undefined
     refused = undefined
     clearTimeout(reloadTimer)
+    loadDownloaded = undefined
+    const seq = ++loads
     navigate(() => {
-      wc.loadURL(to || `data:text/html,${encodeURIComponent(EMPTY)}`).catch((err: unknown) => {
+      wc.loadURL(to || `data:text/html,${encodeURIComponent(EMPTY)}`).catch(async (err: unknown) => {
         // did-fail-load has usually said it better already; an aborted load is not a failure.
         // Electron rejects with Chromium's number in `errno` and its description in `code`, and
         // the description can be empty: the error page's own aborted load (see did-fail-load)
         // rejects the good load's promise as `errno: -3, code: ""`. So the number decides.
-        if (error || (err as { errno?: number }).errno === -3 || gone()) return
+        const errno = (err as { errno?: number }).errno
+        if (error || errno === -3 || gone()) return
+        // An address that is a download rejects as ERR_FAILED (-2) a moment before will-download
+        // holds it (hold): that is no failure, and the page stays where it was.
+        if (errno === -2 && !redirectedOut) await new Promise((r) => setTimeout(r, 150))
+        if (error || gone() || (loadDownloaded !== undefined && sameAddress(loadDownloaded, to)) || seq !== loads) return
         error = failure(String(err))
         opts.onChange()
       })

@@ -39,6 +39,7 @@ async function until<T>(fn: () => T | Promise<T>, ms = 6000): Promise<T> {
 
 /** What the site's download is: a CSV, named by `?name=`. */
 const REPORT = "order,total\n1042,12.50\n1043,99.00\n"
+const SLOW_CHUNKS = 48
 
 function serveSite(): Promise<http.Server> {
   const server = http.createServer((req, res) => {
@@ -46,6 +47,18 @@ function serveSite(): Promise<http.Server> {
     if (asked.pathname === "/download") {
       const name = (asked.searchParams.get("name") ?? "report.csv").replace(/[^\w.-]/g, "_")
       return void res.writeHead(200, { "content-type": "text/csv", "content-disposition": `attachment; filename="${name}"`, "content-length": Buffer.byteLength(REPORT), "cache-control": "no-store" }).end(REPORT)
+    }
+    // One that comes slowly, for a few seconds (SLOW_CHUNKS of 64 KiB, each filled with its number).
+    if (asked.pathname === "/slow-download") {
+      res.writeHead(200, { "content-type": "application/octet-stream", "content-disposition": 'attachment; filename="slow.bin"', "content-length": SLOW_CHUNKS * 64 * 1024, "cache-control": "no-store" })
+      let sent = 0
+      const next = () => {
+        if (res.destroyed) return
+        if (sent === SLOW_CHUNKS) return void res.end()
+        sent++
+        res.write(Buffer.alloc(64 * 1024, sent % 251), () => setTimeout(next, 70))
+      }
+      return void next()
     }
     const file = path.normalize(path.join(overlayDir, decodeURIComponent(new URL(req.url ?? "/", "http://x").pathname)))
     if (!file.startsWith(overlayDir)) return void res.writeHead(403).end()
@@ -1015,7 +1028,23 @@ async function main() {
       typeof line === "string" && line.includes(`${host} wants to download report.csv (${Buffer.byteLength(REPORT)} bytes)`) && line.includes("Save…") && line.includes("Don't") && state().page.download?.file === "report.csv",
       String(line),
     )
-    check("…held in the app's own folder, with no Save dialog: not until the reviewer asks", savePaths.length === 1 && savePaths[0]!.startsWith(heldDir + path.sep) && saveAsked.length === 0 && inHeld().length === 1, `${savePaths.join(" ")} ${saveAsked.join(" ")}`)
+    check("…held in the app's own folder, with no Save dialog: not until the reviewer asks", savePaths.length === 1 && savePaths[0]!.startsWith(heldDir + path.sep) && saveAsked.length === 0 && (await until(() => inHeld().length === 1)) === true, `${savePaths.join(" ")} ${saveAsked.join(" ")} / ${inHeld().join(" ")}`)
+    // Chromium writes a download first to a file of its own in the app's "downloads" folder:
+    // that is the held one, never the reviewer's Downloads (in a test run, one in its profile).
+    const theirDownloads = path.join(profile, "Downloads")
+    check("…and the app's downloads folder, where Chromium writes a download first, is the held one; nothing is in the reviewer's Downloads", app.getPath("downloads") === heldDir && (!fs.existsSync(theirDownloads) || fs.readdirSync(theirDownloads).length === 0), `${app.getPath("downloads")}`)
+
+    // The site goes on to a "thanks" address of its own as the download starts (pushState): the line stays.
+    await ui(`[...${strip}.querySelectorAll("button")].find((b) => b.textContent === "Don't").click()`)
+    await until(async () => !state().page.download && (await stripText()) === "")
+    await download("thanks.csv")
+    await until(async () => (await stripText()).includes("thanks.csv"))
+    const at = page.view.webContents.getURL()
+    await page.view.webContents.executeJavaScript(`history.pushState(null, "", "/thanks?order=1042")`, true)
+    await until(() => state().page.url.includes("/thanks"))
+    await sleep(300)
+    check("the page moving within its site as the download starts (pushState to /thanks) keeps the line", state().page.download?.file === "thanks.csv" && (await stripText()).includes("thanks.csv"), `${state().page.url} "${await stripText()}"`)
+    await page.view.webContents.executeJavaScript(`history.pushState(null, "", ${JSON.stringify(new URL(at).pathname)})`, true)
 
     await ui(`[...${strip}.querySelectorAll("button")].find((b) => b.textContent === "Don't").click()`)
     check("Don't: the line goes, and nothing of the file is kept", (await until(async () => !state().page.download && (await stripText()) === "" && inHeld().length === 0)) === true && saveAsked.length === 0, `${await stripText()} / ${inHeld().join(" ")}`)
@@ -1046,6 +1075,32 @@ async function main() {
     await until(async () => (await stripText()).includes("again.csv"))
     await ui(`[...${strip}.querySelectorAll("button")].find((b) => b.textContent === "Save…").click()`)
     check("a Save dialog cancelled is Don't: the line goes, nothing kept", (await until(async () => !state().page.download && (await stripText()) === "" && inHeld().length === 0)) === true && fs.readdirSync(savedDir).join(" ") === "orders.csv")
+
+    // Saved, a slow one says how much has come in a line of its own, until it is in place.
+    const savingStrip = `document.querySelector(".download-saving")`
+    const savingText = () => ui(`${savingStrip}?.innerText ?? ""`) as Promise<string>
+    const slowDownload = () => page.view.webContents.executeJavaScript(`Object.assign(document.createElement("a"), { href: "/slow-download" }).click()`, true)
+    answer = path.join(savedDir, "slow.bin")
+    await slowDownload()
+    await until(async () => (await stripText()).includes("slow.bin"))
+    await ui(`[...${strip}.querySelectorAll("button")].find((b) => b.textContent === "Save…").click()`)
+    const savingLine = await until(async () => /Saving slow\.bin… \d+%/.test(await savingText()) && (await savingText()))
+    check("Save… of a slow download: a line says it is being saved and how much has come, with Cancel, and the ask is gone", typeof savingLine === "string" && /Cancel/.test(savingLine) && (await stripText()) === "" && state().page.saving?.length === 1, String(savingLine))
+    const slowWhole = SLOW_CHUNKS * 64 * 1024
+    check(
+      "…and once it has all come it is where the reviewer said, whole, and the line goes",
+      (await until(async () => fs.existsSync(answer!) && fs.statSync(answer!).size === slowWhole && !state().page.saving && (await savingText()) === "", 15000)) === true,
+      `${fs.existsSync(answer) ? fs.statSync(answer).size : "none"} "${await savingText()}"`,
+    )
+    // Cancel while it comes: stopped, nothing of it kept.
+    answer = path.join(savedDir, "slow-cancelled.bin")
+    await slowDownload()
+    await until(async () => (await stripText()).includes("slow.bin"))
+    await ui(`[...${strip}.querySelectorAll("button")].find((b) => b.textContent === "Save…").click()`)
+    await until(async () => /Saving slow\.bin/.test(await savingText()))
+    await ui(`[...${savingStrip}.querySelectorAll("button")].find((b) => b.textContent === "Cancel").click()`)
+    check("…Cancel on that line stops it: the line goes, and nothing of it is kept", (await until(async () => !state().page.saving && (await savingText()) === "" && inHeld().length === 0)) === true && !fs.existsSync(answer), `"${await savingText()}" ${inHeld().join(" ")}`)
+    check("(nothing of any download was ever in the reviewer's Downloads)", !fs.existsSync(theirDownloads) || fs.readdirSync(theirDownloads).length === 0)
     fs.rmSync(savedDir, { recursive: true, force: true })
   }
 

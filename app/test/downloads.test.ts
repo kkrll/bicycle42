@@ -29,21 +29,31 @@ const folder = (name: string) => {
   return p
 }
 
-/** A held download: what the controller did to it. `fails` makes its save reject with that. */
-function download(file = "report.csv", opts: { site?: string; size?: number; fails?: string } = {}) {
+/** A held download: what the controller did to it. `fails` makes its save reject with that;
+ *  `slow` leaves it coming until the test says (`progress`, `arrive`, `fail`), and its cancel()
+ *  then rejects the save as the page's does. */
+function download(file = "report.csv", opts: { site?: string; frame?: true; from?: string; size?: number; fails?: string; slow?: true } = {}) {
+  let settle: { resolve(): void; reject(err: Error): void; progress?: (n: number) => void } | undefined
   const d = {
     site: opts.site ?? "site.test",
+    ...(opts.frame ? { frame: opts.frame } : {}),
+    ...(opts.from ? { from: opts.from } : {}),
     file,
     ...(opts.size !== undefined ? { size: opts.size } : {}),
     saved: [] as string[],
     cancelled: 0,
-    save(to: string) {
+    save(to: string, progress?: (received: number) => void) {
       d.saved.push(to)
+      if (opts.slow) return new Promise<void>((resolve, reject) => (settle = { resolve, reject, ...(progress ? { progress } : {}) }))
       return opts.fails ? Promise.reject(new Error(opts.fails)) : Promise.resolve()
     },
     cancel() {
       d.cancelled++
+      settle?.reject(new Error("The download was cancelled."))
     },
+    progress: (n: number) => settle?.progress?.(n),
+    arrive: () => settle?.resolve(),
+    fail: (why: string) => settle?.reject(new Error(why)),
   }
   return d satisfies HeldDownload
 }
@@ -96,6 +106,7 @@ test("a download the page asks for is a line in the window, with who asked and w
     const d = download("report.csv", { size: 12_480 })
     h.ask(d)
     assert.deepEqual(h.line(), { site: "site.test", file: "report.csv", size: 12_480 })
+    assert.equal(h.snap().page.saving, undefined)
     assert.equal(d.cancelled, 0, "held, not cancelled")
 
     // An id that is not the one asked about (a line already gone) does nothing.
@@ -110,6 +121,11 @@ test("a download the page asks for is a line in the window, with who asked and w
     // A size the site did not say is not said.
     h.ask(download("notes.txt"))
     assert.deepEqual(h.line(), { site: "site.test", file: "notes.txt" })
+
+    // A frame of no site of its own (sandboxed, data:) in the page, and a file of another site: both said.
+    h.ask(download("x.csv", { site: "site.test", frame: true, from: "files.example", size: 3 }))
+    const { id: _id, ...said } = h.snap().page.download!
+    assert.deepEqual(said, { site: "site.test", frame: true, from: "files.example", file: "x.csv", size: 3 })
   } finally {
     await h.close()
   }
@@ -192,10 +208,10 @@ test("while the Save dialog is open: Save again opens no second one, and a downl
     await saving
     assert.deepEqual([first.saved, first.cancelled, second.saved, second.cancelled, h.line()?.file], [[], 1, [], 0, "two.csv"])
 
-    // The page went elsewhere while the dialog was open: nothing is saved either.
+    // The page went to another site while the dialog was open: nothing is saved either.
     h.shell.saveDialog.answer = new Promise((done) => (answer = done))
     const again = h.cmd("saveDownload", h.id())
-    h.shell.page.load(`${SITE}/elsewhere`)
+    h.shell.page.load("http://other.test/")
     answer("/home/me/Downloads/two.csv")
     await again
     assert.deepEqual([second.saved, second.cancelled, h.snap().page.download], [[], 1, undefined])
@@ -204,22 +220,71 @@ test("while the Save dialog is open: Save again opens no second one, and a downl
   }
 })
 
-test("the page going elsewhere cancels the download it asked for; a reload or a #hash of the same page does not", async () => {
+test("the page going to another site cancels the download it asked for; a move within the site (a reload, a #hash, another query or path, a pushState) does not", async () => {
   const h = await boot()
   try {
     const d = download()
     h.ask(d)
     h.shell.page.load(`${SITE}/orders#total`)
     h.shell.page.load(`${SITE}/orders`)
-    assert.deepEqual([d.cancelled, h.line()?.file], [0, "report.csv"])
     h.shell.page.load(`${SITE}/orders?page=2`)
+    // "Start the download, then go to /thanks": the site's own way, the line stays.
+    h.shell.page.load(`${SITE}/thanks`)
+    assert.deepEqual([d.cancelled, h.line()?.file], [0, "report.csv"])
+    // Another port is another site.
+    h.shell.page.load("http://site.test:8080/orders")
     assert.deepEqual([d.cancelled, h.snap().page.download], [1, undefined])
 
     // The page closed, or made again in another computer's session (setPartition): nothing loaded.
+    h.shell.page.load(`${SITE}/orders`)
     const e = download()
     h.ask(e)
     h.shell.page.load("")
     assert.deepEqual([e.cancelled, h.snap().page.download], [1, undefined])
+  } finally {
+    await h.close()
+  }
+})
+
+test("a download saved and still coming is a line of how much has come, until it is in place; Cancel on it stops it with no dialog", async () => {
+  const h = await boot()
+  try {
+    const d = download("big.zip", { size: 1000, slow: true })
+    h.ask(d)
+    h.shell.saveDialog.answer = "/home/me/Downloads/big.zip"
+    const id = h.id()!
+    await h.cmd("saveDownload", id)
+    assert.deepEqual([h.snap().page.download, h.snap().page.saving], [undefined, [{ id, file: "big.zip", received: 0, size: 1000 }]])
+    d.progress(250)
+    assert.deepEqual(h.snap().page.saving, [{ id, file: "big.zip", received: 250, size: 1000 }])
+    // Another one asked about meanwhile has its own line, and does not cancel this one.
+    const other = download("other.csv")
+    h.ask(other)
+    assert.deepEqual([d.cancelled, h.line()?.file, h.snap().page.saving?.length], [0, "other.csv", 1])
+    // A move to another site does not stop it either: the reviewer said Save.
+    h.shell.page.load("http://other.test/")
+    assert.deepEqual([d.cancelled, other.cancelled, h.snap().page.saving?.length], [0, 1, 1])
+    d.arrive()
+    await until(() => !h.snap().page.saving)
+    assert.deepEqual(h.shell.dialogs, [])
+
+    // Cancel while it comes: stopped, the line goes, and no dialog says it failed.
+    const e = download("again.zip", { slow: true })
+    h.ask(e)
+    const eid = h.id()!
+    await h.cmd("saveDownload", eid)
+    assert.deepEqual(h.snap().page.saving, [{ id: eid, file: "again.zip", received: 0 }])
+    await h.cmd("dropDownload", eid)
+    await until(() => !h.snap().page.saving)
+    assert.deepEqual([e.cancelled, h.shell.dialogs], [1, []])
+
+    // One that fails as it comes: its line goes, and a dialog says why.
+    const f = download("fails.zip", { slow: true })
+    h.ask(f)
+    await h.cmd("saveDownload", h.id())
+    f.fail("The download stopped before it had all come.")
+    await until(() => !h.snap().page.saving && h.shell.dialogs.length === 1)
+    assert.deepEqual(h.shell.dialogs, [{ type: "warning", message: "fails.zip was not saved", detail: "The download stopped before it had all come." }])
   } finally {
     await h.close()
   }

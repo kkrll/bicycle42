@@ -832,7 +832,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       break
     case "download":
       // The page started a download: held, and asked about.
-      state.page.download = { id: "d1", site: "localhost:5173", file: "orders-2026-11.csv", size: 12_480 }
+      state.page.download = { id: "d1", site: "localhost:5173", file: "orders-2026-11.csv", from: "files.example.com", size: 12_480 }
       break
     case "refused":
       // The page tried to open an app's link, and was stopped.
@@ -908,11 +908,23 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     back() {},
     forward() {},
     saveDownload(id) {
-      if (state.page.download?.id === id) delete state.page.download
+      const d = state.page.download
+      if (d?.id !== id) return
+      delete state.page.download
+      // Saved: a line of how much has come, until it is all there.
+      const size = d.size ?? 4_000_000
+      state.page.saving = [...(state.page.saving ?? []), { id, file: d.file, received: 0, ...(d.size !== undefined ? { size: d.size } : {}) }]
       push()
+      const tick = setInterval(() => {
+        const line = state.page.saving?.find((s) => s.id === id)
+        if (line && line.received < size) line.received = Math.min(size, line.received + size / 8)
+        else (clearInterval(tick), (state.page.saving = state.page.saving?.filter((s) => s.id !== id)))
+        push()
+      }, 400)
     },
     dropDownload(id) {
       if (state.page.download?.id === id) delete state.page.download
+      state.page.saving = state.page.saving?.filter((s) => s.id !== id)
       push()
     },
     setDevice(device) {

@@ -273,10 +273,15 @@ export function createCore(host: Host): Core {
    *  offered to the reviewer, never opened by itself (hereFor). */
   let elsewhere: { url: string; computer: string } | undefined
   /** A download the page started, held until the reviewer answers (`AppState.page.download`):
-   *  one at a time. `at` is the page it was asked on (its address without a #…): once the page is
-   *  anywhere else, it is not answered. `choosing` while the Save dialog is open for it. */
+   *  one at a time. `at` is the origin of the page it was asked on: once the page is at another
+   *  origin (or none), it is not answered; a move within the site (a link, a pushState, another
+   *  query) keeps it, since a site often goes on to a "thanks" page as its download starts.
+   *  `choosing` while the Save dialog is open for it. */
   let download: { id: string; held: HeldDownload; at: string; choosing?: true } | undefined
-  const pageAt = () => (page?.state().url ?? "").replace(/#.*$/, "")
+  const pageAt = () => originOf(page?.state().url ?? "") ?? ""
+  /** Downloads saved and still coming (`AppState.page.saving`): how much has come, until each
+   *  is in place or has failed. `cancelled` once the reviewer stopped it (no dialog then). */
+  const saving = new Map<string, { held: HeldDownload; received: number; cancelled?: true }>()
   /** The download waiting is not saved: cancelled, and the line about it gone. */
   function dropDownload(why: string) {
     if (!download) return
@@ -292,6 +297,14 @@ export function createCore(host: Host): Core {
     download = { id: crypto.randomUUID(), held, at: pageAt() }
     push()
   }
+  /** What the line says of a download: who asked, from where, the file and its size. */
+  const asked = (held: HeldDownload) => ({
+    site: held.site,
+    ...(held.frame ? { frame: true as const } : {}),
+    ...(held.from ? { from: held.from } : {}),
+    file: held.file,
+    ...(held.size !== undefined ? { size: held.size } : {}),
+  })
   function onDownloadGone(held: HeldDownload) {
     if (download?.held !== held) return
     download = undefined
@@ -498,7 +511,8 @@ export function createCore(host: Host): Core {
         ...(p ?? { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }),
         ...(blocked && !p?.url ? { url: blocked.url, error: blocked.error, loading: false } : {}),
         ...(elsewhere && !blocked && !p?.url ? { elsewhere } : {}),
-        ...(download ? { download: { id: download.id, site: download.held.site, file: download.held.file, ...(download.held.size !== undefined ? { size: download.held.size } : {}) } } : {}),
+        ...(download ? { download: { id: download.id, ...asked(download.held) } } : {}),
+        ...(saving.size ? { saving: [...saving].map(([id, s]) => ({ id, file: s.held.file, received: s.received, ...(s.held.size !== undefined ? { size: s.held.size } : {}) })) } : {}),
         device: device(),
         phone: phone().id,
       },
@@ -2442,19 +2456,37 @@ export function createCore(host: Host): Core {
       if (download !== asked) return
       if (!to) return dropDownload("the Save dialog was cancelled")
       download = undefined
+      // A line saying how much has come, until it is in place.
+      const line = { held: asked.held, received: 0 } as { held: HeldDownload; received: number; cancelled?: true }
+      saving.set(asked.id, line)
       push()
       const { site, file } = asked.held
       log("info", "page: a download is saved", { site })
-      asked.held.save(to).then(
+      const progress = (received: number) => {
+        if (saving.get(asked.id) !== line) return
+        line.received = received
+        push()
+      }
+      asked.held.save(to, progress).then(
         () => log("info", "page: a download is in place", { site }),
         (err: unknown) => {
+          if (line.cancelled) return log("info", "page: a download being saved was stopped by the reviewer", { site })
           log("warn", "page: a download was not saved", { site, error: say(err) })
           host.dialog({ type: "warning", message: `${file} was not saved`, detail: say(err) })
         },
-      )
+      ).finally(() => {
+        if (saving.get(asked.id) !== line) return
+        saving.delete(asked.id)
+        push()
+      })
     },
     dropDownload(id) {
-      if (download?.id === id) dropDownload("the reviewer said no")
+      if (download?.id === id) return dropDownload("the reviewer said no")
+      // One being saved: stopped, and nothing of it kept.
+      const line = saving.get(id)
+      if (!line || line.cancelled) return
+      line.cancelled = true
+      line.held.cancel()
     },
     setPageBounds(bounds) {
       page?.setBounds(bounds)

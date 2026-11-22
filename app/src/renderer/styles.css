@@ -870,8 +870,14 @@ details[open] > summary > .caret {
 }
 
 /* The page asked to download a file: who asked and what, and the two answers. */
-.download-ask > .icon:first-child {
+.download-ask > .icon:first-child,
+.download-saving > .icon:first-child {
   color: var(--muted);
+}
+
+.download-progress {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .download-site,

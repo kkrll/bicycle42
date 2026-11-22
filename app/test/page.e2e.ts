@@ -10,7 +10,7 @@ import { app, BrowserWindow } from "electron"
 import fs from "node:fs"
 import http from "node:http"
 import path from "node:path"
-import { createPage, WORLD, type HeldDownload, type PageMessage } from "../src/main/page"
+import { createPage, holdDownloadsIn, moveFile, WORLD, type HeldDownload, type PageMessage } from "../src/main/page"
 import { noteImages } from "../src/main/images"
 import { createReview, pageEdits, pageNote } from "../src/main/review"
 import { parseNote } from "../src/main/chat-items"
@@ -49,6 +49,12 @@ self.addEventListener("fetch", (e) => { if (new URL(e.request.url).pathname === 
 /** What the downloads below are: a CSV, and a slow file of 64 KiB chunks, each filled with its number. */
 const REPORT = "order,total\n1042,12.50\n1043,99.00\n"
 const SLOW_CHUNKS = 32
+/** …a fast one, of 1 MiB chunks sent as fast as the socket takes them, each filled with its number. */
+const FAST_MIB = 24
+/** …names longer than a disk takes (255 bytes): 210 CJK characters (630 bytes), 120 emoji (480). */
+const LONG_NAMES: Record<string, string> = { cjk: `${"日".repeat(210)}.csv`, emoji: `${"😀".repeat(120)}.txt` }
+/** The drops.bin download's connection is cut after its first chunk while this is set. */
+const dropping = { on: false }
 
 function serve(): Promise<http.Server> {
   const server = http.createServer((req, res) => {
@@ -79,6 +85,36 @@ function serve(): Promise<http.Server> {
       }
       return void next()
     }
+    // One that comes as fast as it can: the pause comes too late for some of it.
+    if (asked === "/download/fast.bin") {
+      res.writeHead(200, { "content-type": "application/octet-stream", "content-disposition": 'attachment; filename="fast.bin"', "content-length": FAST_MIB * 1024 * 1024, "cache-control": "no-store" })
+      let sent = 0
+      const pump = () => {
+        while (sent < FAST_MIB) if (!res.write(Buffer.alloc(1024 * 1024, ++sent % 251))) return void res.once("drain", pump)
+        res.end()
+      }
+      return void pump()
+    }
+    // One whose name is longer than a disk takes.
+    if (asked.startsWith("/download/long-"))
+      return void res.writeHead(200, { "content-type": "text/plain", "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(LONG_NAMES[asked.slice(15)] ?? "x")}`, "content-length": 5, "cache-control": "no-store" }).end("long\n")
+    // One that comes slowly (4 MiB said) and whose connection is cut while `dropping.on`; and one
+    // that stops coming after its first chunk, its connection left open.
+    if (asked === "/download/drops.bin" || asked === "/download/stalls.bin") {
+      res.writeHead(200, { "content-type": "application/octet-stream", "content-disposition": `attachment; filename="${asked.slice(10)}"`, "content-length": 4 * 1024 * 1024, "cache-control": "no-store" })
+      let sent = 0
+      const next = () => {
+        if (res.destroyed) return
+        if (asked === "/download/stalls.bin" && sent === 1) return void setTimeout(() => res.destroy(), 20000).unref()
+        if (dropping.on && sent > 0) return void res.destroy()
+        sent++
+        res.write(Buffer.alloc(64 * 1024, 1), () => setTimeout(next, 50))
+      }
+      return void next()
+    }
+    // A frame that starts a download as it loads (the downloads below put it in a sandboxed iframe).
+    if (asked === "/download/frame.html")
+      return void res.writeHead(200, { "content-type": "text/html", "cache-control": "no-store" }).end(`<a id="a" href="/download/report.csv">file</a><script>document.getElementById("a").click()</script>`)
     // A redirect out of the web, to an app's scheme.
     if (asked === "/to-app") return void res.writeHead(302, { location: "b42probe://redirected", "cache-control": "no-store" }).end()
     const file = path.normalize(path.join(overlayDir, asked))
@@ -1037,6 +1073,19 @@ async function main() {
     fs.rmSync(held, { recursive: true, force: true })
     fs.rmSync(saved, { recursive: true, force: true })
     fs.mkdirSync(saved, { recursive: true })
+    // The reviewer's Downloads folder, as the app's "downloads" path was before the app made it the
+    // held folder (index.ts does the same): Chromium writes each download there first, hidden,
+    // unless it is the held one. Watched for anything at all made in it.
+    const theirs = path.join(out, "Downloads")
+    fs.rmSync(theirs, { recursive: true, force: true })
+    fs.mkdirSync(theirs, { recursive: true })
+    app.setPath("downloads", theirs)
+    holdDownloadsIn(held)
+    const inTheirs: string[] = []
+    const theirsWatch = fs.watch(theirs, (_e, name) => void inTheirs.push(String(name)))
+    /** Chromium's hidden files, seen made in the held folder. */
+    const chromiums = new Set<string>()
+    const heldWatch = fs.watch(held, (_e, name) => void (String(name).startsWith(".org.chromium.") && chromiums.add(String(name))))
     const asked: HeldDownload[] = []
     const gone: HeldDownload[] = []
     const dl = await createPage(win, {
@@ -1045,7 +1094,7 @@ async function main() {
       onMessage: () => {},
       onChange: () => {},
       onShortcut: () => {},
-      downloads: { folder: held, ask: (d) => void asked.push(d), gone: (d) => void gone.push(d) },
+      downloads: { folder: held, ask: (d) => void asked.push(d), gone: (d) => void gone.push(d), stallMs: 2000 },
       log: () => {},
     })
     dl.setBounds({ x: 0, y: 0, width: 800, height: 600 })
@@ -1075,7 +1124,7 @@ async function main() {
     check("…with no Save dialog of Electron's: it was given a file in the app's own folder, and paused", !!csvItem && csvItem.savePath.startsWith(held + path.sep) && csvItem.paused, csvItem && `${csvItem.savePath} paused=${csvItem.paused}`)
     await sleep(500)
     // (A file this small has all come by now, into the folder it is held in: it is kept there.)
-    check("…and nothing of it is anywhere the reviewer keeps files", fs.readdirSync(saved).length === 0 && csvItem.end !== "cancelled" && inHeld().length === 1, `${csvItem.end} ${inHeld().join(" ")}`)
+    check("…and nothing of it is anywhere the reviewer keeps files: not where they save, and nothing ever made in their Downloads folder (Chromium's own first file is in the held one)", fs.readdirSync(saved).length === 0 && inTheirs.length === 0 && fs.readdirSync(theirs).length === 0 && chromiums.size > 0 && csvItem.end !== "cancelled" && inHeld().length === 1, `${csvItem.end} held: ${inHeld().join(" ")} theirs: ${inTheirs.join(" ")} chromium's: ${[...chromiums].join(" ")}`)
 
     const to = path.join(saved, "orders.csv")
     const placed = await csv.save(to).then(() => "ok", (e: Error) => e.message)
@@ -1112,10 +1161,12 @@ async function main() {
     const whileHeld = slowItem.item.getReceivedBytes()
     check("…while it waits it is paused, and does not finish", slowItem.item.isPaused() && slowItem.item.getState() === "progressing" && whileHeld < SLOW_CHUNKS * 64 * 1024, `${slowItem.item.getState()} paused=${slowItem.item.isPaused()} ${whileHeld} bytes`)
     const slowTo = path.join(saved, "slow.bin")
-    const slowDone = await slow.save(slowTo).then(() => "ok", (e: Error) => e.message)
+    const heard: number[] = []
+    const slowDone = await slow.save(slowTo, (n) => void heard.push(n)).then(() => "ok", (e: Error) => e.message)
     const body = fs.existsSync(slowTo) ? fs.readFileSync(slowTo) : Buffer.alloc(0)
     const whole = body.length === SLOW_CHUNKS * 64 * 1024 && Array.from({ length: SLOW_CHUNKS }, (_, i) => body[i * 64 * 1024] === (i + 1) % 251).every(Boolean)
     check("…and saved, it goes on and comes whole, in order", slowDone === "ok" && whole, `${slowDone} ${body.length} bytes`)
+    check("…and while it came, how much had come was heard, now and then", heard.length >= 1 && heard.every((n, i) => n > 0 && n <= SLOW_CHUNKS * 64 * 1024 && (i === 0 || n > heard[i - 1]!)), heard.join(" "))
 
     // Closing the page cancels one that waits, and says it is gone.
     await click("/download/slow.bin", "left.bin")
@@ -1138,6 +1189,170 @@ async function main() {
     await sleep(500)
     check("a page that holds no downloads refuses them: not asked about, no file given, nothing written", !!refusedItem && refusedItem.savePath === "" && asked.length === 5 && inHeld().length === 0 && fs.readdirSync(saved).length === 3, refusedItem && `${refusedItem.end} "${refusedItem.savePath}"`)
     plain.dispose()
+
+    // ── what can end a download other than an answer, and what the line says of who asked ──
+    const dl2 = await createPage(win, {
+      preload: path.join(__dirname, "../page-preload.cjs"),
+      partition: "page-e2e-downloads",
+      onMessage: () => {},
+      onChange: () => {},
+      onShortcut: () => {},
+      downloads: { folder: held, ask: (d) => void asked.push(d), gone: (d) => void gone.push(d), stallMs: 2000 },
+      log: () => {},
+    })
+    dl2.setBounds({ x: 0, y: 0, width: 800, height: 600 })
+    const d2js = (code: string) => dl2.view.webContents.executeJavaScript(code, true)
+    dl2.load(`${base}/wide.html`)
+    await until(() => !dl2.state().loading && dl2.view.webContents.getURL() === `${base}/wide.html`, 5000)
+    /** The next download asked about after `start`, and what Electron did with it. */
+    const next = async (start: () => unknown) => {
+      const n = asked.length
+      const m = items.length
+      await start()
+      await until(() => asked.length > n && items.length > m, 5000)
+      return { d: asked[n], seen: items[m] }
+    }
+    const click2 = (href: string, name = "") => d2js(`Object.assign(document.createElement("a"), { href: ${JSON.stringify(href)}, download: ${JSON.stringify(name)} }).click()`)
+    const settled = (p: Promise<void>, ms: number) => Promise.race([p.then(() => "ok", (e: Error) => e.message), sleep(ms).then(() => `still waiting after ${ms / 1000} s`)])
+    const port = new URL(base).port
+
+    // A name longer than a disk takes: cut by its bytes, or the held file could not be made and
+    // the download would stop there, never to end (Electron says so only as "updated").
+    for (const [key, full] of Object.entries(LONG_NAMES)) {
+      const { d } = await next(() => click2(`/download/long-${key}`))
+      const f = d?.file ?? ""
+      const ext = path.extname(full)
+      const to = path.join(saved, `long-${key}${ext}`)
+      const got = d ? await settled(d.save(to), 5000) : "not asked"
+      check(
+        `a name longer than a disk takes (${Buffer.byteLength(full)} bytes) is cut by bytes to one it takes, whole characters, its extension kept, and the file comes`,
+        Buffer.byteLength(f) <= 200 && f.endsWith(ext) && Buffer.from(f).toString() === f && full.startsWith(f.slice(0, -ext.length)) && got === "ok" && fs.readFileSync(to, "utf8") === "long\n",
+        `${Buffer.byteLength(f)} bytes, ${got}`,
+      )
+    }
+
+    // A download that stops while held (here its folder cannot be made): Electron says
+    // "interrupted" and may go on, but nothing makes it; it is cancelled and its line goes.
+    {
+      const notAFolder = path.join(out, "not-a-folder")
+      fs.writeFileSync(notAFolder, "")
+      const badAsked: HeldDownload[] = []
+      const badGone: HeldDownload[] = []
+      const bad = await createPage(win, {
+        preload: path.join(__dirname, "../page-preload.cjs"),
+        partition: "page-e2e-downloads",
+        onMessage: () => {},
+        onChange: () => {},
+        onShortcut: () => {},
+        downloads: { folder: notAFolder, ask: (d) => void badAsked.push(d), gone: (d) => void badGone.push(d) },
+        log: () => {},
+      })
+      bad.setBounds({ x: 0, y: 0, width: 800, height: 600 })
+      bad.load(`${base}/wide.html`)
+      await until(() => !bad.state().loading && bad.view.webContents.getURL() === `${base}/wide.html`, 5000)
+      const m = items.length
+      await bad.view.webContents.executeJavaScript(`Object.assign(document.createElement("a"), { href: "/download/report.csv" }).click()`, true)
+      await until(() => badAsked.length === 1 && items.length > m, 5000)
+      const seen = items[m]
+      check("a download that stops while held ('interrupted') is cancelled and its line goes, not left asked about for ever", (await until(() => badGone.length === 1 && badGone[0] === badAsked[0] && seen?.end === "cancelled", 5000)) === true, `${seen?.item.getState()} ${seen?.end} gone=${badGone.length}`)
+      bad.dispose()
+      fs.rmSync(notAFolder, { force: true })
+    }
+
+    // Saved, and its connection cut, again and again: tried once more, then given up, said.
+    {
+      dropping.on = false
+      const { d, seen } = await next(() => click2("/download/drops.bin"))
+      const to = path.join(saved, "drops.bin")
+      const saving = d!.save(to)
+      await until(() => seen!.item.getReceivedBytes() > 0, 5000)
+      dropping.on = true
+      const got = await settled(saving, 20000)
+      dropping.on = false
+      check("a saved download whose connection is cut again and again is given up and says so, not left waiting for ever", /stopped before it had all come|Nothing more of it came/.test(got) && !fs.existsSync(to), got)
+    }
+
+    // Saved, and nothing more of it comes (the connection left open): given up after stallMs.
+    {
+      const { d } = await next(() => click2("/download/stalls.bin"))
+      const to = path.join(saved, "stalls.bin")
+      const got = await settled(d!.save(to), 8000)
+      check("a saved download that stops coming is given up once nothing more of it came for a while, and says so", got === "Nothing more of it came for 2 s." && !fs.existsSync(to), got)
+    }
+
+    // A fast server: the pause comes after some of it (on a local one, often all of it), into
+    // the held folder; it comes on no further while held, and saved it comes whole and in order.
+    {
+      const FAST = FAST_MIB * 1024 * 1024
+      const { d, seen } = await next(() => click2("/download/fast.bin"))
+      await sleep(800)
+      const a = seen!.item.getReceivedBytes()
+      await sleep(700)
+      const b = seen!.item.getReceivedBytes()
+      check("a fast server's download: what came before the pause took hold stays held, in the app's folder, and no more comes", a === b && inTheirs.length === 0, `${a} then ${b} bytes of ${FAST}, ${seen!.item.getState()}`)
+      const to = path.join(saved, "fast.bin")
+      const got = await settled(d!.save(to), 10000)
+      const body = fs.existsSync(to) ? fs.readFileSync(to) : Buffer.alloc(0)
+      const whole = body.length === FAST && Array.from({ length: FAST_MIB }, (_, i) => body[i * 1024 * 1024] === (i + 1) % 251 && body[(i + 1) * 1024 * 1024 - 1] === (i + 1) % 251).every(Boolean)
+      check("…and saved, it comes whole and in order", got === "ok" && whole, `${got} ${body.length} bytes`)
+      fs.rmSync(to, { force: true })
+      // Another, not saved: Chromium's first file and the held one both go.
+      const before = chromiums.size
+      const { d: no, seen: noSeen } = await next(() => click2("/download/fast.bin", "fast-no.bin"))
+      no!.cancel()
+      check("…and not saved, nothing of it is kept, in the held folder or the reviewer's Downloads", (await until(() => !!noSeen?.end && inHeld().length === 0, 5000)) === true && chromiums.size > before && inTheirs.length === 0 && fs.readdirSync(theirs).length === 0, `${noSeen?.end} held: ${inHeld().map((d) => `${d}/${fs.existsSync(path.join(held, d)) && fs.statSync(path.join(held, d)).isDirectory() ? fs.readdirSync(path.join(held, d)).join(",") : ""}`).join(" ")} theirs: ${inTheirs.join(" ")}`)
+    }
+
+    // Who asked: a frame of no site of its own (sandboxed) is a frame in the page, not the page;
+    // a file of another site says where it is from.
+    {
+      const other = `localhost:${port}`
+      const { d } = await next(() => d2js(`document.body.insertAdjacentHTML("beforeend", '<iframe sandbox="allow-scripts allow-downloads" src="http://${other}/download/frame.html"></iframe>')`))
+      check("a download a sandboxed frame starts is said to be a frame's in the page, with the file's own site, not the page's name", d?.site === site && d.frame === true && d.from === other, JSON.stringify(d && { site: d.site, frame: d.frame, from: d.from }))
+      d?.cancel()
+      const { d: link } = await next(() => click2(`http://${other}/download/report.csv`))
+      check("a link of the page's to another site's file: the page asked, and the file's site is said", link?.site === site && !link.frame && link.from === other, JSON.stringify(link && { site: link.site, frame: link.frame, from: link.from }))
+      link?.cancel()
+    }
+
+    // An address typed that is a download: held and asked about, and the page stays where it was.
+    {
+      const { d } = await next(() => dl2.load(`${base}/download/report.csv`))
+      await sleep(600)
+      const st = dl2.state()
+      check("an address typed that is a download is asked about, and the page stays where it was: its address, and no load failure", d?.site === site && !d.frame && !d.from && st.url === `${base}/wide.html` && !st.error && !st.loading, JSON.stringify({ url: st.url, error: st.error, loading: st.loading }))
+      d?.cancel()
+    }
+    dl2.dispose()
+
+    // Across disks, the file is copied beside the reviewer's and renamed over it: a copy that
+    // fails midway leaves theirs as it was, and nothing of the copy.
+    {
+      const theirsFile = path.join(saved, "mine.txt")
+      fs.writeFileSync(theirsFile, "THE REVIEWER'S")
+      const from = path.join(out, "move-from.bin")
+      fs.writeFileSync(from, Buffer.alloc(100_000, 7))
+      const exdev = async () => {
+        throw Object.assign(new Error("EXDEV: cross-device link not permitted"), { code: "EXDEV" })
+      }
+      const failed = await moveFile(from, theirsFile, {
+        rename: exdev,
+        copy: async (_a, b) => {
+          fs.writeFileSync(b, Buffer.alloc(50_000, 7))
+          throw new Error("ENOSPC: no space left on device")
+        },
+      }).then(() => "ok", (e: Error) => e.message)
+      const parts = () => fs.readdirSync(saved).filter((f) => f.endsWith(".part"))
+      check("a copy across disks that fails midway leaves the reviewer's file as it was, and nothing of the copy", failed.startsWith("ENOSPC") && fs.readFileSync(theirsFile, "utf8") === "THE REVIEWER'S" && parts().length === 0 && fs.existsSync(from), `${failed} parts: ${parts().join(" ")}`)
+      const moved = await moveFile(from, theirsFile, { rename: exdev, copy: (a, b) => fs.promises.copyFile(a, b) }).then(() => "ok", (e: Error) => e.message)
+      check("…and one that works replaces it whole, and nothing is left where it was", moved === "ok" && fs.statSync(theirsFile).size === 100_000 && !fs.existsSync(from) && parts().length === 0, moved)
+    }
+
+    theirsWatch.close()
+    heldWatch.close()
+    check("nothing of any download here was ever made in the reviewer's Downloads folder", inTheirs.length === 0 && fs.readdirSync(theirs).length === 0, inTheirs.join(" "))
+    fs.rmSync(saved, { recursive: true, force: true })
+    fs.rmSync(held, { recursive: true, force: true })
   }
 
   // ── the page's renderer dies ───────────────────────────────────────────────────────────────

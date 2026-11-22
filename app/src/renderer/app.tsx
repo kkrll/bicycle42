@@ -455,7 +455,8 @@ function NotesStatus(props: { panelOpen: boolean; showNotes: () => void }) {
 
 // ── strips ──────────────────────────────────────────────────────────────────────────────────────
 // A command failed and nothing else owns the message. Rare, and dismissed by the reviewer.
-// And the page asked to download a file: held, not saved, until the reviewer says (main/page.ts).
+// And the page asked to download a file: held, not saved, until the reviewer says (main/page.ts);
+// and one saved, while it is still coming.
 
 function Strips() {
   return (
@@ -464,8 +465,11 @@ function Strips() {
         {(d) => (
           <div class="strip download-ask" role="alert">
             <Icon name="download" />
-            <span class="strip-text" title={`${d().site} wants to download ${d().file}`}>
+            <span class="strip-text" title={`${d().frame ? "A frame in " : ""}${d().site} wants to download ${d().file}${d().from ? ` from ${d().from}` : ""}`}>
+              {d().frame ? "A frame in " : ""}
               <span class="download-site">{d().site}</span> wants to download <span class="download-file">{d().file}</span>
+              {d().from ? " from " : ""}
+              <Show when={d().from}>{(from) => <span class="download-site">{from()}</span>}</Show>
               {d().size !== undefined ? ` (${sizeOf(d().size!)})` : ""}
             </span>
             <button class="btn primary" onClick={() => act("saveDownload", d().id)}>
@@ -477,6 +481,19 @@ function Strips() {
           </div>
         )}
       </Show>
+      <For each={state.page.saving ?? []}>
+        {(s) => (
+          <div class="strip download-saving" role="status">
+            <Icon name="download" />
+            <span class="strip-text" title={`Saving ${s.file}`}>
+              Saving <span class="download-file">{s.file}</span>… <span class="download-progress">{s.size ? `${Math.min(100, Math.floor((s.received / s.size) * 100))}%` : sizeOf(s.received)}</span>
+            </span>
+            <button class="btn" onClick={() => act("dropDownload", s.id)}>
+              Cancel
+            </button>
+          </div>
+        )}
+      </For>
       <Show when={notice()}>
         <div class="strip bad" role="alert">
           <Icon name="alert" />

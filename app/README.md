@@ -102,20 +102,33 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   server's redirect, is stopped and said quietly by the address (`PageState.refused`). The review
   needs none of it: the overlay talks to main over IPC, pictures are taken by main, a pasted
   picture comes with the paste. A download the page starts (a link with `download`, a response
-  that is an attachment, a script clicking a link to a blob it made) opens no Save dialog of its
-  own: it is held, paused, in a folder of the app's (`Held downloads` in the user-data folder,
-  emptied at every start), and the window says so in a line under the top bar, with the site that
-  asked, the file and its size when the site said it ("localhost:5173 wants to download
-  report.csv (12 KB)", `AppState.page.download`). Save… opens the system's Save dialog in the
-  Downloads folder, and the download goes on and is moved to the file chosen once it has all
-  come; Don't, or cancelling that dialog, cancels it and nothing of it is kept. One waits at a
-  time: a second takes the place of the first, which is cancelled. The page going to another
-  address (a reload or a `#` of the same one does not), the page closing, and opening another
-  project or computer cancel the one waiting. It is held, not stopped and asked for again on
-  Save, because a blob a script made or the answer to a form's POST cannot be asked for again;
-  Electron gives a download its file when it starts or shows its own dialog, so that file is the
-  held one, and a file small enough to have come whole before the pause is kept there until the
-  answer. A download from another computer's site comes through the forwarded port, and is
+  that is an attachment, a script clicking a link to a blob it made, an address typed that is
+  one) opens no Save dialog of its own: it is held, paused, in a folder of the app's (`Held
+  downloads` in the user-data folder, emptied at every start), and the window says so in a line
+  under the top bar, with who asked, the file and its size when the site said it
+  ("localhost:5173 wants to download report.csv (12 KB)", `AppState.page.download`). Who asked is
+  the download's initiator origin; a frame of no site of its own (sandboxed, `data:`) is "A
+  frame in localhost:5173", never the page itself, and a file of another site says so ("… from
+  files.example.com"). Save… opens the system's Save dialog in the reviewer's Downloads folder;
+  the download goes on, a line says how much has come ("Saving report.csv… 40%", with Cancel,
+  `AppState.page.saving`), and once it has all come it is moved to the file chosen (across
+  disks, copied beside it and renamed over it, so a file there is replaced only by a whole
+  one). Don't, or cancelling that dialog, cancels it and nothing of it is kept. A download that
+  stops while held is cancelled and its line goes; one that stops after Save… is tried once
+  more, and one that stops again, or of which nothing more comes for 60 s, is given up and said
+  in a dialog. One waits at a time: a second takes the place of the first, which is cancelled.
+  The page going to another site (a move within the site, a pushState or another path, does
+  not), the page closing, and opening another project or computer cancel the one waiting. It is
+  held, not stopped and asked for again on Save, because a blob a script made or the answer to a
+  form's POST cannot be asked for again; Electron gives a download its file when it starts or
+  shows its own dialog, so that file is the held one. Held is not "nothing has come": Chromium
+  writes a download to a file of its own before it has its file, and the pause takes hold only
+  then, so what a fast server sent by then has come (from a local server, often the whole file,
+  hundreds of MB), and stays in the held folder until the answer. That first file is in the
+  folder the app's "downloads" path names, which the app makes the held folder for this reason
+  (`holdDownloadsIn`; a session's `setDownloadPath` does not move it), so nothing of a download
+  is ever in the reviewer's Downloads before Save…. A download from another computer's site
+  comes through the forwarded port, and is
   saved on this computer. Each computer's sites are in a session of their own
   (`partitionOf` in `core.ts`: `persist:review` for this computer's, as always, and
   `persist:review-<hash of host and this install's id>` for another's), since forwarded sites of

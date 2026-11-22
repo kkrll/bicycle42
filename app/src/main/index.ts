@@ -10,7 +10,7 @@ import path from "node:path"
 import type { Shortcut } from "../shared/types"
 import type { Transport } from "./acp"
 import { createCore } from "./core"
-import { createPage, type PageView } from "./page"
+import { createPage, holdDownloadsIn, type PageView } from "./page"
 import { SCHEME } from "./pictures"
 
 type Level = "info" | "warn" | "error"
@@ -40,6 +40,10 @@ const testSaveAs = () => (process.env.BICYCLE42_TEST ? ((globalThis as Record<st
 /** Where a download the page started is held until the reviewer answers (page.ts): the app's
  *  own folder, emptied at every start of what an earlier run left there. */
 const heldDownloads = path.join(app.getPath("userData"), "Held downloads")
+/** The reviewer's Downloads folder, where the Save dialog opens, taken before the app's
+ *  "downloads" path is made the held folder (holdDownloadsIn). The end-to-end test's is one in
+ *  its profile, so nothing of a test run is ever in the real one. */
+const theirDownloads = process.env.BICYCLE42_TEST ? path.join(app.getPath("userData"), "Downloads") : app.getPath("downloads")
 
 const core = createCore({
   dataDir: app.getPath("userData"),
@@ -54,7 +58,7 @@ const core = createCore({
     if (stand) return stand(name)
     if (!window) return undefined
     const { canceled, filePath } = await dialog.showSaveDialog(window, {
-      defaultPath: path.join(app.getPath("downloads"), name),
+      defaultPath: path.join(theirDownloads, name),
       properties: ["createDirectory", "showOverwriteConfirmation"],
     })
     return canceled || !filePath ? undefined : filePath
@@ -188,6 +192,7 @@ else {
   void app.whenReady().then(async () => {
     // Downloads held when the app last ended, never answered: nothing of them is kept.
     await fs.promises.rm(heldDownloads, { recursive: true, force: true }).catch(() => {})
+    holdDownloadsIn(heldDownloads)
     protocol.handle(SCHEME, (request) => core.picture(request.url))
     menu()
     // From source on macOS the dock would show Electron's own icon.
