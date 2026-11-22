@@ -504,9 +504,11 @@ export function createShadows(m: Machine, root: string): Shadows {
           ...[...named].filter((t) => !refs.has(`refs/b42/${t}`)).map((t) => `update refs/b42/${t} ${t}`),
         ]
         if (lines.length) await must(dir, ["update-ref", "--stdin"], { input: `${lines.join("\n")}\n` })
+        // In the queue, though it may take a while: gc's prune removes the empty folders of
+        // objects/, and a write-tree beside it that has just made one (objects/ab) to write its
+        // object into fails with "unable to create temporary file". Once a day per folder.
+        await must(dir, ["gc", "--quiet", "--prune=1.hour.ago"])
       })
-      // Beside the queue: gc is safe beside other git commands, and may take a while.
-      await must(dir, ["gc", "--quiet", "--prune=1.hour.ago"])
     },
   }
 }
