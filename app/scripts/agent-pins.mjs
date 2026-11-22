@@ -6,6 +6,7 @@
 // --lock, the lockfile of the version pinned now made again. Nothing here touches the network or a
 // file but through `deps`, so the tests give it npm's answer, the lockfile and the check's output.
 import { execFile, spawn } from "node:child_process"
+import crypto from "node:crypto"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -129,6 +130,10 @@ export const LOCK_PLATFORMS = [
   { os: "linux", cpu: "arm64" },
 ]
 
+/** npm's own registry: every package of a lockfile the app installs from is from it (a mirror the
+ *  reviewer's npm is set to stands in for it there, with each sha512 checked all the same). */
+export const REGISTRY = "https://registry.npmjs.org/"
+
 /** What is wrong with an adapter's lockfile for the app to install from, each a sentence: none
  *  when it is fine. The app installs with `npm ci --ignore-scripts`, so a package that needs its
  *  install script to work would be broken there: it is said here, before it is pinned. */
@@ -143,8 +148,12 @@ export function lockProblems(lock, pin) {
     if (!entryOf(lock, pin)) problems.push(`${pin.package} has no program "${pin.bin}" in it`)
   }
   const all = Object.entries(packages).filter(([at, p]) => at && !p.link)
-  const unsure = all.filter(([, p]) => !/^https?:\/\//.test(p.resolved ?? "") || !/^sha512-/.test(p.integrity ?? "")).map(([at]) => at.replace(/^.*node_modules\//, ""))
-  if (unsure.length) problems.push(`${unsure.join(", ")} ${unsure.length === 1 ? "has" : "have"} no address or sha512 in it`)
+  const name = ([at]) => at.replace(/^.*node_modules\//, "")
+  const unsure = all.filter(([, p]) => !/^sha512-/.test(p.integrity ?? "")).map(name)
+  if (unsure.length) problems.push(`${unsure.join(", ")} ${unsure.length === 1 ? "has" : "have"} no sha512 in it`)
+  // Only npm's registry: not a mirror's address (the developer's npmrc), a git or file one.
+  const elsewhere = all.filter(([, p]) => !String(p.resolved ?? "").startsWith(REGISTRY)).map(name)
+  if (elsewhere.length) problems.push(`${elsewhere.join(", ")} ${elsewhere.length === 1 ? "is" : "are"} not from ${REGISTRY} in it (an npmrc's registry, a git or a file address)`)
   const scripted = all.filter(([, p]) => p.hasInstallScript).map(([at]) => at.replace(/^.*node_modules\//, ""))
   if (scripted.length) problems.push(`${scripted.join(", ")} ${scripted.length === 1 ? "has an install script" : "have install scripts"}, which the app does not run: check it works without, or it can't be pinned`)
   const fits = (p, at) => (!p.os || p.os.includes(at.os)) && (!p.cpu || p.cpu.includes(at.cpu))
@@ -162,6 +171,13 @@ export function entryOf(lock, pin) {
   const bin = lock?.packages?.[`node_modules/${pin.package}`]?.bin
   const file = typeof bin === "string" ? bin : bin?.[pin.bin]
   return typeof file === "string" ? `node_modules/${pin.package}/${path.posix.normalize(file).replace(/^\.\//, "")}` : undefined
+}
+
+/** The folder the app installs a lockfile into, as main/adapters.ts names it (lockOf): the
+ *  package, its version, and 12 hex of the sha256 of both files as written. */
+export function lockFolder(pin, manifest, lock) {
+  const hash = crypto.createHash("sha256").update(pinsText(manifest)).update("\0").update(pinsText(lock)).digest("hex").slice(0, 12)
+  return `${pin.package.replace("/", "+")}@${pin.version}-${hash}`
 }
 
 /** A summary of a lockfile against its pin, for the status: "lockfile 115 packages" or what to do. */
@@ -186,13 +202,27 @@ export const realDeps = (root) => ({
       return undefined
     }
   },
+  /** Both files of an adapter's lockfile as they are, to put back: undefined when there are none. */
+  readLockFiles: (id) => {
+    try {
+      const dir = path.join(root, "src", "main", "adapter-locks", id)
+      return { manifest: JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8")), lock: JSON.parse(fs.readFileSync(path.join(dir, "package-lock.json"), "utf8")) }
+    } catch {
+      return undefined
+    }
+  },
+  removeLock: (id) => fs.rmSync(path.join(root, "src", "main", "adapter-locks", id), { recursive: true, force: true }),
   /** The lockfile npm makes for `manifest`, in a throwaway folder: only the packages' metadata is
-   *  fetched (--package-lock-only), nothing is installed and no script runs. */
+   *  fetched (--package-lock-only), nothing is installed and no script runs. From npm's own
+   *  registry whatever the developer's npmrc or `npm run`'s npm_config_* say (a mirror's addresses
+   *  would be written into it); a scope's registry in an npmrc is refused by lockProblems. */
   makeLock: (manifest) =>
     new Promise((resolve, reject) => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "b42-lock-"))
       fs.writeFileSync(path.join(dir, "package.json"), pinsText(manifest))
-      execFile("npm", ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: dir, shell: process.platform === "win32", maxBuffer: 16 << 20 }, (err, _out, errText) => {
+      const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^npm_config_/i.test(k)))
+      const args = ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund", `--registry=${REGISTRY}`, "--legacy-peer-deps=false", "--install-strategy=hoisted"]
+      execFile("npm", args, { cwd: dir, env, shell: process.platform === "win32", maxBuffer: 16 << 20 }, (err, _out, errText) => {
         try {
           if (err) return reject(new Error(`npm could not make the lockfile: ${(errText || err.message).trim()}`))
           resolve(JSON.parse(fs.readFileSync(path.join(dir, "package-lock.json"), "utf8")))
@@ -212,7 +242,10 @@ export const realDeps = (root) => ({
   /** Runs a command in the app's folder, its output shown as it comes and returned. */
   run: (program, args, env = {}) =>
     new Promise((resolve) => {
-      const child = spawn(program, args, { cwd: root, env: { ...process.env, ...env }, stdio: ["inherit", "pipe", "pipe"] })
+      // An empty value takes the variable out (B42_PIN_<ID> set in the developer's shell).
+      const all = { ...process.env, ...env }
+      for (const [k, v] of Object.entries(env)) if (v === "") delete all[k]
+      const child = spawn(program, args, { cwd: root, env: all, stdio: ["inherit", "pipe", "pipe"] })
       let out = ""
       child.stdout.on("data", (b) => (process.stdout.write(b), (out += b)))
       child.stderr.on("data", (b) => (process.stderr.write(b), (out += b)))
@@ -221,34 +254,62 @@ export const realDeps = (root) => ({
     }),
 })
 
-const USAGE = `npm run agents:check [-- --test <agent> [--model <model>] [--bump]] [-- --lock <agent>]
+const USAGE = `npm run agents:check [-- --test <agent> [--model <model>] [--bump | --from-lock]] [-- --lock <agent>]
 
   (nothing)        each pinned adapter against the newest on npm, with their dates and lockfiles
   --test <agent>   the real check (test/acp.real.ts) against the newest: it starts the agent with
                    your login and spends your tokens on a few tiny prompts
   --model <model>  the model the check uses (a cheap one: haiku)
   --bump           with --test: writes the newest as the pin, and its lockfile, only if every
-                   check passed
-  --lock <agent>   makes the lockfile of the version pinned now again (src/main/adapter-locks/)`
+                   check passed, then with that lockfile installed as the app does (it is
+                   checked again from it); put back as they were otherwise
+  --from-lock      with --test: the real check of the pin from its lockfile as it is now, installed
+                   as the app does (no npx); nothing written
+  --lock <agent>   makes the lockfile of the version pinned now again (src/main/adapter-locks/),
+                   untested: --test <agent> --from-lock tests it`
 
-/** Makes and writes the lockfile of `pin` (the pin of `id`), or says why not. True when written. */
-async function lockPin(id, pin, deps) {
+/** Makes the lockfile of `pin` (the pin of `id`), or says why not: { manifest, lock } or undefined. */
+async function makePinLock(id, pin, deps) {
   const manifest = lockManifest(id, pin)
   let lock
   try {
     lock = await deps.makeLock(manifest)
   } catch (err) {
     deps.log(err instanceof Error ? err.message : String(err))
-    return false
+    return undefined
   }
   const problems = lockProblems(lock, pin)
   if (problems.length) {
     deps.log(`The lockfile of ${pin.package}@${pin.version} can't be used: ${problems.join("; ")}.`)
-    return false
+    return undefined
   }
-  deps.writeLock(id, manifest, lock)
-  deps.log(`Wrote src/main/adapter-locks/${id}/ (${Object.keys(lock.packages).filter(Boolean).length} packages, each with its sha512).`)
-  return true
+  return { manifest, lock }
+}
+
+const wrote = (id, lock) => `Wrote src/main/adapter-locks/${id}/ (${Object.keys(lock.packages).filter(Boolean).length} packages, each with its sha512).`
+
+/** Whether every check passed in the check's output and exit code: { passed, checks }. */
+function verdict(ran) {
+  const checks = checksOf(ran.out)
+  return { checks, passed: ran.code === 0 && !!checks && checks.total > 0 && checks.passed === checks.total }
+}
+
+/** The real check of `pin` from the lockfile `files` as the app installs it: built again (the
+ *  build bundles the pins and the lockfiles), then test/acp.real.ts with B42_REAL_FROM_LOCK (its
+ *  adapter installed from the lockfile into ~/.bicycle42/adapters, never npx nor your own install)
+ *  and no B42_PIN_<ID>. Passed only when every check did and it said it ran from that very
+ *  lockfile's folder. */
+async function checkFromLock(id, pin, files, model, deps) {
+  const built = await deps.run("node", ["scripts/build.mjs", "--tests"])
+  if (built.code !== 0) return deps.log("The build failed: nothing was checked."), { passed: false }
+  const ran = await deps.run("node", ["dist/test/acp.real.cjs", id, ...(model ? [model] : [])], { [pinEnv(id)]: "", B42_REAL_FROM_LOCK: "1" })
+  const v = verdict(ran)
+  const folder = lockFolder(pin, files.manifest, files.lock)
+  const fromLock = ran.out.includes(`from the app's lockfile: ${folder}`)
+  deps.log(
+    `\n${pin.package}@${pin.version} from its lockfile: ${v.checks ? `${v.checks.passed}/${v.checks.total} checks passed` : "the check did not finish"}${fromLock ? "" : `, and it did not say it ran from ${folder}`}.`,
+  )
+  return { ...v, passed: v.passed && fromLock }
 }
 
 /** The whole command. Resolves with its exit code. */
@@ -263,13 +324,28 @@ export async function main(argv, deps) {
   const model = value("--model")
   if (flag("--test") && !test) return deps.log(`--test needs an agent.\n\n${USAGE}`), 2
   if (flag("--bump") && !test) return deps.log("--bump writes a pin only after the real check passed: give it with --test <agent>."), 2
+  if (flag("--from-lock") && (!test || flag("--bump"))) return deps.log("--from-lock goes with --test <agent>, and not with --bump."), 2
   const pins = deps.readPins()
   if (test && !pins[test]) return deps.log(`No adapter is pinned for "${test}": ${Object.keys(pins).join(", ")} are.`), 2
   if (flag("--lock")) {
     const id = value("--lock")
     if (test || !id || !pins[id]) return deps.log(`--lock needs an agent whose adapter is pinned: ${Object.keys(pins).join(", ")}.`), 2
-    deps.log(`The lockfile of ${pins[id].package}@${pins[id].version}: what npm resolves for it now, each package with its sha512. Commit it with the pin.`)
-    return (await lockPin(id, pins[id], deps)) ? 0 : 1
+    deps.log(`The lockfile of ${pins[id].package}@${pins[id].version}: what npm resolves for it now, each package with its sha512.`)
+    const made = await makePinLock(id, pins[id], deps)
+    if (!made) return 1
+    deps.writeLock(id, made.manifest, made.lock)
+    deps.log(wrote(id, made.lock))
+    deps.log(`Not tested: no check has run with this tree yet. Before you commit it: npm run agents:check -- --test ${id} --from-lock`)
+    return 0
+  }
+  if (flag("--from-lock")) {
+    const files = deps.readLockFiles(test)
+    if (files?.lock?.packages?.[`node_modules/${pins[test].package}`]?.version !== pins[test].version)
+      return deps.log(`There is no lockfile of ${pins[test].package}@${pins[test].version}, the pin: npm run agents:check -- --lock ${test}`), 1
+    deps.log(
+      `The real check of ${pins[test].package}@${pins[test].version} from its lockfile, as the app installs it (npm ci --ignore-scripts into ~/.bicycle42/adapters): it starts ${test} with your login and spends your ${test} tokens on a few tiny prompts${model ? ` (model ${model})` : ""}.\n`,
+    )
+    return (await checkFromLock(test, pins[test], files, model, deps)).passed ? 0 : 1
   }
 
   const rows = await status(test ? { [test]: pins[test] } : pins, deps.view, deps.readLock)
@@ -284,16 +360,32 @@ export async function main(argv, deps) {
   const built = await deps.run("node", ["scripts/build.mjs", "--tests"])
   if (built.code !== 0) return deps.log("The build failed: nothing was checked."), 1
   const ran = await deps.run("node", ["dist/test/acp.real.cjs", test, ...(model ? [model] : [])], { [pinEnv(test)]: row.newest })
-  const checks = checksOf(ran.out)
-  const passed = ran.code === 0 && !!checks && checks.total > 0 && checks.passed === checks.total
+  const { checks, passed } = verdict(ran)
   deps.log(`\n${spec}: ${checks ? `${checks.passed}/${checks.total} checks passed` : "the check did not finish"}.`)
   if (!flag("--bump")) return passed ? 0 : 1
-  if (!passed) return deps.log(`Not bumped: the pin stays ${row.pinned}.`), 1
-  const next = bumped(pins, test, row.newest, checks, new Date(deps.now()).toISOString().slice(0, 10))
+  const stays = `Not bumped: the pin stays ${row.pinned}.`
+  if (!passed) return deps.log(stays), 1
+  const today = new Date(deps.now()).toISOString().slice(0, 10)
+  const next = bumped(pins, test, row.newest, checks, today)
   // The lockfile first: a pin is never written without the lockfile the app installs it from.
-  if (!(await lockPin(test, next[test], deps))) return deps.log(`Not bumped: the pin stays ${row.pinned}.`), 1
-  if (row.newest === row.pinned && pins[test].tested) deps.log(`The pin was ${row.newest} already: its test date is renewed.`)
+  const made = await makePinLock(test, next[test], deps)
+  if (!made) return deps.log(stays), 1
+  // That check ran npx's tree, resolved then; the app installs the lockfile's, resolved after. So
+  // both are written (the build bundles them), and the check runs once more from the lockfile,
+  // installed as the app does; they are put back as they were unless it passes in full.
+  const before = deps.readLockFiles(test)
+  deps.writeLock(test, made.manifest, made.lock)
   deps.writePins(next)
-  deps.log(`Pinned ${spec} in src/main/agent-pins.json. Commit it and its lockfile (the app installs it from its next build).`)
+  deps.log(`${wrote(test, made.lock)}\n\nThe real check once more, from that lockfile as the app installs it (npm ci --ignore-scripts into ~/.bicycle42/adapters, no npx).\n`)
+  const again = await checkFromLock(test, next[test], made, model, deps)
+  if (!again.passed) {
+    if (before) deps.writeLock(test, before.manifest, before.lock)
+    else deps.removeLock(test)
+    deps.writePins(pins)
+    return deps.log(`${stays} Its lockfile and agent-pins.json are as they were.`), 1
+  }
+  deps.writePins(bumped(pins, test, row.newest, again.checks, today))
+  if (row.newest === row.pinned && pins[test].tested) deps.log(`The pin was ${row.newest} already: its test date is renewed.`)
+  deps.log(`Pinned ${spec} in src/main/agent-pins.json, tested from its lockfile. Commit it and its lockfile (the app installs it from its next build).`)
   return 0
 }

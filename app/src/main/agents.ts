@@ -21,7 +21,7 @@
 import path from "node:path"
 import type { LocalAgent } from "../shared/types"
 import pins from "./agent-pins.json"
-import { ADAPTER_LOCKS, adapterInstalled, installAdapter, lineOf, lockOf, tidyAdapters, type AdapterLock } from "./adapters"
+import { ADAPTER_LOCKS, adapterInstalled, installAdapter, lineOf, lockOf, markUsed, tidyAdapters, type AdapterLock } from "./adapters"
 import { thisMachine, type Machine } from "./machine"
 
 /** An adapter from npm, as agent-pins.json keeps it: its package, the program it installs, the
@@ -44,8 +44,16 @@ export type StartPrefs = { latest?: (id: string) => boolean; env?: Record<string
 export function adapterLock(id: string): AdapterLock | undefined {
   const pin = PINS[id]
   const files = ADAPTER_LOCKS[id]
-  return pin && files ? lockOf(id, pin, files.manifest, files.lock) : undefined
+  if (!pin || !files) return undefined
+  // Made once per lockfile and pin (its hash is of a 60 KB text, and every row of the connect
+  // screen asks): a lockfile replaced (the tests do) is another.
+  const key = `${pin.package}@${pin.version}#${pin.bin}`
+  let made = lockCache.get(files)
+  if (!made) lockCache.set(files, (made = new Map()))
+  if (!made.has(key)) made.set(key, lockOf(id, pin, files.manifest, files.lock))
+  return made.get(key)
 }
+const lockCache = new WeakMap<object, Map<string, AdapterLock | undefined>>()
 
 /** Which version of a known agent's adapter is to start, and why: `lock` when it is the pin,
  *  installed from the app's lockfile; else (the newest, a version forced, a pin with no lockfile)
@@ -225,8 +233,9 @@ export async function prepareStart(
   if (!way?.lock) return way?.line
   const known = KNOWN_AGENTS.find((a) => a.id === id)!
   await installAdapter(m, way.lock, { name: known.name, env: await m.agentEnv(), ...(o.onStep ? { onStep: o.onStep } : {}), ...(o.log ? { log: o.log } : {}) })
-  // Older installs of it there go: after a new install, and at a later start those left while
-  // they ran.
+  // Marked used now (that computer's clock), and the other installs of it there not used for 14
+  // days go (never one running).
+  await markUsed(m, way.lock, o.log)
   void tidyAdapters(m, way.lock, o.log)
   return way.line
 }

@@ -14,7 +14,7 @@ import type net from "node:net"
 import path from "node:path"
 import { test } from "node:test"
 import { timing } from "../src/main/acp"
-import { ADAPTER_LOCKS } from "../src/main/adapters"
+import { ADAPTER_LOCKS, adapterTiming } from "../src/main/adapters"
 import { adapterLock, PINS } from "../src/main/agents"
 import type { LocalAgent, RemoteInfo } from "../src/shared/types"
 import { sshTiming } from "../src/main/ssh"
@@ -180,7 +180,7 @@ test("Claude Code there is installed there from the app's lockfile at its first 
     assert.ok(fs.existsSync(path.join(folder, ".b42-installed")), "installed under that computer's HOME")
     assert.deepEqual(lines(), [], "no npx")
     assert.equal(fs.existsSync(path.join(t.h.root, "postinstall-ran")), false, "no install script ran there")
-    assert.equal(registry.tarballs().length, 2)
+    assert.equal(registry.tarballs().length, 4)
     // Always the newest: kept in the settings, said for that computer's row, used from the next
     // start, through npx.
     const toggled = (await t.cmd("setAgentLatest", { id: "claude", latest: true, host: "dev-box" })) as LocalAgent
@@ -199,7 +199,7 @@ test("Claude Code there is installed there from the app's lockfile at its first 
     // Started again from the folder there: nothing fetched again.
     await t.restart()
     await until(() => t.snap().connection.status === "online")
-    assert.equal(registry.tarballs().length, 2)
+    assert.equal(registry.tarballs().length, 4)
     assert.deepEqual(lines(), ["-y @agentclientprotocol/claude-agent-acp@latest"])
   } finally {
     delete process.env.B42_FAKE_SSH_PATH
@@ -211,6 +211,62 @@ test("Claude Code there is installed there from the app's lockfile at its first 
   }
 })
 
+
+test("the link drops while the Claude Code adapter is installed there: said in a sentence, and npm there is ended and its folder removed once the app no longer writes its lease", { skip: process.platform !== "linux" && "reads /proc" }, async () => {
+  const t = boot()
+  const registry = await fakeRegistry(path.join(t.h.root, "registry"), fakeAdapterPackages(path.join(t.h.root, "postinstall-ran")))
+  const keptLock = ADAPTER_LOCKS.claude
+  const keptLease = adapterTiming.lease
+  ADAPTER_LOCKS.claude = { manifest: lockManifest("claude", PINS.claude!), lock: await registry.lockFor(lockManifest("claude", PINS.claude!)) }
+  fs.writeFileSync(path.join(t.h.home, ".npmrc"), `registry=${registry.url}/\nfetch-retries=0\n`)
+  const bin = path.join(t.h.root, "there-bin")
+  fs.mkdirSync(bin)
+  fs.writeFileSync(path.join(bin, "claude"), "#!/bin/sh\n", { mode: 0o755 })
+  process.env.B42_FAKE_SSH_PATH = `${bin}${path.delimiter}${process.env.PATH}`
+  const kept = process.env.B42_PIN_CLAUDE
+  delete process.env.B42_PIN_CLAUDE
+  const adapters = path.join(t.h.home, ".bicycle42", "adapters")
+  const installing = () => (fs.existsSync(adapters) ? fs.readdirSync(adapters).filter((n) => n.startsWith(".installing-")) : [])
+  adapterTiming.lease = 1500
+  registry.hold()
+  try {
+    await t.cmd("connectSsh", "dev-box")
+    const started = (t.cmd("connectAgent", { id: "claude", host: "dev-box" }) as Promise<unknown>).then(
+      () => "started",
+      (e: Error) => e.message,
+    )
+    // npm there is fetching the packages (held back by the registry) when the link drops.
+    await until(() => registry.requests.some((r) => r.endsWith(".tgz")), 30_000)
+    assert.equal(installing().length, 1)
+    assert.ok(inFolder(adapters).length > 0, "npm runs there")
+    t.h.drop()
+    assert.equal(await started, "The connection to dev-box ended while installing the Claude Code adapter; it will be tried again at the next start.")
+    // The helper there runs on; its watchdog ends npm and removes the folder once no lease comes.
+    await until(() => inFolder(adapters).length === 0 && installing().length === 0, 15_000)
+    assert.equal(fs.existsSync(path.join(adapters, adapterLock("claude")!.folder)), false)
+  } finally {
+    registry.release()
+    adapterTiming.lease = keptLease
+    delete process.env.B42_FAKE_SSH_PATH
+    if (kept !== undefined) process.env.B42_PIN_CLAUDE = kept
+    if (keptLock) ADAPTER_LOCKS.claude = keptLock
+    t.h.up()
+    await t.close()
+    await registry.close()
+  }
+})
+
+/** The processes whose working folder is in `dir` (Linux). */
+function inFolder(dir: string): string[] {
+  const found: string[] = []
+  for (const pid of fs.readdirSync("/proc")) {
+    if (!/^\d+$/.test(pid)) continue
+    try {
+      if (fs.readlinkSync(`/proc/${pid}/cwd`).startsWith(dir)) found.push(pid)
+    } catch {}
+  }
+  return found
+}
 test("the agent's process there ends with a note under way: the note fails with Retry and the reason; the agent comes back and Retry sends it", async () => {
   const t = boot()
   try {

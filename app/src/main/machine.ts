@@ -21,8 +21,9 @@ export type RunOptions = {
   cwd?: string
   /** Laid over the machine's own environment; null takes a variable out. */
   env?: Record<string, string | null>
-  /** Variables whose names start with this are left out of the machine's own environment
-   *  (before `env` is laid over it): "GIT_" for the app's own git. */
+  /** Variables whose names start with this, in any case, are left out of the machine's own
+   *  environment (before `env` is laid over it): "GIT_" for the app's own git; "npm_config_"
+   *  takes NPM_CONFIG_* too, which npm reads as well. */
   clearPrefix?: string
   /** Written to its stdin, which is then closed. */
   input?: string
@@ -155,7 +156,8 @@ export function createLocalMachine(): Machine {
 
     run(program, args, o = {}) {
       const env: NodeJS.ProcessEnv = {}
-      for (const [k, v] of Object.entries(process.env)) if (!o.clearPrefix || !k.startsWith(o.clearPrefix)) env[k] = v
+      const cleared = o.clearPrefix?.toLowerCase()
+      for (const [k, v] of Object.entries(process.env)) if (!cleared || !k.toLowerCase().startsWith(cleared)) env[k] = v
       for (const [k, v] of Object.entries(o.env ?? {})) v === null ? delete env[k] : (env[k] = v)
       return new Promise((resolve) => {
         let child: ChildProcess

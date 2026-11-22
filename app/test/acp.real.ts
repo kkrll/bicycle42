@@ -15,7 +15,9 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { createAcp } from "../src/main/acp"
-import { KNOWN_AGENTS, prepareStart } from "../src/main/agents"
+import { installAdapter, lineOf, markUsed } from "../src/main/adapters"
+import { adapterLock, KNOWN_AGENTS, prepareStart } from "../src/main/agents"
+import { thisMachine } from "../src/main/machine"
 import type { BackendEvent, ChatEvent, ChatItem } from "../src/shared/types"
 
 const [id = "opencode", model] = process.argv.slice(2)
@@ -70,10 +72,23 @@ function applyChat(items: ChatItem[], event: ChatEvent) {
 const shape = (items: ChatItem[]) =>
   items.map((i) => (i.kind === "assistant" ? `${i.id}[${i.parts.map((p) => (p.kind === "tool" ? `tool:${p.key}:${p.status}` : `${p.key}`)).join(",")}]` : `${i.kind}:${i.id}`))
 
+async function fromLock(): Promise<string[]> {
+  const lock = adapterLock(id)
+  if (!lock) throw new Error(`This build has no lockfile of ${known!.name}'s pin.`)
+  const m = thisMachine()
+  await installAdapter(m, lock, { name: known!.name, env: await m.agentEnv(), onStep: (text) => console.log(text) })
+  await markUsed(m, lock)
+  console.log(`from the app's lockfile: ${lock.folder}`)
+  return lineOf(m, lock)
+}
+
 async function main() {
   // As the app starts it: the pinned adapter installed from the app's lockfile first (in
-  // ~/.bicycle42/adapters), or B42_PIN_<ID>'s version through npx.
-  const command = await prepareStart(id, undefined, {}, { onStep: (text) => console.log(text) })
+  // ~/.bicycle42/adapters), or B42_PIN_<ID>'s version through npx. With B42_REAL_FROM_LOCK (what
+  // `agents:check --bump` and `--from-lock` set), from the lockfile whatever else is installed
+  // (your own adapter on the PATH would come first otherwise), and said so: what is checked is
+  // the tree the app installs.
+  const command = process.env.B42_REAL_FROM_LOCK ? await fromLock() : await prepareStart(id, undefined, {}, { onStep: (text) => console.log(text) })
   if (!command) throw new Error(`${known!.name} is not installed: ${known!.install}`)
   console.log(`${known!.name}: ${command.join(" ")}`)
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), `b42-real-${id}-`))

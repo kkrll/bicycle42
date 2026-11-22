@@ -134,11 +134,18 @@ export async function fakeRegistry(dir: string, packages: FakePackage[]): Promis
   }
 }
 
+/** The cpu of the fake adapter's optional package that is not this computer's. */
+export const otherCpu = process.arch === "arm64" ? "x64" : "arm64"
+
 /** A fake Claude Code adapter at the pinned version, as npm would install it: its program needs a
- *  dependency (whose postinstall, were it run, would write `marker`), then runs the fake ACP agent
- *  (test/acp-agent.ts) with the state file in B42_FAKE_ADAPTER_STATE. */
+ *  dependency (whose postinstall, were it run, would write `marker`) and a peer (as 102 of the real
+ *  one's 115 packages are), and it has an optional package per cpu of this computer's os (as the
+ *  real one's platform programs are: only this computer's is installed); then it runs the fake
+ *  ACP agent (test/acp-agent.ts) with the state file in B42_FAKE_ADAPTER_STATE. Four tarballs
+ *  are fetched for it. */
 export function fakeAdapterPackages(marker: string): FakePackage[] {
   const pin = PINS.claude!
+  const native = (cpu: string): FakePackage => ({ name: `b42-fake-native-${process.platform}-${cpu}`, version: "1.0.0", manifest: { os: [process.platform], cpu: [cpu], main: "index.js" }, files: { "index.js": `module.exports = ${JSON.stringify(cpu)}\n` } })
   return [
     {
       name: "b42-fake-dep",
@@ -146,12 +153,20 @@ export function fakeAdapterPackages(marker: string): FakePackage[] {
       manifest: { main: "index.js", scripts: { postinstall: `node -e "require('fs').writeFileSync(${JSON.stringify(marker).replace(/"/g, "'")}, 'ran')"` } },
       files: { "index.js": "module.exports = 'dep'\n" },
     },
+    { name: "b42-fake-peer", version: "1.0.0", manifest: { main: "index.js" }, files: { "index.js": "module.exports = 'peer'\n" } },
+    native(process.arch),
+    native(otherCpu),
     {
       name: pin.package,
       version: pin.version,
-      manifest: { bin: { [pin.bin]: "bin/agent.js" }, dependencies: { "b42-fake-dep": "^1.0.0" } },
+      manifest: {
+        bin: { [pin.bin]: "bin/agent.js" },
+        dependencies: { "b42-fake-dep": "^1.0.0" },
+        peerDependencies: { "b42-fake-peer": "^1.0.0" },
+        optionalDependencies: { [`b42-fake-native-${process.platform}-${process.arch}`]: "1.0.0", [`b42-fake-native-${process.platform}-${otherCpu}`]: "1.0.0" },
+      },
       files: {
-        "bin/agent.js": `#!/usr/bin/env node\nrequire("b42-fake-dep")\nprocess.argv.splice(2, 0, process.env.B42_FAKE_ADAPTER_STATE || "")\nrequire(${JSON.stringify(path.join(__dirname, "acp-agent.cjs"))})\n`,
+        "bin/agent.js": `#!/usr/bin/env node\nrequire("b42-fake-dep")\nrequire("b42-fake-peer")\nprocess.argv.splice(2, 0, process.env.B42_FAKE_ADAPTER_STATE || "")\nrequire(${JSON.stringify(path.join(__dirname, "acp-agent.cjs"))})\n`,
       },
     },
   ]

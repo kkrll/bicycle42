@@ -358,18 +358,30 @@ and on the computer the agent runs on. Now each pin has a lockfile beside it,
 per-platform ones of macOS, Linux and Windows included), bundled into main. At the adapter's
 first start on a computer, `main/adapters.ts` writes those two files there through `Machine` (no
 change to the helper: the same calls on this computer and over ssh) into
-`~/.bicycle42/adapters/.installing-<folder>-<random>/` and runs that computer's own
-`npm ci --ignore-scripts --no-audit --no-fund` in it. npm refuses any package whose download is
-not the sha512 in the lockfile, and no package's script runs: Claude's and Codex's adapters, and
-the Claude Code and Codex programs they bring (one package per platform, about 440 MB with it),
-need none. Only once npm is done and the adapter's program is where the lockfile says is the folder
-renamed to `<package>@<version>-<hash of both files>` (`@agentclientprotocol+codex-acp@2.9.0-…`):
-a folder at that name is a whole install; one that failed or was cut off (the app quit, the link
-dropped) is never used, and is taken away at a later install once it is an hour old. The agent
-is then `node <that folder>/node_modules/<package>/<its bin>`, no npx, and later starts use the
-folder as it is. A changed lockfile is another folder. npm's settings from a script it runs
-(`npm_config_*` of an app started with `npm start`) are left out of the install; the reviewer's
-own `~/.npmrc` (a mirror, a proxy) is read, and with a mirror npm still checks every sha512.
+`~/.bicycle42/adapters/.installing-<folder>-<random>/` (`~/.bicycle42` and `adapters/` made the
+person's alone, 0700, here as the helper makes them there) and runs that computer's own
+`npm ci --ignore-scripts --no-audit --no-fund --include=optional --include=peer
+--legacy-peer-deps=false --install-strategy=hoisted` in it. npm refuses any package whose
+download is not the sha512 in the lockfile, and no package's script runs: Claude's and Codex's
+adapters, and the Claude Code and Codex programs they bring (one package per platform, about 440
+MB with it), need none. Once npm is done, the app checks what it installed against the lockfile:
+every package the lockfile names for that computer (its os, cpu and libc, as npm tells them) must
+be in npm's own record of the install (`node_modules/.package-lock.json`) at its version, or the
+install is refused ("npm said it was done, but left out a package its lockfile names for linux
+x64 (…)", an npmrc's `cpu=` or a failed optional download) and nothing is kept; Claude's is 108
+packages of its lockfile's 115 on one computer, Codex's 25 of 30. Only then, with the adapter's
+program where the lockfile says, is the folder renamed to `<package>@<version>-<hash of both
+files>` (`@agentclientprotocol+codex-acp@2.9.0-…`), its hash written in it last (`.b42-installed`):
+a folder at that name with that hash is a whole install. Anything else at that name (half a copy,
+another lockfile's, a file) is moved aside to `.removing-…` and removed, and the install goes
+ahead; if the name still can't be had, a sentence says so. One that failed or was cut off is never
+used, and is taken away at a later install once it is an hour old. The agent is then `node <that
+folder>/node_modules/<package>/<its bin>`, no npx, and later starts use the folder as it is. A
+changed lockfile is another folder. npm's settings from a script it runs (`npm_config_*` of an
+app started with `npm start`) and `NPM_CONFIG_*` are left out of the install; the reviewer's own
+`~/.npmrc` (a mirror, a proxy) is read, with a mirror npm still checks every sha512, and what in
+it could leave packages out (`legacy-peer-deps`, `omit=peer`, which left Claude's adapter with 6
+packages of 108, said to be done) is overruled by the words above.
 
 The first start says "Installing the Codex adapter (first start)…" (on dev-box: "…adapter on
 dev-box…") under the agent's row on the connect screen, and in the panel's "Connecting" banner
@@ -377,18 +389,28 @@ dev-box…") under the agent's row on the connect screen, and in the panel's "Co
 there (it comes with node)…"), offline ("npm could not reach its registry (registry.npmjs.org).
 Is dev-box offline?"), a download refused ("npm refused it, because what it downloaded (…)
 differs from what the app tested: its sha512 is not the one in the app's lockfile. Nothing of it
-was installed."), a full disk, or npm's own last words. npm runs under a watchdog of node's that
-ends it with SIGKILL after 15 minutes (npm ignores SIGTERM while a download hangs, and macOS has
-no `timeout`), and a refused download is retried after seconds, not npm's minute, so a refusal is
-said in about 20 s. Two starts at once wait for one install.
+was installed."), a full disk, or npm's own last words. npm runs under a watchdog of node's, in a
+process group of its own, which the watchdog ends with SIGKILL after 15 minutes (npm ignores
+SIGTERM while a download hangs, and macOS has no `timeout`); when the watchdog itself is ended
+(the app's own timeout, output too long); and when the app no longer says it waits: it writes the
+install's lease file (`.b42-lease`) every 10 s, and once that is a minute old by that computer's
+clock (the app quit, or the link to dev-box dropped, where the helper runs on) the watchdog ends
+npm and removes the install's folder. A link that drops during an install is said as "The
+connection to dev-box ended while installing the Codex adapter; it will be tried again at the
+next start." A refused download is retried after seconds, not npm's minute, so a refusal is said
+in about 20 s. Two starts at once wait for one install.
 
-Older installs are tidied when a new one is done, and at each start after: the folders of the same
-adapter of an older version (and of the same version from another lockfile, installed before), on
-that computer. A newer version's (another app there, of a newer build) is kept, and so is one whose
-program runs now: any process whose command line names its folder (`ps -A -ww -o args=`;
-PowerShell's process list on Windows), such as an agent the helper keeps while the app is away, or
-another app's; it goes at a later start. When the processes can't be listed nothing is taken away.
-A folder is renamed to `.removing-…` before it is removed, so a start never finds half of one.
+Each start marks the install it uses (`.b42-used`, its time that computer's clock's), and tidies
+the other installs of the same adapter there: one goes only once it has not been used for 14 days
+(one from before the mark counts from its install), whatever its version. So two builds of the app
+with the same version from other lockfiles, or two apps reaching one computer over ssh, each keep
+theirs while they are used, and neither takes the other's away for it to install again at its
+next start (each start taking away the other's, as tidying by version and install time did). One
+whose program runs now is kept too: any process whose command line names its folder (`ps -A -ww
+-o args=`; PowerShell's process list on Windows), such as an agent the helper keeps while the app
+is away, or another app's; it goes at a later start. When the processes can't be listed nothing
+is taken away. A folder is renamed to `.removing-…` before it is removed, so a start never finds
+half of one, and put back if a start marked it used meanwhile.
 
 On the connect screen, an agent's "Command" shows the version it runs ("Adapter 0.109.1, tested,
 every package locked", with "(installed at its first start)" until it is) and an "Always the
@@ -413,15 +435,21 @@ npm run agents:check -- --test claude --bump          # …and pin it, only if e
 The first only asks npm, and says how each pin's lockfile stands. `--test` builds the tests and
 runs `test/acp.real.ts` with `B42_PIN_<ID>=<newest>`: it starts the agent with your login in a
 throwaway folder and spends your tokens on a few tiny prompts (it says so before it starts).
-`--bump` writes the new version, the date and the count into `agent-pins.json` only when all
-checks passed, and first its lockfile (`npm install --package-lock-only --ignore-scripts` in a
-throwaway folder: only the packages' metadata is fetched, nothing installed, no script run) into
-`src/main/adapter-locks/<id>/`; it pins nothing when that lockfile can't be used (a package with
-no sha512, one that needs its install script, one of the four platforms macOS arm64 and x64,
-Linux x64 and arm64 missing). Commit both. `npm run agents:check -- --lock <id>` makes the lockfile
-of the version pinned now again (after moving a pin by hand: the date `tested` then goes, unless
-you ran the check). The real check of the pin itself (no `B42_PIN_`) installs it from its lockfile
-into `~/.bicycle42/adapters` as the app does.
+`--bump` goes on only when all checks passed: it makes the lockfile (`npm install
+--package-lock-only --ignore-scripts --registry=https://registry.npmjs.org/` in a throwaway
+folder, whatever your npmrc says: only the packages' metadata is fetched, nothing installed, no
+script run), and refuses it when it can't be used (a package with no sha512, one not from
+`https://registry.npmjs.org/`, one that needs its install script, one of the four platforms
+macOS arm64 and x64, Linux x64 and arm64 missing). The check ran npx's tree, resolved then, and
+the app installs the lockfile's, resolved after: so `--bump` writes the lockfile into
+`src/main/adapter-locks/<id>/` and the new version, the date and the count into
+`agent-pins.json`, builds again, and runs the check once more from that lockfile as the app
+installs it (`B42_REAL_FROM_LOCK`: into `~/.bicycle42/adapters` with npm ci, never npx or your
+own install, and it must say it ran from that lockfile's folder). Only when that passes in full
+is the pin kept; otherwise both files are put back as they were. Commit both. `npm run
+agents:check -- --lock <id>` makes the lockfile of the version pinned now again (after moving a
+pin by hand), and says it is untested: `npm run agents:check -- --test <id> --from-lock` runs the
+real check from the lockfile as it is, installed as the app does, and writes nothing.
 
 - **One process for all of an agent's conversations.** Started on the first call, in its own
   process group, and started again with a growing pause (1 s to 30 s) when it dies; the app

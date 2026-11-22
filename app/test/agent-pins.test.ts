@@ -13,7 +13,7 @@ import { test } from "node:test"
 import { LOCK_FILES } from "../src/main/adapter-locks"
 import { adapterLock, adapterOf, commandOf, localAgents, PINS, pinEnv, type StartPrefs } from "../src/main/agents"
 import type { Machine } from "../src/main/machine"
-import { bumped, checksOf, compareVersions, entryOf, formatStatus, LOCK_PLATFORMS, lockManifest, lockProblems, main, pinsText, readNpm, status } from "../scripts/agent-pins.mjs"
+import { bumped, checksOf, compareVersions, entryOf, formatStatus, LOCK_PLATFORMS, lockFolder, lockManifest, lockProblems, main, pinsText, readNpm, status } from "../scripts/agent-pins.mjs"
 
 /** A computer with these programs on its PATH and nothing else (no sign-in, no files). */
 function computer(...programs: string[]): Machine {
@@ -118,6 +118,10 @@ test("each pin has its lockfile: of the pinned version, every package with its a
     assert.equal(lock.version, pin.version)
     assert.equal(lock.entry, entryOf(files.lock, pin))
     assert.match(lock.folder, /^@agentclientprotocol\+[\w-]+@\d+\.\d+\.\d+-[0-9a-f]{12}$/)
+    // The folder agents:check expects its check from the lockfile to run from is the app's.
+    assert.equal(lockFolder(pin, files.manifest, files.lock), lock.folder, id)
+    // Made once: the same object at each ask.
+    assert.equal(adapterLock(id), lock)
   }
   // Codex's own program comes per platform: each of the four is in its lockfile.
   const codex = LOCK_FILES.codex!.lock as { packages: Record<string, { os?: string[]; cpu?: string[] }> }
@@ -141,10 +145,14 @@ test("a lockfile the app can't install from is said so, each thing wrong in a se
   bad.packages["node_modules/@agentclientprotocol/codex-acp"]!.version = "2.8.0"
   bad.packages["node_modules/dep"] = pkg({ version: "1.0.0", hasInstallScript: true })
   bad.packages["node_modules/loose"] = { version: "1.0.0", resolved: "git+ssh://git@github.com/x/y.git" }
+  // A mirror's address (the developer's npmrc), with its sha512: not npm's registry.
+  bad.packages["node_modules/mirrored"] = pkg({ version: "1.0.0", resolved: "https://npm.example.com/mirrored/-/mirrored-1.0.0.tgz" })
+  bad.packages["node_modules/plain"] = pkg({ version: "1.0.0", resolved: "http://registry.npmjs.org/plain/-/plain-1.0.0.tgz" })
   delete bad.packages["node_modules/native-linux-arm64"]
   assert.deepEqual(lockProblems(bad, pin), [
     "it has @agentclientprotocol/codex-acp 2.8.0, not 2.9.0",
-    "loose has no address or sha512 in it",
+    "loose has no sha512 in it",
+    "loose, mirrored, plain are not from https://registry.npmjs.org/ in it (an npmrc's registry, a git or a file address)",
     "dep has an install script, which the app does not run: check it works without, or it can't be pinned",
     "it has no package for linux-arm64",
   ])
@@ -218,26 +226,46 @@ function npmLock(manifest: { dependencies: Record<string, string> }) {
 }
 
 /** `agents:check` with npm, the build, the check, the lockfiles and the pins file all given. */
-function deps(checkOutput: { code: number; out: string }, makeLock: (manifest: { dependencies: Record<string, string> }) => Promise<unknown> = async (m) => npmLock(m)) {
+type Ran = { code: number; out: string }
+/** `checkOutput`: the npx check's output, and the check from the lockfile's unless `fromLock` says
+ *  otherwise (which by default says it ran from the folder of the lockfile last written). */
+function deps(
+  checkOutput: Ran,
+  makeLock: (manifest: { dependencies: Record<string, string> }) => Promise<unknown> = async (m) => npmLock(m),
+  fromLock: (said: string) => Ran = (said) => ({ ...checkOutput, out: `${checkOutput.out}\n${said}\n` }),
+) {
   const log: string[] = []
   const runs: { program: string; args: string[]; env?: Record<string, string> }[] = []
   let written: unknown
+  const writes: unknown[] = []
   const locks: [string, unknown, unknown][] = []
+  const removed: string[] = []
   return {
     log,
     runs,
     written: () => written,
+    writes,
     locks,
+    removed,
     deps: {
       view: async (pkg: string) => npmAnswer[pkg],
       readPins: () => structuredClone(pins),
-      writePins: (p: unknown) => void (written = p),
+      writePins: (p: unknown) => void writes.push((written = p)),
       readLock: (id: string) => (id === "claude" ? npmLock(lockManifest(id, pins.claude)) : undefined),
+      readLockFiles: (id: string) => (id === "claude" ? { manifest: lockManifest(id, pins.claude), lock: npmLock(lockManifest(id, pins.claude)) } : undefined),
+      removeLock: (id: string) => void removed.push(id),
       makeLock,
       writeLock: (id: string, manifest: unknown, lock: unknown) => void locks.push([id, manifest, lock]),
       log: (line: string) => void log.push(line),
       now: () => Date.parse("2026-12-01T10:00:00Z"),
-      run: async (program: string, args: string[], env?: Record<string, string>) => (runs.push({ program, args, ...(env ? { env } : {}) }), args[0] === "scripts/build.mjs" ? { code: 0, out: "" } : checkOutput),
+      run: async (program: string, args: string[], env?: Record<string, string>) => {
+        runs.push({ program, args, ...(env ? { env } : {}) })
+        if (args[0] === "scripts/build.mjs") return { code: 0, out: "" }
+        if (!env?.B42_REAL_FROM_LOCK) return checkOutput
+        const [, manifest, lock] = locks.at(-1)! as [string, { dependencies: Record<string, string> }, unknown]
+        const [name, version] = Object.entries(manifest.dependencies)[0]!
+        return fromLock(`from the app's lockfile: ${lockFolder({ package: name, version }, manifest, lock)}`)
+      },
     },
   }
 }
@@ -265,6 +293,13 @@ test("--test runs the real check against the newest, said first; --bump pins it 
   const said = passed.log.join("\n")
   assert.ok(said.indexOf("spends your claude tokens") >= 0 && said.indexOf("spends your claude tokens") < said.indexOf("21/21 checks passed"), "the cost is said before the check runs")
   assert.deepEqual(passed.runs[1], { program: "node", args: ["dist/test/acp.real.cjs", "claude", "haiku"], env: { B42_PIN_CLAUDE: "0.110.0" } })
+  // …then built again with the new pin and its lockfile, and checked once more from that lockfile
+  // as the app installs it: no B42_PIN_, no npx, no own install.
+  assert.deepEqual(passed.runs.slice(2), [
+    { program: "node", args: ["scripts/build.mjs", "--tests"] },
+    { program: "node", args: ["dist/test/acp.real.cjs", "claude", "haiku"], env: { B42_PIN_CLAUDE: "", B42_REAL_FROM_LOCK: "1" } },
+  ])
+  assert.match(passed.log.join("\n"), /The real check once more, from that lockfile as the app installs it[\s\S]*claude-agent-acp@0\.110\.0 from its lockfile: 21\/21 checks passed\.[\s\S]*tested from its lockfile/)
   assert.deepEqual((passed.written() as typeof pins).claude, { ...pins.claude, version: "0.110.0", tested: "2026-12-01", checks: "21/21" })
   // …with the lockfile of the new version, written beside it.
   assert.deepEqual(passed.locks.map(([id, manifest]) => [id, manifest]), [["claude", lockManifest("claude", { ...pins.claude, version: "0.110.0" })]])
@@ -291,6 +326,19 @@ test("--test runs the real check against the newest, said first; --bump pins it 
   assert.equal(await main(["--test", "claude", "--bump"], crashed.deps), 1)
   assert.equal(crashed.written(), undefined)
 
+  // The npx check passed, the one from the lockfile did not: the pin and the lockfile put back.
+  const lockFailed = deps({ code: 0, out: "21/21 checks passed\n" }, undefined, (said) => ({ code: 1, out: `${said}\nFAIL starts\n\n0/21 checks passed\n` }))
+  assert.equal(await main(["--test", "claude", "--bump"], lockFailed.deps), 1)
+  assert.deepEqual(lockFailed.writes.at(-1), pins, "agent-pins.json as it was")
+  assert.deepEqual(lockFailed.locks.at(-1), ["claude", lockManifest("claude", pins.claude), npmLock(lockManifest("claude", pins.claude))], "its lockfile as it was")
+  assert.match(lockFailed.log.join("\n"), /from its lockfile: 0\/21 checks passed\.[\s\S]*Not bumped: the pin stays 0\.109\.1\. Its lockfile and agent-pins\.json are as they were\./)
+  // Every check passed, but not from that lockfile's folder (your own adapter ran, an old build): not pinned.
+  const elsewhere = deps({ code: 0, out: "21/21 checks passed\n" }, undefined, () => ({ code: 0, out: "21/21 checks passed\n" }))
+  assert.equal(await main(["--test", "codex", "--bump"], elsewhere.deps), 1)
+  assert.deepEqual(elsewhere.writes.at(-1), pins)
+  assert.deepEqual(elsewhere.removed, ["codex"], "codex had no lockfile: the one written is taken away")
+  assert.match(elsewhere.log.join("\n"), /and it did not say it ran from @agentclientprotocol\+codex-acp@2\.9\.0-[0-9a-f]{12}\./)
+
   // Without --bump: tested, nothing written, the exit code says how it went.
   const tried = deps({ code: 0, out: "21/21 checks passed\n" })
   assert.equal(await main(["--test", "codex"], tried.deps), 0)
@@ -304,6 +352,8 @@ test("--lock makes the lockfile of the version pinned now again, and nothing els
   assert.deepEqual(d.locks.map(([id, manifest]) => [id, manifest]), [["codex", { name: "bicycle42-adapter-codex", private: true, dependencies: { "@agentclientprotocol/codex-acp": "2.9.0" } }]])
   assert.equal(d.written(), undefined)
   assert.equal(d.runs.length, 0)
+  // Said untested, and how to test it.
+  assert.match(d.log.join("\n"), /Not tested: no check has run with this tree yet\. Before you commit it: npm run agents:check -- --test codex --from-lock/)
   assert.equal(await main(["--lock", "gemini"], d.deps), 2)
   assert.equal(await main(["--lock"], d.deps), 2)
   // npm failing is said, and nothing is written.
@@ -311,4 +361,25 @@ test("--lock makes the lockfile of the version pinned now again, and nothing els
   assert.equal(await main(["--lock", "claude"], failed.deps), 1)
   assert.equal(failed.locks.length, 0)
   assert.match(failed.log.join("\n"), /ENOTFOUND/)
+})
+
+test("--test <agent> --from-lock runs the real check of the pin from its lockfile as it is, as the app installs it; nothing written", async () => {
+  const d = deps({ code: 0, out: "21/21 checks passed\n" })
+  // The lockfile last "written" is what the fake says it ran from: claude's as it is.
+  d.locks.push(["claude", lockManifest("claude", pins.claude), npmLock(lockManifest("claude", pins.claude))])
+  assert.equal(await main(["--test", "claude", "--from-lock", "--model", "haiku"], d.deps), 0)
+  assert.deepEqual(d.runs, [
+    { program: "node", args: ["scripts/build.mjs", "--tests"] },
+    { program: "node", args: ["dist/test/acp.real.cjs", "claude", "haiku"], env: { B42_PIN_CLAUDE: "", B42_REAL_FROM_LOCK: "1" } },
+  ])
+  assert.equal(d.written(), undefined)
+  assert.equal(d.locks.length, 1)
+  assert.match(d.log.join("\n"), /spends your claude tokens[\s\S]*from its lockfile: 21\/21 checks passed\./)
+  // No lockfile of the pin: said, nothing run.
+  const none = deps({ code: 0, out: "" })
+  assert.equal(await main(["--test", "codex", "--from-lock"], none.deps), 1)
+  assert.equal(none.runs.length, 0)
+  assert.match(none.log.join("\n"), /There is no lockfile of @agentclientprotocol\/codex-acp@2\.9\.0, the pin: npm run agents:check -- --lock codex/)
+  assert.equal(await main(["--from-lock"], none.deps), 2)
+  assert.equal(await main(["--test", "claude", "--from-lock", "--bump"], none.deps), 2)
 })
