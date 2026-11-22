@@ -604,9 +604,13 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
     }
   }
 
-  /** The model sees no pictures: a note's screenshots would not reach it. */
+  /** The model sees no pictures: a note's screenshots would not reach it. Not said while the
+   *  last thing in the conversation is the line saying its provider refused it: that line offers
+   *  another model already. */
   const blind = () => {
     const found = currentModel()
+    const last = chat.items[chat.items.length - 1]
+    if (last?.kind === "marker" && last.refused) return undefined
     return found && !found.images ? found : undefined
   }
   const menuId = "composer-menu"
@@ -719,18 +723,13 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
           />
           <Pickers />
           <ContextMeter />
-          {/* While the agent works and there is nothing to send, Send gives its place to Stop. */}
+          {/* While the agent works and there is nothing to send, Send gives its place to Stop. Not
+              while it is paused (offline, and not at work elsewhere): its process is gone, and
+              with it the run Stop would end, so the box keeps Send, and what is sent waits. */}
           <Show
-            when={!(busy() && !text().trim() && !images().length)}
+            when={!(busy() && !(offline() && !awayHost()) && !text().trim() && !images().length)}
             fallback={
-              // Offline, and not at work elsewhere: the agent's process is gone, and with it the
-              // run Stop would end.
-              <button
-                class="btn stop-btn"
-                disabled={offline() && !awayHost()}
-                title={offline() && !awayHost() ? "Nothing to stop while the agent can't be reached" : "Stop the agent"}
-                onClick={() => act("stop")}
-              >
+              <button class="btn stop-btn" title="Stop the agent" onClick={() => act("stop")}>
                 <Icon name="stop" />
                 Stop
               </button>
@@ -768,7 +767,7 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
       <Show when={blind()}>
         {(m) => (
           <p class="composer-hint blind-hint">
-            <span>{modelLabel(m(), state.models).name} sees no images: notes reach it as words only.</span>
+            <span>{modelLabel(m(), state.models).name} can't see pictures; notes send words only.</span>
             <button class="text-btn" onClick={openModelPicker}>
               Choose another model
             </button>

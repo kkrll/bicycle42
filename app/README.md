@@ -501,7 +501,9 @@ real check from the lockfile as it is, installed as the app does, and writes not
   started is not started again by itself: no `retry`, and the banner prints the error and what to
   do ("Claude Code keeps stopping at start: … Fix it, then Retry."), as for any start that nothing
   tries again. While it is offline (and not `away`), the turn under way reads "Paused on ④", with
-  no spinner or clock, and Stop is disabled: the run it would end went with the process.
+  no spinner or clock, the notes list's working group reads "Paused", and the box keeps Send
+  instead of Stop: the run Stop would end went with the process. A message sent then is queued
+  as any is offline, and starts the agent again at once (failing with the reason if it can't).
   A dev server the agent starts is a background command of its own shell tool, which ACP gives
   the client no way to list or stop: it lives as long as the agent's process. The request to get
   the site running says so (`startPrompt`).

@@ -8,7 +8,7 @@ import { AgentSwitch, MiddlePath, harnessNow, homePath, ownHome, whereOf } from 
 import { SetupSteps, serverLabel, setSettingsAt } from "./connect"
 import { AgentMark, Icon } from "./icons"
 import { NoteView } from "./note-detail"
-import { GROUPS, groupOf, type Group } from "./note-groups"
+import { GROUPS, fitShort, groupName, groupOf, rowSaysWord, type Group } from "./note-groups"
 import {
   act,
   chat,
@@ -88,11 +88,13 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
   const counts = createMemo(countNotes)
   // Every count in words when they fit beside "Notes", "· 2 unpinned" and "Clear done" (about
   // 6.4px a character at 12px); otherwise the short form, which drops nothing.
-  const tight = () => {
-    const text = countWords(counts()).join(" · ")
-    const room = (props.width || 400) - 24 - 96 - (counts().done ? 84 : 0) - (state.review.unplaced ? 80 : 0)
-    return text.length * 6.4 > room
-  }
+  const room = () => (props.width || 400) - 24 - 96 - (counts().done ? 84 : 0) - (state.review.unplaced ? 80 : 0)
+  const tight = () => countWords(counts()).join(" · ").length * 6.4 > room()
+  /** The short form, with "· 8 left" dropped first where even it does not fit: "· 2 unpinned"
+   *  beside it is never cut. */
+  const short = () => fitShort(shortWords(counts()), room())
+  /** What the agent had is paused: it can't be reached, and works nowhere else meanwhile. */
+  const paused = () => offline() && !awayHost()
   /** The list is on screen, with its groups. */
   const listed = () => props.open && state.review.notes.length > 0
   // The list's height, cut back to the last whole row that fits, so no row shows half.
@@ -227,7 +229,7 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
               </For>
             </span>
             <span class="section-meta meta-short" classList={{ hide: !tight() }}>
-              <For each={(shortWords(counts()) || "none yet").split(" · ")}>
+              <For each={counts().total ? short() : ["none yet"]}>
                 {(part) => <span classList={{ bad: part.endsWith(" failed") }}>{part}</span>}
               </For>
             </span>
@@ -276,7 +278,7 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
                       when={g.key === "done"}
                       fallback={
                         <span class="note-group-name">
-                          {g.name} · {grouped()[g.key].length}
+                          {groupName(g.key, paused())} · {grouped()[g.key].length}
                         </span>
                       }
                     >
@@ -333,8 +335,9 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
                             <Icon name="alert" />
                           </span>
                         </Show>
-                        {/* The group says waiting, working and done; a word is kept for what says more. */}
-                        <Show when={note.takenBack || !["queued", "working", "done"].includes(shown())}>
+                        {/* The group says waiting, working, paused and done, and a failed row's badge
+                            and error say failed; a word is kept for what says more. */}
+                        <Show when={rowSaysWord(shown(), !!note.takenBack)}>
                           <span class="note-status" data-status={shown()}>
                             {noteWord(note)}
                           </span>
