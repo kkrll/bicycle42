@@ -219,7 +219,9 @@ function ModeSwitch(props: { disabled: boolean }) {
             {...hinted(() => ({ text: m.what, keys: [m.keys?.(), m.more?.()].filter((k): k is string => !!k) }))}
           >
             <Icon name={m.icon} />
-            <span class="mode-label">{m.label}</span>
+            <span class="mode-label" data-label={m.label}>
+              {m.label}
+            </span>
           </button>
         )}
       </For>
@@ -353,9 +355,10 @@ function TopBar(props: {
         <PageRefused />
         <div class="tools">
           <Hint />
-          {/* A word beside its icon, as the modes have, and the icon alone where they lose theirs. */}
+          {/* The pen alone, in a look of its own: pressed, it turns Annotate on too, and is not a
+              fourth mode beside it. Its name and key are in its hint. */}
           <button
-            class="draw-btn"
+            class="icon-btn draw-btn"
             data-action="draw"
             aria-label="Draw on the page"
             aria-pressed={state.review.brush}
@@ -364,8 +367,7 @@ function TopBar(props: {
             onClick={() => act("toggleBrush")}
             {...hinted(() => ({ text: "Draw: a line selects what it crosses", keys: [keys("mod", "shift", "P"), `${keys("alt")} drag`] }))}
           >
-            <Icon name="draw" />
-            <span class="mode-label">Draw</span>
+            <Icon name="draw" size={20} />
           </button>
           <ModeSwitch disabled={noOverlay()} />
           {/* With the panel open the agent button is in its conversation row, and the notes are

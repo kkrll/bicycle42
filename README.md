@@ -171,7 +171,7 @@ targets under 44 px, inputs that make iOS zoom) and the files the agent changed.
 | Annotate mode | |
 |---|---|
 | click / `shift`+click / drag | Select an element / add one / select an area |
-| `alt`+drag, or the **Draw** button | Draw. A line selects what it crosses, a closed loop what it encloses |
+| `alt`+drag, or the pencil button | Draw. A line selects what it crosses, a closed loop what it encloses |
 | `↑` / `↓` | Parent / child element, while the note is empty |
 | `Enter` / `alt+Enter` | Send the note / send it to the background conversation |
 | paste a picture | Attach it as a reference |

@@ -151,6 +151,15 @@ const SHOTS = [
   { name: "review-menu", mock: "review", run: [click(".convo-current")] },
   { name: "review-open", mock: "review", run: [`document.querySelectorAll(".transcript details").forEach((d) => (d.open = true))`] },
   { name: "review-narrow", mock: "review", size: [760, 560] },
+  // "· 2 unpinned" clicked: what it means, under the notes header; and in the least panel.
+  { name: "unpinned", mock: "review", run: [click(".lost-btn")], wait: 300 },
+  { name: "unpinned-narrow", mock: "review", run: [leastPanel, pause(200), click(".lost-btn")], wait: 300 },
+  // Draw pressed (it turns Annotate on too), and Preview with Draw not pressed: the top bar keeps
+  // every control's width either way.
+  { name: "draw", mock: "review", query: "&mode=preview", run: [click("[data-action=draw]")], wait: 300 },
+  { name: "preview", mock: "review", query: "&mode=preview" },
+  // The transcript scrolled so a line sits under the conversation's header: it fades out there.
+  { name: "feather", mock: "review", run: [`(() => { const t = document.querySelector(".transcript"); t.scrollTop = t.scrollHeight - t.clientHeight - 260 })()`], wait: 300 },
   // The page as a phone's, with "This page on this phone" beside it (Annotate, then Preview);
   // and a page that fits the phone.
   { name: "phone", mock: "review", query: "&device=phone" },
