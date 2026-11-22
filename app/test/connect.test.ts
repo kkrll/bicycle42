@@ -279,6 +279,9 @@ test("a login shell whose profile never finishes (bash, which ignores SIGTERM wh
   const h = fakeHost()
   const step = sshTiming.step
   sshTiming.step = 30_000
+  // The same path with a 1 s limit in place of 10 s: what is checked is that the profile is ended
+  // (and said), not how long the limit is.
+  sshTiming.profile = 1
   try {
     process.env.B42_FAKE_SSH_SHELL = "/bin/bash"
     fs.writeFileSync(path.join(h.home, ".bashrc"), "while :; do sleep 1; done\n")
@@ -287,7 +290,7 @@ test("a login shell whose profile never finishes (bash, which ignores SIGTERM wh
     const m = await connectSsh({ host: "dev-box", dataDir: h.data })
     await m.close()
     const took = Date.now() - t
-    assert.ok(took < 20_000, `connected in ${took} ms`)
+    assert.ok(took < 10_000, `connected in ${took} ms`)
     const left = () => spawnSync("pgrep", ["-f", `${h.home}|bash -ilc env|bash -lc env`], { encoding: "utf8" }).stdout.split("\n").filter(Boolean).filter((pid) => fs.existsSync(`/proc/${pid}`) && /bash/.test(fs.readFileSync(`/proc/${pid}/cmdline`, "utf8")))
     await until(() => left().length === 0, 5000).catch(() => assert.fail(`left running there: ${left().join(" ")}`))
     // With no node on the plain PATH, the profile's not finishing is what is said.
@@ -295,10 +298,11 @@ test("a login shell whose profile never finishes (bash, which ignores SIGTERM wh
     fs.rmSync(path.join(h.data, "ssh", "nodes.json"))
     process.env.B42_FAKE_SSH_PATH = bare(h)
     t = Date.now()
-    await assert.rejects(connectSsh({ host: "dev-box", dataDir: h.data }), /`node` was not found on the PATH there, and its login shell's profile did not finish in 10 s/)
-    assert.ok(Date.now() - t < 20_000)
+    await assert.rejects(connectSsh({ host: "dev-box", dataDir: h.data }), /`node` was not found on the PATH there, and its login shell's profile did not finish in 1 s/)
+    assert.ok(Date.now() - t < 10_000)
   } finally {
     sshTiming.step = step
+    sshTiming.profile = 10
     clean()
     spawnSync("pkill", ["-9", "-f", "bash -ilc env"])
     await h.end()

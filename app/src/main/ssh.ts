@@ -54,6 +54,9 @@ export const sshTiming = {
   /** How long ending a process there may take (the helper answers once its group is gone, 2 s
    *  at most), and how long close() waits for that. */
   kill: 5_000,
+  /** How long a login shell's profile may take there before it is ended. Seconds (the probe's sh
+   *  `sleep`s it). */
+  profile: 10,
 }
 
 /** What the app keeps of what an ssh command (the probe, the upload, the daemon's start, a control
@@ -234,6 +237,7 @@ export function probeScript(o: { version: string; digest: string; remembered?: s
     // The login shell's PATH: as an interactive login shell has it, else a login shell, else any
     // (tcsh takes -l only alone). What its profile prints is not a line starting PATH=.
     // A profile that never finishes (a loop, one that waits for a terminal) is ended after 10 s
+    // (sshTiming.profile)
     // with SIGKILL, which an interactive shell can't ignore as it does SIGTERM (so `timeout`
     // would not do, and macOS has none): the shell runs in the background beside a watchdog,
     // its output to a file of its own. Then no other way of asking it is tried, and it is said.
@@ -244,7 +248,7 @@ export function probeScript(o: { version: string; digest: string; remembered?: s
     "  for f in -ilc -lc -c; do",
     `    "\${SHELL:-/bin/sh}" $f env </dev/null >"$tmp" 2>/dev/null &`,
     "    p=$!",
-    "    ( trap 'kill $s 2>/dev/null; exit 0' TERM; sleep 10 & s=$!; wait $s; kill -9 $p 2>/dev/null ) >/dev/null 2>&1 &",
+    `    ( trap 'kill $s 2>/dev/null; exit 0' TERM; sleep ${sshTiming.profile} & s=$!; wait $s; kill -9 $p 2>/dev/null ) >/dev/null 2>&1 &`,
     "    w=$!",
     "    wait $p",
     "    st=$?",
@@ -486,7 +490,7 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
   async function probe() {
     const r = await script(probeScript({ version, digest, remembered: node }))
     const line = r.out.split("\n").reverse().find((l) => l.startsWith("B42 ") && !/^B42 (READY|FAILED|SLOWPROFILE)/.test(l))
-    if (/^B42 SLOWPROFILE$/m.test(r.out)) log("warn", `the login shell's profile on ${host} did not finish in 10 s: node was looked for without it`)
+    if (/^B42 SLOWPROFILE$/m.test(r.out)) log("warn", `the login shell's profile on ${host} did not finish in ${sshTiming.profile} s: node was looked for without it`)
     if (!line) {
       // Only a computer whose shell never ran the script (no answer of its) is said to be Windows:
       // a profile that merely prints PowerShell's words is not.
@@ -498,7 +502,7 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
     const all = nodesSaid(r.out)
     if (line.startsWith("B42 NONODE")) {
       if (/SLOWPROFILE/.test(line) && !all.length)
-        throw new Error(`The app needs Node 18 or newer on ${host} for its helper. \`node\` was not found on the PATH there, and its login shell's profile did not finish in 10 s, so the PATH it sets up could not be read. Look at the profile (~/.bashrc, ~/.zshrc, ~/.config/fish) for something that waits, then connect again.`)
+        throw new Error(`The app needs Node 18 or newer on ${host} for its helper. \`node\` was not found on the PATH there, and its login shell's profile did not finish in ${sshTiming.profile} s, so the PATH it sets up could not be read. Look at the profile (~/.bashrc, ~/.zshrc, ~/.config/fish) for something that waits, then connect again.`)
       if (all.length)
         throw new Error(`The app needs Node 18 or newer on ${host} for its helper, and found only ${all.map((n) => `Node ${n.version} (${n.path})`).join(", ")}. Install a newer one (nodejs.org, nvm, or your package manager) and connect again.`)
       throw new Error(`The app needs Node 18 or newer on ${host} for its helper, and \`node\` was not found there. Install it (nodejs.org, or your package manager) and connect again.`)
