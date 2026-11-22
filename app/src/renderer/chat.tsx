@@ -20,7 +20,7 @@ import type {
 } from "../shared/types"
 import { Composer, openModelPicker } from "./composer"
 import { CopyButton } from "./copy"
-import { Icon, Kbd, toolIcon } from "./icons"
+import { Icon, toolIcon } from "./icons"
 import { openLightbox } from "./lightbox"
 import { Markdown } from "./markdown"
 import { RepoBar } from "./repo"
@@ -443,8 +443,9 @@ function useClock(on: () => boolean) {
 /** One turn of the agent: the steps it took between two things said (one assistant item per
  *  step). What it did on the way (tools, thoughts, words between steps) folds into one line,
  *  "Worked for 15s"; the reply it ended with stays out. While it works, the fold is open and
- *  says so; when it is done it closes, unless the reader opened or closed it. */
-function Turn(props: { items: ChatAssistant[]; last: boolean }) {
+ *  says so, with the note it works on ("Working on ④ · 6m 0s"): the one place the transcript
+ *  says it. When it is done it closes, unless the reader opened or closed it. */
+function Turn(props: { items: ChatAssistant[]; current: boolean; note?: NoteRow }) {
   // The turn's parts, in order. The store's own objects: rows are kept as parts are added.
   const parts = createMemo(() => props.items.flatMap((it) => it.parts))
   // The reply: the text the turn ends with. While it works, the newest words are the reply until
@@ -458,7 +459,7 @@ function Turn(props: { items: ChatAssistant[]; last: boolean }) {
   const steps = () => parts().slice(0, cut())
   const reply = () => parts().slice(cut())
   const end = () => props.items[props.items.length - 1]!
-  const live = () => !end().done || (props.last && !!state.session?.busy)
+  const live = () => !end().done || props.current
   const failed = () => props.items.some((it) => it.error)
   useClock(live)
   const elapsed = () => {
@@ -483,6 +484,7 @@ function Turn(props: { items: ChatAssistant[]; last: boolean }) {
       <Show when={steps().length}>
         <button
           class="turn-head"
+          classList={{ live: live() }}
           aria-expanded={open()}
           onClick={(e) => {
             setChosen(!open())
@@ -491,15 +493,29 @@ function Turn(props: { items: ChatAssistant[]; last: boolean }) {
             e.currentTarget.dispatchEvent(new Event("toggle"))
           }}
         >
-          {/* No spinner of its own: the line under the transcript already says it works, and on what. */}
-          <span class="turn-took">{live() ? `Working for ${took(elapsed())}` : elapsed() >= 1000 ? `Worked for ${took(elapsed())}` : "Worked"}</span>
+          <Show when={live()} fallback={<span class="turn-took">{elapsed() >= 1000 ? `Worked for ${took(elapsed())}` : "Worked"}</span>}>
+            <Icon name="spinner" />
+            <span class="turn-took">
+              <Show when={props.note} fallback={`Working for ${took(elapsed())}`}>
+                {(note) => (
+                  <>
+                    Working on{" "}
+                    <span class="badge" data-status="working" title={note().text}>
+                      {note().n}
+                    </span>{" "}
+                    · {took(elapsed())}
+                  </>
+                )}
+              </Show>
+            </span>
+          </Show>
           <Show when={model()}>
             <span class="turn-model" title={`Answered by ${model()}`}>
               · {model()}
             </span>
           </Show>
           <Show when={counts()}>
-            <span class="turn-counts">{counts()}</span>
+            <span class="turn-counts">· {counts()}</span>
           </Show>
           <Icon name="right" class="caret" />
         </button>
@@ -570,14 +586,13 @@ function RefusedLine(props: { text: string; refused: Refused }) {
 }
 
 /** What a new conversation offers to start with: one click sends it. Which ones depends on
- *  whether a page is open and working. Starting the site is the app's own request (`startSite`):
- *  the agent is told where the app runs, and the address it answers with is opened. */
-type Suggestion = { label: string; text?: string; start?: true }
+ *  whether a page is open and working. Starting the site is not one: the page's own card offers
+ *  that where there is no page, and one action has one button. */
+type Suggestion = { label: string; text: string }
 function suggestions(): Suggestion[] {
   const url = state.page.url
   const works = !!url && !state.page.error
   return [
-    ...(works ? [] : [{ label: "Start the dev server here", start: true as const }]),
     ...(works ? [{ label: "Find the code for this page", text: `Which files make up the page at ${url}? List the route, its components and its styles, in a few lines.` }] : []),
     { label: "Show me around this repo", text: "Give me a short tour of this repo: what the site is built with, where pages, components and styles live, and how to run it." },
     { label: "Where are the colours, type and spacing defined?", text: "Where does this project define its design tokens (colours, type, spacing, radii)? Name the files and how components use them." },
@@ -590,14 +605,16 @@ function Suggestions() {
   const run = (s: Suggestion) => {
     setError("")
     setBusy(true)
-    const sent = s.start ? b42.invoke("startSite") : b42.invoke("send", s.text ?? s.label)
-    void sent.catch((err) => setError(message(err))).finally(() => setBusy(false))
+    void b42
+      .invoke("send", s.text)
+      .catch((err) => setError(message(err)))
+      .finally(() => setBusy(false))
   }
   return (
     <div class="suggestions" role="group" aria-label="Ways to start">
       <For each={suggestions()}>
         {(s) => (
-          <button class="btn suggestion" disabled={busy() || state.connection.status !== "online" || (s.start && state.startingSite)} title={s.start ? "The agent starts it and the app opens it" : s.text} onClick={() => run(s)}>
+          <button class="btn suggestion" disabled={busy() || state.connection.status !== "online"} title={s.text} onClick={() => run(s)}>
             {s.label}
           </button>
         )}
@@ -609,6 +626,8 @@ function Suggestions() {
   )
 }
 
+/** A new conversation: one line on what to do, and ways to start. The keys are in the README
+ *  and in the controls' titles, not here. */
 function Empty() {
   const page = () => !!state.page.url && !state.page.error
   return (
@@ -623,35 +642,8 @@ function Empty() {
         }
       >
         <p class="chat-empty-lead">Click anything on the page, write a note, press Enter.</p>
-        <p>Each note goes to the agent on its own. Keep going; changes land while you review.</p>
       </Show>
       <Suggestions />
-      <dl class="shortcuts" hidden={!page()}>
-        <dt>
-          <Kbd keys={keys("enter")} />
-        </dt>
-        <dd>Send the note</dd>
-        <dt>
-          <Kbd keys={keys("alt", "enter")} />
-        </dt>
-        <dd>Send it to work in the background</dd>
-        <dt>
-          <Kbd keys={keys("mod", "U")} />
-        </dt>
-        <dd>Preview the page, or back to reviewing</dd>
-        <dt>
-          <Kbd keys={keys("alt", "A")} />
-        </dt>
-        <dd>Hold to see the page without the layer</dd>
-        <dt>
-          <Kbd keys={keys("mod", "K")} />
-        </dt>
-        <dd>Write to the agent here</dd>
-        <dt>
-          <Kbd keys={keys("mod", "\\")} />
-        </dt>
-        <dd>Show or hide this panel</dd>
-      </dl>
     </div>
   )
 }
@@ -1397,17 +1389,16 @@ export function Chat(props: {
     const out: ChatItem[] = []
     const turns = new Map<string, ChatAssistant[]>()
     let run: ChatAssistant[] | undefined
-    let last: string | undefined
     for (const item of ordered()) {
       if (item.kind === "assistant") {
         if (run) run.push(item)
-        else (run = [item]), turns.set(item.id, run), out.push(item), (last = item.id)
+        else (run = [item]), turns.set(item.id, run), out.push(item)
         continue
       }
       run = undefined
       out.push(item)
     }
-    return { out, turns, last }
+    return { out, turns }
   })
   /** A turn's steps, as one array as long as they are the same steps: its row is not redrawn. */
   const stepsOf = (lead: ChatAssistant) =>
@@ -1456,8 +1447,27 @@ export function Chat(props: {
     scroller.addEventListener("scrollend", () => (stop(), el.scrollIntoView({ block: "center", behavior })), { once: true, signal: done.signal })
     setTimeout(stop, 3000)
   }
-  /** The main-lane note the agent is on now, named in the "Working" line. */
+  /** The main-lane note the agent is on now, named where the transcript says it works. */
   const workingNote = createMemo(() => state.review.notes.find((n) => n.lane === "main" && n.status === "working"))
+  /** The turn under way: the last row, past the notes still waiting and the lines between, when
+   *  it is the agent's and the agent is at work. */
+  const underway = createMemo(() => {
+    if (!state.session?.busy) return undefined
+    const out = rows().out
+    for (let i = out.length - 1; i >= 0; i--) {
+      const it = out[i]!
+      if (it.kind === "marker" || (it.kind === "user" && it.pending)) continue
+      return it.kind === "assistant" ? it.id : undefined
+    }
+    return undefined
+  })
+  /** "Working" is said once: in the header of the turn under way, which it has once the agent
+   *  took a step (anything but words). Before that (no turn yet, or only words so far) one line
+   *  at the transcript's foot says it. */
+  const headed = () => {
+    const id = underway()
+    return !!id && (rows().turns.get(id) ?? []).some((it) => it.parts.some((p) => p.kind !== "text"))
+  }
 
   // Requests that wait for the reviewer, shown one at a time: permissions first, then questions.
   const waiting = () => state.permissions.length + state.questions.length
@@ -1543,7 +1553,8 @@ export function Chat(props: {
                   <Match when={item.kind === "assistant" && item}>
                     {(i) => {
                       const steps = stepsOf(i())
-                      return <Turn items={steps()} last={rows().last === i().id} />
+                      const current = () => underway() === i().id
+                      return <Turn items={steps()} current={current()} note={current() ? workingNote() : undefined} />
                     }}
                   </Match>
                   <Match when={item.kind === "marker" && item}>
@@ -1577,7 +1588,7 @@ export function Chat(props: {
                 </div>
               )}
             </For>
-            <Show when={state.session?.busy}>
+            <Show when={state.session?.busy && !headed()}>
               <div class="working" role="status">
                 <Icon name="spinner" />
                 <Show when={workingNote()} fallback="Working">

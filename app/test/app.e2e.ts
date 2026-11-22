@@ -244,6 +244,20 @@ async function main() {
     (await ui(`new Promise((done) => { const i = new Image(); i.onload = () => done("loaded"); i.onerror = () => done("refused"); i.src = "b42-img://pic/ses_x/msg_x/0" })`)) === "refused",
   )
   check("the pin on the page follows", /pin working/.test(await until(async () => ((await pins()).includes("working") ? pins() : ""))), await pins())
+  // "Working" is said once in the conversation: before the agent has said anything, one line at
+  // the transcript's foot; once it has a step, in that turn's header, and the foot line goes.
+  const workingLines = `[...document.querySelectorAll(".transcript .working, .transcript .turn-head.live")].map((e) => e.className + ": " + e.textContent.replace(/\\s+/g, " ").trim())`
+  check(
+    "before the agent says anything, one line says what it works on",
+    (await until(() => ui(`(() => { const l = ${workingLines}; return l.length === 1 && /^working: Working on ?1 ?make this button bigger$/.test(l[0]) })()`))) === true,
+    JSON.stringify(await ui(workingLines)),
+  )
+  await (await turnNow())?.update({ sessionUpdate: "tool_call", toolCallId: "e2e-read", title: "Read", kind: "read", status: "completed", locations: [{ path: path.join(siteDir, "index.html") }] })
+  check(
+    "once it takes a step, the turn's header says it, with the note, and no line at the foot",
+    (await until(() => ui(`(() => { const l = ${workingLines}; return l.length === 1 && /^turn-head live: Working on ?1 ?· \\d+s/.test(l[0]) })()`))) === true,
+    JSON.stringify(await ui(workingLines)),
+  )
 
   // A second note while the first is in progress, sent before the agent replies.
   await js("window.__beforeReload = true")

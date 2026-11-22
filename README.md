@@ -147,7 +147,7 @@ panel's conversation row), where reloading the page after a note is switched too
 
 The top bar has the mode: **Preview** (the page as it is), **Annotate** (point at something
 and say what to change), **Edit** (change the page itself, then press Send) and **Motion** (see
-what moves on the page, change one animation, then send it), with the pencil for drawing beside
+what moves on the page, change one animation, then send it), with **Draw** (the pencil) beside
 them. Beside the address, **Desktop | Phone** shows the page as wide as its pane or as a phone
 has it; which phone (iPhone SE to iPhone 18 Pro Max, a Pixel, a Galaxy) is the list above the
 page. A phone taller than the window is drawn smaller, whole, and still laid out at its real
@@ -165,12 +165,12 @@ targets under 44 px, inputs that make iOS zoom) and the files the agent changed.
 | `mod+U` | Preview; again, back to the mode you were in |
 | hold `alt+A` | Peek: the page without the layer while held (your unsent edits stay on). Hover reaches the page, clicks don't |
 | `mod+P` / `mod+O` / `mod+I` | Annotate / Edit / Motion |
-| `mod+shift+P` | The pencil: draw on the page |
+| `mod+shift+P` | **Draw**: draw on the page |
 
 | Annotate mode | |
 |---|---|
 | click / `shift`+click / drag | Select an element / add one / select an area |
-| `alt`+drag, or the pencil button | Draw. A line selects what it crosses, a closed loop what it encloses |
+| `alt`+drag, or the **Draw** button | Draw. A line selects what it crosses, a closed loop what it encloses |
 | `↑` / `↓` | Parent / child element, while the note is empty |
 | `Enter` / `alt+Enter` | Send the note / send it to the background conversation |
 | paste a picture | Attach it as a reference |

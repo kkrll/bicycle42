@@ -45,8 +45,8 @@ const pastePicture = `(async () => {
 const narrowPanel = `document.querySelector(".panel").style.setProperty("--panel-width", "360px")`
 
 /** name, mock scenario, then optional: extra query, script to run after load, ms to wait, size. */
-/** Presses the suggestion that asks the agent to get the site running. */
-const START_SITE = `document.querySelector('.suggestion[title^="The agent starts it"]').click()`
+/** Presses the page's button that asks the agent to get the site running. */
+const START_SITE = `document.querySelector('.page-empty .page-actions .btn.primary').click()`
 
 /** The panel at its least (320px): the resizer's Home key. */
 const leastPanel = `document.querySelector(".resizer").dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }))`
@@ -183,6 +183,8 @@ const SHOTS = [
   { name: "question", mock: "question" },
   { name: "noconversation", mock: "noconversation" },
   { name: "offline", mock: "offline" },
+  // The same without `away` (an agent here, or one that is not kept running there): the shorter line.
+  { name: "offline-plain", mock: "offline", run: [`delete window.__mock.state.connection.away; 0`, ...resend], report: `document.querySelector(".banner p").textContent` },
   { name: "pageerror", mock: "pageerror" },
   // The page tried to open an app (a scheme not the web's): stopped, said quietly by its address.
   { name: "page-refused", mock: "refused" },

@@ -29,6 +29,8 @@ export type Live = {
   fail(message: string): void
   /** It says something in its turn. */
   say(text: string): Promise<void>
+  /** It sends any other update in its turn (a tool call, say). */
+  update(update: Record<string, unknown> & { sessionUpdate: string }): Promise<void>
   /** It counts the conversation's context. */
   usage(used: number, size?: number): Promise<void>
 }
@@ -60,6 +62,7 @@ export function playedAgent() {
         end: (stop) => void (l.ended || ((l.ended = true), resolve(stop))),
         fail: (message) => void (l.ended || ((l.ended = true), reject(new Error(message)))),
         say: (text) => t.say({ sessionUpdate: "agent_message_chunk", content: { type: "text", text }, messageId: `a${n}` }),
+        update: (update) => t.say(update),
         usage: (used, size) => t.say({ sessionUpdate: "usage_update", used, ...(size ? { size } : {}) }),
       }
       void t.cancelled.then(() => (l.ended = true))

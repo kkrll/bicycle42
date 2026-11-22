@@ -350,8 +350,9 @@ function TopBar(props: {
         <PageRefused />
         <div class="tools">
           <Hint />
+          {/* A word beside its icon, as the modes have, and the icon alone where they lose theirs. */}
           <button
-            class="icon-btn boxed"
+            class="draw-btn"
             data-action="draw"
             aria-label="Draw on the page"
             aria-pressed={state.review.brush}
@@ -360,7 +361,8 @@ function TopBar(props: {
             onClick={() => act("toggleBrush")}
             {...hinted(() => ({ text: "Draw: a line selects what it crosses", keys: [keys("mod", "shift", "P"), `${keys("alt")} drag`] }))}
           >
-            <Icon name="draw" size={20} />
+            <Icon name="draw" />
+            <span class="mode-label">Draw</span>
           </button>
           <ModeSwitch disabled={noOverlay()} />
           {/* With the panel open the agent button is in its conversation row, and the notes are
@@ -969,10 +971,7 @@ export function App() {
             <div class="page-empty">
               <SetupSteps at={3} />
               <p class="chat-empty-lead">Open your site.</p>
-              <p>
-                If it is running, type its address above and press Enter. If it is not, the agent can start it from
-                the repo and open it here; it asks you when it needs something.
-              </p>
+              <p>Type its address above, or let the agent start it.</p>
               <div class="page-actions">
                 <button class="btn primary" disabled={!canStart()} onClick={startSite}>
                   {state.startingSite ? "The agent is starting it…" : "Ask the agent to start it"}

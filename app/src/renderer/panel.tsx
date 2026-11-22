@@ -8,6 +8,7 @@ import { AgentSwitch, MiddlePath, harnessNow, homePath, ownHome, whereOf } from 
 import { SetupSteps, serverLabel, setSettingsAt } from "./connect"
 import { AgentMark, Icon } from "./icons"
 import { NoteView } from "./note-detail"
+import { GROUPS, groupOf, type Group } from "./note-groups"
 import {
   act,
   chat,
@@ -78,18 +79,6 @@ function noteTitle(note: NoteRow): string {
   return [note.text, "", ...note.edits.map((e, i) => `${i + 1}. ${e}`)].join("\n")
 }
 
-/** The list is sorted by what a note needs, most urgent first. Finished ones (done, or taken
- *  back) fold into one line. */
-type Group = "needs" | "working" | "waiting" | "done"
-const GROUPS: Array<{ key: Group; name: string }> = [
-  { key: "needs", name: "Needs you" },
-  { key: "working", name: "Working" },
-  { key: "waiting", name: "Waiting" },
-  { key: "done", name: "Done" },
-]
-export const groupOf = (note: NoteRow): Group =>
-  note.takenBack || note.status === "done" ? "done" : note.status === "failed" ? "needs" : note.status === "queued" ? "waiting" : "working"
-
 /** Rows the list shows before it scrolls, unless the reviewer drags the divider. */
 const ROW = 32
 const LIST_DEFAULT = ROW * 8 + 6 // (five notes and the names of their groups)
@@ -97,11 +86,11 @@ const LIST_MIN = ROW + 6
 
 function Notes(props: { listHeight: number; open: boolean; onToggle: () => void; width: number; hidden: boolean }) {
   const counts = createMemo(countNotes)
-  // Every count in words when they fit beside "Notes" and "Clear done" (about 6.4px a character
-  // at 12px); otherwise the short form, which drops nothing.
+  // Every count in words when they fit beside "Notes", "· 2 unpinned" and "Clear done" (about
+  // 6.4px a character at 12px); otherwise the short form, which drops nothing.
   const tight = () => {
     const text = countWords(counts()).join(" · ")
-    const room = (props.width || 400) - 24 - 96 - (counts().done ? 84 : 0)
+    const room = (props.width || 400) - 24 - 96 - (counts().done ? 84 : 0) - (state.review.unplaced ? 80 : 0)
     return text.length * 6.4 > room
   }
   // The list's height, cut back to the last whole row that fits, so no row shows half.
@@ -243,9 +232,8 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
           </span>
         </button>
         <Show when={state.review.unplaced > 0}>
-          <button class="lost-btn" aria-expanded={why()} title={lostLabel()} aria-label={lostLabel()} onClick={() => setWhy(!why())}>
-            <Icon name="alert" />
-            {state.review.unplaced}
+          <button class="lost-btn" aria-expanded={why()} title={lostLabel()} onClick={() => setWhy(!why())}>
+            {state.review.unplaced} unpinned
           </button>
         </Show>
         <Show when={counts().done}>
@@ -664,15 +652,22 @@ function ConnectionBanner(props: { openSettings: () => void }) {
           <div class="banner bad" role="alert">
             <Icon name="alert" />
             <div class="banner-body">
-              <p>
-                <Show when={c().away && harnessNow()} fallback={<>Can't reach {serverLabel(c().url)}. {c().error} Notes wait until it is back.</>}>
-                  {(a) => (
-                    <>
-                      {c().error} {a().name} keeps working on {a().host ?? "it"} for up to {AWAY_HOURS} hours, and the app connects again by itself. Notes wait until it is back.
-                    </>
-                  )}
-                </Show>
-              </p>
+              {/* Short: what it means for the reviewer. The error itself, and how long the agent
+                  keeps working, are in the tooltip. */}
+              <Show
+                when={c().away && harnessNow()}
+                fallback={
+                  <p title={c().error}>
+                    Can't reach {serverLabel(c().url)}. Notes wait until it is back.
+                  </p>
+                }
+              >
+                {(a) => (
+                  <p title={`${c().error} ${a().name} keeps working on ${a().host ?? "it"} for up to ${AWAY_HOURS} hours.`}>
+                    Can't reach {a().host ?? serverLabel(c().url)}. The agent keeps working there; notes wait, and the app reconnects by itself.
+                  </p>
+                )}
+              </Show>
               <div class="banner-actions">
                 {/* The window never holds the password: main tries again with the one it saved. */}
                 <button class="btn" onClick={() => act("reconnect")}>
@@ -738,7 +733,9 @@ function Place(props: { openSettings: () => void }) {
   let agentButton: HTMLButtonElement | undefined
   const h = () => harnessNow()
   const status = () => state.connection.status
-  const word = () => (status() === "offline" ? "Offline" : status() === "connecting" ? "Connecting" : "")
+  // Offline is said by the dot and by the banner above; the word would only squeeze the name.
+  const word = () => (status() === "connecting" ? "Connecting" : "")
+  const said = () => (status() === "offline" ? "offline" : word().toLowerCase())
   const tip = () => {
     const c = state.connection
     const what = h() ? `${h()!.name} on ${whereOf(h()!)}` : ""
@@ -754,7 +751,7 @@ function Place(props: { openSettings: () => void }) {
         data-kind={h()?.kind}
         aria-haspopup="menu"
         aria-expanded={switching()}
-        aria-label={`Agent: ${h()?.name ?? "none"}${word() ? `, ${word().toLowerCase()}` : ""}. Switch agent`}
+        aria-label={`Agent: ${h()?.name ?? "none"}${said() ? `, ${said()}` : ""}. Switch agent`}
         title={tip()}
         onClick={() => setSwitching(!switching())}
       >

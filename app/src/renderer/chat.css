@@ -450,6 +450,19 @@
   max-height: none;
 }
 
+/* What answers a request stays in view at the card's foot while what it asks scrolls under it:
+   a long question never hides its own buttons. Its background reaches the card's edges (and
+   repeats the accent's line), so nothing shows through around it. */
+.ask-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin: 0 calc(-1 * var(--gutter)) -10px;
+  padding: 4px var(--gutter) 10px;
+  background: var(--card);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
 .ask .more-btn .counts {
   margin-left: 4px;
 }
@@ -1545,4 +1558,15 @@
 
 .refused-or {
   color: var(--muted);
+}
+
+/* "Worked for 6m 0s · 1 read": the dot sits as close as the model's does. */
+.turn-counts {
+  margin-left: -4px;
+}
+
+/* The note in the header of the turn under way: "Working on ④ · 6m 0s". */
+.turn-took .badge {
+  vertical-align: middle;
+  margin-top: -2px;
 }
