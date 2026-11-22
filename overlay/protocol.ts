@@ -278,6 +278,28 @@ export type HostMessage =
   | { type: "docks"; hosted: Pane[] }
   /** From a hosted pane: something the reviewer did there. Ignored for a pane that is not hosted. */
   | ({ type: "panel" } & PanelAct)
+  /** The page is shown as a phone's (PhoneEdge: what of the phone to draw over it), or not (null:
+   *  nothing). Sent after "ready" and whenever it changes. */
+  | { type: "device"; phone: PhoneEdge | null }
+
+/** What of a phone the overlay draws over its page, which the host shows running to the screen's
+ *  bottom edge and cannot draw over: the home indicator, and the screen's two bottom corners.
+ *  CSS px of the page. In every mode, Preview too (it is the phone, not a mark), and in no
+ *  picture: hidden during a capture, a held "frame" and nothing else (not by the peek).
+ *  - `radius` and `shape`: the screen's bottom corners, a CSS border-radius and corner-shape (the
+ *    host's own, so the page's engine draws the very curve the host draws). Outside them, as far
+ *    as the page goes, the layer paints what the host draws there: a ring `ring` px wide in
+ *    `ringColour` and `around` beyond it ("#rrggbb"). 0: no corners.
+ *  - `home`: the indicator, centred, its bottom edge `bottom` px above the screen's; dark on what
+ *    is light under it and light on what is dark. Absent on a phone with a home button. */
+export type PhoneEdge = {
+  radius: number
+  shape?: string
+  ring?: number
+  ringColour?: string
+  around?: string
+  home?: { width: number; height: number; bottom: number }
+}
 
 /** What the overlay puts on the page's window (in its own script world, when the host gives it one). */
 export type OverlayApi = {

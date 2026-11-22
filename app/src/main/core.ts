@@ -54,6 +54,7 @@ import type {
   Pane,
   PanelMessage,
   PermissionAsk,
+  PhoneSurround,
   PromptFile,
   Question,
   SendOptions,
@@ -397,6 +398,9 @@ export function createCore(host: Host): Core {
   type Site = { origin: string; review: Review }
 
   let page: Page | undefined
+  /** What the window draws around a phone's screen (setPhoneSurround): the page's overlay paints it
+   *  in the screen's bottom corners. Kept for a page made again. */
+  let surround: PhoneSurround | undefined
   let backend: Client | undefined
   let unlisten: (() => void) | undefined
   let connection: ConnectionState = { status: "unconfigured" }
@@ -2556,6 +2560,15 @@ export function createCore(host: Host): Core {
       push()
     },
 
+    setPhoneSurround(around) {
+      // From the window: checked as the page's overlay will be given it.
+      const colour = (c: unknown) => typeof c === "string" && /^#[0-9a-f]{6}$/i.test(c)
+      const shape = typeof around?.shape === "string" && /^[a-z0-9().\s-]{1,80}$/i.test(around.shape) ? around.shape : "round"
+      if (!around || !(typeof around.ring === "number" && around.ring >= 0 && around.ring <= 100) || !colour(around.ringColour) || !colour(around.around)) return
+      surround = { shape, ring: around.ring, ringColour: around.ringColour, around: around.around }
+      page?.setSurround(surround)
+    },
+
     setPhone(id) {
       const to = phoneOf(id)
       if (to.id === phone().id) return
@@ -3182,6 +3195,7 @@ export function createCore(host: Host): Core {
       page = p
       // A page is a desktop's until told otherwise: only a phone's is said.
       if (device() === "phone") p.setDevice("phone", phone())
+      p.setSurround(surround)
     },
     detach() {
       // (The page cancels what it held as it closes.)

@@ -171,6 +171,9 @@ const SHOTS = [
   { name: "phone-pixel", mock: "review", query: "&device=phone&phone=pixel-11&mode=preview" },
   { name: "phone-galaxy", mock: "review", query: "&device=phone&phone=galaxy-s26&mode=preview" },
   { name: "phone-dark-page", mock: "review", query: "&device=phone&phone=iphone-18-pro-max&mode=preview&page=dark", run: [click("[data-action=panel]")] },
+  // A page that says its theme-color: a light one (the status bar's ink black) and a dark one (white).
+  { name: "phone-theme", mock: "review", query: "&device=phone&phone=iphone-18-pro&mode=preview&theme=efe6d2" },
+  { name: "phone-theme-navy", mock: "review", query: "&device=phone&phone=iphone-18-pro&mode=preview&page=dark&theme=1e3a5f" },
   // A phone taller than its room (a laptop's window), and the largest phone with the panel shut.
   { name: "phone-short", mock: "review", query: "&device=phone", size: [1280, 720] },
   // A window with no room for all three: the panel and the page, or (Edit, Motion) the page and its dock.

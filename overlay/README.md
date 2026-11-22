@@ -30,6 +30,7 @@ src/mode.js         which mode is on, the one switch between them, the host's sw
 src/input.js        the page's pointer and keys: what every mode shares, then the mode that is on
 src/render.js       one frame at a time: each mode's part, the outlines, the pins
 src/picture.js      for the host's own picture: the layer out of it and the page scrolled, then back; a pin brought into view
+src/device.js       a phone's home indicator and screen corners over its page, as the host says ("device")
 src/room.js         the room under a dock: the page laid out as if the window ended where the dock begins
 src/panel.js        the docks the host draws itself: which they are, their views out, their acts in
 src/mount.js        the layer's elements and its shadow root, the host's API (window.__b42); the build starts here
@@ -103,6 +104,17 @@ src/globals.d.ts    what the type check cannot read from the .js files
   (`test/canvas.test.mjs`, `test/canvas-hosted.test.mjs`). In notes mode the page shows a chip
   when edits were left unsent, a click on it back to canvas mode, and the "?" with notes mode's
   keys.
+- **A phone's page has the phone over it** (`{ type: "device", phone }`, `PhoneEdge` in
+  `protocol.ts`, `src/device.js`): a host that runs the page to the screen's bottom edge cannot
+  draw there. The layer draws the home indicator (black or white by what is under it, a
+  `backdrop-filter`) and paints outside the screen's two bottom corners what the host has there:
+  a box with the host's `border-radius` and `corner-shape`, and two spread shadows (the ring, and
+  what is around it), so the page's engine draws the host's very curve.
+  It is the phone, not the layer: drawn with review on or off, kept through the peek (which takes
+  the layer's other elements out of sight, not its element), hidden during a capture and a held
+  "frame". It takes no pointer, so no hit test finds it, and it is first in the shadow root, under
+  the layer's own UI. It is placed on the visual viewport, scaled back to the phone's px on a page
+  shown zoomed out. A frame of the layer's only shows or hides it; nothing of it runs while idle.
 - **"facts" is a pane only the host draws** (`Pane` in `protocol.ts`, `protocol-facts.ts`,
   `src/facts/host.js`): what the page is at the size it is shown at (what sticks out past the
   right edge, tap targets under 44 px, fields under 16 px, the viewport tag), each fact an

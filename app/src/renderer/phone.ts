@@ -1,19 +1,19 @@
 // A phone's frame as the window draws it around a phone's page (phone-frame.tsx): its sizes at
-// the size it is drawn, and the ink on its strips. No Solid here, so the tests can read it.
+// the size it is drawn, and the ink on its status strip. No Solid here, so the tests can read it.
 import { viewportOf, type Phone } from "../shared/types"
 
 /** The phone drawn at `fit` (1 is life size), in whole px: the body (the whole screen), the status
- *  strip above, the page's box between and the home strip below. The page's box is the
- *  viewport at the page's scale (its width over the phone's, as main draws it), and the strips
- *  take what is left, so the three add up to the body exactly and the native view sits on whole
+ *  strip above and the page's box below it, down to the body's bottom edge (the home indicator
+ *  and the screen's bottom corners are the overlay's, over the page). The page's box is the
+ *  viewport at the page's scale (its width over the phone's, as main draws it), and the strip
+ *  takes what is left, so the two add up to the body exactly and the native view sits on whole
  *  pixels. */
 export function frameOf(p: Phone, fit: number) {
   const width = Math.round(p.width * fit)
   const scale = width / p.width
   const height = Math.round(p.height * scale)
   const screen = Math.round(viewportOf(p).height * scale)
-  const top = Math.min(height - screen, Math.round(p.top * scale))
-  return { width, height, top, screen, bottom: height - screen - top, scale, radius: Math.round(p.radius * scale) }
+  return { width, height, top: height - screen, screen, scale, radius: Math.round(p.radius * scale) }
 }
 
 /** The relative luminance of "#rrggbb" (WCAG 2), or undefined for anything else. */

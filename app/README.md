@@ -689,36 +689,67 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   (`setDevice` in `main/page.ts`): the viewport tag counts and scrollbars lie over the page, so
   the page is laid out 390 wide, not 375. A page with something wider than the window is shown
   zoomed out to fit, as a phone shows it.
-- **The window draws the phone; the page is the part of the screen between its bars.** The
-  phone's body (`.device-body`) is the screen's shape, with a ring 8px wide outside it in the
+- **The window draws the phone and its status bar; the page runs to the screen's bottom edge.**
+  The phone's body (`.device-body`) is the screen's shape, with a ring 8px wide outside it in the
   foreground at a tenth. Inside, top to bottom: the status strip (the time, the cut-out, signal,
-  wifi and battery; `StatusStrip` in `renderer/phone-frame.tsx`), the page's box, and the home
-  strip with the home indicator (`HomeStrip`; none on the SE, which has a home button). Each
-  phone in `PHONES` says how tall the two strips are (`top`, `bottom`, its browser's safe-area
-  insets, sources in the comment there), its cut-out (an island, a notch, a punch-hole, none) and
-  whether it has a home indicator. The page's viewport is the screen less the strips, as in a
-  phone's browser (`viewportOf`: 390 by 763 on the 16e), while `screen` is the whole screen
-  (the emulation's `viewSize` and `screenSize`). Sizes at the size the phone is drawn are
-  `frameOf` in `renderer/phone.ts`: the strips and the box add up to the body on whole pixels,
-  and the body is moved by the fraction of a pixel its column centres it at (`report` in
-  `app.tsx`: a relative offset, as `translate` snapped its rounded clip a pixel short), so the
-  native view meets the strips exactly. The window cannot draw over the native view, so nothing
-  here is on the page: the strips are beside it. The view's corners never have to match a curve
-  of CSS's (macOS draws a native view's as a continuous curve, which CSS's arcs never followed,
-  so a phone's page had no hairline before): they are square between the strips, except where a
-  strip is less tall than the screen's corner is round (an iPhone's 34 px below a 62 px corner),
-  where a square corner would reach 6.7 px past the screen over the ring. There the view is
-  rounded just enough to stay inside (`viewRadius` in `shared/types.ts`, `phone.test.ts` checks
-  every phone), and what shows in the gap is the strip's colour.
-- **The strips are in the page's colours**, as a phone's browser colours its bars. Main asks the
-  page in the overlay's world (`TINT_PROBE` in `main/page.ts`): above, its `theme-color` (the
-  first whose media matches), else the first opaque background at its top; below, the same at
-  its bottom; with neither, its canvas (white, or Chromium's dark one for a page dark by its
-  `color-scheme`). Any CSS colour is read by drawing it on a canvas. Asked once a load is done
-  and a moment later, after a move within the page, a tap, a drag or the wheel (250 ms on), and
-  when the system's theme changes; only as a phone's (`page.tint`). The time and icons are black
-  or white, whichever has the larger contrast (`inkOn`); black strips with white ink until the
-  colours are known.
+  wifi and battery; `StatusStrip` in `renderer/phone-frame.tsx`) and the page's box, down to the
+  body's bottom edge, as iOS 26's Safari runs a page under its home indicator (the owner's call:
+  a strip below in the page's bottom colour read as a white band under a dark page). Each phone
+  in `PHONES` says how tall its status bar is (`top`, its browser's safe-area inset, sources in
+  the comment there), the home indicator's strip (`bottom`, which the page now runs under), its
+  cut-out (an island, a notch, a punch-hole, none) and whether it has a home indicator. The
+  page's viewport is the screen less the status bar (`viewportOf`: 390 by 797 on the 16e), while
+  `screen` is the whole screen (the emulation's `viewSize` and `screenSize`).
+  `env(safe-area-inset-bottom)` stays 0: Chromium can set it (`Emulation.setSafeAreaInsetsOverride`),
+  but only over the debugger, which is attached for the finger in Preview alone, and Safari gives
+  a page 34 there only with `viewport-fit=cover`. Sizes at the size the phone is drawn are
+  `frameOf` in `renderer/phone.ts`: the strip and the box add up to the body on whole pixels, and
+  the body is moved by the fraction of a pixel its column centres it at (`report` in `app.tsx`: a
+  relative offset, as `translate` snapped its rounded clip a pixel short), so the native view
+  meets the strip exactly. The view is square (`setBorderRadius(0)`): every status bar is at
+  least as tall as the screen's corners are round, so its top corners are inside the screen.
+- **What of the phone is over the page, the page's overlay draws** (`overlay/src/device.js`,
+  `PhoneEdge` in `overlay/protocol.ts`): the window cannot draw over the native view. Main tells
+  each document's overlay (`tellEdge` in `main/page.ts`, after its "ready" and whenever the phone,
+  its size or the colours change; null to a desktop's page) what `phoneEdge` in
+  `shared/types.ts` works out: the home indicator at the phone's own size (an iPhone's 134 by 5,
+  8 up; an Android's gesture handle 108 by 4, in the middle of its 24 px bar; none on the SE),
+  and the screen's two bottom corners, at the radius the window rounds the body to and its ring's
+  width, both in the page's px. The corners are the page's engine drawing what the window's
+  draws: a box the screen's size with the body's `border-radius` and `corner-shape` (the design
+  system's squircle, `superellipse(1.333)`: a circle there was 4 px off across the diagonal) and
+  two spread shadows, the ring and under it what is around the phone. Shadows, not an outline:
+  an outline's width is snapped to whole px, and at 89% the ring is 8.95 of the page's px, drawn
+  8. The window reads its shape and colours off its own styles (`surroundOf` in
+  `phone-frame.tsx`, composited on a canvas) and says them to main (`setPhoneSurround`) once the
+  phone is drawn and when the theme changes; the app e2e compares every pixel outside the curve
+  in both corners with the window's own at the same places, light and dark. The
+  indicator is black on what is light under it and white on what is dark: a `backdrop-filter`
+  blurs what is under it, makes it grey, turns it over and pushes it to black or white about the
+  grey that is as far in contrast from either (about 118 of 255). It is the phone, not a mark: in
+  every mode (Preview too), through the peek (alt+A), and in no picture (hidden while a note's
+  is taken and in a held "frame"). It takes no pointer, so taps, clicks, hover and the wheel go
+  to the page under it and no hit test of anyone's finds it (picking, `TINT_PROBE`); it is in the
+  layer's shadow root, which no search of the document enters (pins, the facts, Edit's tree). It
+  is in the layer's top-layer element, above the page's own fixed and sticky elements and
+  dialogs; a native popup of the page's (a `<select>`'s list, a date picker) is a window of its
+  own and covers it. A page zoomed out (something wider than the phone) has it placed on the
+  visual viewport and scaled back to the phone's px. A page that has no overlay (Chromium's error
+  page, a crashed renderer) has square bottom corners.
+- **The status bar is in the page's colour**, as a phone's browser colours its bar. Main asks the
+  page in the overlay's world (`TINT_PROBE` in `main/page.ts`): its `theme-color` (the first
+  whose media matches, so a page's dark one in dark; Chrome on Android colours its bar so, and
+  Safari did until 26), else what Safari 26 takes, which ignores theme-color: a bar fixed or
+  sticky across the page's top (at most 4 px down, 80% of its width), its background made
+  opaque; not a hero or a header that scrolls with the page. Else the page's background (the
+  root's, else the body's), else its canvas (white, or Chromium's dark one for a page dark by its
+  `color-scheme`). Safari 26's rules are from people who measured it on iPhones, not from Apple
+  (sources in `TINT_PROBE`'s comment). A page whose dark sky is a canvas element on a light
+  background gets the light background: such a page should say its `theme-color`. Any CSS colour
+  is read by drawing it on a canvas. Asked once a load is done and a moment later, after a move
+  within the page, a tap, a drag or the wheel (250 ms on), and when the system's theme changes;
+  only as a phone's (`page.tint`). The time and icons are black or white, whichever has the
+  larger contrast (`inkOn`); a black strip with white ink until the colour is known.
 - **In Preview the mouse is a finger** (`setTouch` in `main/page.ts`, asked by the controller
   with every state it pushes: a phone's page, in Preview, with a site). What Chromium's own
   device mode does, over the page's debugger: `Emulation.setTouchEmulationEnabled` and
@@ -740,7 +771,7 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   than that column is not cut: the box keeps the phone's shape, smaller (`fit` and `pageBox` in
   `renderer/app.tsx`), and main draws the page smaller in it, by the box's width over the
   phone's (the emulation's `scale`, with the phone's own size as the page's): `100vh` is the
-  phone's (less its strips) in a short window too, and the picker says "· 94%", the drawn
+  phone's (less its status bar) in a short window too, and the picker says "· 94%", the drawn
   width over the phone's. The column is as wide as
   the widest phone, so another phone or another scale moves nothing beside it; the column at
   its right is 300 to 720px wide until its edge is dragged, and the panel cannot be dragged so
@@ -910,7 +941,8 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   also have (a reload of either side loses nothing). `dockPing` measures the way to the overlay
   and back.
 - Shots: `phone`, `phone-se`, `phone-island`, `phone-notch`, `phone-pixel`, `phone-galaxy`,
-  `phone-dark-page` (a dark page: its strips dark, white ink; `&page=dark`), `phone-wide`, `phone-clear`,
+  `phone-dark-page` (a dark page: its status bar dark, white ink; `&page=dark`), `phone-theme`
+  and `phone-theme-navy` (a page's theme-color, light and dark: `&theme=efe6d2`), `phone-wide`, `phone-clear`,
   `phone-column-wide`, `phone-column-narrow` (the column at its most and its least), `dock`, `phone-dock`,
   `phone-dock-keys`, `phone-least-dock`, `phone-motion-dock`, `dock-more`, `dock-narrow`,
   `canvas-dock`, `canvas-dock-edits` (the footer's list of edits open), `canvas-dock-narrow` (the mock takes `&device=phone`,

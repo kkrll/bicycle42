@@ -1,11 +1,10 @@
-/* The phone's strips (phone-frame.tsx), at life size inside (.pf-in, zoomed to the size the phone
-   is drawn). Shapes only: a phone's status bar and home indicator as the phone draws them, no
-   bezel, no gloss. Sizes in the phone's CSS px: an iPhone's status bar from Apple's own (the
-   Dynamic Island 125 by 37, 11 down; the home indicator 134 by 5, 8 up), an Android's from
-   Material's (a 24 dp bar, its icons and time a little smaller). */
+/* The phone's status strip (phone-frame.tsx), at life size inside (.pf-in, zoomed to the size the
+   phone is drawn). Shapes only: a phone's status bar as the phone draws it, no bezel, no gloss.
+   Sizes in the phone's CSS px: an iPhone's from Apple's own (the Dynamic Island 125 by 37, 11
+   down), an Android's from Material's (a 24 dp bar, its icons and time a little smaller). The
+   home indicator is the page's overlay's, over the page (overlay/src/device.js). */
 
-.pf-status,
-.pf-home {
+.pf-status {
   flex: none;
   overflow: hidden;
   /* (A phone's own type, not the app's.) */
@@ -167,32 +166,4 @@
 .pf-status[data-cutout="punch"] .pf-battery {
   width: 20px;
   height: 9.5px;
-}
-
-/* The home indicator: an iPhone's 134 by 5, 8 px up from the screen's edge; an Android's gesture
-   handle, shorter and thinner, in the middle of its bar. */
-.pf-home .pf-in {
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding-bottom: 8px;
-}
-
-.pf-indicator {
-  display: block;
-  width: 134px;
-  height: 5px;
-  border-radius: 3px;
-  background: currentColor;
-}
-
-.pf-home[data-cutout="punch"] .pf-in {
-  align-items: center;
-  padding-bottom: 0;
-}
-
-.pf-home[data-cutout="punch"] .pf-indicator {
-  width: 108px;
-  height: 4px;
-  border-radius: 2px;
 }

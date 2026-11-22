@@ -5,7 +5,7 @@
 //
 // The UI speaks of sites, notes and changes. Backend words (session, inbox, provider) stop at
 // main: the renderer never sees a raw agent payload.
-import type { Dock, PanelAct, PanelPart, PanelView, Pane } from "../../../overlay/protocol"
+import type { Dock, PanelAct, PanelPart, PanelView, Pane, PhoneEdge } from "../../../overlay/protocol"
 
 // ── the page's docks, drawn by the window ───────────────────────────────────────────────────────
 // Edit mode's inspector and motion mode's dock belong to the overlay, which draws them at the
@@ -35,11 +35,11 @@ export type Cutout = "island" | "notch" | "punch" | "none"
 
 /** A phone the page can be shown as: its screen in CSS px, upright, and how round the screen's
  *  corners are (the radius, in the same px: an iPhone's is large, an iPhone SE's screen is
- *  square). `top` and `bottom` are what the phone's browser keeps of the screen for itself above
- *  and below the page (its status bar, and the strip of the home indicator): the window draws
- *  them, and the page's viewport is the screen less both, as in a phone's browser with its own
- *  bars out of the way, while `screen` is the whole screen. `home`: a home indicator (or an
- *  Android's gesture handle) at the bottom; none on a phone with a home button. */
+ *  square). `top` is the status bar, which the window draws above the page: the page's viewport
+ *  is the screen less it, and `screen` the whole screen. `bottom` is the strip of the home
+ *  indicator (the safe area's inset below): the page runs under it to the screen's edge, as in
+ *  iOS 26's Safari, and the overlay draws the indicator over the page (phoneEdge). `home`: a
+ *  home indicator (or an Android's gesture handle); none on a phone with a home button. */
 export type Phone = { id: string; name: string; width: number; height: number; radius: number; top: number; bottom: number; cutout: Cutout; home: boolean }
 /** The phones on offer, small to large: this year's, and the two small sizes still in many
  *  pockets. Sizes are what the phone's browser reports as its screen: the iPhones' from Apple's
@@ -62,8 +62,9 @@ export type Phone = { id: string; name: string; width: number; height: number; r
  *    (what Android 13 and later report on Pixels, by one developer's count:
  *    https://community.appinventor.mit.edu/t/nav-bar-height-without-extensions/174318). The
  *    Pixel's 32 above is an estimate for its larger hole: Android publishes no figure per model.
- *  Where a strip is less tall than the corner is round, the page's corners are rounded to stay
- *  inside the screen's (viewRadius). */
+ *  Every status bar is at least as tall as the screen's corners are round, so the page's box is
+ *  square and its top corners are inside the screen; its bottom corners are the screen's own,
+ *  drawn round over the page by the overlay (phoneEdge). */
 export const PHONES: readonly Phone[] = [
   { id: "galaxy-s26", name: "Galaxy S26", width: 360, height: 780, radius: 24, top: 24, bottom: 24, cutout: "punch", home: true },
   { id: "iphone-se", name: "iPhone SE", width: 375, height: 667, radius: 0, top: 20, bottom: 0, cutout: "none", home: false },
@@ -73,20 +74,34 @@ export const PHONES: readonly Phone[] = [
   { id: "iphone-air", name: "iPhone Air", width: 420, height: 912, radius: 62, top: 68, bottom: 34, cutout: "island", home: true },
   { id: "iphone-18-pro-max", name: "iPhone 18 Pro Max", width: 440, height: 956, radius: 62, top: 62, bottom: 34, cutout: "island", home: true },
 ]
-/** The part of a phone's screen the page is laid out in (CSS px): the screen less its browser's
- *  strips above and below. */
-export const viewportOf = (p: Phone) => ({ width: p.width, height: p.height - p.top - p.bottom })
-/** How round the page's own corners are, between the strips (CSS px, at life size). The page is a
- *  native view the window cannot draw over, so it has to stay inside the screen's rounded
- *  corners: square, it would reach past them wherever a strip is less tall than the corner is
- *  round (an iPhone's 34 px below a corner of 62 px: 6.7 px past it, over the ring around the
- *  phone). Rounded by the corner's radius less the shorter strip, its corner is inside the
- *  screen's (the two circles touch), and 2 px more leaves room for the system's own curve
- *  (on a Mac a continuous one, not a circle's arc). What shows between the two is the strip's
- *  colour, the page's own at that edge. 0 when both strips are as tall as the corner is round. */
-export const viewRadius = (p: Phone) => {
-  const short = Math.min(p.top, p.bottom)
-  return short >= p.radius ? 0 : p.radius - short + 2
+/** The part of a phone's screen the page is laid out in (CSS px): the screen less its status
+ *  bar, down to the screen's bottom edge (iOS 26's Safari runs the page under its home
+ *  indicator, and so does Chrome on an Android drawn edge to edge). */
+export const viewportOf = (p: Phone) => ({ width: p.width, height: p.height - p.top })
+
+/** What the window draws around a phone's screen, told to main for the overlay (phoneEdge): the
+ *  screen's corner-shape (the design system's squircle, `superellipse(1.333)`), its ring, `ring`
+ *  px wide (the window's px) in `ringColour`, and beyond it `around`, both opaque "#rrggbb", in
+ *  the window's theme. */
+export type PhoneSurround = { shape: string; ring: number; ringColour: string; around: string }
+
+/** The home indicator, in the phone's own px: an iPhone's 134 by 5, 8 up from the screen's edge
+ *  (Apple's own); an Android's gesture handle shorter and thinner, in the middle of its bar. */
+const homeOf = (p: Phone) => (p.cutout === "punch" ? { width: 108, height: 4, bottom: (p.bottom - 4) / 2 } : { width: 134, height: 5, bottom: 8 })
+
+/** What the overlay draws over a phone's page (overlay/protocol.ts PhoneEdge), the phone drawn at
+ *  `scale` (the view's width over the phone's): the home indicator, and the screen's two bottom
+ *  corners, outside which it paints what the window has there (`around`, its ring and beyond).
+ *  The window cannot draw over the page's view, and the page now runs to the screen's edge.
+ *  Sizes in the page's CSS px: the indicator the phone's own; the corner the radius the window
+ *  draws the body with (whole px of its own) and the ring its width, both over `scale`, so that
+ *  the page drawn at `scale` meets them. Not told what is around the screen, no corners. null:
+ *  nothing to draw (a home button, a square screen). */
+export function phoneEdge(p: Phone, scale: number, around: PhoneSurround | undefined): PhoneEdge | null {
+  if (!p.home && p.radius === 0) return null
+  const home = p.home ? { home: homeOf(p) } : {}
+  if (!around || p.radius === 0) return { radius: 0, ...home }
+  return { radius: Math.round(p.radius * scale) / scale, shape: around.shape, ring: around.ring / scale, ringColour: around.ringColour, around: around.around, ...home }
 }
 /** The phone a page is shown as until another is chosen. */
 export const PHONE: Phone = PHONES[2]!
@@ -482,10 +497,10 @@ export type AppState = {
     canGoForward: boolean
     /** The page hot-reloads by itself, so the app leaves reloading to it. */
     hmr: boolean
-    /** A phone's page only: the colours of the strips the window draws above and below it, as
-     *  "#rrggbb": above, what a phone's browser gives its status bar for this page (its
-     *  theme-color, or else what is at its top); below, what is at its bottom. Absent until known. */
-    tint?: { top: string; bottom: string }
+    /** A phone's page only: the colour of the status bar the window draws above it, as
+     *  "#rrggbb": what a phone's browser gives its bar for this page (its theme-color, else a bar
+     *  fixed across its top, else its background; main/page.ts TINT_PROBE). Absent until known. */
+    tint?: string
     /** Kept between starts; the window sizes the page's box by it. */
     device: Device
     /** Which phone a phone's page is (an id in PHONES); kept while the page is a desktop's. */
@@ -565,6 +580,9 @@ export type Commands = {
   dropDownload(id: string): void
   /** Which phone a phone's page is: an id in PHONES. */
   setPhone(id: string): void
+  /** The colours the window draws around a phone's screen, which the page's overlay paints in the
+   *  screen's bottom corners (phoneEdge); said again when the window's theme changes. */
+  setPhoneSurround(around: PhoneSurround): void
   // review
   toggleReview(): void
   /** The top bar's switch. Notes and edit turn review on; the page takes the keyboard. */

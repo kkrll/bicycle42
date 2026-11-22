@@ -1109,11 +1109,12 @@ details[open] > summary > .caret {
   padding: 16px 0;
 }
 
-/* The phone the window draws (phone-frame.tsx): the screen's shape, its strips above and below
-   the page, and around it the ring, 8px of the foreground at a tenth, outside the screen. The
-   page view between the strips is a native view whose corners the system draws: they are never
-   at the screen's corners (only as round as keeps them inside, viewRadius in shared/types.ts),
-   so no line of CSS has to follow a curve of the system's. */
+/* The phone the window draws (phone-frame.tsx): the screen's shape, its status strip above the
+   page, and around it the ring, 8px of the foreground at a tenth, outside the screen. The page
+   view below the strip is a native view, square, down to the body's bottom edge: its top corners
+   are under the strip, and its bottom ones, which the window cannot draw over, are drawn round by
+   the page's overlay in this ring's colours and what is behind it (surroundOf in phone-frame.tsx,
+   overlay/src/device.js). */
 .stage.phone .device-body {
   /* (Moved by app.tsx to sit on whole pixels.) */
   position: relative;
@@ -1134,7 +1135,6 @@ details[open] > summary > .caret {
   margin: 0;
   border: 0;
   border-radius: 0;
-  background: linear-gradient(var(--tint-top, transparent) 50%, var(--tint-bottom, transparent) 50%);
 }
 
 /* While the page is away (an edge dragged, a dialog open), its place is a card. */

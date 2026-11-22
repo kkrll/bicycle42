@@ -1,6 +1,18 @@
 :host { all: initial; }
-/* The peek (alt+A held): the layer is transparent, and the pointer goes through it to the page. */
+/* The peek (alt+A held): the layer is transparent, and the pointer goes through it to the page.
+   Not the phone over a phone's page (.device): that is the phone, not the layer. */
 :host([data-peek]) * { pointer-events: none !important; }
+:host([data-peek]) > :not(.device, style) { opacity: 0 !important; }
+/* The phone over a phone's page (device.js): the screen, whose bottom corners are drawn as the
+   host draws them, with what the host has outside them (the ring and what is around it, two
+   spread shadows), and its home indicator, dark on what is light under it and light on what is dark
+   (what is under it blurred, made grey, turned over and pushed to black or white about the grey
+   that is as far in contrast from either: ~118 of 255). Placed on the visual viewport by
+   device.js. Never the pointer's. */
+.device { position: fixed; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; }
+.device > .dv-screen { position: absolute; inset: 0; display: block; }
+.device > .dv-home { position: absolute; left: 50%; display: block; backdrop-filter: blur(4px) grayscale(1) invert(1) brightness(0.926) contrast(1000); }
+.device[hidden], .device > [hidden] { display: none; }
 .ink { position: fixed; inset: 0; width: 100vw; height: 100vh; overflow: visible; pointer-events: none; }
 .ink.on { will-change: transform; }
 .ink path { fill: none; stroke: #ef4444; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

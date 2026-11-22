@@ -966,15 +966,15 @@ async function main() {
   place({ x: 0, y: 0, width: small.width, height: 700 })
   page.setDevice("phone", small)
   check("a smaller phone is a narrower layout", (await until(async () => (await laidOut()) === small.width, 2000)) === true, `${small.name}: ${await laidOut()}`)
-  // The window draws the phone's strips above and below the view (its status bar, its home
-  // indicator): the page's viewport is the screen less them, as in a phone's browser, and its
-  // screen the whole screen.
+  // The window draws the phone's status bar above the view: the page's viewport is the screen
+  // less it, as in iOS 26's Safari (which runs the page to the screen's bottom edge, under the
+  // home indicator), and its screen the whole screen.
   page.setDevice("phone", PHONE)
   const vp = viewportOf(PHONE)
   const sizes = () => js("innerWidth + 'x' + innerHeight + ' of ' + screen.width + 'x' + screen.height") as Promise<string>
   place({ x: 0, y: 0, width: vp.width, height: vp.height })
   check(
-    "as a phone's the page's viewport is the screen less the browser's strips, and its screen the whole screen",
+    "as a phone's the page's viewport is the screen less the status bar, and its screen the whole screen",
     vp.height < PHONE.height && (await until(async () => (await sizes()) === `${vp.width}x${vp.height} of ${PHONE.width}x${PHONE.height}`, 2000)) === true,
     await sizes(),
   )
@@ -1055,8 +1055,8 @@ async function main() {
   wc.closeDevTools()
   await sleep(300)
   check("…and with the page's developer tools open and closed again", withTools === `true true ${FINGER}` && (await media()) === FINGER && wc.debugger.isAttached(), `${withTools}; after: ${await media()}`)
-  // The strips' colours: what a phone's browser gives its bars for this page, asked again after
-  // a tap (the page may have changed its theme).
+  // The status bar's colour: what a phone's browser gives it for this page, asked again after a
+  // tap (the page may have changed its theme).
   const tintAfter = async (code: string, want: string) => {
     const thrown = await js(`(() => { try { ${code} } catch (e) { return String(e) } })()`)
     if (thrown) console.log("  tint step threw:", thrown)
@@ -1064,16 +1064,191 @@ async function main() {
     return (await until(() => JSON.stringify(page.state().tint) === want, 2000)) === true
   }
   const tints = [
-    ["its theme-color above, what is at its bottom below", `document.head.insertAdjacentHTML("beforeend", '<meta name="theme-color" content="#336699"><meta name="theme-color" media="(min-width: 5000px)" content="#ff0000">'); document.body.insertAdjacentHTML("beforeend", '<div id="b42-foot" style="position:fixed;left:0;right:0;bottom:0;height:40px;background:rgb(10, 20, 30)"></div>')`, { top: "#336699", bottom: "#0a141e" }],
-    ["without one, what is at its top, in any of CSS's ways to say a colour", `document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.remove()); document.body.insertAdjacentHTML("beforeend", '<div id="b42-head" style="position:fixed;left:0;right:0;top:0;height:40px;z-index:2147483647;background:hsl(120 100% 25%)"></div>')`, { top: "#008000", bottom: "#0a141e" }],
-    ["with nothing of its own, the page's canvas: dark by its color-scheme", `document.getElementById("b42-head").remove(); document.getElementById("b42-foot").remove(); document.head.insertAdjacentHTML("beforeend", "<style>* { background: transparent !important }</style>"); document.documentElement.style.colorScheme = "dark"`, { top: "#121212", bottom: "#121212" }],
+    ["its theme-color, the first whose media matches", `document.head.insertAdjacentHTML("beforeend", '<meta name="theme-color" content="#336699"><meta name="theme-color" media="(min-width: 5000px)" content="#ff0000">')`, "#336699"],
+    ["without one, a fixed bar across its top, in any of CSS's ways to say a colour", `document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.remove()); document.body.insertAdjacentHTML("beforeend", '<div id="b42-head" style="position:fixed;left:0;right:0;top:0;height:40px;z-index:2147483647;background:hsl(120 100% 25%)"></div>')`, "#008000"],
+    ["…not what scrolls with the page at its top (Safari 26 takes only what is fixed or sticky): its background", `document.getElementById("b42-head").remove(); document.body.insertAdjacentHTML("afterbegin", '<div id="b42-hero" style="height:120px;background:rgb(200, 0, 0)"></div>'); document.documentElement.style.background = "rgb(250, 240, 230)"`, "#faf0e6"],
+    ["…nor a fixed bar narrower than the page", `document.body.insertAdjacentHTML("beforeend", '<div id="b42-pill" style="position:fixed;left:40px;width:120px;top:0;height:40px;z-index:2147483647;background:rgb(0, 0, 200)"></div>')`, "#faf0e6"],
+    ["with nothing of its own, the page's canvas: dark by its color-scheme", `document.getElementById("b42-hero").remove(); document.getElementById("b42-pill").remove(); document.documentElement.style.background = ""; document.head.insertAdjacentHTML("beforeend", "<style>* { background: transparent !important }</style>"); document.documentElement.style.colorScheme = "dark"`, "#121212"],
   ] as const
-  for (const [what, code, want] of tints) check(`a phone's strips have the page's colours: ${what}`, await tintAfter(code, JSON.stringify(want)), JSON.stringify(page.state().tint))
+  for (const [what, code, want] of tints) check(`a phone's status bar has the page's colour: ${what}`, await tintAfter(code, JSON.stringify(want)), JSON.stringify(page.state().tint))
   page.setDevice("desktop", PHONE)
   check("…and a desktop's page has none", page.state().tint === undefined)
   page.setDevice("phone", PHONE)
   page.reload()
   await until(() => !page.state().loading)
+
+  // ── a phone's bottom: the home indicator and the screen's corners, over the page ───────────
+  // The page runs to the screen's bottom edge, as in iOS 26's Safari. What of the phone is there
+  // the window cannot draw (the page is a native view above it): the overlay draws it, in the
+  // colours main is told for what is around the screen.
+  {
+    const vh = PHONE.height - PHONE.top
+    const R = PHONE.radius
+    place({ x: 0, y: 0, width: PHONE.width, height: vh })
+    page.setSurround({ shape: "round", ring: 8, ringColour: "#d9d9d9", around: "#f2f2f2" })
+    page.send({ type: "enabled", enabled: false })
+    page.setTouch(true)
+    await until(async () => (await js("innerHeight")) === vh, 2000)
+    check("as a phone's the page's viewport is the screen less the status bar only: it runs to the screen's bottom edge", (await js("innerHeight + ' of ' + screen.height")) === `${vh} of ${PHONE.height}`, String(await js("innerHeight + ' of ' + screen.height")))
+    // What the overlay draws of the phone, where (the window's px), or "none" when nothing is seen.
+    const drawn = () =>
+      js(`(() => {
+        const h = document.querySelector("b42-review"), d = h?.shadowRoot?.querySelector(".device")
+        const seen = (e) => getComputedStyle(e).display !== "none" && getComputedStyle(e).visibility !== "hidden" && getComputedStyle(e).opacity !== "0"
+        if (!d || !seen(h) || !seen(d)) return "none"
+        const r = (e) => { const b = e.getBoundingClientRect(); return [b.left, b.top, b.width, b.height].map((n) => Math.round(n * 10) / 10).join(",") }
+        return [...d.querySelectorAll(".dv-screen, .dv-home")].filter(seen).map((e) => e.classList.contains("dv-screen") ? "screen " + r(e) + " r" + getComputedStyle(e).borderBottomLeftRadius + " " + getComputedStyle(e).cornerShape : r(e)).join(" ")
+      })()`) as Promise<string>
+    // The screen, the page's size with the screen's corners at its bottom, and the pill.
+    // (A round corner is a superellipse of 1, as the browser says it.)
+    const want = `screen 0,0,${PHONE.width},${vh} r${R}px superellipse(1) ${(PHONE.width - 134) / 2},${vh - 8 - 5},134,5`
+    const modes: string[] = []
+    const seenIn = async (name: string) => void ((await until(async () => (await drawn()) === want, 2000)) === true ? modes.push(name) : console.log(`  ${name}: ${await drawn()}`))
+    await seenIn("Preview")
+    page.send({ type: "enabled", enabled: true })
+    await seenIn("Annotate")
+    page.send({ type: "mode", mode: "canvas" })
+    await seenIn("Edit")
+    page.send({ type: "mode", mode: "motion" })
+    await seenIn("Motion")
+    page.send({ type: "mode", mode: "notes" })
+    check("a phone's page has the home indicator (134 by 5, 8 up) and the screen's two bottom corners over it, in every mode", modes.join(" ") === "Preview Annotate Edit Motion", `${modes.join(" ")}; want ${want}`)
+    page.setDevice("desktop", PHONE)
+    check("…and a desktop's page has none of it", (await until(async () => (await drawn()) === "none", 2000)) === true, await drawn())
+    // An iPhone SE has a home button and a square screen: nothing of it is over the page.
+    const se = PHONES.find((p) => p.id === "iphone-se")!
+    page.setDevice("phone", se)
+    place({ x: 0, y: 0, width: se.width, height: se.height - se.top })
+    check("…nor has an iPhone SE's, which has a home button and a square screen", (await until(async () => (await js("innerHeight")) === se.height - se.top && (await drawn()) === "none", 2000)) === true, await drawn())
+    page.setDevice("phone", PHONE)
+    place({ x: 0, y: 0, width: PHONE.width, height: vh })
+    check("…and it is back as a phone's", (await until(async () => (await drawn()) === want, 2000)) === true, await drawn())
+    // At half the size the window draws the phone at, the page is the same and so is what is over
+    // it, but for the corners: the window rounds its own at whole pixels of its own (23.5 → 24).
+    place({ x: 0, y: 0, width: PHONE.width / 2, height: vh / 2 })
+    const R2 = Math.round(R / 2) * 2
+    const wantHalf = want.replace(`r${R}px`, `r${R2}px`)
+    check("…the same over a phone drawn at half its size, the corners as the window rounds them", (await until(async () => (await drawn()) === wantHalf && (await js("innerHeight")) === vh, 2000)) === true, `${await drawn()}; want ${wantHalf}`)
+    place({ x: 0, y: 0, width: PHONE.width, height: vh })
+
+    // The page's own floor under it, fixed at the bottom, in a colour of the test's.
+    await js(`(() => {
+      const f = document.createElement("div")
+      f.id = "b42-floor"
+      f.style.cssText = "position:fixed;left:0;right:0;bottom:0;height:80px;z-index:2147483646;background:#ffffff"
+      document.body.append(f)
+      window.__floor = []
+      for (const t of ["pointerdown", "click"]) f.addEventListener(t, (e) => __floor.push(t + ":" + (e.pointerType ?? "")))
+    })()`)
+    const floor = (colour: string) => js(`document.getElementById("b42-floor").style.background = "${colour}"`)
+    const pill = { x: Math.round(PHONE.width / 2), y: vh - 8 - 3 }
+    /** The window's picture of the view, at a point of the page (the view is the page's size). */
+    const pixel = async (at: { x: number; y: number }, img?: Electron.NativeImage) => {
+      const shot = img ?? (await wc.capturePage())
+      const k = shot.getSize().width / page.view.getBounds().width
+      const bmp = shot.toBitmap()
+      const i = (Math.floor(at.y * k) * shot.getSize().width + Math.floor(at.x * k)) * 4
+      return [bmp[i + 2]!, bmp[i + 1]!, bmp[i]!]
+    }
+    const near = (got: number[], want: number[], by = 6) => got.every((v, i) => Math.abs(v - want[i]!) <= by)
+    check(
+      "nothing of it is hit: under the pill, and in a corner, the page's own element is the first, and the layer is not among them",
+      (await js(`[${pill.x}, ${pill.y}, 1, ${vh - 1}].reduce((a, _, i, p) => i % 2 ? a : a.concat(document.elementsFromPoint(p[i], p[i + 1]).filter((e) => e.localName === "b42-review").length + ":" + document.elementFromPoint(p[i], p[i + 1])?.id), []).join(" ")`)) === "0:b42-floor 0:b42-floor",
+      String(await js(`document.elementsFromPoint(${pill.x}, ${pill.y}).map((e) => e.localName + "#" + e.id).join(" ")`)),
+    )
+
+    // Its colour: dark on light, light on dark, as a phone's is, measured in the window's picture.
+    const pillOn: string[] = []
+    for (const [bg, rgb, ink] of [["#ffffff", [255, 255, 255], [0, 0, 0]], ["#000000", [0, 0, 0], [255, 255, 255]], ["#808080", [128, 128, 128], [0, 0, 0]], ["#1e3a5f", [30, 58, 95], [255, 255, 255]]] as const) {
+      await floor(bg)
+      await sleep(250)
+      const at = await pixel(pill)
+      if (near(at, [...ink], 40) && near(await pixel({ x: pill.x, y: pill.y - 12 }), [...rgb])) pillOn.push(bg)
+      else console.log(`  pill on ${bg}: ${at}`)
+    }
+    check("the home indicator is dark on a light page and light on a dark one: on white, black, mid-grey and a dark blue", pillOn.length === 4, pillOn.join(" "))
+    await floor("#ffffff")
+    await sleep(250)
+    // The corner: outside the screen's curve, what the window draws there (its ring, then what is
+    // around the phone); inside it, the page.
+    const c = (d: number, a = Math.PI * 0.75) => ({ x: R + d * Math.cos(a), y: vh - R + d * Math.sin(a) })
+    const corner = { around: await pixel({ x: 0, y: vh - 1 }), ring: await pixel(c(R + 4)), page: await pixel(c(R - 4)), right: await pixel({ x: PHONE.width - 1, y: vh - 1 }) }
+    check(
+      "the screen's bottom corners are round: what is outside them the window's colours (the ring, then around it), the page inside",
+      near(corner.around, [0xf2, 0xf2, 0xf2]) && near(corner.ring, [0xd9, 0xd9, 0xd9]) && near(corner.page, [255, 255, 255]) && near(corner.right, [0xf2, 0xf2, 0xf2]),
+      JSON.stringify(corner),
+    )
+    await snap("phone-bottom")
+    page.setSurround({ shape: "round", ring: 8, ringColour: "#2b2b2b", around: "#1a1a1a" })
+    check("…and in the colours told again when the window's theme changes", (await until(async () => near(await pixel({ x: 0, y: vh - 1 }), [0x1a, 0x1a, 0x1a]) && near(await pixel(c(R + 4)), [0x2b, 0x2b, 0x2b]), 2000)) === true, String(await pixel({ x: 0, y: vh - 1 })))
+
+    // In Preview a tap on the pill is the page's.
+    page.send({ type: "enabled", enabled: false })
+    await sleep(200)
+    await js("__floor = []")
+    wc.sendInputEvent({ type: "mouseDown", x: pill.x, y: pill.y, button: "left", clickCount: 1 })
+    await sleep(80)
+    wc.sendInputEvent({ type: "mouseUp", x: pill.x, y: pill.y, button: "left", clickCount: 1 })
+    check("in Preview a tap on the home indicator reaches the page", (await until(async () => ((await js("__floor.join(' ')")) as string).includes("click:touch"), 2000)) === true, String(await js("__floor.join(' ')")))
+
+    // The peek (alt+A) takes the layer out of sight: not the phone.
+    page.send({ type: "enabled", enabled: true })
+    page.setTouch(false)
+    await until(async () => !((await js(`matchMedia("(pointer: coarse)").matches`)) as boolean), 2000)
+    wc.sendInputEvent({ type: "keyDown", keyCode: "A", modifiers: ["alt"] })
+    await sleep(200)
+    const peeking = { layer: await js(`document.querySelector("b42-review").hasAttribute("data-peek") && getComputedStyle(${shadow}.querySelector(".pins")).opacity`), drawn: await drawn() }
+    wc.sendInputEvent({ type: "keyUp", keyCode: "A", modifiers: ["alt"] })
+    wc.sendInputEvent({ type: "keyUp", keyCode: "Alt" })
+    await sleep(200)
+    check("held alt+A hides the layer's own, and leaves the phone's home indicator and corners", peeking.layer === "0" && peeking.drawn === want, JSON.stringify(peeking))
+
+    // Annotate picks what is under the pill, and a note's picture has none of the phone in it.
+    wc.sendInputEvent({ type: "mouseMove", x: pill.x, y: pill.y - 30 })
+    await sleep(100)
+    wc.sendInputEvent({ type: "mouseMove", x: pill.x, y: pill.y })
+    await sleep(300)
+    const hovered = await js(`(() => { const b = ${shadow}.querySelector(".box.hover"), f = document.getElementById("b42-floor").getBoundingClientRect(); if (!b || getComputedStyle(b).display === "none") return "none"; const r = b.getBoundingClientRect(); return Math.round(r.top) === Math.round(f.top) && Math.round(r.height) === Math.round(f.height) })()`)
+    check("in Annotate the element picked under the home indicator is the page's", hovered === true, String(hovered))
+    // (The note is about something above the floor: what a note is about is outlined in its
+    // picture, and the floor's outline would be where the home indicator is.)
+    const notesBefore = count("note")
+    const above = { x: pill.x, y: vh - 200 }
+    wc.sendInputEvent({ type: "mouseMove", x: above.x, y: above.y })
+    wc.sendInputEvent({ type: "mouseDown", x: above.x, y: above.y, button: "left", clickCount: 1 })
+    wc.sendInputEvent({ type: "mouseUp", x: above.x, y: above.y, button: "left", clickCount: 1 })
+    await until(() => js(`!${shadow}.querySelector(".card").hidden`), 2000)
+    await wc.insertText("the floor")
+    await sleep(150)
+    enter()
+    await until(() => count("note") > notesBefore, 3000)
+    // As the controller does: the picture first, then "captured".
+    const noteShot = await wc.capturePage()
+    const noteId = (messages.filter((m) => m.type === "note").at(-1) as { note?: { id?: string } }).note?.id ?? ""
+    const inShot = { pill: await pixel(pill, noteShot), corner: await pixel({ x: 0, y: vh - 1 }, noteShot) }
+    page.send({ type: "captured", id: noteId })
+    check(
+      "a note's picture shows the page under the home indicator and in the corners",
+      count("note") === notesBefore + 1 && near(inShot.pill, [255, 255, 255]) && near(inShot.corner, [255, 255, 255]),
+      JSON.stringify(inShot),
+    )
+    check("…and once the picture is taken they are back", (await until(async () => (await drawn()) === want, 2000)) === true, await drawn())
+    // The host's own picture (a note's place once the agent is done): the layer held out of it.
+    const had = count("frame-shown")
+    page.send({ type: "frame", id: "phone-hold", hold: true })
+    await until(() => count("frame-shown") > had, 2000)
+    const held = await pixel(pill)
+    page.send({ type: "frame", id: "phone-give", hold: false })
+    check("…and the host's own picture has none of it either", near(held, [255, 255, 255]), String(held))
+    check("…and given back, it is drawn again", (await until(async () => (await drawn()) === want, 2000)) === true, await drawn())
+    // The window's corners are the design system's squircle: the page draws that very shape.
+    page.setSurround({ shape: "superellipse(1.333)", ring: 8, ringColour: "#d9d9d9", around: "#f2f2f2" })
+    check("…in the shape the window gives its own corners", (await until(async () => (await drawn()) === want.replace(" superellipse(1) ", " superellipse(1.333) "), 2000)) === true, await drawn())
+    page.setSurround(undefined)
+    check("with no colours told for what is around the screen, the corners are not drawn and the home indicator is", (await until(async () => (await drawn()) === want.split(" ").at(-1), 2000)) === true, await drawn())
+    page.setSurround({ shape: "round", ring: 8, ringColour: "#d9d9d9", around: "#f2f2f2" })
+    await js(`document.getElementById("b42-floor").remove()`)
+  }
 
   // Back to Annotate without a reload: a mouse again, and the debugger gone.
   const readiesNow = count("ready")
