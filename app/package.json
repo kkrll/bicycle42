@@ -12,8 +12,8 @@
     "dev": "node scripts/build.mjs --watch",
     "pack": "node scripts/build.mjs && node scripts/pack.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/build.mjs --tests && node --test --test-force-exit dist/test/*.test.cjs && electron --ozone-platform=headless --disable-gpu dist/test/page.e2e.cjs && electron --ozone-platform=headless --disable-gpu dist/test/app.e2e.cjs",
-    "test:unit": "node scripts/build.mjs --tests && node --test --test-force-exit dist/test/*.test.cjs",
+    "test": "node scripts/build.mjs --tests && node scripts/unit.mjs && electron --ozone-platform=headless --disable-gpu dist/test/page.e2e.cjs && electron --ozone-platform=headless --disable-gpu dist/test/app.e2e.cjs",
+    "test:unit": "node scripts/build.mjs --tests && node scripts/unit.mjs",
     "test:real": "node scripts/build.mjs --tests && node dist/test/acp.real.cjs",
     "check:design": "kkrll-check src/renderer",
     "agents:check": "node scripts/agents-check.mjs"
