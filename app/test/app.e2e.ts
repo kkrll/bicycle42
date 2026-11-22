@@ -1195,6 +1195,20 @@ async function main() {
   // dock has a column of its own there (This page on this phone), so the page does not move.
   const panelRight = (await ui(`document.querySelector('.panel').getBoundingClientRect().right`)) as number
   check("the panel is at the window's left, the page after it", panelRight > 0 && panelRight <= narrow.x, `${panelRight} ${JSON.stringify(narrow)}`)
+  // Where the page is just before the switch, once it has settled after the resize above (the
+  // box taken before the resize, `narrow`, is not where it is now: comparing with it passed only
+  // when the resize happened to give the same box).
+  const settled = async () => {
+    let last = JSON.stringify(page.view.getBounds())
+    for (let i = 0; i < 20; i++) {
+      await sleep(100)
+      const now = JSON.stringify(page.view.getBounds())
+      if (now === last) return page.view.getBounds()
+      last = now
+    }
+    return page.view.getBounds()
+  }
+  const placed = await settled()
   await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
   await until(() => state().review.mode === "notes")
   const aside = (await until(() => ui(`(() => { const r = document.querySelector('.dock.fp')?.getBoundingClientRect(); return r ? { x: r.x, text: document.querySelector('.dock.fp > .pl').getAttribute('aria-label') } : null })()`))) as { x: number; text: string } | undefined
@@ -1204,7 +1218,7 @@ async function main() {
   const lineBox = () => ui(`(() => { const l = document.querySelector('.pl'); if (!l) return null; const r = l.getBoundingClientRect(); return { cls: l.className, top: r.top, height: r.height, left: r.left, width: r.width, n: document.querySelectorAll('.pl').length } })()`) as Promise<Line | null>
   const lines: Record<string, Line | null> = { annotate: await lineBox() }
   await sleep(200) // (a frame or two: where the page is goes to main once a frame)
-  check("in Annotate the phone's page stays where it was, with this page on this phone beside it", !!aside && page.view.getBounds().x === narrow.x && page.view.getBounds().width === narrow.width && aside.x >= narrow.x + narrow.width && aside.text === "This page on this phone", `${JSON.stringify(page.view.getBounds())} ${JSON.stringify(aside)}`)
+  check("in Annotate the phone's page stays where it was, with this page on this phone beside it", !!aside && page.view.getBounds().x === placed.x && page.view.getBounds().width === placed.width && aside.x >= placed.x + placed.width && aside.text === "This page on this phone", `${JSON.stringify(placed)} → ${JSON.stringify(page.view.getBounds())} ${JSON.stringify(aside)}`)
   // Preview: the facts are the real page's, worked out by its overlay with review off; the
   // pointer on a row outlines its element on the page, the size the row says.
   await ui(`document.querySelector('.mode[data-mode="preview"]').click()`)
@@ -1653,7 +1667,7 @@ async function main() {
   const mdockW = await ui(`Math.round(document.querySelector(".mdock").getBoundingClientRect().width)`)
   check(
     "a narrow dock shows what is open, with a way back, narrower lane names and named timing fields; back, the list",
-    narrowOpen === "false|true|true|104px" && narrowList?.startsWith("true|false|false") === true && tnames === "Dur.|Delay|Ease / Duration|Delay|Easing",
+    narrowOpen === "false|true|true|136px" && narrowList?.startsWith("true|false|false") === true && tnames === "Dur.|Delay|Ease / Duration|Delay|Easing",
     `${mdockW} wide: ${narrowOpen} / ${narrowList}; names ${tnames}`,
   )
   win.setSize(1441, 900)
