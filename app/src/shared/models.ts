@@ -26,6 +26,29 @@ export function plainName(name: string, tags: readonly ModelTag[]): string {
   return cut || name
 }
 
+/** Providers as their makers write them. An id not here is shown as the agent says it: it is
+ *  often a plan or a gateway of the reviewer's own ("kimi-code-plan-global"), and a guess at
+ *  capitals would be a name nobody uses. */
+const PROVIDERS: Record<string, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  google: "Google",
+  "google-vertex": "Google Vertex AI",
+  moonshotai: "Moonshot AI",
+  opencode: "OpenCode",
+  openrouter: "OpenRouter",
+  xai: "xAI",
+  mistral: "Mistral",
+  deepseek: "DeepSeek",
+  groq: "Groq",
+  "github-copilot": "GitHub Copilot",
+  "amazon-bedrock": "Amazon Bedrock",
+  azure: "Azure",
+}
+
+/** A provider's id as a heading: "openai" → "OpenAI"; an id the app does not know, as it is. */
+export const providerName = (id: string) => PROVIDERS[id.toLowerCase()] ?? id
+
 /** "free, alpha": the quiet label after a model's name, or "" for none. */
 export const tagLine = (tags: readonly ModelTag[] | undefined) => (tags ?? []).join(", ")
 
@@ -49,11 +72,11 @@ export function modelLabel(
   o: { provider?: "shared" | "always" } = {},
 ): { name: string; provider?: string; tags: string; images: boolean } {
   const shared = o.provider === "always" || sharedNames(all).has(m.name.trim().toLowerCase())
-  return { name: m.name, ...(shared ? { provider: m.providerID } : {}), tags: tagLine(m.tags), images: m.images }
+  return { name: m.name, ...(shared ? { provider: providerName(m.providerID) } : {}), tags: tagLine(m.tags), images: m.images }
 }
 
 /** The label as plain text, for a native list's option or a tooltip:
- *  "Kimi K3.1 Pro · moonshotai", "Tidepool Alpha · free, alpha · no images". */
+ *  "Kimi K3.1 Pro · Moonshot AI", "Tidepool Alpha · free, alpha · no images". */
 export function labelText(l: ReturnType<typeof modelLabel>, o: { images?: boolean } = {}): string {
   return [l.name, l.provider, l.tags, o.images !== false && !l.images ? "no images" : ""].filter(Boolean).join(" · ")
 }

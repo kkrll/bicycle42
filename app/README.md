@@ -207,7 +207,10 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   (`NoteRow.session`), so the note's view can name one that is not open and Follow up can open
   it first; a background note's follow-up stays in the open conversation, since the background
   one is not a conversation to talk in.
-- **"2 unpinned" counts what the page says now.** It sits at the notes header's end, before
+- **"2 lost" counts what the page says now.** A note is lost when its element isn't on the page
+  (its pin can't be placed on it); the rows say so with their own mark, an element's corners
+  with nothing in them, not the alert that errors have. "Pin" is kept for conversations pinned to
+  the top of their list. The count sits at the notes header's end, before
   Clear done, so the counts that come into the header when the list folds never move it. The overlay reports which pins it can't place
   (`pins-placement`) only while it draws them, so main counts, of the notes on the list that are
   not done, those in the last report: none in Preview, none of a note taken off meanwhile, and
@@ -568,7 +571,9 @@ real check from the lockfile as it is, installed as the app does, and writes not
 - **The model is said as the agent says it** (`main/model-facts.ts`, `shared/models.ts`). A
   model's name loses its provider ("moonshotai/Kimi K3.1 Pro" is "Kimi K3.1 Pro" under
   moonshotai), so when two providers have a model of one name the chip and the lists name the
-  provider beside it (`modelLabel`). Free and pre-release models carry a quiet label ("free,
+  provider beside it (`modelLabel`). A provider the app knows is named as its maker writes it
+  ("Moonshot AI", "OpenAI": `providerName`), in the list's groups too; any other id (a plan or a
+  gateway of the reviewer's own) as the agent says it. Free and pre-release models carry a quiet label ("free,
   alpha"), from their name or id and from OpenCode's own metadata (its "opencode" provider at no
   cost; `status` alpha or beta); "Free" leaves the name once the label says it. Which models see
   pictures: the agent's `promptCapabilities.image`, and for OpenCode `opencode api GET /api/model`

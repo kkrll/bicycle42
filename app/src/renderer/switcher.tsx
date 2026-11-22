@@ -89,7 +89,7 @@ export function Switcher(props: { projectsOnly?: boolean; onClose: () => void })
             aria-expanded="true"
             aria-controls="switcher-list"
             aria-label="Search projects, or type a folder's path"
-            placeholder="Search projects, or type a path"
+            placeholder="Search projects, or type a path…"
             spellcheck={false}
             autocomplete="off"
             autofocus
@@ -106,7 +106,7 @@ export function Switcher(props: { projectsOnly?: boolean; onClose: () => void })
         <Switch>
           <Match when={projects.loading}>
             <p class="quiet">
-              <Icon name="spinner" /> Looking for projects
+              <Icon name="spinner" /> Looking for projects…
             </p>
           </Match>
           <Match when={true}>

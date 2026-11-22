@@ -6,7 +6,7 @@
 // mention reads as a chip without the box becoming an editor of its own.
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, type JSX } from "solid-js"
 import type { Mention, MentionOption, ModelInfo, PromptFile, SendOptions, SlashCommand } from "../shared/types"
-import { labelText, modelLabel } from "../shared/models"
+import { labelText, modelLabel, providerName } from "../shared/models"
 import { Icon, type IconName } from "./icons"
 import { SuggestMenu, type MenuItem } from "./menu"
 import { ContextMeter } from "./meter"
@@ -106,7 +106,7 @@ function Pickers() {
   const help = () => {
     const m = info()
     const what = m ? labelText(modelLabel(m, state.models, { provider: single() ? "shared" : "always" })) : (current()?.id ?? "none chosen")
-    return `Model: ${what}${state.harness ? `, as ${state.harness.name} says` : ""}. Click to change it. A model marked "no images" sees only the notes' words.`
+    return `Model: ${what}${state.harness ? `, as ${state.harness.name} says` : ""}. Click to change it. A model marked “no images” sees only the notes' words.`
   }
   return (
     <div class="pickers">
@@ -132,7 +132,7 @@ function Pickers() {
             >
               <For each={groups()}>
                 {([provider, models]) => (
-                  <optgroup label={provider}>
+                  <optgroup label={providerName(provider)}>
                     <For each={models}>
                       {(entry) => (
                         <option value={entry.index} selected={entry.model === info()}>

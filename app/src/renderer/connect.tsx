@@ -3,7 +3,7 @@
 // settings dialog afterwards.
 import { For, Match, Show, Switch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js"
 import type { ConnectionState, LocalAgent, ModelInfo, ModelRef, RemoteInfo } from "../shared/types"
-import { modelLabel, tagLine } from "../shared/models"
+import { modelLabel, providerName, tagLine } from "../shared/models"
 import { harnessNow, kindOfAgent } from "./agents"
 import { CopyButton } from "./copy"
 import { AgentMark, Icon } from "./icons"
@@ -360,7 +360,7 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
           <Show when={agents.loading && !agents()}>
             <li class="agent-row agent-wait">
               <Icon name="spinner" />
-              <span class="agent-status">Looking for agents</span>
+              <span class="agent-status">Looking for agents…</span>
             </li>
           </Show>
           <For each={agents() ?? []}>
@@ -424,7 +424,7 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
                 <Show when={reaching()}>
                   <Icon name="spinner" />
                 </Show>
-                {reaching() ? "Connecting" : "Connect"}
+                {reaching() ? "Connecting…" : "Connect"}
               </button>
             </div>
             <Show when={reachStep()}>
@@ -583,7 +583,7 @@ export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void;
           class="input"
           type="search"
           aria-label="Find a model"
-          placeholder="Find a model"
+          placeholder="Find a model…"
           spellcheck={false}
           autocomplete="off"
           value={query()}
@@ -591,10 +591,14 @@ export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void;
         />
       </Show>
       <div class="model-list" ref={list} role="listbox" aria-label="Models" tabindex="0">
+        {/* A listbox holds options, or groups of them: each provider is a group, named for a
+            screen reader by its label and on screen by the same words. */}
         <For each={groups()} fallback={<p class="quiet">No model by that name.</p>}>
           {([provider, models]) => (
-            <>
-              <h3 class="label">{provider}</h3>
+            <div class="model-group" role="group" aria-label={providerName(provider)}>
+              <div class="label" aria-hidden="true">
+                {providerName(provider)}
+              </div>
               <For each={models}>
                 {(m) => (
                   <button
@@ -617,7 +621,7 @@ export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void;
                   </button>
                 )}
               </For>
-            </>
+            </div>
           )}
         </For>
       </div>
@@ -628,8 +632,8 @@ export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void;
         <label class="form-row">
           <span class="label">Effort</span>
           <select class="input" aria-label="Effort" value={variant()} onChange={(e) => setVariant(e.currentTarget.value)}>
-            <option value="">default</option>
-            <For each={picked()!.variants}>{(v) => <option value={v}>{v}</option>}</For>
+            <option value="">Default</option>
+            <For each={picked()!.variants}>{(v) => <option value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</option>}</For>
           </select>
         </label>
       </Show>
@@ -673,7 +677,7 @@ export function ModelScreen() {
 /** The agent, as its mark with its state as a dot; in a word when it is not simply connected.
  *  Opens the settings. In the panel's conversation row, or the top bar while that is not shown. */
 export function ServerButton(props: { onClick: () => void }) {
-  const word = () => (state.connection.status === "offline" ? "Offline" : state.connection.status === "connecting" ? "Connecting" : "")
+  const word = () => (state.connection.status === "offline" ? "Offline" : state.connection.status === "connecting" ? "Connecting…" : "")
   return (
     <button
       class="icon-btn"
