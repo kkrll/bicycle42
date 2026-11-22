@@ -114,9 +114,14 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   `AppState.page.saving`), and once it has all come it is moved to the file chosen (across
   disks, copied beside it and renamed over it, so a file there is replaced only by a whole
   one). Don't, or cancelling that dialog, cancels it and nothing of it is kept. A download that
-  stops while held is cancelled and its line goes; one that stops after Save… is tried once
-  more, and one that stops again, or of which nothing more comes for 60 s, is given up and said
-  in a dialog. One waits at a time: a second takes the place of the first, which is cancelled.
+  stops while held is cancelled and its line goes; one that stops after Save… is resumed once
+  more (Chromium has already tried again by itself by then, so from a link that keeps dropping
+  that can be a dozen requests, and a server that can't send a part starts it over), and one
+  that stops again, or of which nothing more comes for 60 s, is given up and said in a dialog.
+  One waits at a time: a second takes the place of the first, which is cancelled; a file chosen
+  for the first in a Save dialog still open then is said not to be saved. A typed address that
+  is a download leaves the page where it was, and is not kept as the page's last address. A
+  download from the page's developer tools (same session) is refused, and said in the log.
   The page going to another site (a move within the site, a pushState or another path, does
   not), the page closing, and opening another project or computer cancel the one waiting. It is
   held, not stopped and asked for again on Save, because a blob a script made or the answer to a

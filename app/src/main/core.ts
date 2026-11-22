@@ -291,7 +291,26 @@ export function createCore(host: Host): Core {
     log("info", `page: a download was not saved (${why})`, { site: held.site })
     push()
   }
+  const hostIn = (address: string) => {
+    try {
+      return new URL(address).host
+    } catch {
+      return ""
+    }
+  }
+  /** The last address written as the page's last (lastUrl), and the one it replaced. */
+  let lastWrite: { url: string; before: string | undefined } | undefined
   function onDownload(held: HeldDownload) {
+    // An address typed that turned out to be a download was written as the page's last as it
+    // began to load; the page stayed where it was. Put back, or the next start would load the
+    // download again, on an empty page, and ask again.
+    const now = page?.state().url ?? ""
+    const last = store.settings().lastUrl
+    if (last && last !== now && lastWrite?.url === last && (now || hostIn(last) === held.site)) {
+      const back = now || lastWrite.before
+      store.update((s) => void (back ? (s.lastUrl = back) : delete s.lastUrl))
+      lastWrite = undefined
+    }
     // A second one while one waits takes its place: one line, never a stack of them.
     if (download) dropDownload("another took its place")
     download = { id: crypto.randomUUID(), held, at: pageAt() }
@@ -1866,7 +1885,10 @@ export function createCore(host: Host): Core {
     if (url) (blocked = undefined), (elsewhere = undefined)
     // The page went somewhere else (another address, or nothing): what it asked for there is not answered.
     if (download && pageAt() !== download.at) dropDownload("the page went elsewhere")
-    if (url && url !== store.settings().lastUrl) store.update((s) => void (s.lastUrl = url))
+    if (url && url !== store.settings().lastUrl) {
+      lastWrite = { url, before: store.settings().lastUrl }
+      store.update((s) => void (s.lastUrl = url))
+    }
     const before = site?.origin
     switchSite(placeOf(url))
     // Where a project's site was last open, and when, for coming back to it (openProject): said
@@ -2452,8 +2474,12 @@ export function createCore(host: Host): Core {
       } finally {
         delete asked.choosing
       }
-      // Meanwhile another took its place, or the page went elsewhere: it was cancelled then.
-      if (download !== asked) return
+      // Meanwhile another took its place, or the page went elsewhere: it was cancelled then, and
+      // a file chosen for it is said not to be written.
+      if (download !== asked) {
+        if (to) host.dialog({ type: "warning", message: `${asked.held.file} was not saved`, detail: "The page started another download, or went to another site, while the Save dialog was open." })
+        return
+      }
       if (!to) return dropDownload("the Save dialog was cancelled")
       download = undefined
       // A line saying how much has come, until it is in place.

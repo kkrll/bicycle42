@@ -212,7 +212,12 @@ function guard(session: Session) {
   session.on("will-download", (event, item, contents) => {
     const hold = contents && holders.get(contents)
     if (hold) hold(event, item)
-    else event.preventDefault()
+    else {
+      // Not the page's view: one being closed, or the page's developer tools (they share its
+      // session; their "Save as…" and screenshots are refused too, and said in the log).
+      event.preventDefault()
+      console.warn(`[bicycle42] page: a download refused, not of the page's view (${contents?.getType?.() ?? "none"}: ${item.getFilename()})`)
+    }
   })
 }
 
@@ -751,13 +756,17 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
         // It stopped, and Chromium says it may go on (a file that could not be made, a link
         // that dropped): it does not, by itself. Held, it is not answered now; saved, it is tried
         // once more, and given up if it stops again.
+        // (Chromium has tried again by itself before it says so.) Both are done a tick later:
+        // "updated" is said from inside Chromium's own loop over the item's observers, which
+        // resume() and cancel() would run again from within (a reentrancy check it logs, and
+        // may one day enforce).
         if (saved && !resumed && item.canResume()) {
           resumed = true
           log("warn", "page: a saved download stopped, trying once more", { site })
           watch()
-          return void item.resume()
+          return void setImmediate(() => !over && item.resume())
         }
-        return stop("The download stopped before it had all come.")
+        return void setImmediate(() => stop("The download stopped before it had all come."))
       }
       if (!saved) return
       // (Chromium says "updated" about once a second at most, and again with nothing new.)

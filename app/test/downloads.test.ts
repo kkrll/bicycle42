@@ -220,6 +220,38 @@ test("while the Save dialog is open: Save again opens no second one, and a downl
   }
 })
 
+test("an address typed on an empty page that is a download is not kept as the page's last: the next start does not load it and ask again", async () => {
+  const h = await boot()
+  try {
+    h.shell.page.load("")
+    // Typed: the address bar shows it (and it is written as the last) as it begins to load…
+    h.shell.page.load(`${SITE}/report.csv`)
+    // …and it is a download: the page stays where it was, empty.
+    h.shell.page.load("")
+    h.ask(download("report.csv", { site: new URL(SITE).host }))
+    assert.equal(h.shell.core.lastUrl(), `${SITE}/orders`)
+  } finally {
+    await h.close()
+  }
+})
+
+test("a file chosen in the Save dialog for a download that meanwhile went is said not to be saved", async () => {
+  const h = await boot()
+  try {
+    const first = download("one.csv")
+    h.ask(first)
+    let answer!: (to: string | undefined) => void
+    h.shell.saveDialog.answer = new Promise((done) => (answer = done))
+    const saving = h.cmd("saveDownload", h.id())
+    h.ask(download("two.csv"))
+    answer("/home/me/Downloads/one.csv")
+    await saving
+    assert.deepEqual(h.shell.dialogs, [{ type: "warning", message: "one.csv was not saved", detail: "The page started another download, or went to another site, while the Save dialog was open." }])
+  } finally {
+    await h.close()
+  }
+})
+
 test("the page going to another site cancels the download it asked for; a move within the site (a reload, a #hash, another query or path, a pushState) does not", async () => {
   const h = await boot()
   try {
