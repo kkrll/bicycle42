@@ -851,6 +851,50 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
           CSS
         </button>
       </div>
+      <button
+        type="button"
+        class="icon-btn mdock-more-btn"
+        ref={more}
+        title="More: repeat, direction, fill, what starts it"
+        aria-label="More"
+        onClick={() => pop.toggle({ anchor: more, kind: "more", body: () => <MoreSheet open={props.open} view={props.view} /> })}
+      >
+        <MIcon name="more" />
+      </button>
+      <span class="mdock-sp" />
+      <div class="mdock-tools">
+        <button type="button" class="text-btn mdock-rate" title="Speed while looking" onClick={() => send({ type: "rate", rate: nextRate() })}>
+          {rateText()}
+        </button>
+        <button type="button" class="icon-btn" aria-pressed={props.view.loop} title="Repeat while looking" aria-label="Repeat while looking" onClick={() => send({ type: "loop", on: !props.view.loop })}>
+          <MIcon name="loop" />
+        </button>
+        <button
+          type="button"
+          class="text-btn mdock-solo"
+          aria-pressed={props.view.isolate}
+          disabled={!props.view.sel}
+          title="Show only this element"
+          onClick={() => send({ type: "isolate", on: !props.view.isolate })}
+        >
+          Only this
+        </button>
+      </div>
+      <div class="mdock-tools">
+        <button type="button" class="icon-btn" disabled={!props.view.undo} title={`Undo (${keys("mod", "Z")})`} aria-label="Undo" onClick={() => send({ type: "undo" })}>
+          <MIcon name="undo" />
+        </button>
+        <button
+          type="button"
+          class="btn mdock-reset"
+          disabled={!props.open.dirty}
+          title={props.open.removable ? "Remove this new animation" : "Put back as the page has it"}
+          onClick={() => send({ type: "discard" })}
+        >
+          Reset
+        </button>
+      </div>
+      {/* (Last: on two rows they are the second, and Tab goes there last; see .mdock-hd.) */}
       <div class="mdock-timing">
         <label class="mdock-tf">
           <TName long="Duration" short="Dur." />
@@ -898,49 +942,6 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
           />
           <Curve easing={t().easing} />
         </label>
-      </div>
-      <button
-        type="button"
-        class="icon-btn"
-        ref={more}
-        title="More: repeat, direction, fill, what starts it"
-        aria-label="More"
-        onClick={() => pop.toggle({ anchor: more, kind: "more", body: () => <MoreSheet open={props.open} view={props.view} /> })}
-      >
-        <MIcon name="more" />
-      </button>
-      <span class="mdock-sp" />
-      <div class="mdock-tools">
-        <button type="button" class="text-btn mdock-rate" title="Speed while looking" onClick={() => send({ type: "rate", rate: nextRate() })}>
-          {rateText()}
-        </button>
-        <button type="button" class="icon-btn" aria-pressed={props.view.loop} title="Repeat while looking" aria-label="Repeat while looking" onClick={() => send({ type: "loop", on: !props.view.loop })}>
-          <MIcon name="loop" />
-        </button>
-        <button
-          type="button"
-          class="text-btn mdock-solo"
-          aria-pressed={props.view.isolate}
-          disabled={!props.view.sel}
-          title="Show only this element"
-          onClick={() => send({ type: "isolate", on: !props.view.isolate })}
-        >
-          Only this
-        </button>
-      </div>
-      <div class="mdock-tools">
-        <button type="button" class="icon-btn" disabled={!props.view.undo} title={`Undo (${keys("mod", "Z")})`} aria-label="Undo" onClick={() => send({ type: "undo" })}>
-          <MIcon name="undo" />
-        </button>
-        <button
-          type="button"
-          class="btn mdock-reset"
-          disabled={!props.open.dirty}
-          title={props.open.removable ? "Remove this new animation" : "Put back as the page has it"}
-          onClick={() => send({ type: "discard" })}
-        >
-          Reset
-        </button>
       </div>
     </>
   )
@@ -1100,7 +1101,8 @@ function Timeline(props: {
                 title={`These keyframes are played by ${props.open.shared} elements: a change to them changes all of them. Duration, delay and easing are this element's own.`}
               >
                 <MIcon name="link" />
-                {props.open.shared} elements
+                {props.open.shared}
+                <span class="mdock-shared-w"> elements</span>
               </span>
               <button
                 type="button"

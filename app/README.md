@@ -782,10 +782,11 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   outlines, a click that opens what was clicked, the keys while the page has the keyboard). Its
   layout asks its own box (container queries, which style what is in the box, never the box):
   wide, the list beside what is open; narrower than 720, one or the other with a way back and
-  narrower lane names; narrow and at least 600 tall (beside a phone's page), the list above
+  narrower lane names, and the group's "2 elements" is "2" so Duplicate stays whole; narrow and at least 600 tall (beside a phone's page), the list above
   what is open. The timing fields keep their names at every width ("900 ms" alone leaves one
   guessing which it is): where the header has no room for them in one row (under 1100 px) they
-  take a row of their own; in a dock under 640 the rest of the header is one row and the names
+  take a row of their own, and come last in the markup so Tab reaches them after the row above
+  (in one row, `reading-flow` keeps Tab in the order seen); in a dock under 640 the rest of the header is one row and the names
   are short ("Dur.", "Delay", "Ease"), so the three fit in the second, and an easing too long
   to fit whole there takes a row of its own. A short dock (under 400 tall) draws its rows
   closer: the header, the keyframe's row and the note's, the ruler, so a 1000×720 window shows

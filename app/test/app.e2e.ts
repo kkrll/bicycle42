@@ -138,6 +138,18 @@ async function main() {
   const codexRow = () => chooser(`(() => { const r = document.querySelector('.connect-screen [data-agent="codex"]'); return r ? r.dataset.state + "|" + !!r.querySelector('[data-start="codex"]') + "|" + (r.querySelector('.copy-btn')?.title ?? "") : "" })()`) as Promise<string>
   const signedOut = await until(async () => ((await codexRow()) === "signin|false|Copy the sign-in command" ? "signin|false|Copy the sign-in command" : ""), 10000)
   check("an agent not signed in offers Copy for its sign-in command, and no Start", signedOut === "signin|false|Copy the sign-in command", (await codexRow()) || "no codex row")
+  // Pressed, the row's actions keep their place and width ("Hide command", "Copied"), and its Copy
+  // is as tall as Start.
+  const codexActs = `document.querySelector('.connect-screen [data-agent="codex"] .agent-acts')`
+  const actsBox = () => chooser(`[${codexActs}, ...${codexActs}.children].map((e) => { const b = e.getBoundingClientRect(); return b.left.toFixed(2) + "+" + b.width.toFixed(2) + "x" + b.height }).join(" ")`) as Promise<string>
+  const acts0 = await actsBox()
+  await chooser(`${codexActs}.querySelector(".agent-how").click()`)
+  const actsHow = await until(async () => ((await chooser(`${codexActs}.querySelector(".agent-how").textContent`)) === "Hide command" ? actsBox() : ""))
+  await chooser(`${codexActs}.querySelector(".agent-how").click()`)
+  await chooser(`Object.defineProperty(navigator, "clipboard", { value: { writeText: async () => {} }, configurable: true }); ${codexActs}.querySelector(".copy-btn").click()`)
+  const actsCopied = await until(async () => (/Copied/.test(await chooser(`${codexActs}.querySelector(".copy-btn").textContent`)) ? actsBox() : ""))
+  await chooser(`delete navigator.clipboard`)
+  check("…pressed, the row's Command and Copy keep their place and width, and Copy is as tall as Start (28 px)", actsHow === acts0 && actsCopied === acts0 && /x28$/.test(acts0), `${acts0} / ${actsHow} / ${actsCopied}`)
   fs.writeFileSync(path.join(codexDir, "auth.json"), "{}")
   await chooser(`window.dispatchEvent(new Event("focus"))`)
   const signedIn = await until(async () => ((await codexRow()).startsWith("ready|true") ? "ready" : ""), 10000)
@@ -519,6 +531,14 @@ async function main() {
   const selRow = () => ui(`(() => { const r = document.querySelector('.cd-trow.on'); return r ? [...r.parentElement.children].indexOf(r) : -1 })()`) as Promise<number>
   await clickAt(`document.querySelector(${JSON.stringify(CARD)})`)
   check("a card clicked on the page is the inspector's selection, its row in the tree", (await until(async () => (await header()) === "article.card")) === true && (await until(() => ui(`document.querySelector('.cd-trow.on .cd-tt')?.textContent === "article"`))) === true, await header())
+  // The footer's count starts its words on the header's line, and the header's and the footer's
+  // icons sit on whole pixels (their bars' rules take no room from them).
+  const cdLines = (await ui(`(() => {
+    const words = (e) => { const r = document.createRange(); r.selectNodeContents(e); return r.getClientRects()[0].left }
+    const off = (bar) => [...document.querySelectorAll(bar + " svg")].filter((s) => s.checkVisibility()).map((s) => +(s.getBoundingClientRect().top - document.querySelector(bar).getBoundingClientRect().top).toFixed(2))
+    return { title: words(document.querySelector(".cd-title")), count: words(document.querySelector(".cd-count")), icons: [...off(".cd-head"), ...off(".cd-foot")] }
+  })()`)) as { title: number; count: number; icons: number[] }
+  check("the inspector's edit count starts on its title's line, and its bars' icons on whole pixels", Math.abs(cdLines.title - cdLines.count) < 0.5 && cdLines.icons.length > 2 && cdLines.icons.every((y) => Number.isInteger(y)), JSON.stringify(cdLines))
   check("the inspector's header says what the element is and none of its words, nor does its title", !/Pro|small teams/.test(await headerAll()), await headerAll())
   // (the page's own outline follows the window's choice: the one before it in the tree, then back)
   const cardRow = await selRow()
@@ -528,6 +548,16 @@ async function main() {
   await ui(`[...document.querySelectorAll('.cd-trow')].find((r) => r.classList.contains("on")).nextElementSibling.click()`)
   await until(async () => (await selRow()) === cardRow)
   check("computed values are the page's", (await until(() => ui(`document.querySelector('.cd-cval[data-prop="padding"]')?.value === "16px"`))) === true)
+  // The computed values' column fades at an end it has more under, and only there: none at its
+  // top, both ends in the middle, none at its foot.
+  const compFade = async (to: string) => {
+    await ui(`(() => { const c = document.querySelector(".cd-comp"); c.scrollTop = ${to} })()`)
+    await sleep(100)
+    return ui(`(() => { const c = document.querySelector(".cd-comp"), s = getComputedStyle(c); return (c.scrollHeight > c.clientHeight + 40) + " " + s.getPropertyValue("--cd-fade-top") + " " + s.getPropertyValue("--cd-fade-bottom") })()`) as Promise<string>
+  }
+  const fades = [await compFade("0"), await compFade("(c.scrollHeight - c.clientHeight) / 2"), await compFade("c.scrollHeight")]
+  await compFade("0")
+  check("the inspector's computed values fade at an end with more to scroll, and only there", fades.join(" | ") === "true 0px 24px | true 24px 24px | true 24px 0px", fades.join(" | "))
   // The round trip a drag in the inspector waits for (dockPing's way: an act there, its answer back).
   const pings = (await ui(`(async () => { const out = []; for (let i = 0; i < 20; i++) out.push(await new Promise((done) => { const id = 9000 + i, t0 = performance.now(); const off = window.b42.onPanel((m) => { if (m.pong === id) { off(); done(performance.now() - t0) } }); window.b42.invoke("panel", { panel: "canvas", act: { type: "ping", id } }) })); return out.sort((a, b) => a - b) })()`)) as number[]
   console.log(`     dock round trip, 20 pings: median ${pings[10]!.toFixed(1)} ms, worst ${pings[19]!.toFixed(1)} ms`)
@@ -538,6 +568,8 @@ async function main() {
   check("a style typed in the window's inspector changes the page", (await until(() => js(`getComputedStyle(document.querySelector(${JSON.stringify(CARD)})).paddingLeft === "32px"`))) === true)
   console.log(`     typed in the window to the page restyled: ${Date.now() - typedAt} ms (polled every 50 ms)`)
   check("…and the inspector says what the page made of it", (await until(() => ui(`document.querySelector('.cd-cval[data-prop="padding"]')?.value === "32px" && document.querySelector('.cd-crow.mine .cd-cp')?.textContent === "padding"`))) === true)
+  const countInk = (await ui(`(() => { const fg = document.createElement("i"); fg.style.color = "var(--foreground)"; document.body.append(fg); const c = getComputedStyle(fg).color; fg.remove(); return getComputedStyle(document.querySelector(".cd-count")).color + " / " + c })()`)) as string
+  check("…and its footer counts the edit in the foreground's ink", /^1 edit/.test((await ui(`document.querySelector(".cd-count").textContent`)) as string) && countInk.split(" / ")[0] === countInk.split(" / ")[1], countInk)
   const before4 = prompts().length
   const press = (type: string) => windowDbg.sendCommand("Input.dispatchKeyEvent", { type, key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, modifiers: process.platform === "darwin" ? 4 : 2 })
   await press("rawKeyDown")
@@ -1317,6 +1349,9 @@ async function main() {
   await ui(`document.querySelector('.mode[data-mode="preview"]').click()`)
   await until(() => !state().review.enabled)
   lines.preview = (await until(async () => ((await lineBox())?.n === 1 ? lineBox() : null))) ?? null
+  // Marks is as tall as the counts beside it, and the line's icons sit on whole pixels.
+  const plParts = (await ui(`(() => { const l = document.querySelector(".pl"), top = l.getBoundingClientRect().top; return { marks: document.querySelector(".pl-marks").getBoundingClientRect().height, counts: [...l.querySelectorAll(".pl-count")].map((c) => c.getBoundingClientRect().height), icons: [...l.querySelectorAll("svg")].filter((s) => s.checkVisibility()).map((s) => +(s.getBoundingClientRect().top - top).toFixed(2)) } })()`)) as { marks: number; counts: number[]; icons: number[] }
+  check("the phone line's Marks is as tall as its counts (24 px), and its icons sit on whole pixels", plParts.marks === 24 && plParts.counts.every((h) => h === 24) && plParts.icons.every((y) => Number.isInteger(y)), JSON.stringify(plParts))
   const tapRows = () => ui(`[...document.querySelectorAll('.fp-sec[aria-label="Tap targets under 44 px"] .fp-fact')].map((r) => r.querySelector('.fp-label').textContent + "|" + r.querySelector('.fp-detail').textContent)`) as Promise<string[]>
   const taps = (await until(async () => ((await tapRows()).some((r) => r.startsWith("Start free trial|")) ? tapRows() : null))) ?? (await tapRows())
   const cta = taps.find((r) => r.startsWith("Start free trial|")) ?? ""
@@ -1592,6 +1627,38 @@ async function main() {
   await ui(`(() => { const rows = [...document.querySelectorAll(".mdock-row")]; const i = rows.findIndex((r) => r.querySelector(".mdock-nm").textContent === "rise"); rows[i + 2].click() })()`)
   const duration = () => ui(`document.querySelector("[data-tduration]")?.value ?? ""`) as Promise<string>
   check("a row of the window's dock opens that animation on the page", (await until(async () => (await duration()) === "700")) === true, await duration())
+  // Tab goes through the header in the order it is seen, row by row and left to right: with the
+  // timing fields on a row of their own under the rest (this window), and in one row (a wide one).
+  // A field's focus is drawn on its box (no outline a scroller could cut); the timeline's play
+  // button stands over the group's icon.
+  type Stop = { n: string; x: number; y: number; ring: string; field: boolean }
+  const tabHeader = async () => {
+    await ui(`document.querySelector(".mdock-hd .mdock-seg button").focus()`)
+    const got: Stop[] = []
+    for (let i = 0; i < 20; i++) {
+      const f = (await ui(`(() => { const e = document.activeElement; if (!e?.closest(".mdock-hd")) return null; const r = e.getBoundingClientRect(), s = getComputedStyle(e); return { n: (e.getAttribute("aria-label") || e.textContent).trim(), x: r.x, y: r.y + r.height / 2, ring: s.outlineStyle + " " + s.boxShadow, field: e.matches("input") } })()`)) as Stop | null
+      if (!f) break
+      got.push(f)
+      await windowDbg.sendCommand("Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 })
+      await windowDbg.sendCommand("Input.dispatchKeyEvent", { type: "keyUp", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 })
+    }
+    const seen = [...got].sort((a, b) => (Math.abs(a.y - b.y) > 8 ? a.y - b.y : a.x - b.x))
+    return { keys: got.map((g) => g.n).join(", "), seen: seen.map((g) => g.n).join(", "), rows: new Set(got.map((g) => Math.round(g.y))).size, fields: got.filter((g) => g.field).map((g) => g.ring) }
+  }
+  const twoRows = await tabHeader()
+  win.setSize(1920, 900)
+  await until(() => ui(`document.querySelector(".mdock-main").getBoundingClientRect().width > 1100`), 3000)
+  const oneRow = await tabHeader()
+  win.setSize(1441, 900)
+  await until(() => ui(`document.querySelector(".mdock-main").getBoundingClientRect().width < 1100`), 3000)
+  check(
+    "Tab goes through the Motion dock's header in the order it is seen, in two rows and in one",
+    twoRows.keys === twoRows.seen && oneRow.keys === oneRow.seen && twoRows.keys.split(", ").length >= 9 && /Easing$/.test(twoRows.keys) && /CSS, Duration/.test(oneRow.keys),
+    `two rows: ${twoRows.keys}\n  seen: ${twoRows.seen}\none row: ${oneRow.keys}\n  seen: ${oneRow.seen}`,
+  )
+  check("…a timing field's focus is a 1 px ring on its box with no outline", twoRows.fields.length === 3 && twoRows.fields.every((r) => /^none .*0px 0px 0px 1px$/.test(r)), twoRows.fields.join(" / "))
+  const playOver = (await ui(`(() => { const p = document.querySelector(".mdock-ruler .mdock-play svg").getBoundingClientRect(), g = document.querySelector(".mdock-ghead .mdock-kind").getBoundingClientRect(); return [p.left, g.left] })()`)) as number[]
+  check("…and the timeline's play button stands over the group's icon", Math.abs(playOver[0]! - playOver[1]!) < 0.5, playOver.join(" / "))
   const playsFor = () => js(`getComputedStyle(document.querySelector(".hero p")).animationDuration`) as Promise<string>
   // A duration typed in the window's field: the page plays it.
   await ui(`(() => { const f = document.querySelector("[data-tduration]"); f.dispatchEvent(new FocusEvent("focus")); f.value = "900"; f.dispatchEvent(new Event("input", { bubbles: true })); f.dispatchEvent(new FocusEvent("blur")) })()`)
@@ -1754,6 +1821,13 @@ async function main() {
   const shortWhy = `${await ui(tracks)} whole; dock ${await ui(`Math.round(document.querySelector(".mdock").getBoundingClientRect().height)`)}, header ${await ui(`Math.round(document.querySelector(".mdock-hd").getBoundingClientRect().height)`)}, timeline ${await ui(`Math.round(document.querySelector(".mdock-tl").getBoundingClientRect().height)`)}`
   await ui(`window.b42.invoke("panel", { panel: "motion", act: { type: "select", key: null } })`)
   check("a narrow dock in a short window (1000×720) shows at least two tracks whole, a keyframe selected", shortTracks === true, shortWhy)
+  // The group's line keeps "Duplicate" whole, also as narrow as the dock beside a phone in this
+  // window (298 px): the count goes to its number first.
+  await ui(`document.querySelector(".mdock").style.width = "298px"`)
+  await sleep(100)
+  const dup = (await ui(`(() => { const n = document.querySelector(".mdock-gnote"), d = [...n.querySelectorAll("button")].find((b) => b.textContent.trim() === "Duplicate"); return { needs: n.scrollWidth, has: n.clientWidth, end: d.getBoundingClientRect().right, box: n.getBoundingClientRect().right, says: n.querySelector(".mdock-shared").innerText.trim() } })()`)) as { needs: number; has: number; end: number; box: number; says: string }
+  await ui(`document.querySelector(".mdock").style.width = ""`)
+  check("…and its group's line keeps Duplicate whole", dup.needs <= dup.has && dup.end <= dup.box + 0.5, JSON.stringify(dup))
   win.setSize(1000, 900)
   await ui(`document.querySelector(".mdock-back").click()`)
   const narrowList = await until(async () => ((await mshape()).startsWith("true|false") ? mshape() : null), 3000)

@@ -183,6 +183,7 @@ const SHOTS = [
   // Motion's dock drawn by the window: beside a phone's page (the list above what is open), and
   // under the page with its "more" sheet open (inside the dock's box, never over the page).
   { name: "phone-motion-dock", mock: "review", query: "&device=phone&docks=motion&mode=motion", report: TRACKS },
+  { name: "phone-motion-dock-narrow", mock: "review", query: "&device=phone&docks=motion&mode=motion", size: [1000, 720], report: TRACKS },
   { name: "dock-more", mock: "review", query: "&docks=motion&mode=motion", run: [click('.mdock-hd [aria-label="More"]')], wait: 400, report: TRACKS },
   // Under a page in a narrow window: what is open, with a way back to the list.
   { name: "dock-narrow", mock: "review", query: "&docks=motion&mode=motion", size: [1000, 720], report: TRACKS },

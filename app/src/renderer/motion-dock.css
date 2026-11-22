@@ -90,8 +90,10 @@
   border-radius: var(--radius);
   background: var(--surface);
   font-size: var(--text-control);
+  text-overflow: ellipsis;
   user-select: text;
-  outline: none;
+  /* (A field the focus scrolls to stops short of its scroller's edge, its ring whole.) */
+  scroll-margin: 2px;
   transition: background var(--duration-micro) var(--ease-micro);
 }
 
@@ -99,8 +101,13 @@
   background: var(--surface-strong);
 }
 
+/* The window's one focus for a text field: its border and 1px around it in the accent, on the box
+   itself, so the timing row's cut can't take it. (:focus outranks the window's :focus-visible
+   outline, whose sheet comes after this one.) */
 .mdock-fld:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  outline: none;
 }
 
 .mdock-fld.bad {
@@ -173,6 +180,11 @@
 
 .mdock-row:not(.off):hover {
   background: var(--surface);
+}
+
+/* (The ring inside the row, as a note's: the list's scroll cuts what is outside it.) */
+.mdock-row:focus-visible {
+  outline-offset: -2px;
 }
 
 .mdock-row:not(.off):hover .mdock-kind,
@@ -326,13 +338,25 @@
   color: var(--accent);
 }
 
+/* The timing fields are last in the header's markup, as on two rows (below); in one row they sit
+   after the view's switch and the tools after them, and Tab follows what is seen
+   (reading-flow). Cut where there is no room, 1px out, where a field's focus ring is drawn. */
+.mdock-hd {
+  reading-flow: flex-visual;
+}
+
+.mdock-hd > :is(.mdock-more-btn, .mdock-sp, .mdock-tools) {
+  order: 1;
+}
+
 .mdock-timing {
   flex: 0 1 auto;
   display: flex;
   align-items: center;
   gap: 16px;
   min-width: 0;
-  overflow: hidden;
+  overflow: clip;
+  overflow-clip-margin: 1px;
 }
 
 .mdock-tf {
@@ -358,7 +382,7 @@
   }
 
   .mdock-timing {
-    order: 1;
+    order: 2;
     flex: 1 0 100%;
   }
 }
@@ -370,9 +394,13 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  outline: none;
   touch-action: none;
   user-select: none;
+}
+
+/* (Inside its box: the dock's edge is 1px from it.) */
+.mdock-tl:focus-visible {
+  outline-offset: -2px;
 }
 
 .mdock-lrow {
@@ -452,18 +480,34 @@
 }
 
 /* the ruler: seconds on top, ticks, the whole keyframes along the bottom */
+/* Once the tracks are scrolled under it, a rule under it, so what goes under is seen to go there
+   (by how far the timeline is scrolled: none at its top, none in one that fits). */
 .mdock-ruler {
   position: sticky;
   top: 0;
   z-index: 3;
   height: 56px;
   background: var(--background);
+  animation: mdock-under linear both;
+  animation-timeline: scroll(nearest);
+  animation-range: 0 8px;
 }
 
+@keyframes mdock-under {
+  from {
+    box-shadow: 0 1px 0 transparent;
+  }
+
+  to {
+    box-shadow: 0 1px 0 var(--rule);
+  }
+}
+
+/* (Play's icon over the group's icon under it.) */
 .mdock-ruler .mdock-lab {
   align-items: flex-start;
   gap: 2px;
-  padding: 8px 6px 0 8px;
+  padding: 8px 6px 0 6px;
 }
 
 .mdock-ruler .mdock-trk {
@@ -1002,13 +1046,18 @@
 
   /* the second row: the timing fields (everything else is in the first) */
   .mdock-timing {
-    order: 1;
+    order: 2;
     flex: 1 0 100%;
     flex-wrap: wrap;
     gap: 6px 10px;
   }
 
   .mdock-timing .mdock-cv {
+    display: none;
+  }
+
+  /* "2 elements Duplicate": the link and the number say it; Duplicate stays whole. */
+  .mdock-shared-w {
     display: none;
   }
 
@@ -1097,7 +1146,6 @@
 @container mdock (max-width: 719px) and (max-height: 400px) {
   .mdock-kb .mdock-fld.ease:placeholder-shown {
     flex: 1 1 96px;
-    text-overflow: ellipsis;
   }
 }
 
