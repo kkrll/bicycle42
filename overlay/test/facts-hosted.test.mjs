@@ -2,15 +2,11 @@
 // worked out until the pane asks, what the view says about a page shown 390 wide, and what the
 // pane's acts do to the page. The harness plays the host (__harness.hostDocks, act, view);
 // harness/facts.html is the page.
-import { before, after } from "node:test";
-import { partOf } from "./part.mjs";
+import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { serve } from "../scripts/serve.mjs";
-
-/** Run as parts side by side: test/facts-hosted.1.test.mjs and .2 (part.mjs). */
-const test = partOf(import.meta.url);
 
 const CANDIDATES = [
   process.env.CHROMIUM,

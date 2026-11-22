@@ -3,15 +3,11 @@
 // window draws it): the harness says so, as the app does, and plays it with acts, reading what
 // the overlay sends back as the view (src/canvas/host.js; canvas-hosted.test.mjs has the view's
 // own tests). Same set-up as overlay.test.mjs: a system Chromium, headless. Run: bun run test
-import { before, after } from "node:test";
-import { partOf } from "./part.mjs";
+import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { chromium } from "playwright-core";
 import { serve } from "../scripts/serve.mjs";
-
-/** Run as parts side by side: test/canvas.1.test.mjs and .2 (part.mjs). */
-const test = partOf(import.meta.url);
 
 const CANDIDATES = [
   process.env.CHROMIUM,
@@ -2050,17 +2046,6 @@ test("text beside elements, the reviewers' cases: an element put in right before
   });
   await frames(f);
   const nodes = (sel) => f.evaluate((s) => [...document.querySelector(s).childNodes].map((x) => (x.nodeType === 3 ? x.data : x.nodeType === 8 ? "<!>" : x.localName)), sel);
-  // What is put back after the page's change: in the next frame, or after a pause when the last
-  // apply was slow (a busy machine), so waited for, up to 3 s, not a fixed settle.
-  const settledTo = async (sel, want) => {
-    const t0 = Date.now();
-    let got = await nodes(sel);
-    while (JSON.stringify(got) !== JSON.stringify(want) && Date.now() - t0 < 3000) {
-      await frames(f);
-      got = await nodes(sel);
-    }
-    return got;
-  };
   await dblRun(page, f, "#k1", 1);
   await page.keyboard.type("TWO");
   await page.keyboard.press("Enter");
@@ -2075,14 +2060,16 @@ test("text beside elements, the reviewers' cases: an element put in right before
   await dblRun(page, f, "#k2", 1);
   await page.keyboard.type("X");
   await page.keyboard.press("Enter");
-  assert.deepEqual(await settledTo("#k2", ["one", "br", "X", "<!>", ""]), ["one", "br", "X", "<!>", ""]);
+  await frames(f);
+  assert.deepEqual(await nodes("#k2"), ["one", "br", "X", "<!>", ""]);
   await f.evaluate(() => {
     const q = document.getElementById("k2"), [, , a, , b] = q.childNodes;
     a.replaceWith(document.createTextNode("A"));
     b.replaceWith(document.createTextNode("B"));
     window.fresh = [q.childNodes[2], q.childNodes[4]];
   });
-  assert.deepEqual(await settledTo("#k2", ["one", "br", "X", "<!>", ""]), ["one", "br", "X", "<!>", ""], "applied again, to the new nodes");
+  await settle(f);
+  assert.deepEqual(await nodes("#k2"), ["one", "br", "X", "<!>", ""], "applied again, to the new nodes");
   await act(f, { type: "undo" });
   await frames(f);
   assert.deepEqual(await nodes("#k2"), ["one", "br", "A", "<!>", "B"]);

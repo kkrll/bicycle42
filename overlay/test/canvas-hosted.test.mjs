@@ -1,6 +1,6 @@
 // End-to-end tests for canvas mode's inspector when the host draws it (src/canvas/host.js): the
 // view the overlay sends, and what the host's acts do to the page. The harness plays the host
-// (__harness.hostDocks, __harness.act, __harness.panel). Same set-up as canvas.suite.mjs.
+// (__harness.hostDocks, __harness.act, __harness.panel). Same set-up as canvas.test.mjs.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
