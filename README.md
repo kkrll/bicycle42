@@ -38,8 +38,9 @@ its own name and icon. It is not signed with a developer certificate, and there 
 
 1. **Connect.** Under **Agents on this computer** the app lists the agents it knows how to run,
    each with its mark and how it stands: ready, not installed (with the one command that
-   installs it, to copy), or needing you to sign in (with the command to run in a terminal).
-   Press **Start** beside one; **Command**, under the pointer, shows what the app runs. The app
+   installs it, to copy), or needing you to sign in (with the command that signs in, to copy:
+   a Start there would only fail). Back in the window after a terminal, those rows are looked at
+   again. Press **Start** beside one; **Command**, under the pointer, shows what the app runs. The app
    runs it with your own login of it, and it works in this computer's folders. Any other ACP
    agent works too: type the command that starts it. What an agent can't do (copy a
    conversation, put one away, summarise it) the app leaves out.

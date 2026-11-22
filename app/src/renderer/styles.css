@@ -3226,6 +3226,11 @@ details[open] > summary > .caret {
   color: var(--muted);
 }
 
+/* A heading with no lead under it: the lead's room before the form. */
+.connect-card h1 + .connect-form {
+  margin-top: 24px;
+}
+
 /* Choosing a model: the folder step's rows in the connect card, the chosen one marked. The
    list scrolls by itself, so the button under it stays in reach however many models there are. */
 .model-list {

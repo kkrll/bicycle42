@@ -364,7 +364,9 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
 and is the `Backend` for it (`@agentclientprotocol/sdk`, its `/unstable` entry, bundled into
 main). The connect screen lists the agents `main/agents.ts` knows, each said installed or not
 (looked for on this process's PATH and on the one the login shell sets up, since an app started
-from the desktop has less), and takes any other command (`connectAgent`). A saved agent is kept
+from the desktop has less), and takes any other command (`connectAgent`). A row not installed or
+not signed in offers to copy the command that fixes it, not Start; the list is asked for again
+when the window gets the focus back while such a row is there (or an agent refused a sign-in). A saved agent is kept
 (`{ agent, command }` in `settings.servers`), with its own repo, pages and conversations; its
 address is `acp://<id>`. A known agent's command is worked out again at each start (the saved one
 is a record): a pin moved on, or "Always the newest" turned on, applies to it at once.

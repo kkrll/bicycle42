@@ -113,10 +113,13 @@ export function FactsPane() {
           {(v) => (
             <>
               <p class="fp-line fp-sum">
-                <span>Page is {n(v().doc.h)} tall</span>
-                <Show when={v().doc.w > v().viewport.w + 1}>
-                  <span class="fp-warn">scrolls sideways: {n(v().doc.w)} wide</span>
-                </Show>
+                <span>
+                  {n(v().doc.h)} px tall
+                  <Show when={v().doc.w > v().viewport.w + 1}>
+                    {" · "}
+                    <span class="fp-warn">{n(v().doc.w)} px wide, scrolls sideways</span>
+                  </Show>
+                </span>
               </p>
               <Show when={!v().meta}>
                 <p class="fp-line fp-warn">No viewport tag: a phone lays this page out about 980 wide and zooms out.</p>
