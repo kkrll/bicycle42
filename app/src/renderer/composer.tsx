@@ -458,6 +458,10 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
 
   // ── sending ──
   const busy = () => !!state.session?.busy
+  /** There is a run to stop: the agent works, and is not paused (offline, at work nowhere). */
+  const stoppable = () => busy() && !(offline() && !awayHost())
+  /** Something is in the box to send. */
+  const typed = () => !!text().trim() || !!images().length
   const send = (steer: boolean) => {
     const raw = text()
     const body = raw.trim()
@@ -723,33 +727,39 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
           />
           <Pickers />
           <ContextMeter />
-          {/* While the agent works and there is nothing to send, Send gives its place to Stop. Not
-              while it is paused (offline, and not at work elsewhere): its process is gone, and
-              with it the run Stop would end, so the box keeps Send, and what is sent waits. The
-              two share one slot as wide as Stop, so the swap moves nothing before them. */}
+          {/* While the agent works, Stop is there: in words while there is nothing to send, and
+              as its square beside Send once something is typed, so a follow-up never takes the
+              one way to stop the run. Not while it is paused (offline, and not at work
+              elsewhere): its process is gone, and with it the run Stop would end, so the box
+              keeps Send, and what is sent waits. They share one slot as wide as Stop in words
+              (the square and Send are as wide together), so nothing before them moves. */}
           <div class="send-slot">
-          <Show
-            when={!(busy() && !(offline() && !awayHost()) && !text().trim() && !images().length)}
-            fallback={
-              <button class="btn stop-btn" title="Stop the agent" onClick={() => act("stop")}>
+            <Show when={stoppable()}>
+              <button
+                class="btn stop-btn"
+                classList={{ "icon-only": typed() }}
+                title="Stop the agent"
+                aria-label={typed() ? "Stop" : undefined}
+                onClick={() => act("stop")}
+              >
                 <Icon name="stop" />
-                Stop
+                <Show when={!typed()}>Stop</Show>
               </button>
-            }
-          >
-          <button
-            class="icon-btn send"
-            title={busy() ? `Send when it's free (${keys("enter")})${state.can?.steer ? ` · ${keys("mod", "enter")} interrupts now` : ""}` : `Send (${keys("enter")})`}
-            aria-label="Send"
-            disabled={!text().trim() || !!blocked()}
-            onClick={() => {
-              send(false)
-              field.focus()
-            }}
-          >
-            <Icon name="send" />
-          </button>
-          </Show>
+            </Show>
+            <Show when={!stoppable() || typed()}>
+              <button
+                class="icon-btn send"
+                title={busy() ? `Send when it's free (${keys("enter")})${state.can?.steer ? ` · ${keys("mod", "enter")} interrupts now` : ""}` : `Send (${keys("enter")})`}
+                aria-label="Send"
+                disabled={!text().trim() || !!blocked()}
+                onClick={() => {
+                  send(false)
+                  field.focus()
+                }}
+              >
+                <Icon name="send" />
+              </button>
+            </Show>
           </div>
         </div>
         <Show when={dropping()}>

@@ -20,7 +20,7 @@ import "./motion-dock.css"
 import { For, Show, createContext, createEffect, createMemo, createRoot, createSignal, getOwner, onCleanup, onMount, untrack, useContext, type JSX, type Owner } from "solid-js"
 import type { MotionAct, MotionKind, MotionLane, MotionOpen, MotionView } from "../../../overlay/protocol-motion"
 import { Icon } from "./icons"
-import { dockAct, dockPing, dockViews, keys, mac } from "./store"
+import { NOTE_OPTIONAL, dockAct, dockPing, dockViews, keys, mac, nextNoteNumber } from "./store"
 
 const send = (act: MotionAct) => dockAct({ panel: "motion", act })
 const view = () => dockViews.motion as MotionView | undefined
@@ -757,7 +757,7 @@ export function MotionDock() {
                     spellcheck={false}
                     autocomplete="off"
                     aria-label="Note"
-                    placeholder={open() ? (open()!.kind === "css" ? "Note… (optional)" : "Say what it should do…") : "Note…"}
+                    placeholder={open() && open()!.kind !== "css" ? "Note for the agent: what it should do" : NOTE_OPTIONAL}
                     value={note()}
                     onFocus={() => {
                       setNoteFocused(true)
@@ -784,7 +784,13 @@ export function MotionDock() {
                   type="button"
                   class="btn primary mdock-go"
                   disabled={!canSend()}
-                  title={canSend() ? `Send this animation to the agent (${keys("enter")}; ${keys("alt", "enter")}: in the background)` : open() ? "Change it, or say what it should do, first" : "Open an animation first"}
+                  title={
+                    canSend()
+                      ? `Send this animation to the agent as note ${nextNoteNumber()} (${keys("enter")}; ${keys("alt", "enter")}: in the background)`
+                      : open()
+                        ? "Change it, or say what it should do, first"
+                        : "Open an animation first"
+                  }
                   onClick={(e) => sendNote(e.altKey)}
                 >
                   Send

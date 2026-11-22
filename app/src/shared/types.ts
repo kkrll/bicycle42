@@ -567,8 +567,9 @@ export type Commands = {
   setPhone(id: string): void
   // review
   toggleReview(): void
-  /** The top bar's switch. Notes and edit turn review on; the page takes the keyboard. */
-  setMode(mode: ReviewMode): void
+  /** The top bar's switch. Notes and edit turn review on; the page takes the keyboard, unless
+   *  `stay` (the switch's own arrow keys: the keyboard stays on the switch). */
+  setMode(mode: ReviewMode, stay?: boolean): void
   /** The brush on or off. On, it turns review on and goes to notes mode. */
   toggleBrush(): void
   toggleAutoReload(): void
@@ -708,8 +709,9 @@ export type CommandName = keyof Commands
 
 /** App-level shortcuts caught while the page has focus, forwarded to the window. "url-copied":
  *  mod+shift+C, the page's address already copied by the main process (the window, without the
- *  focus, could not write the clipboard), for the window to say so. */
-export type Shortcut = "focus-url" | "toggle-panel" | "focus-chat" | "url-copied"
+ *  focus, could not write the clipboard), for the window to say so. The app's menu sends some
+ *  too, and "stop" (as the message box's Stop) and "show-keys" (the sheet of keys). */
+export type Shortcut = "focus-url" | "toggle-panel" | "focus-chat" | "url-copied" | "stop" | "show-keys"
 
 /** Main → window: the reviewer clicked a note's pin on the page. */
 export type NoteFocus = { id: string }

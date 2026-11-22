@@ -487,8 +487,15 @@ function fakePage(pins: boolean): HTMLElement {
   el.style.cssText =
     "position:fixed;z-index:2147483647;overflow:hidden;display:none;background:Canvas;color:CanvasText;color-scheme:light;font:14px/1.5 system-ui"
   const block = (css: string) => `<div style="${css}"></div>`
-  const pin = (n: number, tone: string, x: number, y: number, square = false) =>
-    `<div style="position:absolute;left:${x}px;top:${y}px;min-width:20px;height:20px;padding:0 5px;display:grid;place-items:center;border-radius:${square ? 4 : 10}px;background:var(--status-${tone});color:Canvas;font:700 10px/1 ui-monospace,monospace">${n}</div>`
+  /** A pin as the overlay draws it (overlay/src/styles.css, .pin): the list's badge, on any page:
+   *  outlined waits, a thicker outline is being worked on, filled is done, red failed, and a
+   *  background note's is filled grey. */
+  const pin = (n: number, status: "queued" | "working" | "done" | "failed", x: number, y: number, bg = false) => {
+    const ring = status === "failed" ? "#dc2626" : "#171717"
+    const fill = status === "done" ? "#171717" : bg ? "#d4d4d4" : "#fff"
+    const ink = status === "done" ? "#fff" : status === "failed" ? "#b91c1c" : "#171717"
+    return `<div style="position:absolute;left:${x}px;top:${y}px;box-sizing:border-box;min-width:20px;height:20px;padding:0 5px;border-radius:10px;text-align:center;background:${fill};color:${ink};box-shadow:inset 0 0 0 ${status === "working" ? 2 : 1}px ${ring},0 0 0 1px #fff,0 1px 3px rgba(0,0,0,.3);font:700 12px/20px ui-monospace,monospace">${n}</div>`
+  }
   el.innerHTML = `
     <div style="display:flex;align-items:center;gap:24px;height:56px;padding:0 32px;border-bottom:1px solid GrayText">
       <b>acme</b><span>Product</span><span>Pricing</span><span>Docs</span>

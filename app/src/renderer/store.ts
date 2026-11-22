@@ -217,11 +217,11 @@ export function remember(key: string, value: string): void {
 }
 
 /** "⌘⇧Z" on a Mac, "Ctrl+Shift+Z" elsewhere. */
-export function keys(...parts: ("mod" | "shift" | "alt" | "enter" | (string & {}))[]): string {
+export function keys(...parts: ("mod" | "shift" | "alt" | "enter" | "up" | "down" | (string & {}))[]): string {
   const m = mac()
   const names: Record<string, string> = m
-    ? { mod: "⌘", shift: "⇧", alt: "⌥", enter: "↵" }
-    : { mod: "Ctrl", shift: "Shift", alt: "Alt", enter: "Enter" }
+    ? { mod: "⌘", shift: "⇧", alt: "⌥", enter: "↵", up: "↑", down: "↓" }
+    : { mod: "Ctrl", shift: "Shift", alt: "Alt", enter: "Enter", up: "↑", down: "↓" }
   return parts.map((p) => names[p] ?? p).join(m ? "" : "+")
 }
 
@@ -267,6 +267,10 @@ export const offline = () => state.connection.status === "offline"
 /** The computer an agent runs on over ssh can't be reached, and the agent works on there: its
  *  host, while that lasts. */
 export const awayHost = (): string | undefined => (state.connection.status === "offline" && state.connection.away ? (state.harness?.host ?? "its computer") : undefined)
+/** A conversation (the open one by default) is held up on the reviewer: a permission or a
+ *  question of its own waits for an answer, so nothing goes on in it meanwhile. */
+export const asking = (session: string | undefined = state.session?.id): boolean =>
+  !!session && (state.permissions.some((p) => p.session === session) || state.questions.some((q) => q.session === session))
 
 /** The reviewer asked for the notes list while the panel is too cramped to open it by default
  *  (a pin was clicked, the top bar's counts, the list's own header). Lasts until the app restarts. */
@@ -294,6 +298,11 @@ export const noteShown = (note: AppState["review"]["notes"][number]): NoteShown 
     : note.status === "working" && offline() && !awayHost()
       ? "paused"
       : note.status
+
+/** The number the next note will have (main numbers on from the last one: review.ts). */
+export const nextNoteNumber = () => (state.review.notes.at(-1)?.n ?? 0) + 1
+/** What a dock's note field says while empty: the same words in Edit and Motion. */
+export const NOTE_OPTIONAL = "Note for the agent (optional)"
 
 /** The one count of the notes every place shows (top bar, list header): all from
  *  `state.review.notes`, so they cannot disagree. `left` is everything not finished, failed

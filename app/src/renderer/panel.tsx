@@ -14,7 +14,9 @@ import {
   act,
   chat,
   focusedNote,
+  asking,
   host,
+  keys,
   message,
   expandNotes,
   notesForced,
@@ -115,7 +117,11 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
     }
     setSnap(all ? null : fit + 6)
   }
-  const LEGEND = "Round pins wait their turn in one queue; square pins (Alt+Enter) run in parallel with it."
+  /** Being worked on, and held up on the reviewer: its conversation asks something (not while
+   *  the agent is out of reach: then it is paused). */
+  const waitsOnYou = (note: NoteRow) => note.status === "working" && !paused() && asking(note.session)
+  /** How a note's badge reads, here and on its pin on the page alike (overlay/src/styles.css). */
+  const LEGEND = `A note's badge, here and on its pin: outlined waits its turn, a pulsing outline is being worked on, filled is done, red failed, a broken outline is stopped or not sent yet. A grey one (${keys("alt", "enter")}) runs in parallel with the queue.`
   // Measured a frame later, once the rows have their heights.
   const observer = new ResizeObserver(() => requestAnimationFrame(measure))
   onCleanup(() => observer.disconnect())
@@ -128,7 +134,7 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
   const [why, setWhy] = createSignal(false)
   const grouped = createMemo(() => {
     const g: Record<Group, NoteRow[]> = { needs: [], working: [], waiting: [], done: [] }
-    for (const note of state.review.notes) g[groupOf(note)].push(note)
+    for (const note of state.review.notes) g[groupOf(note, waitsOnYou(note))].push(note)
     return g
   })
   const [doneOpen, setDoneOpenSignal] = createSignal(recall("notes.done") === "1")
@@ -139,7 +145,7 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
   /** A row that is about to be pointed at has to be there: its group is unfolded first. */
   const unfoldFor = (id: string) => {
     const note = state.review.notes.find((n) => n.id === id)
-    if (note && groupOf(note) === "done" && !doneOpen()) setDoneOpenSignal(true)
+    if (note && groupOf(note, waitsOnYou(note)) === "done" && !doneOpen()) setDoneOpenSignal(true)
   }
   /** "Note 5's pin" or "The pins of notes 5 and 7": the ones the count counts (main marks them). */
   const lostPins = () => {
@@ -292,6 +298,7 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
                     <For each={grouped()[g.key]}>
                       {(note) => {
                 const shown = () => shownStatus(note)
+                const waits = () => waitsOnYou(note)
                 onCleanup(() => rows.delete(note.id))
                 return (
                   <li
@@ -311,7 +318,7 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
                       >
                         <span
                           class="badge"
-                          data-status={note.takenBack ? "stopped" : shown()}
+                          data-status={note.takenBack ? "stopped" : waits() ? "paused" : shown()}
                           data-lane={note.lane}
                           title={note.lane === "bg" ? "Runs in parallel with the main queue" : undefined}
                         >
@@ -340,6 +347,12 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
                         <Show when={rowSaysWord(shown(), !!note.takenBack)}>
                           <span class="note-status" data-status={shown()}>
                             {noteWord(note)}
+                          </span>
+                        </Show>
+                        {/* Under way, and held up on the reviewer's answer (in the chat, below). */}
+                        <Show when={waits()}>
+                          <span class="note-status" data-status="asks" title="The agent waits for your answer in the conversation">
+                            waiting for you
                           </span>
                         </Show>
                         {/* The agent's computer out of reach: what the note waits on. */}
@@ -842,10 +855,12 @@ export function Panel(props: {
   size: { width: number; height: number }
 }) {
   const [listHeight, setListHeight] = createSignal(Number(recall("notes.height")) || LIST_DEFAULT)
-  // The conversation keeps at least 160px of messages, under its header and above the message box;
-  // the notes header takes its line too. What is left can go to the list.
-  // (agent row, notes header, conversation header, message box at its one empty line, the 160)
-  const room = () => props.size.height - 32 - 36 - 36 - 100 - 160
+  // The conversation keeps at least 240px of messages, under its header and above the message box
+  // (the turn's header, a step or two and the agent's words: 160 was the header and its steps
+  // alone); the notes header takes its line too. What is left can go to the list, and where that
+  // is under three rows (a short window: 600px or so) the list starts folded.
+  // (agent row, notes header, conversation header, message box at its one empty line, the 240)
+  const room = () => props.size.height - 32 - 36 - 36 - 100 - 240
   const maxList = () => Math.max(LIST_MIN, room())
   // A narrow or short panel folds the list to its one-line summary, unless the reviewer opens it.
   const cramped = () => props.size.width > 0 && (props.size.width < 360 || room() < ROW * 3 + 6)

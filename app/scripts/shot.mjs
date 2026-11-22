@@ -151,6 +151,8 @@ const SHOTS = [
   { name: "review-menu", mock: "review", run: [click(".convo-current")] },
   { name: "review-open", mock: "review", run: [`document.querySelectorAll(".transcript details").forEach((d) => (d.open = true))`] },
   { name: "review-narrow", mock: "review", size: [760, 560] },
+  // The sheet of keys, as "?" opens it outside a field (Help ▸ Keyboard Shortcuts too).
+  { name: "keys", mock: "review", run: [`window.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true, cancelable: true }))`], wait: 400 },
   // "· 2 unpinned" clicked: what it means, under the notes header; and in the least panel.
   { name: "unpinned", mock: "review", run: [click(".lost-btn")], wait: 300 },
   { name: "unpinned-narrow", mock: "review", run: [leastPanel, pause(200), click(".lost-btn")], wait: 300 },

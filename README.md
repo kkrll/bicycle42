@@ -104,6 +104,15 @@ said. A row can be pinned to the top, renamed, archived (it leaves the list and 
 back from **Archived**) or deleted for good; archiving or deleting the open one opens the
 most recent other one.
 
+**The notes' badges** read the same in the list and on their pins on the page: outlined waits
+its turn, a pulsing outline is being worked on, filled is done, red failed, a broken outline is
+stopped, taken back or not sent yet, and a grey one (`alt+Enter`) runs in parallel. A note whose
+agent asks you something (a permission, a question) moves to **Needs you**, its pin and its turn
+stop pulsing and say **Waiting for you**, and the turn's clock stops until you answer. The request
+takes the room it needs under the conversation; `Enter` is its **Allow once**, and when the change
+it would allow is folded away, the first `Enter` shows it. While the agent works, **Stop** stays
+beside **Send** when you type a follow-up.
+
 **A note, opened:** click a note in the list and it takes the panel, above the message box,
 with **Notes** (or Esc) to go back and arrows to the note before and after. It shows what the
 note says and, once the agent is done, what came of it. Its area as it was when
@@ -149,7 +158,8 @@ panel's conversation row), where reloading the page after a note is switched too
 The top bar has the mode: **Preview** (the page as it is, without the notes' pins), **Annotate** (point at something
 and say what to change), **Edit** (change the page itself, then press Send) and **Motion** (see
 what moves on the page, change one animation, then send it), with **Draw** (the pencil) beside
-them. Beside the address, **Desktop | Phone** shows the page as wide as its pane or as a phone
+them. In a narrow window the address gives up its width first; past that, each mode's name goes
+under its icon. Beside the address, **Desktop | Phone** shows the page as wide as its pane or as a phone
 has it; which phone (iPhone SE to iPhone 18 Pro Max, a Pixel, a Galaxy) is the list above the
 page. The window draws the phone around the page: its screen's shape with a faint ring, the
 status bar above (the time, the camera's island, notch or hole, signal and battery, in the page's
@@ -163,7 +173,10 @@ targets under 44 px, inputs that make iOS zoom) and the files the agent changed.
 
 ## Keys
 
-`mod` is `⌘` on macOS and `Ctrl` elsewhere.
+`mod` is `⌘` on macOS and `Ctrl` elsewhere. `?` (outside a text field), or **Help ▸ Keyboard
+Shortcuts**, shows the window's keys in a sheet; the **Review** menu has the modes, Draw, the
+page's address, the panel, a new conversation and Stop, each with its key. Once the mode switch
+has the keyboard, `←` `→` (and `Home`, `End`) go along it.
 
 | Modes, anywhere | |
 |---|---|

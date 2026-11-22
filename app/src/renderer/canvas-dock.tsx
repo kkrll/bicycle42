@@ -48,7 +48,7 @@ import {
   withVars,
 } from "../../../overlay/src/canvas/suggest-model.js"
 import { Icon, Kbd } from "./icons"
-import { dockAct, dockViews, keys, mac, recall, remember, state } from "./store"
+import { NOTE_OPTIONAL, dockAct, dockViews, keys, mac, nextNoteNumber, recall, remember, state } from "./store"
 import "./canvas-dock.css"
 
 /** A tree row's height, px. The overlay is told how many rows show; it sends those and a screenful around. */
@@ -883,7 +883,9 @@ export function CanvasDock() {
   }
   const sendTitle = () => {
     const n = edits()
-    return n ? `Send ${n === 1 ? "this edit" : `these ${n} edits`} as one note (${keys("enter")} in the note, ${keys("mod", "enter")} anywhere else)` : "Nothing to send yet"
+    return n
+      ? `Send ${n === 1 ? "this edit" : `these ${n} edits`} to the agent as note ${nextNoteNumber()} (${keys("enter")} in the note, ${keys("mod", "enter")} anywhere else)`
+      : "Nothing to send yet"
   }
 
   // ── the keys list: from the "?", inside the inspector's box ──
@@ -1232,7 +1234,7 @@ export function CanvasDock() {
               spellcheck={false}
               autocomplete="off"
               aria-label="Note"
-              placeholder="Add a note…"
+              placeholder={NOTE_OPTIONAL}
               value={note()}
               onFocus={() => {
                 setNoteFocused(true)

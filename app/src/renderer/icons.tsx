@@ -148,11 +148,13 @@ const KEY_PATHS: Record<string, { d: string; name: string }> = {
   "⇧": { name: "Shift", d: "M12 4l8 8h-4.5v8h-7v-8H4z" },
   "⌥": { name: "Option", d: "M3 5h5.5l7 14H21M14.5 5H21" },
   "↵": { name: "Return", d: "M20 5v6a4 4 0 0 1-4 4H4M8.5 10.5L4 15l4.5 4.5" },
+  "↑": { name: "Up", d: "M12 19V5M6 11l6-6 6 6" }, // kkrll-ignore: the key's name in this table; Kbd draws it as the path beside it, not as type
+  "↓": { name: "Down", d: "M12 5v14M6 13l6 6 6-6" }, // kkrll-ignore: the key's name in this table; Kbd draws it as the path beside it, not as type
 }
 
 /** A key or a chord, "⌘⇧M" or "Ctrl+Enter": symbols drawn, everything else as type. */
 export function Kbd(props: { keys: string }): JSX.Element {
-  const parts = () => props.keys.split(/([⌘⇧⌥↵])/).filter(Boolean)
+  const parts = () => props.keys.split(/([⌘⇧⌥↵↑↓])/).filter(Boolean)
   return (
     <kbd>
       <For each={parts()}>

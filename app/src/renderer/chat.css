@@ -430,17 +430,17 @@
   outline-offset: -2px;
 }
 
-/* A request never takes more than this from the conversation; it scrolls inside instead. */
-/* At most 60% of the conversation's height, scrolling inside, and it gives way before the
-   transcript drops below 200px. */
+/* While a request waits the agent is held up on it, so it comes first: up to 80% of the
+   conversation's height, scrolling inside past that, and the transcript gives way to it down to
+   a few lines (its turn's header says whose turn it is). */
 .asks {
   flex: 0 1 auto;
   min-height: 0;
-  max-height: 60%;
+  max-height: 80%;
 }
 
 .transcript-wrap {
-  min-height: min(200px, 40%);
+  min-height: min(96px, 20%);
 }
 
 
@@ -594,11 +594,13 @@
   color: var(--foreground);
 }
 
-/* Stop and Send, one at a time, at the row's end: the slot keeps Stop's width either way. */
+/* Stop and Send at the row's end: Stop in words, Send, or Stop's square beside Send (28 + 3 + 28).
+   The slot keeps Stop's width in every case. */
 .send-slot {
   flex: none;
   display: flex;
   justify-content: flex-end;
+  gap: 3px;
   min-width: 59px;
 }
 
@@ -606,6 +608,11 @@
   flex: none;
   gap: 4px;
   padding: 0 8px 0 6px;
+}
+
+.stop-btn.icon-only {
+  width: 28px;
+  padding: 0;
 }
 
 .stop-btn > .icon {

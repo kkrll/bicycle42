@@ -203,7 +203,9 @@ export type Draft = {
 export type Pin = {
   id: string
   n: number
-  status: "queued" | "working" | "done" | "failed" | "paused" | "stopped"
+  /** "sending": not with the agent yet (being captured or sent); "asking": being worked on, and
+   *  its conversation waits on the reviewer's answer; "stopped": stopped, or taken back. */
+  status: "sending" | "queued" | "working" | "asking" | "done" | "failed" | "paused" | "stopped"
   lane?: "bg"
   selector?: string
   tag?: string

@@ -9,7 +9,7 @@
 //   node_modules/.bin/electron --ozone-platform=headless --disable-gpu dist/test/app.e2e.cjs
 //
 // Exits 0 when every check passes.
-import { app, contentTracing, type BrowserWindow } from "electron"
+import { Menu, app, contentTracing, type BrowserWindow } from "electron"
 import fs from "node:fs"
 import http from "node:http"
 import os from "node:os"
@@ -300,6 +300,58 @@ async function main() {
     JSON.stringify(await ui(liveSaid)),
   )
 
+  // ── the agent asks for permission: whose turn it is, said one way everywhere ──────────────
+  // Held up on the reviewer, the turn is still (no spinner, no clock) and says so, the note is
+  // under Needs you, and its pin stops pulsing too. In a short window the change is folded: Enter
+  // shows it before it answers. The request takes the room it needs, up to 80% of the column.
+  {
+    win.setSize(1441, 700)
+    const lines = Array.from({ length: 120 }, (_, i) => `line ${i}`)
+    const asking = (await turnNow())!.ask({
+      toolCall: { toolCallId: "e2e-edit", content: [{ type: "diff", path: path.join(siteDir, "index.html"), oldText: lines.join("\n") + "\n", newText: lines.map((l) => `${l}!`).join("\n") + "\n" }] },
+      options: [
+        { optionId: "yes", name: "Allow", kind: "allow_once" },
+        { optionId: "always", name: "Always", kind: "allow_always" },
+        { optionId: "no", name: "Reject", kind: "reject_once" },
+      ],
+    })
+    await until(() => state().permissions.length === 1)
+    const head = `(() => { const h = document.querySelector(".transcript .turn-head.live"); return h ? h.textContent.replace(/\\s+/g, " ").trim() + (h.querySelector(".spin") ? " [spinning]" : "") : "" })()`
+    check(
+      "a permission waiting: the turn's header says Waiting for you, with no spinner and no clock",
+      (await until(() => ui(`/^Waiting for you on ?1 ?make this button bigger$/.test(${head})`))) === true,
+      String(await ui(head)),
+    )
+    const row = `(() => { const r = [...document.querySelectorAll(".notes-list .note")].find((n) => n.textContent.includes("make this button bigger")); return r ? r.dataset.group + "|" + r.querySelector(".badge").dataset.status + "|" + (r.querySelector('.note-status[data-status="asks"]')?.textContent.trim() ?? "") : "" })()`
+    check("…its note is under Needs you, still, waiting for you", (await until(() => ui(`${row} === "needs|paused|waiting for you"`))) === true, String(await ui(row)))
+    check("…and its pin on the page stops pulsing the same way", /pin asking/.test(await until(async () => ((await pins()).includes("asking") ? pins() : ""))), await pins())
+    const folded = () => ui(`document.querySelector(".asks .ask > .more-btn")?.getAttribute("aria-expanded") ?? "none"`) as Promise<string>
+    const wasFolded = await until(async () => ((await folded()) === "false" ? "false" : ""), 3000)
+    const enterOnCard = `(() => { const a = document.querySelector(".asks .ask"); a.focus(); a.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })) })()`
+    await ui(enterOnCard)
+    await sleep(300)
+    check(
+      "Enter on a request whose change is folded shows the change, and allows nothing yet",
+      wasFolded === "false" && (await folded()) === "true" && state().permissions.length === 1,
+      `${wasFolded} → ${await folded()}, ${state().permissions.length} waiting`,
+    )
+    const room = (await ui(`(() => { const c = document.querySelector(".chat").getBoundingClientRect(), t = document.querySelector(".transcript-wrap").getBoundingClientRect(), a = document.querySelector(".asks"); return { chat: Math.round(c.height), transcript: Math.round(t.height), asks: Math.round(a.getBoundingClientRect().height), scrolls: a.scrollHeight > a.clientHeight + 1 } })()`)) as { chat: number; transcript: number; asks: number; scrolls: boolean }
+    check(
+      "a long request takes the room: the transcript gives way down to a few lines (96px, or a fifth of the column; was 200px), and the request scrolls only past that",
+      room.scrolls && room.transcript <= Math.min(96, room.chat * 0.2) + 1,
+      JSON.stringify(room),
+    )
+    await ui(enterOnCard)
+    const answered = (await Promise.race([asking, sleep(4000).then(() => "no answer")])) as { outcome?: { optionId?: string } } | string
+    check("…and the next Enter allows it once", typeof answered === "object" && answered.outcome?.optionId === "yes", JSON.stringify(answered))
+    check(
+      "answered, the turn works again, with its clock",
+      (await until(() => ui(`/^Working on ?1 ?make this button bigger ?· \\d+s \\[spinning\\]$/.test(${head})`))) === true,
+      String(await ui(head)),
+    )
+    win.setSize(1441, 900)
+  }
+
   // A second note while the first is in progress, sent before the agent replies.
   await js("window.__beforeReload = true")
   await note("h1", "tighter heading")
@@ -451,6 +503,71 @@ async function main() {
   check("…and Edit turns the pencil off", (await until(async () => (await inspector()) && !state().review.brush && state().review.mode === "edit")) === true)
   await sleep(250)
   check("…still with nothing in the top bar moved", (await barLayout()) === inPreview, `${inPreview}\n→ ${await barLayout()}`)
+  // The mode switch is a radio group: one Tab stop, the chosen mode, and its arrows choose as
+  // they go (Home and End to either end, round at the ends), the keyboard staying on it.
+  {
+    const stops = () => ui(`[...document.querySelectorAll(".modes .mode")].map((b) => b.dataset.mode + ":" + b.tabIndex).join(" ")`) as Promise<string>
+    check("the mode switch is one Tab stop: the chosen mode", (await stops()) === "preview:-1 notes:-1 edit:0 motion:-1", await stops())
+    const press = (key: string) => ui(`(() => { const b = document.querySelector('.mode[aria-checked="true"]'); b.focus(); b.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, bubbles: true, cancelable: true })) })()`)
+    const at = (mode: string) => until(async () => state().review.mode === mode && (await ui(`document.activeElement?.dataset.mode`)) === mode && (await stops()).includes(`${mode}:0`))
+    await press("ArrowLeft")
+    const left = await at("notes")
+    await press("Home")
+    const home = await at("preview")
+    await press("ArrowLeft")
+    const round = await at("motion")
+    check("←, Home and ← again choose Annotate, Preview and (round the end) Motion, the keyboard on the switch", left && home && round, `${state().review.mode}, ${await stops()}`)
+    await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
+    await until(async () => state().review.mode === "edit" && (await inspector()))
+  }
+  // A narrow window: the address gives up its width first, then the modes' names go under their
+  // icons (they stayed hidden below 900px before).
+  {
+    const bar = `(() => { const m = document.querySelector(".modes"), t = document.querySelector(".topbar"); return { stacked: m.classList.contains("stacked"), names: [...m.querySelectorAll(".mode-label")].filter((l) => l.getBoundingClientRect().width > 0).length, url: Math.round(document.querySelector(".url-field").getBoundingClientRect().width), fits: t.scrollWidth <= t.clientWidth } })()`
+    type Bar = { stacked: boolean; names: number; url: number; fits: boolean }
+    win.setSize(760, 900)
+    const narrow = (await until(() => ui(`${bar}.stacked && ${bar}`), 3000)) as Bar | false
+    check("in a narrow window the modes keep their names, under their icons, with the address at 200px or more", !!narrow && narrow.names === 4 && narrow.url >= 200 && narrow.fits, JSON.stringify(narrow || (await ui(bar))))
+    win.setSize(1441, 900)
+    const wide = (await until(() => ui(`!${bar}.stacked && ${bar}`), 3000)) as Bar | false
+    check("…and wide again, beside them", !!wide && wide.names === 4, JSON.stringify(wide || (await ui(bar))))
+  }
+  // The app's menu lists its commands with the keys they already have (and binds none: the keys
+  // are handled where they were); Help ▸ Keyboard Shortcuts, or "?" outside a field, opens the
+  // sheet of keys, with the page away while it is open.
+  {
+    const menu = Menu.getApplicationMenu()!
+    const items = (label: string) => (menu.items.find((i) => i.label === label)?.submenu?.items ?? []).filter((i) => i.type !== "separator")
+    const listed = items("Review").map((i) => `${i.label}${i.accelerator ? `=${i.accelerator}` : ""}`).join(", ")
+    check(
+      "the Review menu lists the modes, Draw, the page, the panel, the conversation and Stop, with their keys",
+      listed === "Preview=CmdOrCtrl+U, Annotate=CmdOrCtrl+P, Edit=CmdOrCtrl+O, Motion=CmdOrCtrl+I, Draw=CmdOrCtrl+Shift+P, Reload the Page=CmdOrCtrl+R, Copy the Page's Address=CmdOrCtrl+Shift+C, Go to the Address=CmdOrCtrl+L, Show or Hide Notes and Conversation=CmdOrCtrl+J, Go to the Message Box=CmdOrCtrl+K, New Conversation, Stop the Agent",
+      listed,
+    )
+    check("…shown, not bound to the keys", items("Review").every((i) => !i.accelerator || i.registerAccelerator === false))
+    items("Review").find((i) => i.label === "Annotate")!.click()
+    check("…and a click on one does it", (await until(() => state().review.mode === "notes")) === true, state().review.mode)
+    const sheet = `!!document.querySelector(".keys-sheet")?.open`
+    items("Help").find((i) => i.label === "Keyboard Shortcuts")!.click()
+    const opened = await until(() => ui(sheet))
+    const said = (await ui(`document.querySelector(".keys-sheet")?.textContent ?? ""`)) as string
+    check(
+      "Help ▸ Keyboard Shortcuts opens the sheet of keys, the page veiled",
+      opened === true && said.includes("Annotate, Edit, Motion") && said.includes(modKey("J")) && (await ui(`document.querySelector(".page").classList.contains("veiled")`)) === true,
+      said.slice(0, 120),
+    )
+    await ui(`document.querySelector(".keys-sheet").close()`)
+    await until(async () => !(await ui(sheet)))
+    await ui(`(() => { const u = document.querySelector(".url"); u.focus(); u.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true, cancelable: true })) })()`)
+    await sleep(200)
+    const inField = await ui(sheet)
+    await ui(`(() => { document.activeElement.blur(); window.dispatchEvent(new KeyboardEvent("keydown", { key: "?", bubbles: true, cancelable: true })) })()`)
+    check('"?" opens it too, outside a field (in the address it is a question mark)', inField === false && (await until(() => ui(sheet))) === true)
+    await ui(`document.querySelector(".keys-sheet").close()`)
+    await until(async () => !(await ui(sheet)))
+    await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
+    await until(async () => state().review.mode === "edit" && (await inspector()))
+  }
   // The panel's cards share two left edges: what is in a card on one, the words after a leading
   // mark on the other.
   const edges = (await ui(`(() => {
@@ -1152,12 +1269,15 @@ async function main() {
   await counting?.usage(124_000, 200_000)
   check("from half full it shows the percentage, quietly", (await until(async () => (await meterText()) === "62%|false|Context: 124k of 200k tokens")) === true, String(await meterText()))
   // Stop and Send take one place: the meter beside them stays put while the agent works, when
-  // something is typed then (Send instead of Stop), and once it is done.
+  // something is typed then (Stop's square beside Send: a follow-up never takes the way to stop
+  // the run), and once it is done.
   const meterRight = () => ui(`Math.round(document.querySelector(".composer-row .meter").getBoundingClientRect().right * 10) / 10`) as Promise<number>
-  const endButton = () => ui(`document.querySelector(".composer-row .stop-btn") ? "stop" : document.querySelector(".composer-row .icon-btn.send") ? "send" : "none"`) as Promise<string>
+  const endButton = () =>
+    ui(`(() => { const t = document.querySelector(".composer-row .stop-btn"), s = document.querySelector(".composer-row .icon-btn.send"); return t && s ? "stop+send" : t ? "stop" : s ? "send" : "none" })()`) as Promise<string>
   const meterBusyAt = (await endButton()) === "stop" ? await meterRight() : NaN
   await typeBox("a")
-  await until(async () => (await endButton()) === "send")
+  const typedEnd = await until(async () => ((await endButton()) === "stop+send" ? "stop+send" : ""), 3000)
+  check("while the agent works, a typed follow-up keeps Stop beside Send", typedEnd === "stop+send", typedEnd || (await endButton()))
   const meterTypedAt = await meterRight()
   await typeBox("")
   await counting?.usage(170_000, 200_000)
@@ -1622,6 +1742,10 @@ async function main() {
   await until(async () => (await editRows()).length === 1)
   await clickAt(`document.querySelector(${JSON.stringify(CARD)})`)
   check("…and a press on the page shuts it", (await until(() => ui(`!document.querySelector('.cd-edits')`))) === true)
+  // The note's field and Send say the same in Edit as in Motion: whose note, and its number.
+  const footWords = (await ui(`document.querySelector('.cd-note').placeholder + " | " + document.querySelector('.cd-send').title`)) as string
+  const nextN = (state().review.notes.at(-1)?.n ?? 0) + 1
+  check("Edit's note field is a note for the agent, and Send says the note it becomes", footWords.startsWith("Note for the agent (optional) | Send this edit to the agent as note " + nextN + " ("), footWords)
   await ui(`document.querySelector('.cd-note').focus()`)
   await windowDbg.sendCommand("Input.insertText", { text: "tighter please" })
   const footNotes = state().review.notes.length
@@ -1899,6 +2023,12 @@ async function main() {
   // Send, in the window: the note is the reviewer's though no key or click of theirs was in the
   // page (main lets a note through only when one was, or when the window's own dock sent it).
   const before = state().review.notes.length
+  const motionWords = (await ui(`document.querySelector(".mdock-note")?.placeholder + " | " + document.querySelector(".mdock-go").title`)) as string
+  check(
+    "…Motion's note field and Send say the same as Edit's",
+    motionWords.startsWith(`Note for the agent (optional) | Send this animation to the agent as note ${(state().review.notes.at(-1)?.n ?? 0) + 1} (`),
+    motionWords,
+  )
   await ui(`document.querySelector(".mdock-go").click()`)
   const sentIt = await until(() => state().review.notes.length === before + 1, 3000)
   check("Send in the window's dock makes the note", sentIt === true && /rise/.test(state().review.notes.at(-1)?.text ?? ""), `${state().review.notes.length - before} new: ${state().review.notes.at(-1)?.text}`)

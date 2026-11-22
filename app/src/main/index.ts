@@ -71,7 +71,25 @@ const core = createCore({
 
 function menu() {
   const mac = process.platform === "darwin"
-  // No "Reload" item: ⌘R belongs to the page under review, not to the app window.
+  /** A command of the app's, with the key it already has shown beside it. The key itself is
+   *  handled where it always was (the window, the page's view, the overlay), never here: the
+   *  accelerator is not registered (Linux, Windows), and a press of it that reaches the menu
+   *  anyway (macOS) is left alone, so nothing happens twice. The menu acts on a click. */
+  const item = (label: string, accelerator: string | undefined, run: () => void): Electron.MenuItemConstructorOptions => ({
+    label,
+    ...(accelerator ? { accelerator, registerAccelerator: false } : {}),
+    click: (_item, _window, event) => {
+      if (!event?.triggeredByAccelerator) run()
+    },
+  })
+  /** What the window does itself (its fields, its panel, its sheet): as its keys say it. */
+  const toWindow = (shortcut: Shortcut) => () => {
+    if (!window || window.isDestroyed()) return
+    window.webContents.send("b42:shortcut", shortcut)
+    window.webContents.focus()
+  }
+  const run = (name: string, ...args: unknown[]) => () => void core.invoke(name, args).catch(() => {})
+  // No "Reload" item for the window: ⌘R belongs to the page under review, not to the app window.
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       ...(mac ? [{ role: "appMenu" as const }] : []),
@@ -85,9 +103,39 @@ function menu() {
           { label: "Developer Tools: Page", accelerator: "Alt+CmdOrCtrl+J", click: () => page?.openDevTools() },
         ],
       },
+      // The app's own commands, each with the key it has (README, Keys).
+      {
+        label: "Review",
+        submenu: [
+          item("Preview", "CmdOrCtrl+U", run("setMode", "preview")),
+          item("Annotate", "CmdOrCtrl+P", run("setMode", "notes")),
+          item("Edit", "CmdOrCtrl+O", run("setMode", "edit")),
+          item("Motion", "CmdOrCtrl+I", run("setMode", "motion")),
+          item("Draw", "CmdOrCtrl+Shift+P", run("toggleBrush")),
+          { type: "separator" },
+          item("Reload the Page", "CmdOrCtrl+R", run("reload")),
+          item("Copy the Page's Address", "CmdOrCtrl+Shift+C", copyPageUrl),
+          item("Go to the Address", "CmdOrCtrl+L", toWindow("focus-url")),
+          { type: "separator" },
+          item("Show or Hide Notes and Conversation", "CmdOrCtrl+J", toWindow("toggle-panel")),
+          item("Go to the Message Box", "CmdOrCtrl+K", toWindow("focus-chat")),
+          item("New Conversation", undefined, run("newSession")),
+          item("Stop the Agent", undefined, toWindow("stop")),
+        ],
+      },
       { role: "windowMenu" },
+      { role: "help", submenu: [item("Keyboard Shortcuts", "Shift+/", toWindow("show-keys"))] },
     ]),
   )
+}
+
+/** The page's whole address on the clipboard, written here (the window may not have the focus a
+ *  copy of its own needs), and the window told, to say so. */
+function copyPageUrl() {
+  const url = page?.state().url
+  if (!url || !window || window.isDestroyed()) return
+  clipboard.writeText(url)
+  window.webContents.send("b42:shortcut", "url-copied" satisfies Shortcut)
 }
 
 /** The app icon, copied beside the bundle by scripts/build.mjs. Absent in a build without assets. */
@@ -139,12 +187,7 @@ async function createWindow() {
     onShortcut(key) {
       if (key === "toggle-review") return void core.commands.toggleReview()
       // Copied here, and the keyboard left in the page: copying is no reason to leave it.
-      if (key === "copy-url") {
-        const url = page?.state().url
-        if (!url) return
-        clipboard.writeText(url)
-        return void win.webContents.send("b42:shortcut", "url-copied" satisfies Shortcut)
-      }
+      if (key === "copy-url") return copyPageUrl()
       const shortcut: Shortcut = key
       win.webContents.send("b42:shortcut", shortcut)
       // The keys were pressed in the page; the field they lead to is in the window.

@@ -16,6 +16,7 @@ import { ConnectScreen, ModelScreen, ServerButton, SettingsDialog, SetupSteps, f
 import { Icon, Kbd, type IconName } from "./icons"
 import { frameOf } from "./phone"
 import { HomeStrip, StatusStrip } from "./phone-frame"
+import { KeysSheet } from "./keys-sheet"
 import { Switcher } from "./switcher"
 import { Panel, RepoScreen, countNotes, countWords, shortWords } from "./panel"
 import {
@@ -206,11 +207,51 @@ const MODES: { mode: ReviewMode; label: string; icon: IconName; what: string; ke
 ]
 /** mod+U, P, O, I (and mod+shift+P, the pencil), by the key's place: the same keys on any layout,
  *  a Cyrillic one included. */
+/** Where a key types: a text field, a text box, or anything editable. */
+const typing = (target: EventTarget | null) =>
+  target instanceof HTMLElement && (target.isContentEditable || target instanceof HTMLTextAreaElement || (target instanceof HTMLInputElement && !["checkbox", "radio", "button", "submit", "range"].includes(target.type)) || target instanceof HTMLSelectElement)
+
+/** The least the address keeps before the modes' names go under their icons: a short local
+ *  address and its path ("localhost:3000/pricing", 22 characters of 12 px mono, and padding). */
+const URL_ROOM = 200
 const MODE_KEYS: Record<string, ReviewMode> = { KeyU: "preview", KeyP: "notes", KeyO: "edit", KeyI: "motion" }
 
-function ModeSwitch(props: { disabled: boolean }) {
+/** The switch is a radio group: one Tab stop (the mode in use), and the arrows move along it
+ *  and choose as they go, Home and End to either end. The keyboard stays on the switch while
+ *  it does (a click hands it to the page, as the mode's keys do). `stacked`: each mode's name
+ *  under its icon, in a narrow bar (TopBar). */
+function ModeSwitch(props: { disabled: boolean; stacked: boolean; ref: (el: HTMLDivElement) => void }) {
+  let group: HTMLDivElement | undefined
+  const step = (e: KeyboardEvent) => {
+    const at = MODES.findIndex((m) => m.mode === state.review.mode)
+    const n = MODES.length
+    const to =
+      e.key === "ArrowRight" || e.key === "ArrowDown"
+        ? (at + 1) % n
+        : e.key === "ArrowLeft" || e.key === "ArrowUp"
+          ? (at - 1 + n) % n
+          : e.key === "Home"
+            ? 0
+            : e.key === "End"
+              ? n - 1
+              : -1
+    if (to < 0 || e.altKey || e.ctrlKey || e.metaKey) return
+    e.preventDefault()
+    act("setMode", MODES[to]!.mode, true)
+    group?.querySelectorAll<HTMLButtonElement>(".mode")[to]?.focus()
+  }
   return (
-    <div class="modes" role="radiogroup" aria-label="Mode">
+    <div
+      class="modes"
+      classList={{ stacked: props.stacked }}
+      role="radiogroup"
+      aria-label="Mode"
+      ref={(el) => {
+        group = el
+        props.ref(el)
+      }}
+      onKeyDown={step}
+    >
       <For each={MODES}>
         {(m) => (
           <button
@@ -220,6 +261,7 @@ function ModeSwitch(props: { disabled: boolean }) {
             aria-checked={state.review.mode === m.mode}
             aria-description={m.what}
             aria-keyshortcuts={m.keys?.()}
+            tabindex={state.review.mode === m.mode ? 0 : -1}
             disabled={props.disabled}
             onClick={() => act("setMode", m.mode)}
             {...hinted(() => ({ text: m.what, keys: [m.keys?.(), m.more?.()].filter((k): k is string => !!k) }))}
@@ -311,6 +353,25 @@ function TopBar(props: {
 }) {
   // No page, or a page the overlay could not get into: nothing for the modes to act on.
   const noOverlay = () => !state.page.url || overlayError()
+  // A narrow bar: the address gives up its width first, down to URL_ROOM; past that the modes'
+  // names go under their icons, so they stay. Back on one line only once the address would
+  // still have URL_ROOM with them there (what stacking gave it is measured when it does).
+  const [stacked, setStacked] = createSignal(false)
+  let field: HTMLElement | undefined
+  let modes: HTMLDivElement | undefined
+  let gave = 0
+  const fit = () => {
+    if (!field || !modes) return
+    const room = field.getBoundingClientRect().width
+    if (!stacked() && room < URL_ROOM) {
+      const wide = modes.getBoundingClientRect().width
+      setStacked(true)
+      gave = wide - modes.getBoundingClientRect().width
+    } else if (stacked() && room - gave >= URL_ROOM) setStacked(false)
+  }
+  // A frame later: stacking resizes the field it watches, which is a loop inside one callback.
+  const watch = new ResizeObserver(() => requestAnimationFrame(fit))
+  onCleanup(() => watch.disconnect())
   return (
     <header class="topbar" classList={{ mac: mac() }}>
       <Show when={!props.bare} fallback={<span class="wordmark">bicycle 42</span>}>
@@ -355,7 +416,16 @@ function TopBar(props: {
             <Icon name={state.page.loading ? "spinner" : "reload"} />
           </button>
         </div>
-        <UrlField ref={props.urlRef} />
+        <UrlField
+          ref={(el) => {
+            props.urlRef(el)
+            // (The field's box, around the input: what the bar leaves the address.)
+            queueMicrotask(() => {
+              field = el.parentElement ?? undefined
+              if (field) watch.observe(field)
+            })
+          }}
+        />
         <DeviceSwitch disabled={!state.page.url} />
         <PageError />
         <PageRefused />
@@ -375,7 +445,7 @@ function TopBar(props: {
           >
             <Icon name="draw" size={20} />
           </button>
-          <ModeSwitch disabled={noOverlay()} />
+          <ModeSwitch disabled={noOverlay()} stacked={stacked()} ref={(el) => (modes = el)} />
           {/* With the panel open the agent button is in its conversation row, and the notes are
               right there: both are here only while they cannot be seen in the panel. */}
           <Show when={!props.panelOpen || !state.site?.directory}>
@@ -539,6 +609,8 @@ export function App() {
   const [panelOpen, setPanelOpen] = createSignal(recall("panel.open") !== "0")
   const [panelWidth, setPanelWidth] = createSignal(Math.max(PANEL_MIN, Number(recall("panel.width")) || PANEL_DEFAULT))
   const [settings, setSettings] = createSignal(false)
+  /** The sheet of keys ("?", Help ▸ Keyboard Shortcuts). */
+  const [keysOpen, setKeysOpen] = createSignal(false)
   const [resizing, setResizing] = createSignal(false)
   /** Which edge the resize is of: the dock's top (true), else the panel's side. */
   const [dockDragging, setDockDragging] = createSignal(false)
@@ -619,7 +691,7 @@ export function App() {
   }
   const canStart = () => state.connection.status === "online" && !!state.session && !state.startingSite
   // A page that failed to load is replaced by a card saying so, in the same place.
-  const pageHidden = () => setup() || settings() || !!switcherOpen() || resizing() || state.page.url === "" || loadFailed() || pageCovered()
+  const pageHidden = () => setup() || settings() || keysOpen() || !!switcherOpen() || resizing() || state.page.url === "" || loadFailed() || pageCovered()
 
   // ── page bounds: one call per frame at most, none when nothing moved ──
   let sent: Rect | null | undefined
@@ -849,6 +921,9 @@ export function App() {
   const onShortcut = (s: Shortcut) => {
     if (s === "url-copied") return flashHint("Copied the page's address")
     if (setup() || settings()) return
+    // (From the app's menu: Stop as the message box's button has it, and the sheet of keys.)
+    if (s === "stop") return act("stop")
+    if (s === "show-keys") return void setKeysOpen(true)
     if (s === "focus-url") focusUrl()
     else if (s === "toggle-panel") togglePanel()
     else focusChat()
@@ -862,6 +937,12 @@ export function App() {
     if (key === "f5" && plain) {
       e.preventDefault()
       act("reload")
+      return
+    }
+    // "?" outside a field: the sheet of keys. (In a field it is a question mark.)
+    if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey && !typing(e.target) && !keysOpen()) {
+      e.preventDefault()
+      setKeysOpen(true)
       return
     }
     if (!(mac() ? e.metaKey : e.ctrlKey) || e.altKey) return
@@ -1010,7 +1091,7 @@ export function App() {
         <div
           class="page"
           ref={pageEl}
-          classList={{ veiled: settings() || !!switcherOpen() || resizing() }}
+          classList={{ veiled: settings() || keysOpen() || !!switcherOpen() || resizing() }}
           style={phone() && state.page.tint && !loadFailed() ? { "--tint-top": state.page.tint.top, "--tint-bottom": state.page.tint.bottom } : {}}
         >
           <Show when={resizing() && state.page.url !== "" && !loadFailed()}>
@@ -1160,6 +1241,9 @@ export function App() {
       </Show>
       <Show when={ready() && repoStep()}>
         <RepoScreen />
+      </Show>
+      <Show when={keysOpen()}>
+        <KeysSheet onClose={() => setKeysOpen(false)} />
       </Show>
       <Show when={settings()}>
         <SettingsDialog onClose={() => setSettings(false)} />

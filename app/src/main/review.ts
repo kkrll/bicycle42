@@ -106,7 +106,9 @@ export type Review = {
   /** The words of every note a conversation accepted, by conversation: what the list of
    *  conversations counts and searches. */
   said(): Array<{ session: string; text: string }>
-  pins(): Pin[]
+  /** `held`: a conversation that waits on the reviewer's answer (a permission, a question); a
+   *  note being worked on in it is "asking", as the window's list shows it. */
+  pins(held?: (session: string) => boolean): Pin[]
   /** A note is on its way to the agent or with it (sending, queued, working). Unlike sessions(),
    *  this counts notes still being sent, which have no session yet. */
   inFlight(): boolean
@@ -712,17 +714,20 @@ export function createReview(saved?: unknown): Review {
         ...(lost(n) ? { lost: true as const } : {}),
       })),
 
-    pins: () =>
+    pins: (held) =>
       notes.map((n) => ({
         id: n.id,
         n: n.n,
-        // The page has no look for "not sent yet"; to the reviewer it is waiting either way.
+        // As the window's list shows it (its badge is the reference): not with the agent yet, and
+        // stopped or taken back, are a broken outline there and here.
         status:
           n.status === "capturing" || n.status === "sending"
-            ? "queued"
-            : n.status === "failed" && (n.error === ERR.interrupted || n.error === ERR.cancelled)
+            ? "sending"
+            : n.takenBack || (n.status === "failed" && (n.error === ERR.interrupted || n.error === ERR.cancelled))
               ? "stopped"
-              : n.status,
+              : n.status === "working" && n.session && held?.(n.session)
+                ? "asking"
+                : n.status,
         ...(n.lane === "bg" ? { lane: "bg" as const } : {}),
         ...n.anchor,
         ...(n.text ? { note: n.text.slice(0, 200) } : {}),

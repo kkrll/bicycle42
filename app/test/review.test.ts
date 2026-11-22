@@ -407,10 +407,23 @@ test("rows and pins", () => {
     { id: c, n: 3, text: "make it bigger", status: "capturing", lane: "main" },
   ])
   assert.deepEqual(r.pins(), [
-    { id: a, n: 1, status: "queued", selector: "#cta", tag: "button", text: "Start", component: "Button", at: [10, 140], note: "make it bigger" },
+    { id: a, n: 1, status: "sending", selector: "#cta", tag: "button", text: "Start", component: "Button", at: [10, 140], note: "make it bigger" },
     { id: b, n: 2, status: "failed", lane: "bg", selector: "#cta", tag: "button", text: "Start", component: "Button", at: [10, 140], note: "make it bigger" },
-    { id: c, n: 3, status: "queued", note: "make it bigger" },
+    { id: c, n: 3, status: "sending", note: "make it bigger" },
   ])
+})
+
+test("a pin reads as the window's list does: taken back is stopped, and a note at work whose conversation waits on the reviewer is asking", () => {
+  const r = createReview()
+  const back = noteAt(r, "done")
+  r.mark(back, { takenBack: "restored" })
+  const asked = noteAt(r, "done")
+  r.mark(asked, { takenBack: "asked" })
+  const held = noteAt(r, "working", A)
+  const other = noteAt(r, "working", B)
+  const pins = (on?: (s: string) => boolean) => Object.fromEntries(r.pins(on).map((p) => [p.id, p.status]))
+  assert.deepEqual(pins(), { [back]: "stopped", [asked]: "stopped", [held]: "working", [other]: "working" })
+  assert.deepEqual(pins((s) => s === A), { [back]: "stopped", [asked]: "stopped", [held]: "asking", [other]: "working" })
 })
 
 test("clearDone takes only what is done: a failed or stopped note stays to be retried, and numbering goes on from the last note left", () => {

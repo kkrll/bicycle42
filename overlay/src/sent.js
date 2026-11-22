@@ -9,7 +9,7 @@ import { kick, render } from "./render.js";
 import { tip } from "./mount.js";
 
 // ── pin tooltip ─────────────────────────────────────────────────────────────────────────────
-const STATUS_WORDS = { queued: "Waiting", working: "Working", done: "Done", failed: "Failed", paused: "Paused (offline)", stopped: "Stopped" };
+const STATUS_WORDS = { sending: "Sending", queued: "Waiting", working: "Working", done: "Done", failed: "Failed", asking: "Waiting for you", paused: "Paused (offline)", stopped: "Stopped" };
 
 function showTip(el) {
   const p = el._pin;

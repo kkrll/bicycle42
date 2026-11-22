@@ -24,7 +24,7 @@ import { Icon, toolIcon } from "./icons"
 import { openLightbox } from "./lightbox"
 import { Markdown } from "./markdown"
 import { RepoBar } from "./repo"
-import { act, awayHost, chat, focusedNote, keys, mac, message, b42, offline, setNotice, setOpenedNote, setSwitcherOpen, state } from "./store"
+import { act, asking, awayHost, chat, focusedNote, keys, mac, message, b42, offline, setNotice, setOpenedNote, setSwitcherOpen, state } from "./store"
 
 // ── diffs ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -160,10 +160,10 @@ function Tool(props: { part: ToolPart; quiet: boolean }) {
       <Show when={totals().files}>
         <Counts additions={totals().additions} deletions={totals().deletions} />
       </Show>
-      {/* Paused, a running tool shows nothing: the turn's "Paused on" says it, and no spinner
-          says nothing moves. */}
+      {/* Paused, or waiting for the reviewer, a running tool shows nothing: the turn's "Paused
+          on" or "Waiting for you on" says it, and no spinner says nothing moves. */}
       <Switch>
-        <Match when={props.part.status === "running" && paused()}>{null}</Match>
+        <Match when={props.part.status === "running" && still()}>{null}</Match>
         <Match when={props.part.status === "running"}>
           <Icon name="spinner" class="tool-state" />
         </Match>
@@ -446,6 +446,12 @@ function useClock(on: () => boolean) {
 /** The agent can't be reached, and is not at work elsewhere meanwhile: what it was on is paused
  *  (as its pins and rows say). */
 const paused = () => offline() && !awayHost()
+/** The open conversation is held up on the reviewer: a permission or a question of its own waits
+ *  below. Nothing goes on meanwhile, so nothing spins and no clock runs; the words say whose
+ *  turn it is. (Paused says more: the answer could not reach the agent now anyway.) */
+const held = () => !paused() && asking()
+/** Still: paused, or held up on the reviewer. */
+const still = () => paused() || held()
 
 /** One turn of the agent: the steps it took between two things said (one assistant item per
  *  step). What it did on the way (tools, thoughts, words between steps) folds into one line,
@@ -470,7 +476,7 @@ function Turn(props: { items: ChatAssistant[]; current: boolean; note?: NoteRow 
   const end = () => props.items[props.items.length - 1]!
   const live = () => !end().done || props.current
   const failed = () => props.items.some((it) => it.error)
-  useClock(() => live() && !paused())
+  useClock(() => live() && !still())
   const elapsed = () => {
     const last = end()
     const until = live() ? now() : (last.ended ?? last.time)
@@ -504,7 +510,7 @@ function Turn(props: { items: ChatAssistant[]; current: boolean; note?: NoteRow 
   }
   const watch = new ResizeObserver(() => fitWords())
   onCleanup(() => watch.disconnect())
-  createEffect(on(() => live() && [props.note?.text, paused(), took(elapsed())], () => requestAnimationFrame(fitWords)))
+  createEffect(on(() => live() && [props.note?.text, paused(), held(), took(elapsed())], () => requestAnimationFrame(fitWords)))
   return (
     <div class="msg assistant turn" data-item={props.items[0]!.id}>
       <Show when={steps().length}>
@@ -524,16 +530,17 @@ function Turn(props: { items: ChatAssistant[]; current: boolean; note?: NoteRow 
           }}
         >
           <Show when={live()} fallback={<span class="turn-took">{elapsed() >= 1000 ? `Worked for ${took(elapsed())}` : "Worked"}</span>}>
-            {/* Paused: the agent can't be reached and nothing goes on meanwhile; no spinner, no clock. */}
-            <Show when={!paused()}>
+            {/* Paused (the agent can't be reached) or waiting for the reviewer's answer: nothing
+                goes on meanwhile; no spinner, no clock. */}
+            <Show when={!still()}>
               <Icon name="spinner" />
             </Show>
-            <Show when={props.note} fallback={<span class="turn-took">{paused() ? "Paused" : `Working for ${took(elapsed())}`}</span>}>
+            <Show when={props.note} fallback={<span class="turn-took">{paused() ? "Paused" : held() ? "Waiting for you" : `Working for ${took(elapsed())}`}</span>}>
               {(note) => (
                 <>
                   <span class="turn-took">
-                    {paused() ? "Paused on" : "Working on"}{" "}
-                    <span class="badge" data-status={paused() ? "paused" : "working"}>
+                    {paused() ? "Paused on" : held() ? "Waiting for you on" : "Working on"}{" "}
+                    <span class="badge" data-status={still() ? "paused" : "working"}>
                       {note().n}
                     </span>
                   </span>
@@ -542,7 +549,7 @@ function Turn(props: { items: ChatAssistant[]; current: boolean; note?: NoteRow 
                   <span class="turn-note" ref={noteWords} classList={{ hide: !wordsFit() }} title={note().text}>
                     {note().text}
                   </span>
-                  <Show when={!paused()}>
+                  <Show when={!still()}>
                     <span class="turn-time">· {took(elapsed())}</span>
                   </Show>
                 </>
@@ -562,7 +569,7 @@ function Turn(props: { items: ChatAssistant[]; current: boolean; note?: NoteRow 
         {/* What the header says, as it changes, for a screen reader: outside the button (whose
             insides are one name), and without the clock. */}
         <span class="sr-only" aria-live="polite">
-          {live() && props.note ? `${paused() ? "Paused" : "Working"} on note ${props.note.n}: ${props.note.text}` : ""}
+          {live() && props.note ? `${paused() ? "Paused" : held() ? "Waiting for you" : "Working"} on note ${props.note.n}: ${props.note.text}` : ""}
         </span>
         <Show when={open()}>
           <div class="turn-steps">
@@ -782,8 +789,12 @@ function Permission(props: { ask: PermissionAsk; count: number }) {
       aria-label="The agent asks for permission"
       onKeyDown={(e) => {
         if (busy() || e.isComposing) return
+        // A change folded away is not allowed unseen by a key: Enter (or mod+Enter) shows it
+        // first, and the next one answers. (A click on a button is its own answer.)
+        const answers = e.key === "Enter" && (modKey(e) || (!e.shiftKey && !(e.target instanceof HTMLButtonElement)))
+        if (answers && props.ask.changes?.length && !showDiff()) setShowDiff(true)
         // Esc is not an answer: it means "back" everywhere else in the panel.
-        if (e.key === "Enter" && modKey(e)) reply("always")
+        else if (e.key === "Enter" && modKey(e)) reply("always")
         // On a button, Enter presses that button.
         else if (e.key === "Enter" && !e.shiftKey && !(e.target instanceof HTMLButtonElement)) reply("once")
         else return
@@ -836,7 +847,12 @@ function Permission(props: { ask: PermissionAsk; count: number }) {
         <p class="form-error">{error()}</p>
       </Show>
       <div class="ask-actions">
-        <button class="btn primary" disabled={busy()} title={`Allow once (${keys("enter")})`} onClick={() => reply("once")}>
+        <button
+          class="btn primary"
+          disabled={busy()}
+          title={props.ask.changes?.length && !showDiff() ? `Allow once (${keys("enter")} shows the change first)` : `Allow once (${keys("enter")})`}
+          onClick={() => reply("once")}
+        >
           Allow once
         </button>
         <button class="btn" disabled={busy()} title={`Always allow (${keys("mod", "enter")})`} onClick={() => reply("always")}>
@@ -1630,14 +1646,14 @@ export function Chat(props: {
             </For>
             <Show when={state.session?.busy && !headed()}>
               <div class="working" role="status">
-                <Show when={!paused()}>
+                <Show when={!still()}>
                   <Icon name="spinner" />
                 </Show>
-                <Show when={workingNote()} fallback={paused() ? "Paused" : "Working"}>
+                <Show when={workingNote()} fallback={paused() ? "Paused" : held() ? "Waiting for you" : "Working"}>
                   {(note) => (
                     <>
-                      <span>{paused() ? "Paused on" : "Working on"}</span>
-                      <span class="badge" data-status={paused() ? "paused" : "working"}>
+                      <span>{paused() ? "Paused on" : held() ? "Waiting for you on" : "Working on"}</span>
+                      <span class="badge" data-status={still() ? "paused" : "working"}>
                         {note().n}
                       </span>
                       <span class="working-note" title={note().text}>

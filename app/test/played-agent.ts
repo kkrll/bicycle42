@@ -33,6 +33,8 @@ export type Live = {
   update(update: Record<string, unknown> & { sessionUpdate: string }): Promise<void>
   /** It counts the conversation's context. */
   usage(used: number, size?: number): Promise<void>
+  /** It asks for permission (session/request_permission), and has the answer. */
+  ask(params: Record<string, unknown>): Promise<unknown>
 }
 
 /** A fake agent whose turns wait for the test (`auto`: each ends at once, "ok"). */
@@ -64,6 +66,7 @@ export function playedAgent() {
         say: (text) => t.say({ sessionUpdate: "agent_message_chunk", content: { type: "text", text }, messageId: `a${n}` }),
         update: (update) => t.say(update),
         usage: (used, size) => t.say({ sessionUpdate: "usage_update", used, ...(size ? { size } : {}) }),
+        ask: (params) => t.ask(params),
       }
       void t.cancelled.then(() => (l.ended = true))
       live.push(l)

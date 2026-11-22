@@ -51,7 +51,8 @@
 .box.sel, .box.csel { will-change: transform; }
 /* The same badge as in the app's notes list: 20 px, the same rounded-square corners, bold mono
    digits. Its state is in its shape, as there: outlined waits, a pulsing ring is being worked on,
-   filled is done; red is kept for the one that failed. On a page of any colour the outline needs
+   filled is done, a broken one is stopped, taken back or not with the agent yet; red is kept for
+   the one that failed; a background note's (alt+Enter) is filled grey. On a page of any colour the outline needs
    a fill of its own, white with dark ink, and two outlines, one dark inside and one white around
    it, so one of them shows on any page. */
 .pin { position: fixed; left: -10px; top: -10px; box-sizing: border-box; min-width: 20px; height: 20px; padding: 0 5px;
@@ -71,7 +72,7 @@
 .vname { padding: 0 6px; font-variant-numeric: tabular-nums; }
 .vkeep { margin-left: 4px; padding: 0 10px !important; background: #fffaa0; color: #171717; font-weight: 600 !important; }
 .vbar .vkeep:hover { background: #fffcc4; }
-.pin.paused { --rw: 2px; }
+.pin.paused, .pin.asking { --rw: 2px; }
 .tip, .sent { position: fixed; left: 0; top: 0; box-sizing: border-box; pointer-events: none; background: #1a1a1b; color: #ededed;
   border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.12);
   font: 13px/1.4 system-ui, -apple-system, sans-serif; }
@@ -92,7 +93,7 @@
 @media (prefers-reduced-motion: reduce) { .pin.working { animation: none; } }
 .pin.done { background: #171717; color: #fff; }
 .pin.failed { color: #b91c1c; --ring: #dc2626; }
-.pin.stopped { color: #6b7280; box-shadow: 0 0 0 1px #fff, 0 1px 3px rgba(0, 0, 0, 0.3); outline: 1px dashed #6b7280; outline-offset: -1px; }
+.pin.stopped, .pin.sending { color: #6b7280; box-shadow: 0 0 0 1px #fff, 0 1px 3px rgba(0, 0, 0, 0.3); outline: 1px dashed #6b7280; outline-offset: -1px; }
 .pin.bg:not(.done) { background: #d4d4d4; }
 .pin.approx { box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35); opacity: 0.75; }
 @keyframes pulse { 50% { opacity: 0.55; } }

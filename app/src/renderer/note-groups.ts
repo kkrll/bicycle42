@@ -4,7 +4,9 @@ import type { NoteRow } from "../shared/types"
 
 /** The list is sorted by what a note needs, most urgent first. Finished ones (done, or taken
  *  back) fold into one line. "Working" is only what the agent has (one note at a time, and any
- *  in the background); a note still being captured or sent waits with the queued ones. */
+ *  in the background); a note still being captured or sent waits with the queued ones. A note
+ *  being worked on whose conversation waits on the reviewer (a permission, a question: `asks`)
+ *  needs them, as a failed one does. */
 export type Group = "needs" | "working" | "waiting" | "done"
 export const GROUPS: Array<{ key: Group; name: string }> = [
   { key: "needs", name: "Needs you" },
@@ -12,8 +14,14 @@ export const GROUPS: Array<{ key: Group; name: string }> = [
   { key: "waiting", name: "Waiting" },
   { key: "done", name: "Done" },
 ]
-export const groupOf = (note: NoteRow): Group =>
-  note.takenBack || note.status === "done" ? "done" : note.status === "failed" ? "needs" : note.status === "working" ? "working" : "waiting"
+export const groupOf = (note: NoteRow, asks = false): Group =>
+  note.takenBack || note.status === "done"
+    ? "done"
+    : note.status === "failed" || (note.status === "working" && asks)
+      ? "needs"
+      : note.status === "working"
+        ? "working"
+        : "waiting"
 
 /** The group's name. While the agent can't be reached and works nowhere else meanwhile, what it
  *  had is paused, and its group says so (its rows then need no word of their own). */

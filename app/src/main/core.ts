@@ -569,11 +569,20 @@ export function createCore(host: Host): Core {
   // Many things change at once (a note finishing moves a row, a pin and the busy flag); the window
   // gets one snapshot per turn of the event loop, not one per change.
   let pushing = false
+  /** The conversations that waited on the reviewer when the page's pins were last drawn
+   *  (heldSessions): push() draws them again when that changes, since the asks come and go in
+   *  many places, and each of them pushes. */
+  let heldDrawn = ""
   function push() {
     if (pushing) return
     pushing = true
     setImmediate(() => {
       pushing = false
+      const held = [...heldSessions()].sort().join()
+      if (held !== heldDrawn) {
+        heldDrawn = held
+        if (site) page?.send({ type: "pins", pins: pinsOf(site.review) })
+      }
       const state = snapshot()
       // A phone's page in Preview takes the mouse as a finger; in a mode the overlay needs the
       // mouse's hover to pick with. Every change of the device, the mode or the site comes here.
@@ -1883,10 +1892,16 @@ export function createCore(host: Host): Core {
   /** The pins the page draws. While the agent can't be reached nothing is being worked on,
    *  whatever the last word from it was: those pins show as paused, like their rows. */
   function pinsOf(review: Review) {
-    const pins = review.pins()
+    const held = heldSessions()
+    const pins = review.pins((session) => held.has(session))
     // (An agent on another computer out of reach works on there: its notes stay working.)
-    return connection.status === "offline" && !connection.away ? pins.map((p) => (p.status === "working" ? { ...p, status: "paused" as const } : p)) : pins
+    return connection.status === "offline" && !connection.away ? pins.map((p) => (p.status === "working" || p.status === "asking" ? { ...p, status: "paused" as const } : p)) : pins
   }
+  /** The conversations that wait on the reviewer's answer: a permission or a question of theirs. */
+  function heldSessions() {
+    return new Set([...permissions.values(), ...questions.values()].map((a) => a.session))
+  }
+
 
   /** What the note card offers after "/": names and one-line hints. The prompts stay in main. */
   const NOTE_TEMPLATES = (TEMPLATES as Array<{ name: string; hint: string }>).map(({ name, hint }) => ({ name, hint }))
@@ -2571,7 +2586,7 @@ export function createCore(host: Host): Core {
       if (site.review.enabled) page?.focus()
       changed(site)
     },
-    setMode(mode) {
+    setMode(mode, stay) {
       if (!site) return
       const on = mode !== "preview"
       if (site.review.enabled !== on) {
@@ -2582,7 +2597,7 @@ export function createCore(host: Host): Core {
         // Shown at once; the overlay answers with the mode it is in, and that is what stays.
         pageMode = { canvas: mode === "edit", motion: mode === "motion", brush: mode === "notes" ? pageMode.brush : false }
         page?.send({ type: "mode", mode: pageMode.canvas ? "canvas" : pageMode.motion ? "motion" : "notes" })
-        page?.focus()
+        if (!stay) page?.focus()
       }
       changed(site)
     },

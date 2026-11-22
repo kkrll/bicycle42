@@ -23,6 +23,14 @@ test("failed and stopped notes need the reviewer; done and taken back ones are d
   assert.equal(groupOf(note("queued", { takenBack: "restored" })), "done")
 })
 
+test("a note being worked on whose conversation waits on the reviewer's answer needs them; nothing else moves for it", () => {
+  assert.equal(groupOf(note("working"), true), "needs")
+  assert.equal(groupOf(note("working", { lane: "bg" }), true), "needs")
+  assert.equal(groupOf(note("queued"), true), "waiting")
+  assert.equal(groupOf(note("done"), true), "done")
+  assert.equal(groupOf(note("working", { takenBack: "asked" }), true), "done")
+})
+
 test("while the agent can't be reached and works nowhere else, the working group reads Paused", () => {
   assert.equal(groupName("working", false), "Working")
   assert.equal(groupName("working", true), "Paused")

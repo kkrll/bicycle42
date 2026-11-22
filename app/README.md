@@ -889,8 +889,9 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   boxes are (this element only, `&` nests; a computed value edited goes into Element styles) is
   in the "?" list, put there by the window ahead of the overlay's keys.
 - **The bar is the inspector's footer.** The page has no bar over it in Edit: the footer has how
-  many edits ("No edits", "3 edits"), undo, redo, Reset, the note ("Add a note…"; Enter sends,
-  alt+Enter to the background, mod+Enter from the inspector's fields), Send and, in the note's
+  many edits ("No edits", "3 edits"), undo, redo, Reset, the note ("Note for the agent
+  (optional)", as in Motion's dock; Enter sends, alt+Enter to the background, mod+Enter from the
+  inspector's fields), Send (its tooltip names the note it becomes) and, in the note's
   place while it is empty, what happened to the note sent last ("Sent · preview stays until note
   4 is done", a refusal for a moment). The words are the overlay's, sent with every key
   (CanvasView `batch`, the acts "note" and "reset"), so a refused note brings them back. The count

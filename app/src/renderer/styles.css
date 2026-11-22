@@ -1,7 +1,7 @@
 /*
  * The whole window's styling. Register: strictly functional. A thin frame around someone else's
- * page, so it stays quiet: paper and hairlines, no shadows, one accent (review is on), and the
- * four pin colours the reviewer already knows from the page.
+ * page, so it stays quiet: paper and hairlines, no shadows, one accent (review is on), and four
+ * status colours for what is under way (dots, the context meter, the diff's counts).
  *
  * Sizes come from the design system's scale only: micro 10 · control 12 · ui 14 · lead 16.
  */
@@ -16,7 +16,8 @@
      words), pale yellow on dark. The in-page overlay uses the same pair. */
   --accent: #3b4d22;
 
-  /* Note pins, the same four the overlay draws on the page. */
+  /* Status: waiting, under way, good, bad. A note's own state is in its badge's shape (.badge),
+     the same as its pin's on the page, not in these. */
   --status-queued: #6b7280;
   --status-working: #f59e0b;
   --status-done: #16a34a;
@@ -838,15 +839,29 @@ details[open] > summary > .caret {
   }
 }
 
-/* A narrow window: the icons alone (each still says its name and key on hover). */
-@media (max-width: 900px) {
-  .mode {
-    padding: 0 8px;
-  }
+/* A narrow bar (TopBar's `stacked`, once the address is down to its least): each mode's name
+   under its icon, in the micro size, so the names stay. The switch is as tall as the bar
+   leaves it (32 of 40), and as wide as its longest name. */
+.modes.stacked {
+  height: 36px;
+}
 
-  .mode-label {
-    display: none;
-  }
+.modes.stacked .mode {
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 6px;
+}
+
+.modes.stacked .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.modes.stacked .mode-label {
+  font-size: var(--text-micro);
+  line-height: 1;
 }
 
 /* Settings: what is set once. */
@@ -871,6 +886,51 @@ details[open] > summary > .caret {
 .dialog-pref .dialog-sub {
   padding-left: 29px;
   color: var(--muted);
+}
+
+/* The sheet of keys (keys-sheet.tsx): a key column and a words column, in groups. */
+.keys-sheet {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+}
+
+.keys-group + .keys-group {
+  margin-top: 16px;
+}
+
+.keys-group h3 {
+  margin-bottom: 4px;
+  font-size: var(--text-control);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.keys-row {
+  display: grid;
+  grid-template-columns: 208px 1fr;
+  gap: 12px;
+  align-items: center;
+  min-height: 28px;
+  font-size: var(--text-control);
+}
+
+.keys-row dt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.keys-or,
+.keys-word,
+.keys-foot {
+  color: var(--muted);
+}
+
+.keys-foot {
+  margin-top: 16px;
+  font-size: var(--text-control);
 }
 
 .page-error {
@@ -1989,9 +2049,15 @@ button.note-group-name:hover {
 }
 
 /* Importance by colour, and weight for the one that needs the reviewer: failed is red and
-   strong, working is plain text, everything else is quiet. */
+   strong, waiting on the reviewer's answer is strong, working is plain text, everything else
+   is quiet. */
 .note-status[data-status="working"] {
   color: var(--foreground);
+}
+
+.note-status[data-status="asks"] {
+  color: var(--foreground);
+  font-weight: 600;
 }
 
 .note-status[data-status="failed"] {
