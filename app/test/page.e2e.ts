@@ -415,15 +415,16 @@ async function main() {
   await sleep(200)
 
   // ── shortcuts, while the page has focus ────────────────────────────────────────────────────
-  for (const k of ["L", "\\", "K"]) wc.sendInputEvent({ type: "keyDown", keyCode: k, modifiers: [mod] })
-  await until(() => shortcuts.length >= 3, 2000)
-  check("mod+L, mod+\\, mod+K reach onShortcut", shortcuts.join() === "focus-url,toggle-panel,focus-chat", shortcuts.join())
+  for (const k of ["L", "\\", "K", "J"]) wc.sendInputEvent({ type: "keyDown", keyCode: k, modifiers: [mod] })
+  wc.sendInputEvent({ type: "keyDown", keyCode: "C", modifiers: [mod, "shift"] })
+  await until(() => shortcuts.length >= 5, 2000)
+  check("mod+L, mod+\\, mod+K, mod+J, mod+shift+C reach onShortcut", shortcuts.join() === "focus-url,toggle-panel,focus-chat,toggle-panel,copy-url", shortcuts.join())
   n = count("ready")
   wc.sendInputEvent({ type: "keyDown", keyCode: "L" })
   wc.sendInputEvent({ type: "keyDown", keyCode: "K", modifiers: [mod, "shift"] })
   wc.sendInputEvent({ type: "keyDown", keyCode: "M", modifiers: [mod, "shift"] })
   await sleep(300)
-  check("other keys are left to the page", shortcuts.length === 3 && count("ready") === n)
+  check("other keys are left to the page", shortcuts.length === 5 && count("ready") === n)
 
   // ── history ────────────────────────────────────────────────────────────────────────────────
   const second = `${base}/harness/page.html?second`

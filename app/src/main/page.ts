@@ -114,7 +114,7 @@ type Options = {
   onMessage(msg: PageMessage): void
   /** state() changed. */
   onChange(): void
-  onShortcut(key: "focus-url" | "toggle-panel" | "focus-chat" | "toggle-review"): void
+  onShortcut(key: "focus-url" | "toggle-panel" | "focus-chat" | "toggle-review" | "copy-url"): void
   /** What a download the page starts becomes: held in a file of its own in `folder` (one of
    *  the app's, not where the reviewer keeps files; see holdDownloadsIn) and said to `ask`;
    *  `gone` once one that was asked about and not answered ended by itself (it failed, or the
@@ -830,11 +830,19 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       reload()
       return
     }
-    if (!mod || input.shift || input.alt) return
+    if (!mod || input.alt) return
+    // J and C by the key's place too, so they are the same keys on any layout (a Cyrillic one).
+    const is = (letter: string) => key === letter || input.code === `Key${letter.toUpperCase()}`
+    if (input.shift) {
+      if (!is("c")) return
+      opts.onShortcut("copy-url")
+      event.preventDefault()
+      return
+    }
     // The app's own mod+R would reload the whole window; reload the page instead.
     if (key === "r") reload()
     else if (key === "l") opts.onShortcut("focus-url")
-    else if (key === "\\") opts.onShortcut("toggle-panel")
+    else if (key === "\\" || is("j")) opts.onShortcut("toggle-panel")
     else if (key === "k") opts.onShortcut("focus-chat")
     else return
     event.preventDefault()

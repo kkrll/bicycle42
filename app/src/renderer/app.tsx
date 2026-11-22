@@ -11,6 +11,7 @@ import { For, Match, Show, Switch, createEffect, createMemo, createSignal, onCle
 import { PHONES, phoneOf, type Device, type Rect, type ReviewMode, type Shortcut } from "../shared/types"
 import { sizeOf } from "../shared/wire"
 import { DockRegion, PhoneAside, dockShown } from "./dock"
+import { copyText } from "./copy"
 import { ConnectScreen, ModelScreen, ServerButton, SettingsDialog, SetupSteps, firstRunConnecting } from "./connect"
 import { Icon, Kbd, type IconName } from "./icons"
 import { Switcher } from "./switcher"
@@ -162,6 +163,15 @@ function hinted(what: () => HintText) {
   }
 }
 
+/** Words in the hint's place for a moment, with no control under the pointer: what a key did. */
+let flashTimer: ReturnType<typeof setTimeout> | undefined
+function flashHint(text: string) {
+  const shown: HintText = { text, keys: [] }
+  clearTimeout(flashTimer)
+  setHint(shown)
+  flashTimer = setTimeout(() => hint() === shown && setHint(null), 1500)
+}
+
 function Hint() {
   return (
     <Show when={hint()}>
@@ -300,12 +310,12 @@ function TopBar(props: {
           data-action="panel"
           aria-label="Notes and conversation"
           aria-pressed={props.panelOpen}
-          aria-keyshortcuts={keys("mod", "\\")}
+          aria-keyshortcuts={keys("mod", "J")}
           disabled={props.panelCrowded}
           title={
             props.panelCrowded
               ? "No room for the notes beside a phone's page and its dock: widen the window, or leave Edit and Motion"
-              : `${props.panelOpen ? "Hide" : "Show"} notes and conversation (${keys("mod", "\\")})`
+              : `${props.panelOpen ? "Hide" : "Show"} notes and conversation (${keys("mod", "J")} or ${keys("mod", "\\")})`
           }
           onClick={props.togglePanel}
         >
@@ -751,7 +761,12 @@ export function App() {
     // The panel may have just been un-hidden; a hidden field cannot take focus until it is laid out.
     requestAnimationFrame(() => composerEl?.focus())
   }
+  /** mod+shift+C: the page's whole address on the clipboard, said for a moment where hints are. */
+  const copyUrl = async () => {
+    if (state.page.url && (await copyText(state.page.url))) flashHint("Copied the page's address")
+  }
   const onShortcut = (s: Shortcut) => {
+    if (s === "url-copied") return flashHint("Copied the page's address")
     if (setup() || settings()) return
     if (s === "focus-url") focusUrl()
     else if (s === "toggle-panel") togglePanel()
@@ -772,13 +787,14 @@ export function App() {
     const mode = e.shiftKey ? undefined : MODE_KEYS[e.code]
     // The same keys as while the page has the keyboard: mod+U again goes back to the mode it left.
     if (e.shiftKey) {
-      if (e.code !== "KeyP") return
-      act("toggleBrush")
+      if (e.code === "KeyP") act("toggleBrush")
+      else if (e.code === "KeyC") void copyUrl()
+      else return
     } else if (mode === "preview") act("toggleReview")
     else if (mode) act("setMode", mode)
     else if (key === "r") act("reload")
     else if (key === "l") focusUrl()
-    else if (key === "\\") togglePanel()
+    else if (key === "\\" || e.code === "KeyJ") togglePanel()
     else if (key === "k") focusChat()
     else return
     e.preventDefault()

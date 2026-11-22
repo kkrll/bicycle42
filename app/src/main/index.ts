@@ -4,7 +4,7 @@
 // it runs in here: the window and its menu, the page's view (page.ts), the three
 // IPC channels of the window's bridge (preload.ts), the address the conversation's pictures are
 // served at, and the app's start and quit. It keeps no state of the app's own.
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, protocol, shell } from "electron"
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, protocol, shell } from "electron"
 import fs from "node:fs"
 import path from "node:path"
 import type { Shortcut } from "../shared/types"
@@ -138,6 +138,13 @@ async function createWindow() {
     downloads: { folder: heldDownloads, ask: core.pageEvents.onDownload, gone: core.pageEvents.onDownloadGone },
     onShortcut(key) {
       if (key === "toggle-review") return void core.commands.toggleReview()
+      // Copied here, and the keyboard left in the page: copying is no reason to leave it.
+      if (key === "copy-url") {
+        const url = page?.state().url
+        if (!url) return
+        clipboard.writeText(url)
+        return void win.webContents.send("b42:shortcut", "url-copied" satisfies Shortcut)
+      }
       const shortcut: Shortcut = key
       win.webContents.send("b42:shortcut", shortcut)
       // The keys were pressed in the page; the field they lead to is in the window.

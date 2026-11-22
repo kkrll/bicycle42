@@ -654,8 +654,10 @@ export type Commands = {
 
 export type CommandName = keyof Commands
 
-/** App-level shortcuts caught while the page has focus, forwarded to the window. */
-export type Shortcut = "focus-url" | "toggle-panel" | "focus-chat"
+/** App-level shortcuts caught while the page has focus, forwarded to the window. "url-copied":
+ *  mod+shift+C, the page's address already copied by the main process (the window, without the
+ *  focus, could not write the clipboard), for the window to say so. */
+export type Shortcut = "focus-url" | "toggle-panel" | "focus-chat" | "url-copied"
 
 /** Main → window: the reviewer clicked a note's pin on the page. */
 export type NoteFocus = { id: string }

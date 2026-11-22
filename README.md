@@ -175,7 +175,8 @@ targets under 44 px, inputs that make iOS zoom) and the files the agent changed.
 | `Enter` / `alt+Enter` | Send the note / send it to the background conversation |
 | paste a picture | Attach it as a reference |
 | `Esc` | Cancel the note; again for Preview |
-| `mod+L` / `mod+K` / `mod+\` | URL bar / chat box / show or hide the panel |
+| `mod+L` / `mod+K` / `mod+J` (or `mod+\`) | URL bar / chat box / show or hide the panel (notes and conversation) |
+| `mod+shift+C` | Copy the page's address (the whole of it, not what the URL bar shortens it to) |
 | `mod+R` / `F5` | Reload the page (from the page, the chat box or the inspector) |
 
 | Edit mode | |
