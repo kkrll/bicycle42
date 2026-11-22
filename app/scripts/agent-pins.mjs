@@ -375,7 +375,9 @@ export async function main(argv, deps) {
   // installed as the app does; they are put back as they were unless it passes in full.
   const before = deps.readLockFiles(test)
   deps.writeLock(test, made.manifest, made.lock)
-  deps.writePins(next)
+  // Written untested until the check from the lockfile passes: stopped meanwhile (Ctrl-C), the pin
+  // left behind says it was not tested.
+  deps.writePins({ ...next, [test]: { ...next[test], tested: undefined, checks: undefined } })
   deps.log(`${wrote(test, made.lock)}\n\nThe real check once more, from that lockfile as the app installs it (npm ci --ignore-scripts into ~/.bicycle42/adapters, no npx).\n`)
   const again = await checkFromLock(test, next[test], made, model, deps)
   if (!again.passed) {

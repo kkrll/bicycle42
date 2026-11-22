@@ -13,7 +13,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { after, before, test } from "node:test"
-import { ADAPTER_LOCKS, adapterTiming, fitsPlatform, folderOf, lockOf, markUsed, missingPackages, npmFailure, tidyAdapters, UNUSED_MS, WATCHDOG, type AdapterLock } from "../src/main/adapters"
+import { ADAPTER_LOCKS, adapterTiming, fitsPlatform, folderOf, lockOf, markUsed, missingPackages, noBuildFor, npmFailure, tidyAdapters, UNUSED_MS, WATCHDOG, type AdapterLock } from "../src/main/adapters"
 import { adapterLock, localAgents, PINS, prepareStart, type StartPrefs } from "../src/main/agents"
 import { thisMachine, type Machine } from "../src/main/machine"
 import { fakeAdapterPackages, fakeRegistry, otherCpu, type FakeRegistry } from "./fake-registry"
@@ -407,6 +407,74 @@ test("the watchdog ends npm's whole group and removes the install's folder once 
   for (const pid of fs.readFileSync(pids, "utf8").split(" ").map(Number)) await waitFor(() => !alive(pid), 3000)
 })
 
+test("the watchdog still removes the install's folder when the app that read its output is gone (its write there fails, EPIPE)", { skip: process.platform === "win32" && "process groups" }, async () => {
+  const dir = fs.mkdtempSync(path.join(root, "watchdog-gone-"))
+  const folder = path.join(dir, ".installing-x")
+  fs.mkdirSync(folder)
+  fs.writeFileSync(path.join(folder, ".b42-lease"), "")
+  const dog = spawn(process.execPath, ["-e", WATCHDOG, "60000", ".b42-lease", "600", process.execPath, "-e", "setInterval(() => {}, 1000)"], { cwd: folder, stdio: ["ignore", "pipe", "pipe"] })
+  // The app quit: nothing reads what the watchdog writes any more.
+  dog.stdout.destroy()
+  dog.stderr.destroy()
+  const code = await new Promise<number | null>((r) => dog.once("exit", r))
+  assert.equal(code, 125)
+  assert.equal(fs.existsSync(folder), false, "its folder removed")
+})
+
+test("the watchdog judges the lease by its own clock: a lease file whose time is far off (a server's clock, a computer that slept) ends nothing while it is written, and ends npm once it is not", { skip: process.platform === "win32" && "process groups" }, async () => {
+  const dir = fs.mkdtempSync(path.join(root, "watchdog-clock-"))
+  const folder = path.join(dir, ".installing-x")
+  fs.mkdirSync(folder)
+  const lease = path.join(folder, ".b42-lease")
+  fs.writeFileSync(lease, "")
+  // Written every 100 ms, each time with a time an hour behind this computer's clock.
+  let at = Date.now() / 1000 - 3600
+  const write = () => fs.utimesSync(lease, (at += 1), at)
+  write()
+  const beat = setInterval(write, 100)
+  const dog = spawn(process.execPath, ["-e", WATCHDOG, "60000", ".b42-lease", "600", process.execPath, "-e", "setInterval(() => {}, 1000)"], { cwd: folder, stdio: "ignore" })
+  let code: number | null | undefined
+  dog.once("exit", (c) => (code = c))
+  await new Promise((r) => setTimeout(r, 2000))
+  assert.equal(code, undefined, "still running while its lease is written")
+  clearInterval(beat)
+  const stopped = Date.now()
+  await waitFor(() => code !== undefined, 5000)
+  assert.equal(code, 125)
+  assert.ok(Date.now() - stopped >= 500, "ended once the lease was not written for its time")
+  assert.equal(fs.existsSync(folder), false)
+})
+
+test("a platform the lockfile has no build of its program for is said, never installed as if whole; a package for one os alone is no build", () => {
+  const lock = kept.locks.claude!.lock as unknown
+  assert.equal(noBuildFor(lock, { os: "linux", cpu: "x64", libc: "glibc" }), false)
+  assert.equal(noBuildFor(lock, { os: "linux", cpu: "arm64", libc: "musl" }), false)
+  assert.equal(noBuildFor(lock, { os: "darwin", cpu: "arm64", libc: null }), false)
+  assert.equal(noBuildFor(lock, { os: "linux", cpu: "riscv64", libc: "glibc" }), true)
+  assert.equal(noBuildFor(lock, { os: "linux", cpu: "arm", libc: "glibc" }), true)
+  assert.equal(noBuildFor(lock, { os: "freebsd", cpu: "x64", libc: null }), true)
+  assert.equal(noBuildFor(lock, { os: "linux", cpu: "x64", libc: null }), true, "a Linux whose libc can't be told")
+  const fsevents = { packages: { "": {}, "node_modules/a": { version: "1.0.0" }, "node_modules/fsevents": { version: "2.3.3", os: ["darwin"], optional: true } } }
+  assert.equal(noBuildFor(fsevents, { os: "linux", cpu: "x64", libc: "glibc" }), false)
+})
+
+test("an adapters folder that is a link, or not this user's, is never installed into or tightened", { skip: process.platform === "win32" && "links" }, async () => {
+  const c = computer()
+  const elsewhere = fs.mkdtempSync(path.join(root, "elsewhere-"))
+  fs.chmodSync(elsewhere, 0o755)
+  fs.mkdirSync(path.dirname(c.adapters), { recursive: true, mode: 0o700 })
+  fs.symlinkSync(elsewhere, c.adapters)
+  await assert.rejects(prepareStart("claude", c.m, none), /can't be installed on this computer: .*adapters is a link, not a folder of this user's alone/)
+  assert.equal(fs.statSync(elsewhere).mode & 0o777, 0o755, "what it points to is left as it was")
+  assert.deepEqual(fs.readdirSync(elsewhere), [])
+})
+
+test("an install whose folder can't be marked used (another app's tidying took it) says so", async () => {
+  const c = computer()
+  const lock = lockOf("claude", pin, lockManifest("claude", pin), ADAPTER_LOCKS.claude!.lock)!
+  assert.equal(await markUsed(c.m, lock), false)
+})
+
 const alive = (pid: number) => {
   try {
     process.kill(pid, 0)
@@ -442,6 +510,8 @@ test("npm's failures as sentences: offline, a full disk, no npm, and its own wor
   )
   assert.match(npmFailure(run("npm error code ENOSPC\nnpm error syscall write\nnpm error nospc ENOSPC: no space left on device, write\n"), c), /: its disk is full \(an adapter takes about 500 MB\)\. Free some space there and start it again\.$/)
   assert.equal(npmFailure({ code: null, signal: null, out: "", err: "", error: { code: "ENOENT", message: "spawn npm ENOENT" } }, c), "The Codex adapter can't be installed on dev-box: npm was not found there (it comes with node).")
+  assert.equal(npmFailure({ code: null, signal: "SIGTERM", out: "", err: "" }, { ...c, ms: 4200 }), "The Codex adapter can't be installed on dev-box: npm was ended there after 4 s (SIGTERM). Start it again to try once more.")
+  assert.match(npmFailure({ code: null, signal: "SIGTERM", out: "", err: "" }, { ...c, ms: adapterTiming.install }), /npm did not finish in /)
   assert.equal(npmFailure(run("b42: the app stopped waiting for npm\n", 125), c), "The Codex adapter can't be installed on dev-box: npm was ended there, because the app's word that it still waited (written every few seconds) did not reach it for 60 s. Start it again to try once more.")
   assert.equal(npmFailure(run("npm error code EUSAGE\nnpm error The `npm ci` command can only install with an existing package-lock.json\nnpm error A complete log of this run can be found in: /x.log\n"), c), "The Codex adapter can't be installed on dev-box: npm ci failed (exit code 1): The `npm ci` command can only install with an existing package-lock.json.")
 })

@@ -198,7 +198,9 @@ test("Stop from the app empties both queues: the notes waiting in the app and wh
     const s = await h.ready()
     const [, b] = [h.note("a"), h.note("b"), h.note("c")]
     await until(() => h.notes() === "1:working 2:queued 3:queued" && h.snap().session?.busy === true)
-    // A message typed while it works waits for its turn, not in the app's lane.
+    // A message typed while it works waits for its turn, not in the app's lane. (The first note's
+    // prompt is waited for: "busy" is said before it reaches the agent, later on a loaded machine.)
+    await until(() => h.w.prompts.length === 1)
     await h.cmd("send", "and this too", [], { delivery: "queue" })
     await sleep(50)
     assert.equal(h.w.prompts.length, 1)

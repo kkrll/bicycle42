@@ -232,10 +232,15 @@ export async function prepareStart(
   const way = await startOf(id, m, prefs)
   if (!way?.lock) return way?.line
   const known = KNOWN_AGENTS.find((a) => a.id === id)!
-  await installAdapter(m, way.lock, { name: known.name, env: await m.agentEnv(), ...(o.onStep ? { onStep: o.onStep } : {}), ...(o.log ? { log: o.log } : {}) })
+  const env = await m.agentEnv()
   // Marked used now (that computer's clock), and the other installs of it there not used for 14
-  // days go (never one running).
-  await markUsed(m, way.lock, o.log)
+  // days go (never one running). Another app's tidying may take this one away between its install
+  // and its mark (it had been unused for 14 days): then it is installed again, once.
+  for (let tries = 0; ; tries++) {
+    await installAdapter(m, way.lock, { name: known.name, env, ...(o.onStep ? { onStep: o.onStep } : {}), ...(o.log ? { log: o.log } : {}) })
+    if ((await markUsed(m, way.lock, o.log)) && (await adapterInstalled(m, way.lock))) break
+    if (tries) throw new Error(`The ${known.name} adapter on ${m.local ? "this computer" : m.where} was taken away as it started (another app tidying its old installs). Start it again.`)
+  }
   void tidyAdapters(m, way.lock, o.log)
   return way.line
 }

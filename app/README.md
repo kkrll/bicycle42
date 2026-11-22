@@ -359,7 +359,8 @@ per-platform ones of macOS, Linux and Windows included), bundled into main. At t
 first start on a computer, `main/adapters.ts` writes those two files there through `Machine` (no
 change to the helper: the same calls on this computer and over ssh) into
 `~/.bicycle42/adapters/.installing-<folder>-<random>/` (`~/.bicycle42` and `adapters/` made the
-person's alone, 0700, here as the helper makes them there) and runs that computer's own
+person's alone, 0700, here as the helper makes them there; here, one that is a link or another
+user's folder is refused, never installed into) and runs that computer's own
 `npm ci --ignore-scripts --no-audit --no-fund --include=optional --include=peer
 --legacy-peer-deps=false --install-strategy=hoisted` in it. npm refuses any package whose
 download is not the sha512 in the lockfile, and no package's script runs: Claude's and Codex's
@@ -368,7 +369,10 @@ MB with it), need none. Once npm is done, the app checks what it installed again
 every package the lockfile names for that computer (its os, cpu and libc, as npm tells them) must
 be in npm's own record of the install (`node_modules/.package-lock.json`) at its version, or the
 install is refused ("npm said it was done, but left out a package its lockfile names for linux
-x64 (…)", an npmrc's `cpu=` or a failed optional download) and nothing is kept; Claude's is 108
+x64 (…)", an npmrc's `cpu=` or a failed optional download) and nothing is kept. A computer the
+lockfile has no build of the program for (Linux on riscv64 or 32-bit arm, FreeBSD, a Linux whose
+libc can't be told), where npm installs none and says it is done, is refused the same way ("its
+lockfile has no build of its program for linux riscv64 glibc…"); Claude's is 108
 packages of its lockfile's 115 on one computer, Codex's 25 of 30. Only then, with the adapter's
 program where the lockfile says, is the folder renamed to `<package>@<version>-<hash of both
 files>` (`@agentclientprotocol+codex-acp@2.9.0-…`), its hash written in it last (`.b42-installed`):
@@ -393,9 +397,12 @@ was installed."), a full disk, or npm's own last words. npm runs under a watchdo
 process group of its own, which the watchdog ends with SIGKILL after 15 minutes (npm ignores
 SIGTERM while a download hangs, and macOS has no `timeout`); when the watchdog itself is ended
 (the app's own timeout, output too long); and when the app no longer says it waits: it writes the
-install's lease file (`.b42-lease`) every 10 s, and once that is a minute old by that computer's
-clock (the app quit, or the link to dev-box dropped, where the helper runs on) the watchdog ends
-npm and removes the install's folder. A link that drops during an install is said as "The
+install's lease file (`.b42-lease`) every 10 s, and once the watchdog has not seen its time change
+for a minute, on its own monotonic clock (the app quit, or the link to dev-box dropped, where the
+helper runs on) it ends npm and removes the install's folder, also when nothing reads its output
+any more. Never by comparing the file's time with the clock: a computer that slept does not end a
+healthy install on waking, nor does a home folder on a server whose clock is off. A start whose
+install another app's tidying took away just then installs it again, once. A link that drops during an install is said as "The
 connection to dev-box ended while installing the Codex adapter; it will be tried again at the
 next start." A refused download is retried after seconds, not npm's minute, so a refusal is said
 in about 20 s. Two starts at once wait for one install.

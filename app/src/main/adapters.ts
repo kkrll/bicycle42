@@ -147,7 +147,12 @@ async function makeDirs(m: Machine): Promise<void> {
   if (!m.local || m.platform === "win32") return m.mkdir(adaptersDir(m))
   for (const d of [appDir(m), adaptersDir(m)]) {
     await fs.promises.mkdir(d, { recursive: true, mode: 0o700 })
-    if (((await fs.promises.stat(d)).mode & 0o777) !== 0o700) await fs.promises.chmod(d, 0o700)
+    // A link, or a folder of another user's, is not the app's: never tightened, never installed
+    // into (what is in it could have been put there by someone else).
+    const st = await fs.promises.lstat(d)
+    if (!st.isDirectory() || (process.getuid && st.uid !== process.getuid()))
+      throw Object.assign(new Error(`${d} is ${st.isSymbolicLink() ? "a link" : !st.isDirectory() ? "not a folder" : "another user's folder"}, not a folder of this user's alone`), { code: "ENOTOWN" })
+    if ((st.mode & 0o777) !== 0o700) await fs.promises.chmod(d, 0o700)
   }
 }
 
@@ -204,6 +209,7 @@ async function install(m: Machine, lock: AdapterLock, o: InstallOptions): Promis
   // not (the app quit, the link dropped), the watchdog ends npm and removes the folder.
   const beat = setInterval(() => void m.writeFile(lease, "").catch(() => undefined), Math.max(50, Math.floor(adapterTiming.lease / 6)))
   let r: RunResult
+  const npmStarted = Date.now()
   try {
     r = await m.run(node, ["-e", WATCHDOG, String(adapterTiming.install), LEASE, String(adapterTiming.lease), npm.program, ...npm.args, ...NPM_CI], {
       cwd: tmp,
@@ -225,14 +231,20 @@ async function install(m: Machine, lock: AdapterLock, o: InstallOptions): Promis
   if (r.code !== 0) {
     await m.rm(tmp).catch(() => undefined)
     log("warn", `npm ci of ${lock.package}@${lock.version} failed on ${where}`, { code: r.code, signal: r.signal, error: r.error, err: r.err.slice(-4000) })
-    throw new Error(npmFailure(r, { name: o.name, where, package: lock.package, version: lock.version }))
+    throw new Error(npmFailure(r, { name: o.name, where, package: lock.package, version: lock.version, ms: Date.now() - npmStarted }))
   }
   // npm said it was done: every package the lockfile names for that computer must be there (an
   // npm setting there may have left some out, or a download of an optional one failed)…
   const left = await leftOut(m, node, tmp, lock).catch((err: Error) => ({ error: err.message }))
-  if ("error" in left || left.missing.length) {
+  if ("error" in left || left.missing.length || left.noBuild) {
     await m.rm(tmp).catch(() => undefined)
     if ("error" in left) throw new Error(said(`what npm installed can't be checked (${left.error}). Nothing of it was kept.`))
+    if (left.noBuild)
+      throw new Error(
+        said(
+          `its lockfile has no build of its program for ${left.platform}${left.libcUnknown ? " (whether its C library is glibc or musl can't be told)" : ""}, only for macOS, Linux and Windows on x64 and arm64. Nothing of it was kept.`,
+        ),
+      )
     log("warn", `npm ci of ${lock.package}@${lock.version} left packages out on ${where}`, { missing: left.missing, platform: left.platform })
     const named = left.missing.slice(0, 3).join(", ") + (left.missing.length > 3 ? `, and ${left.missing.length - 3} more` : "")
     throw new Error(
@@ -270,9 +282,13 @@ async function install(m: Machine, lock: AdapterLock, o: InstallOptions): Promis
 }
 
 /** Marks the install as used now (by that computer's clock): installs of the same adapter are
- *  taken away only once unused for `UNUSED_MS`. Never rejects. */
-export async function markUsed(m: Machine, lock: AdapterLock, log: Log = () => undefined): Promise<void> {
-  await m.writeFile(m.path.join(folderOf(m, lock), USED), `${new Date().toISOString()}\n`).catch((err) => log("warn", "can't mark the adapter as used", String(err)))
+ *  taken away only once unused for `UNUSED_MS`. False when it can't be marked (its folder was
+ *  just taken away by another app's tidying). Never rejects. */
+export async function markUsed(m: Machine, lock: AdapterLock, log: Log = () => undefined): Promise<boolean> {
+  return m.writeFile(m.path.join(folderOf(m, lock), USED), `${new Date().toISOString()}\n`).then(
+    () => true,
+    (err) => (log("warn", "can't mark the adapter as used", String(err)), false),
+  )
 }
 
 /** `npm ci` with the lockfile and nothing else: no package's script, no audit or funding call;
@@ -300,23 +316,35 @@ export const NPM_CI = [
  *  `timeout`); when the lease file has not been written for its ms (the app quit, or the link to
  *  it dropped: this computer's helper runs on), removing the install's folder too; and when the
  *  watchdog itself is ended (the app's own timeout, its output too long), before it ends the same
- *  way. Its own exit code otherwise; 127 when npm can't be started. */
+ *  way. Its own exit code otherwise; 127 when npm can't be started.
+ *
+ *  The lease is judged by when the watchdog last saw the file's time change, on its own monotonic
+ *  clock (process.hrtime), never by comparing the file's time with the wall clock: a computer that
+ *  slept (the monotonic clock stands still meanwhile) does not end a healthy install on waking,
+ *  and a home folder on a server whose clock is off neither ends every install nor none. And the
+ *  app that quit took the reader of the watchdog's output with it: a write there fails (EPIPE),
+ *  which is ignored, so the folder is still removed. */
 export const WATCHDOG = [
   'const { spawn } = require("child_process")',
   'const fs = require("fs")',
+  'for (const out of [process.stdout, process.stderr]) out.on("error", () => {})',
   "const [ms, lease, leaseMs, program, ...args] = process.argv.slice(1)",
   'const windows = process.platform === "win32"',
   'const child = spawn(program, args, { stdio: "inherit", detached: !windows, windowsHide: true })',
   "let lost = false",
   "const end = (why) => {",
-  "  if (why) process.stderr.write(`b42: ${why}\\n`)",
+  "  if (why) try { process.stderr.write(`b42: ${why}\\n`) } catch {}",
   "  try { if (windows || !child.pid) child.kill(\"SIGKILL\"); else process.kill(-child.pid, \"SIGKILL\") } catch {}",
   "}",
   'const timer = setTimeout(() => end("npm ran out of time"), Number(ms))',
+  "let seen = null",
+  "let changed = process.hrtime.bigint()",
   "const beat = setInterval(() => {",
   "  let at = 0",
   "  try { at = fs.statSync(lease).mtimeMs } catch {}",
-  '  if (Date.now() - at > Number(leaseMs)) { lost = true; clearInterval(beat); end("the app stopped waiting for npm") }',
+  "  const now = process.hrtime.bigint()",
+  "  if (at !== seen) { seen = at; changed = now; return }",
+  '  if (Number(now - changed) / 1e6 > Number(leaseMs)) { lost = true; clearInterval(beat); end("the app stopped waiting for npm") }',
   "}, Math.max(50, Math.floor(Number(leaseMs) / 6)))",
   'for (const sig of ["SIGTERM", "SIGHUP", "SIGINT"]) process.on(sig, () => { end(); process.removeAllListeners(sig); process.kill(process.pid, sig) })',
   'child.on("error", (e) => { process.stderr.write(`b42: cannot start npm: ${e.code} ${e.message}\\n`); process.exit(127) })',
@@ -382,13 +410,27 @@ export function missingPackages(lock: unknown, installed: Record<string, string 
   return missing
 }
 
+/** Whether the lockfile has builds for several platforms (packages limited by os, cpu or libc, for
+ *  more than one os) and none of them is for this one: npm then installs none and says it is done
+ *  (linux on riscv64 or 32-bit arm, FreeBSD, a Linux whose libc can't be told), and the adapter
+ *  would fail at every start. A package for one os alone (macOS's fsevents) is not a build. */
+export function noBuildFor(lock: unknown, at: Platform): boolean {
+  const packages = (lock as { packages?: Record<string, LockEntry> } | undefined)?.packages ?? {}
+  const limited = Object.entries(packages).filter(([key, p]) => key && !p.dev && (p.os || p.cpu || p.libc))
+  const oses = new Set(limited.flatMap(([, p]) => (p.os === undefined ? [] : typeof p.os === "string" ? [p.os] : p.os)))
+  return oses.size > 1 && !limited.some(([, p]) => fitsPlatform(p, at))
+}
+
 /** What npm left out of an install in `tmp`, by its own record, for the platform of that computer. */
-async function leftOut(m: Machine, node: string, tmp: string, lock: AdapterLock): Promise<{ missing: string[]; recorded: boolean; platform: string }> {
+async function leftOut(m: Machine, node: string, tmp: string, lock: AdapterLock): Promise<{ missing: string[]; recorded: boolean; platform: string; noBuild: boolean; libcUnknown: boolean }> {
   const r = await m.run(node, ["-e", INSTALLED], { cwd: tmp, timeout: 60_000, maxBuffer: 32 << 20 })
   if (r.code !== 0) throw new Error(r.error?.message ?? (lastLines(r.err, 1) || `node exited ${r.code}`))
   const got = JSON.parse(r.out) as Platform & { packages: Record<string, string> | null }
+  const parsed = JSON.parse(lock.files["package-lock.json"]) as unknown
   return {
-    missing: missingPackages(JSON.parse(lock.files["package-lock.json"]), got.packages, got),
+    noBuild: noBuildFor(parsed, got),
+    libcUnknown: got.os === "linux" && !got.libc,
+    missing: missingPackages(parsed, got.packages, got),
     recorded: !!got.packages,
     platform: `${got.os} ${got.cpu}${got.libc ? ` ${got.libc}` : ""}`,
   }
@@ -417,9 +459,13 @@ function fsFailure(err: unknown): string {
 
 /** Why `npm ci` failed, as the sentence the window says. Offline, a full disk, a package whose
  *  sha512 differs from the lockfile's (refused: never installed), a timeout, or npm's own words. */
-export function npmFailure(r: RunResult, c: { name: string; where: string; package: string; version: string }): string {
+export function npmFailure(r: RunResult, c: { name: string; where: string; package: string; version: string; ms?: number }): string {
   const head = `The ${c.name} adapter can't be installed on ${c.where}`
   if (r.error?.code === "ENOENT" || (r.code === 127 && /b42: cannot start npm: ENOENT/.test(r.err))) return `${head}: npm was not found there (it comes with node).`
+  // Ended well before either time was up (the app's own run timeout is install + grace): not a
+  // timeout, and not said as one.
+  if (r.code === null && !r.error && c.ms !== undefined && c.ms < Math.min(adapterTiming.install, adapterTiming.install + adapterTiming.grace) - 1000)
+    return `${head}: npm was ended there after ${Math.max(1, Math.round(c.ms / 1000))} s${r.signal ? ` (${r.signal})` : ""}. Start it again to try once more.`
   if ((r.code === 124 && /b42: npm ran out of time/.test(r.err)) || (r.code === null && !r.error)) return `${head}: npm did not finish in ${adapterTiming.install >= 60_000 ? `${Math.round(adapterTiming.install / 60_000)} minutes` : `${Math.round(adapterTiming.install / 1000)} s`}${r.signal ? ` (it was ended, ${r.signal})` : ""}. Is the link to npm's registry slow? Start it again to try once more.`
   if (r.code === 125 && /b42: the app stopped waiting for npm/.test(r.err)) return `${head}: npm was ended there, because the app's word that it still waited (written every few seconds) did not reach it for ${Math.round(adapterTiming.lease / 1000)} s. Start it again to try once more.`
   const said = `${r.err}\n${r.out}`
@@ -549,7 +595,7 @@ async function tidy(m: Machine, lock: AdapterLock, log: Log): Promise<string[]> 
         continue
       }
       const at = m.path.join(dir, name)
-      const away = m.path.join(dir, `${REMOVING}${name}`)
+      const away = m.path.join(dir, `${REMOVING}${name}-${crypto.randomBytes(4).toString("hex")}`)
       await m.rename(at, away)
       // Marked used since it was looked at (another app's start): put back.
       if (!unused(await lastUsed(m, away))) {
