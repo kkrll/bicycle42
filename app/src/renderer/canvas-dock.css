@@ -82,7 +82,8 @@
   height: 24px;
   padding: 2px;
   border-radius: var(--radius);
-  background: var(--surface);
+  /* (On the dock's card a ring, not a fill: a step of fill there is the hover's.) */
+  box-shadow: inset 0 0 0 1px var(--rule);
 }
 
 .cd-tab {
@@ -97,7 +98,7 @@
 }
 
 .cd-tab:not(:disabled):not([aria-selected="true"]):hover {
-  background: var(--surface-strong);
+  background: var(--hover-fill);
   color: var(--foreground);
 }
 
@@ -233,11 +234,11 @@
 }
 
 .cd-trow.hov {
-  background: var(--surface);
+  background: var(--hover-fill);
 }
 
 .cd-trow.on {
-  background: color-mix(in srgb, var(--accent) 16%, var(--background));
+  background: color-mix(in srgb, var(--accent) 16%, var(--card));
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
@@ -409,9 +410,10 @@
   tab-size: 2;
 }
 
+/* A field is paper set into the dock's card, as the conversation's message box is. */
 .cd-cls {
   height: 28px;
-  background: var(--surface);
+  background: var(--background);
   user-select: text;
 }
 
@@ -445,7 +447,7 @@
 .cd-ed {
   position: relative;
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--background);
 }
 
 /* The box grows with its text by itself (field-sizing), so typing never has to measure it. */
@@ -497,7 +499,7 @@
 }
 
 .cd-crow:hover {
-  background: var(--surface);
+  background: var(--hover-fill);
 }
 
 /* The name copies the value into Element styles, and is dragged to change its number. */
@@ -533,8 +535,9 @@
   user-select: text;
 }
 
+/* (A field, on its row's hover: paper, as the fields are.) */
 .cd-cval:hover {
-  background: var(--surface-strong);
+  background: var(--background);
 }
 
 .cd-cval:focus {
@@ -572,7 +575,7 @@
 }
 
 .cd-ctok:hover {
-  background: var(--surface-strong);
+  background: var(--background);
   color: var(--foreground);
 }
 
@@ -588,6 +591,8 @@
   border: 1px solid var(--background-03);
   border-radius: 8px;
   background: var(--background);
+  /* (Paper over the card: what is in it keeps the paper's hover, as the panel's menus do.) */
+  --hover-fill: var(--surface-strong);
   font-family: var(--font-mono);
   overscroll-behavior: contain;
 }
@@ -795,7 +800,7 @@
 }
 
 .cd-count[aria-expanded="true"] {
-  background: var(--surface-strong);
+  background: var(--hover-fill);
 }
 
 .cd-acts {
@@ -815,9 +820,11 @@
   display: flex;
 }
 
-.cd-note {
+/* (Paper, as the fields are: named with .input, whose transparent it would otherwise lose to.) */
+.input.cd-note {
   flex: 1;
   min-width: 0;
+  background: var(--background);
 }
 
 .cd-msg {
@@ -847,7 +854,7 @@
 }
 
 .cd-help[aria-expanded="true"] {
-  background: var(--surface-strong);
+  background: var(--hover-fill);
   color: var(--foreground);
 }
 
@@ -877,6 +884,7 @@
   border: 1px solid var(--background-03);
   border-radius: 8px;
   background: var(--background);
+  --hover-fill: var(--surface-strong);
   overscroll-behavior: contain;
 }
 
@@ -892,6 +900,7 @@
   border: 1px solid var(--background-03);
   border-radius: 8px;
   background: var(--background);
+  --hover-fill: var(--surface-strong);
   overscroll-behavior: contain;
 }
 

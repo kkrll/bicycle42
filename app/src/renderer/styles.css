@@ -1190,6 +1190,44 @@ details[open] > summary > .caret {
   font-size: var(--text-control);
 }
 
+/* the dock column: card and width (phone/column) */
+/* A dock is a card, as the panel's sections are (.place, .notes, .chat): their colour, their
+   quieter rule and their corners, and the card's hover for every control in it. Under the page
+   and beside a phone's alike: it is the same dock. (Its paper popovers keep the paper's hover:
+   canvas-dock.css, motion-dock.css.) */
+.dock {
+  border-color: var(--rule);
+  background: var(--card);
+  --hover-fill: var(--card-hover);
+}
+
+.dock .toggle:not(:disabled):hover {
+  background: var(--hover-fill);
+}
+
+/* The column's width, dragged by its edge: set on the stage, as the dock's height is, and not
+   inherited (see --dock-height). */
+@property --dock-width {
+  syntax: "*";
+  inherits: false;
+}
+
+/* Dragged, the column at a phone's right is as wide as its edge says (app.tsx keeps that between
+   300px and what leaves the phone its own column), and the phone's column takes the rest. */
+.stage.phone.sized > .dock {
+  --dock-width: inherit;
+  flex: none;
+  width: var(--dock-width);
+  max-width: none;
+}
+
+/* Its edge: in the last 8px of the phone's column, the air beside the phone (never less than
+   that: the column's min-width is the phone's, its hairline's 2px and 8px of air at each side),
+   taking no room of its own; as tall as the dock. The pill is the panel's edge's. */
+.stage.phone > .column-resizer {
+  margin: 0 0 8px -8px;
+}
+
 .devices {
   margin: 0;
 }

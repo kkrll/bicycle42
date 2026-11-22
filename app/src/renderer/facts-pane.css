@@ -90,7 +90,7 @@
 
 .pl-count:hover,
 .pl-count:focus-visible {
-  background: var(--surface-strong);
+  background: var(--hover-fill);
   color: var(--foreground);
 }
 
@@ -228,13 +228,14 @@
   border-radius: var(--radius);
 }
 
+/* (On the pane's card: the card's hover, and a step past it for the row lit.) */
 .fp-fact:hover {
-  background: var(--surface);
+  background: var(--hover-fill);
 }
 
 /* The row a count's click in the line above went to, a moment. */
 .fp-fact.fp-lit {
-  background: var(--surface-strong);
+  background: color-mix(in srgb, var(--foreground) 20%, var(--background));
 }
 
 .fp-fact {
@@ -288,6 +289,11 @@
 .fp-fact:hover .btn.fp-note,
 .fp-fact:focus-within .btn.fp-note {
   opacity: 1;
+}
+
+/* (Its row has the card's hover already: a step the other way, to paper.) */
+.fp-fact .btn.fp-note:not(:disabled):hover {
+  background: var(--background);
 }
 
 /* The files the agent changed: words, not controls. */

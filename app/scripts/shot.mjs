@@ -183,6 +183,10 @@ const SHOTS = [
   { name: "phone-max-collapsed", mock: "review", query: "&device=phone&phone=iphone-18-pro-max&mode=preview", run: [click("[data-action=panel]")] },
   { name: "phone-wide", mock: "review", query: "&device=phone&mode=preview", size: [1984, 1276] },
   { name: "phone-clear", mock: "review", query: "&device=phone&mode=preview&facts=clear" },
+  // The column at the phone's right dragged to its most (the phone at the least column it has)
+  // and to its least (300 px), by its edge's End and Home.
+  { name: "phone-column-wide", mock: "review", query: "&device=phone&mode=preview", run: [`document.querySelector(".column-resizer").dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }))`], wait: 300 },
+  { name: "phone-column-narrow", mock: "review", query: "&device=phone&docks=canvas&mode=edit", run: [`document.querySelector(".column-resizer").dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }))`], wait: 300, report: FOOTER },
   { name: "dock", mock: "review", query: "&docks=motion&mode=motion", report: TRACKS },
   { name: "phone-dock", mock: "review", query: "&device=phone&docks=canvas&mode=edit", report: FOOTER },
   // The keys list from the footer's "?", inside the inspector's box.

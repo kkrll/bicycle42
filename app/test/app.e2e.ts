@@ -1466,6 +1466,93 @@ async function main() {
   check("…and its name beside the switch", (await ui(`document.querySelector('.phone-pick .pick-long').textContent`)) === "iPhone SE")
   await ui(`(() => { const s = document.querySelector('.phone-pick select'); s.value = "iphone-16e"; s.dispatchEvent(new Event("change", { bubbles: true })) })()`)
   await until(() => shaped(page.view.getBounds(), VIEW.width, VIEW.height) && page.view.getBounds().width === narrow.width)
+  // The column at the phone's right is as wide as its edge is dragged, in every mode: arrows step
+  // 16 px, Home and End go to its limits (300 px, and what leaves the phone its column), a double
+  // click gives it the room that is left again. Dragged wider, the phone stays whole and in the
+  // middle of its own column. The width is kept for the next launch.
+  {
+    const colW = () => ui(`Math.round(document.querySelector('.stage.phone > .dock').getBoundingClientRect().width)`) as Promise<number>
+    type Sep = { role: string; o: string; label: string; now: number; min: number; max: number }
+    const colSep = () => ui(`(() => { const s = document.querySelector('.column-resizer'); return s ? { role: s.getAttribute("role"), o: s.getAttribute("aria-orientation"), label: s.getAttribute("aria-label"), now: +s.getAttribute("aria-valuenow"), min: +s.getAttribute("aria-valuemin"), max: +s.getAttribute("aria-valuemax") } : null })()`) as Promise<Sep | null>
+    const colKey = (k: string) => ui(`document.querySelector('.column-resizer').dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(k)}, bubbles: true, cancelable: true }))`)
+    /** The phone's air at its left and right in its column, and its width. */
+    const phoneAir = () => ui(`(() => { const c = document.querySelector('.device-col').getBoundingClientRect(), p = document.querySelector('.stage.phone .page').getBoundingClientRect(); return { left: p.left - c.left, right: c.right - p.right, width: p.width } })()`) as Promise<{ left: number; right: number; width: number }>
+    const kept = () => ui(`localStorage.getItem("b42.dock.width")`) as Promise<string | null>
+    // The column is a card as the panel's sections are: their colour, rule and corners.
+    const look = (sel: string) => `(() => { const s = getComputedStyle(document.querySelector(${JSON.stringify(sel)})); return [s.backgroundColor, s.borderTopColor, s.borderTopWidth, s.borderRadius].join(" ") })()`
+    const cardLook = [await ui(look(".stage.phone > .dock")), await ui(look(".panel .chat"))] as string[]
+    check("the column beside a phone's page is a card, as the panel's sections are", cardLook[0] === cardLook[1], cardLook.join(" / "))
+    const sep0 = await colSep()
+    const w0 = await colW()
+    const air0 = await phoneAir()
+    await colKey("ArrowLeft")
+    const w1 = await colW()
+    await colKey("ArrowRight")
+    await colKey("ArrowRight")
+    const w2 = await colW()
+    await colKey("Home")
+    const w3 = await colW()
+    await colKey("End")
+    const w4 = await colW()
+    const sep4 = await colSep()
+    const air4 = await phoneAir()
+    check(
+      "the column at a phone's right has an edge: a separator, its width now and its limits, read as the dock's height's are",
+      !!sep0 && sep0.role === "separator" && sep0.o === "vertical" && sep0.label === "Resize the column" && sep0.now === w0 && sep0.min === 300 && sep0.max > w0,
+      JSON.stringify(sep0) + ` width ${w0}`,
+    )
+    check(
+      "…an arrow steps it 16 px (left wider, right narrower), Home is its least (300 px), End its most, and the width is kept",
+      w1 === w0 + 16 && w2 === w0 - 16 && w3 === 300 && w4 === sep4?.max && sep4?.now === w4 && (await kept()) === String(w4),
+      `${w0} ${w1} ${w2} ${w3} ${w4} ${JSON.stringify(sep4)} kept ${await kept()}`,
+    )
+    check(
+      "…at its most the phone is whole, as wide as before, in the middle of its column",
+      Math.abs(air4.width - air0.width) < 1 && Math.abs(air4.left - air4.right) <= 1 && air4.left >= 8,
+      `${JSON.stringify(air0)} → ${JSON.stringify(air4)}`,
+    )
+    await colKey("Home")
+    // Dragged: the page is away while it is, and the column follows the pointer.
+    const at = (await ui(`(() => { const r = document.querySelector('.column-resizer').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } })()`)) as { x: number; y: number }
+    // (As the panel's edge is dragged below: 3 px a move, a frame asked for after each, which is
+    // when a move reaches the window's renderer. The edge follows the pointer, so each move is on
+    // it: a move sent to the window holds no button, and the edge's capture does not hold it.)
+    const frame = () => ui(`new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)))`)
+    const to = (type: "mouseDown" | "mouseMove" | "mouseUp", dx: number) => win.webContents.sendInputEvent({ type, x: at.x + dx, y: at.y, button: "left", clickCount: 1 })
+    to("mouseMove", 0)
+    to("mouseDown", 0)
+    to("mouseMove", -3)
+    const veiled = await until(() => ui(`!!document.querySelector('.stage.phone .page.veiled')`), 2000)
+    await frame()
+    for (let i = 2; i <= 20; i++) {
+      to("mouseMove", -3 * i)
+      await frame()
+    }
+    const dragW = await until(async () => ((await colW()) === 360 ? 360 : null), 2000)
+    to("mouseUp", -60)
+    const unveiled = await until(() => ui(`!document.querySelector('.page.veiled')`), 2000)
+    check("…dragged, the page is away while it is, and the column is as wide as the pointer took it, and kept", veiled === true && dragW === 360 && unveiled === true && (await kept()) === "360", `${veiled} ${await colW()} ${unveiled} kept ${await kept()}`)
+    // Only the mode changes: the column keeps its width (chosen, and the room that is left).
+    const inModes = async () => {
+      const ws: number[] = []
+      for (const m of ["preview", "edit", "notes"] as const) {
+        await ui(`document.querySelector('.mode[data-mode="${m}"]').click()`)
+        await until(async () => state().review.mode === m && (m !== "edit" || (await inspector())))
+        await sleep(100)
+        ws.push(await colW())
+      }
+      return ws
+    }
+    const chosenModes = await inModes()
+    // A relaunch: the window's renderer anew, from what it kept.
+    win.webContents.reload()
+    const relaunched = await until(async () => ((await ui(`!!document.querySelector('.stage.phone > .dock') && !!document.querySelector('.column-resizer')`).catch(() => false)) ? colW() : null), 8000)
+    await ui(`document.querySelector('.column-resizer').dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`)
+    const reset = await colW()
+    const autoModes = await inModes()
+    check("…and the same in every mode, and after a relaunch", chosenModes.every((w) => w === 360) && relaunched === 360, `${chosenModes.join(" ")} relaunched ${relaunched}`)
+    check("…a double click gives it the room that is left again, in every mode", reset === w0 && autoModes.every((w) => w === w0) && (await kept()) === "", `${reset} (was ${w0}) ${autoModes.join(" ")} kept ${await kept()}`)
+  }
   // Edit, beside a phone's page: the column is the inspector and nothing else; the page's facts
   // are not worked out there, and nothing of the pane is marked on the page.
   await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
