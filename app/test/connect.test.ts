@@ -7,6 +7,7 @@
 //
 //   node scripts/build.mjs --tests && node --test dist/test/connect.test.cjs
 import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
 import fs from "node:fs"
 import net from "node:net"
 import os from "node:os"
@@ -14,7 +15,7 @@ import path from "node:path"
 import { test } from "node:test"
 import { failure, socketTooLong } from "../src/helper/failure"
 import { connectSsh, nodesSaid, probeScript, saysWindows, sshTiming } from "../src/main/ssh"
-import { fakeHost, type FakeHost } from "./ssh-fixture"
+import { fakeHost, until, type FakeHost } from "./ssh-fixture"
 
 sshTiming.retryMin = 100
 sshTiming.retryMax = 300
@@ -60,7 +61,9 @@ const word = /^(?:[\\w@%+=:,./~-]+|'[^'\\n]*')$/
 const words = (line || "").split(" ")
 if (!line || !words.every((w) => word.test(w))) { process.stderr.write("${o.name}: Unmatched quote, or a word it can't read: " + JSON.stringify(line) + "\\n"); process.exit(127) }
 const args = words.map((w) => (w.startsWith("'") ? w.slice(1, -1) : w.startsWith("~/") ? process.env.HOME + w.slice(1) : w))
-const PATH = ${JSON.stringify(o.loginPath ?? "")} ? ${JSON.stringify(o.loginPath ?? "")} + ":" + process.env.PATH : process.env.PATH
+// Its profile's PATH, for a login or interactive shell only (a plain -c has the one it was
+// given); csh's .cshrc is read by every one of its shells.
+const PATH = (/[il]/.test(flags) || ${!!o.tcsh}) && ${JSON.stringify(o.loginPath ?? "")} ? ${JSON.stringify(o.loginPath ?? "")} + ":" + process.env.PATH : process.env.PATH
 const r = spawnSync(args[0], args.slice(1), { stdio: "inherit", env: { ...process.env, PATH } })
 process.exit(r.status === null ? 1 : r.status)
 `,
@@ -75,7 +78,7 @@ function bare(h: FakeHost) {
   const dir = path.join(h.root, "bare-bin")
   if (fs.existsSync(dir)) return dir
   fs.mkdirSync(dir)
-  for (const tool of ["sh", "sed", "awk", "sort", "tail", "cut", "env", "mkdir", "mv", "rm", "cat", "printf"]) {
+  for (const tool of ["sh", "sed", "awk", "sort", "tail", "cut", "env", "mkdir", "mv", "rm", "cat", "printf", "mktemp", "sleep"]) {
     const at = ["/usr/bin", "/bin"].map((d) => path.join(d, tool)).find((f) => fs.existsSync(f))
     if (at) fs.symlinkSync(fs.realpathSync(at), path.join(dir, tool))
   }
@@ -270,4 +273,84 @@ test("the probe's script: only sh reads it, and what it says is read by its mark
     { path: "/usr/bin/node", version: "16.20.0" },
     { path: "/opt/my node/bin/node", version: "22.11.0" },
   ])
+})
+
+test("a login shell whose profile never finishes (bash, which ignores SIGTERM when interactive) holds connecting 10 s at most, leaves nothing running there, and is said when node could only have come from it", { skip: !fs.existsSync("/bin/bash") && "no bash here" }, async () => {
+  const h = fakeHost()
+  const step = sshTiming.step
+  sshTiming.step = 30_000
+  try {
+    process.env.B42_FAKE_SSH_SHELL = "/bin/bash"
+    fs.writeFileSync(path.join(h.home, ".bashrc"), "while :; do sleep 1; done\n")
+    fs.writeFileSync(path.join(h.home, ".bash_profile"), ". ~/.bashrc\n")
+    let t = Date.now()
+    const m = await connectSsh({ host: "dev-box", dataDir: h.data })
+    await m.close()
+    const took = Date.now() - t
+    assert.ok(took < 20_000, `connected in ${took} ms`)
+    const left = () => spawnSync("pgrep", ["-f", `${h.home}|bash -ilc env|bash -lc env`], { encoding: "utf8" }).stdout.split("\n").filter(Boolean).filter((pid) => fs.existsSync(`/proc/${pid}`) && /bash/.test(fs.readFileSync(`/proc/${pid}/cmdline`, "utf8")))
+    await until(() => left().length === 0, 5000).catch(() => assert.fail(`left running there: ${left().join(" ")}`))
+    // With no node on the plain PATH, the profile's not finishing is what is said.
+    await endHelpers(h)
+    fs.rmSync(path.join(h.data, "ssh", "nodes.json"))
+    process.env.B42_FAKE_SSH_PATH = bare(h)
+    t = Date.now()
+    await assert.rejects(connectSsh({ host: "dev-box", dataDir: h.data }), /`node` was not found on the PATH there, and its login shell's profile did not finish in 10 s/)
+    assert.ok(Date.now() - t < 20_000)
+  } finally {
+    sshTiming.step = step
+    clean()
+    spawnSync("pkill", ["-9", "-f", "bash -ilc env"])
+    await h.end()
+  }
+})
+
+test("a Linux computer whose profile prints PowerShell's words (oh-my-posh not found) is not said to run Windows", async () => {
+  const h = fakeHost()
+  try {
+    const login = path.join(h.root, "posh-like")
+    fs.writeFileSync(login, `#!/bin/sh\necho "oh-my-posh: The term 'oh-my-posh' is not recognized as a name of a cmdlet. CommandNotFoundException" >&2\nexec /bin/sh "$@"\n`, { mode: 0o755 })
+    process.env.B42_FAKE_SSH_LOGIN = login
+    process.env.B42_FAKE_SSH_SHELL = "/bin/sh"
+    const m = await connectSsh({ host: "dev-box", dataDir: h.data })
+    assert.equal(m.platform, "linux")
+    await m.close()
+  } finally {
+    clean()
+    await h.end()
+  }
+})
+
+test("the steps of connecting are said for the first connect only: a reconnect that starts the helper again says none (the window's step line does not outlive the connect)", async () => {
+  const h = fakeHost()
+  try {
+    const steps: string[] = []
+    const m = await connectSsh({ host: "dev-box", dataDir: h.data, onStep: (s) => steps.push(s) })
+    assert.equal(steps.length, 3)
+    steps.length = 0
+    await endHelpers(h)
+    await until(() => m.reach().status === "down")
+    await until(() => m.reach().status === "up", 20_000)
+    assert.deepEqual(steps, [])
+    await m.close()
+  } finally {
+    await h.end()
+  }
+})
+
+test("attaching first never uses a ~/.bicycle42 that others could write in: the probe runs and makes it this user's alone again", async () => {
+  const h = fakeHost()
+  try {
+    const seen = commands(h)
+    const m = await connectSsh({ host: "dev-box", dataDir: h.data })
+    await m.close()
+    seen()
+    fs.chmodSync(helperDir(h), 0o777)
+    const again = await connectSsh({ host: "dev-box", dataDir: h.data })
+    await again.close()
+    assert.deepEqual(seen(), ["attach", "sh -s", "attach"])
+    assert.equal((fs.statSync(helperDir(h)).mode & 0o777).toString(8), "700")
+  } finally {
+    await h.end()
+  }
 })

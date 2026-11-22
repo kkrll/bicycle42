@@ -453,7 +453,9 @@ can also be moved by hand (the date `tested` then goes, unless you ran the check
   connection attaches first, and starts the helper only when none runs: with scripts sent to
   `sh -s` on stdin, so any login shell (bash, zsh, fish, csh) runs them alike and Windows's is said;
   they find the newest node of 18 or later on the plain and the login shell's PATH (marker lines,
-  so a noisy profile is not read; remembered per host), and start the helper in the same session.
+  so a noisy profile is not read; remembered per host; a profile that never finishes is ended
+  with SIGKILL after 10 s and said), and start the helper in the same session. Attaching first
+  uses ~/.bicycle42 only when it is this user's alone; else the probe runs.
   What stops the helper starting is said as a code and a sentence (EACCES, EROFS, ENOSPC, a home
   too long for a socket's path, the helper stopping as it starts, from its own log of that start),
   never node's last line; a socket there that is not this user's is never spoken to, and
@@ -481,9 +483,13 @@ can also be moved by hand (the date `tested` then goes, unless you ran the check
   work on a folder is done where its files are (`ops.ts`): the helper runs the same code as the
   app does here (the repo's line, `vcs.ts`; the history's git side, `snapshots.ts`'s `Shadows`)
   over its own files, and the app asks once per operation: a snapshot, a take-back's dry run, its
-  run (given the dry run's answer, taken as it is while the files are unchanged), a write of the
-  log, the repo's line, each one call however many git commands it is there. The log is read once
-  and kept by the app, and no message waits on a call before it goes. The address the agent reports (`SITE:` on its
+  run with the restore written down in the same call (a link that drops meanwhile leaves both
+  made or neither; the reviewer is told the link dropped, and the note says it is taken back once
+  it is back), a change of the log (made there on the log as it is on disk, so a log that could
+  not be read is never written over), the repo's line, each one call however many git commands it
+  is there. The log is read once and kept by the app (a read that fails is not kept), and no
+  message waits on a call before it goes. git's output is read up to 64 MiB there: a turn whose
+  patch is longer is left to the agent, with a sentence. The address the agent reports (`SITE:` on its
   localhost) is forwarded here (`ssh -O forward`, the same port when it is free) and opened; the
   request to start the site says nothing of binding to the network or of a tunnel for it. Which
   addresses are that computer's is read from the address alone, parsed as the browser does, with

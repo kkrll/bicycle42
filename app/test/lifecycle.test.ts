@@ -11,6 +11,8 @@ import fs from "node:fs"
 import net from "node:net"
 import path from "node:path"
 import { test } from "node:test"
+import { createHost, type Conn } from "../src/helper/host"
+import { createLocalMachine } from "../src/main/machine"
 import { connectSsh, sshTiming } from "../src/main/ssh"
 import { lineReader } from "../src/shared/wire"
 import { fakeHost, until } from "./ssh-fixture"
@@ -101,6 +103,8 @@ test("after an update, the earlier version's helper ends what the install's earl
         await until(async () => (await listed()) === [another.hid, later.hid].sort().join(" ")).catch(async () => assert.fail(`the earlier run's is ended and forgotten, the others stay: ${await listed()}`))
         b.close()
         assert.ok(alive(another.pid) && alive(later.pid))
+        // The helpers are asked one after another, beside the hello: the old one may come after aaaa.
+        await until(() => asked.length >= 1)
         assert.deepEqual(asked, ["endOwner"])
         await until(() => /version old0's helper is older than endOwner/.test(fs.readFileSync(path.join(dir, "helper.log"), "utf8")))
         // Once per run: attaching again asks nothing more.
@@ -139,4 +143,36 @@ test("endOwner's params are checked, and an install's processes are its own to e
   } finally {
     await h.end()
   }
+})
+
+test("endOwner never ends a process an app is attached to now (two computers that share an install's id): only those no app reads", async () => {
+  const host = createHost({ machine: createLocalMachine(), version: "aaaa", log: () => {}, outMax: 1e6, errMax: 1e5, leaseMs: 1e9, idle() {}, busy() {}, shutdown() {} })
+  const conn = () => {
+    const got: Array<Record<string, unknown>> = []
+    const waiting = new Map<number, (m: Record<string, unknown>) => void>()
+    const c: Conn = {
+      send(line) {
+        const m = JSON.parse(line) as Record<string, unknown>
+        got.push(m)
+        if (typeof m.id === "number") waiting.get(m.id)?.(m)
+      },
+    }
+    host.attach(c)
+    let id = 0
+    return { c, got, call: (method: string, params: Record<string, unknown> = {}) => new Promise<Record<string, unknown>>((r) => { const n = ++id; waiting.set(n, r); host.handle(c, JSON.stringify({ id: n, method, params })) }) }
+  }
+  const app = conn()
+  const away = conn()
+  const spawn = async (who: ReturnType<typeof conn>, key: string) => ((await who.call("spawn", { program: process.execPath, args: ["-e", "setInterval(() => {}, 1e6)"], owner: "X", launch: 1000, key })).result as { hid: string }).hid
+  const read = await spawn(app, "k-1")
+  const left = await spawn(away, "k-2")
+  // The app that started `left` has gone.
+  host.detach(away.c)
+  const other = conn()
+  assert.deepEqual((await other.call("endOwner", { owner: "X", before: 2000 })).result, { ended: 1 })
+  await until(() => host.procs().length === 1)
+  assert.deepEqual(host.procs().map((p) => p.hid), [read])
+  assert.equal(app.got.filter((m) => m.ev === "exit").length, 0, "the attached app is sent no exit")
+  assert.notEqual(read, left)
+  await app.call("kill", { hid: read })
 })

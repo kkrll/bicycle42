@@ -19,7 +19,13 @@ export const PROTOCOL = 1
  *    ping                         → {version, protocol}
  *    hello {owner?, launch?}      → {version, protocol, pid, procs: [{hid, owner, launch, key?, exited?}]}
  *    endOwner {owner, before}     → {ended}: that install's processes from its launches before
- *                                   `before` (a time) are ended, and forgotten once they have
+ *                                   `before` (a time) that no app is attached to are ended, and
+ *                                   forgotten once they have
+ *
+ *  A frozen call is never narrowed by a new param: a helper of an earlier version serves it with
+ *  the params it knows and does not look at others (endOwner {…, detachedOnly: true} would be
+ *  served as plain endOwner). What a call must do differently is a call of a new name, which an
+ *  earlier helper answers "no such call" (ENOSYS).
  *
  *  When an app says hello (its install `owner`, its `launch`), the helper asks the helper of every
  *  other version there to endOwner, once: what an earlier run of the same install started with

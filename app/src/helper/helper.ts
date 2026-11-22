@@ -69,6 +69,20 @@ const STALE_MS = 3600_000
 // ── attach: ssh's stdio ⇄ the socket ────────────────────────────────────────────────────────────
 
 function attach() {
+  // Attaching runs this file without the probe's checks: when ~/.bicycle42 is not a folder of
+  // this user's alone (a link, another's, one others could write in), nothing of it is used, and
+  // the app runs the probe, which tightens it or says why it can't.
+  try {
+    const st = fs.lstatSync(DIR)
+    const uid = process.getuid?.()
+    if (!st.isDirectory() || (uid !== undefined && st.uid !== uid) || st.mode & 0o077) {
+      process.stderr.write(`B42 NOHELPER ${DIR} is not this user's alone\n`)
+      process.exit(3)
+    }
+  } catch {
+    process.stderr.write(`B42 NOHELPER no ${DIR}\n`)
+    process.exit(3)
+  }
   // Only a socket of this user's: anyone else's (left while the folder was open to others) is
   // never spoken to. The daemon takes it away and listens there itself.
   if (socketOf(SOCKET) === "foreign") {

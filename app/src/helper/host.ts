@@ -235,11 +235,14 @@ export function createHost(o: HostOptions) {
       "endOwner",
       {
         params: { owner: "string", before: "number" },
-        /** That install's processes from its launches before `before`, ended (each with what it
-         *  started) and forgotten once they have: no app of theirs will ask for them. Frozen
+        /** That install's processes from its launches before `before` that no app is attached to,
+         *  ended (each with what it started) and forgotten once they have: no app of theirs will
+         *  ask for them. Frozen
          *  (wire.ts LIFECYCLE). Answered once they are gone. */
         async run(q) {
-          const mine = [...procs.values()].filter((p) => p.owner === q.owner && p.launch < (q.before as number))
+          // Never one an app is attached to now: that app reads it (two computers that share an
+          // install's id, its data folder copied), and ends it itself.
+          const mine = [...procs.values()].filter((p) => p.owner === q.owner && p.launch < (q.before as number) && !p.conn)
           for (const p of mine) {
             log("ended for a later run of its app", p.hid)
             p.orphan = true

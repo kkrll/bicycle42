@@ -233,15 +233,28 @@ export function probeScript(o: { version: string; digest: string; remembered?: s
     "IFS=$was",
     // The login shell's PATH: as an interactive login shell has it, else a login shell, else any
     // (tcsh takes -l only alone). What its profile prints is not a line starting PATH=.
-    // A profile that waits (one that attaches to tmux, say) holds it 10 s at most, where the
-    // computer has `timeout` (macOS has not, unless coreutils').
-    "T=",
-    "command -v timeout >/dev/null 2>&1 && T='timeout 10'",
+    // A profile that never finishes (a loop, one that waits for a terminal) is ended after 10 s
+    // with SIGKILL, which an interactive shell can't ignore as it does SIGTERM (so `timeout`
+    // would not do, and macOS has none): the shell runs in the background beside a watchdog,
+    // its output to a file of its own. Then no other way of asking it is tried, and it is said.
     "lp=",
-    "for f in -ilc -lc -c; do",
-    `  lp=$($T "\${SHELL:-/bin/sh}" $f env </dev/null 2>/dev/null | sed -n 's/^PATH=//p' | tail -n 1)`,
-    '  [ -n "$lp" ] && break',
-    "done",
+    "slow=",
+    'tmp=$(mktemp 2>/dev/null) || tmp=',
+    'if [ -n "$tmp" ]; then',
+    "  for f in -ilc -lc -c; do",
+    `    "\${SHELL:-/bin/sh}" $f env </dev/null >"$tmp" 2>/dev/null &`,
+    "    p=$!",
+    "    ( trap 'kill $s 2>/dev/null; exit 0' TERM; sleep 10 & s=$!; wait $s; kill -9 $p 2>/dev/null ) >/dev/null 2>&1 &",
+    "    w=$!",
+    "    wait $p",
+    "    st=$?",
+    "    kill $w 2>/dev/null",
+    `    [ "$st" -eq 137 ] && { slow=1; echo "B42 SLOWPROFILE"; break; }`,
+    `    lp=$(sed -n 's/^PATH=//p' "$tmp" | tail -n 1)`,
+    '    [ -n "$lp" ] && break',
+    "  done",
+    '  rm -f "$tmp"',
+    "fi",
     "IFS=:",
     'for d in $lp; do add "${d:-.}/node"; done',
     "IFS=$was",
@@ -256,7 +269,7 @@ export function probeScript(o: { version: string; digest: string; remembered?: s
     // The newest of 18 or later, and of two the same, the one found first: versions as numbers,
     // padded, then the order found, backwards, sorted as text.
     `best=$(printf '%s' "$found" | awk '{ v = $NF; split(v, a, "."); if (a[1] + 0 >= 18) printf "%09d%09d%09d%09d %s\\n", a[1], a[2], a[3], 999999999 - NR, substr($0, 9, length($0) - 9 - length(v)) }' | sort | tail -n 1 | cut -c38-)`,
-    '[ -n "$best" ] || { echo "B42 NONODE"; exit 0; }',
+    '[ -n "$best" ] || { echo "B42 NONODE${slow:+ SLOWPROFILE}"; exit 0; }',
     `if "$best" -e ${shq(PROBE)} "$D" "$F" "$H"; then exec "$best" "$F" daemon; fi`,
     "exit 0",
     "",
@@ -449,7 +462,9 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
     }
   }
   /** The step of connecting under way, said for a slow link. */
-  const step = (text: string) => o.onStep?.(text)
+  const step = (text: string) => {
+    if (first) o.onStep?.(text)
+  }
 
   /** A script for `sh -s` there, on its stdin: the command line is those two words, which every
    *  login shell runs the same way. */
@@ -470,15 +485,20 @@ export async function connectSsh(o: SshOptions): Promise<RemoteMachine> {
   /** Finds the node there and starts the helper when it is there whole. Says what it found. */
   async function probe() {
     const r = await script(probeScript({ version, digest, remembered: node }))
-    if (saysWindows(r.out + r.err)) throw new Error(`${host} runs Windows (its login shell is cmd.exe or PowerShell), which the app can't work on over ssh yet.`)
-    const line = r.out.split("\n").reverse().find((l) => l.startsWith("B42 ") && !l.startsWith("B42 READY") && !l.startsWith("B42 FAILED"))
+    const line = r.out.split("\n").reverse().find((l) => l.startsWith("B42 ") && !/^B42 (READY|FAILED|SLOWPROFILE)/.test(l))
+    if (/^B42 SLOWPROFILE$/m.test(r.out)) log("warn", `the login shell's profile on ${host} did not finish in 10 s: node was looked for without it`)
     if (!line) {
+      // Only a computer whose shell never ran the script (no answer of its) is said to be Windows:
+      // a profile that merely prints PowerShell's words is not.
+      if (saysWindows(r.out + r.err)) throw new Error(`${host} runs Windows (its login shell is cmd.exe or PowerShell), which the app can't work on over ssh yet.`)
       // ssh's own failure, or a step stopped (it printed without end): what was said of it.
       if (r.code !== 0 || !r.out.trim()) throw new Error(sshError(host, r.err, r.code))
       throw new Error(`${host} did not answer as expected: ${r.out.trim().slice(-200) || r.err.trim().slice(-200)}`)
     }
     const all = nodesSaid(r.out)
-    if (line === "B42 NONODE") {
+    if (line.startsWith("B42 NONODE")) {
+      if (/SLOWPROFILE/.test(line) && !all.length)
+        throw new Error(`The app needs Node 18 or newer on ${host} for its helper. \`node\` was not found on the PATH there, and its login shell's profile did not finish in 10 s, so the PATH it sets up could not be read. Look at the profile (~/.bashrc, ~/.zshrc, ~/.config/fish) for something that waits, then connect again.`)
       if (all.length)
         throw new Error(`The app needs Node 18 or newer on ${host} for its helper, and found only ${all.map((n) => `Node ${n.version} (${n.path})`).join(", ")}. Install a newer one (nodejs.org, nvm, or your package manager) and connect again.`)
       throw new Error(`The app needs Node 18 or newer on ${host} for its helper, and \`node\` was not found there. Install it (nodejs.org, or your package manager) and connect again.`)
