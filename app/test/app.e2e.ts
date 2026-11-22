@@ -276,8 +276,8 @@ async function main() {
   )
   await (await turnNow())?.update({ sessionUpdate: "tool_call", toolCallId: "e2e-read", title: "Read", kind: "read", status: "completed", locations: [{ path: path.join(siteDir, "index.html") }] })
   check(
-    "once it takes a step, the turn's header says it, with the note's words, and no line at the foot",
-    (await until(() => ui(`(() => { const l = ${workingLines}; return l.length === 1 && /^turn-head live: Working on ?1 ?make this button bigger ?· \\d+s ?· 1 read$/.test(l[0]) })()`))) === true,
+    "once it takes a step, the turn's header says it, with the note's words and no counts (the rows under it say them), and no line at the foot",
+    (await until(() => ui(`(() => { const l = ${workingLines}; return l.length === 1 && /^turn-head live: Working on ?1 ?make this button bigger ?· \\d+s$/.test(l[0]) })()`))) === true,
     JSON.stringify(await ui(workingLines)),
   )
   // Said to a screen reader as it changes, without the clock that ticks beside it.
@@ -305,6 +305,12 @@ async function main() {
   // The agent answers note 1 and ends its turn; note 2 then goes, and is answered.
   await reply("Made the button larger (padding 12px to 16px).")
   await until(() => prompts().length === 2)
+  const firstHead = `document.querySelector(".transcript .turn-head")?.textContent.replace(/\\s+/g, " ").trim()`
+  check(
+    "…and once it is done, its header says how long and what it did",
+    (await until(() => ui(`/^Worked\\b.*· 1 read$/.test(${firstHead})`))) === true,
+    await ui(firstHead),
+  )
   check("the turn ending finishes the note, and the waiting one is sent", notes().map((n) => n.status).join().startsWith("done,") && prompts().length === 2, notes().map((n) => n.status).join())
   await until(() => notes()[1]?.status === "working")
   check("…and worked on as a turn of its own", notes().map((n) => n.status).join() === "done,working" && notes()[1]?.session === SES, notes().map((n) => n.status).join())

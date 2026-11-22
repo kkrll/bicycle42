@@ -451,8 +451,9 @@ const paused = () => offline() && !awayHost()
  *  step). What it did on the way (tools, thoughts, words between steps) folds into one line,
  *  "Worked for 15s"; the reply it ended with stays out. While it works, the fold is open and
  *  says so, with the note it works on and its words ("Working on ④ too much space… · 6m 0s"):
- *  the one place the transcript says it. When it is done it closes, unless the reader opened or
- *  closed it. */
+ *  the one place the transcript says it. Its counts wait until it is done: while it is open, the
+ *  rows right under it say them. When it is done it closes, unless the reader opened or closed
+ *  it. */
 function Turn(props: { items: ChatAssistant[]; current: boolean; note?: NoteRow }) {
   // The turn's parts, in order. The store's own objects: rows are kept as parts are added.
   const parts = createMemo(() => props.items.flatMap((it) => it.parts))
@@ -487,11 +488,32 @@ function Turn(props: { items: ChatAssistant[]; current: boolean; note?: NoteRow 
   /** The model that answered, once the turn is done: what the agent reported for it, else the
    *  conversation's model when it began (main says which, on the turn's items). */
   const model = () => (live() ? undefined : props.items.findLast((it) => it.model)?.model)
+  // The note's words take the room the rest of the header leaves; under about ten characters of
+  // it they go altogether, gap and all, rather than show a sliver.
+  const [wordsFit, setWordsFit] = createSignal(true)
+  let head: HTMLButtonElement | undefined
+  let noteWords: HTMLSpanElement | undefined
+  const fitWords = () => {
+    if (!head || !noteWords?.isConnected) return
+    const style = getComputedStyle(head)
+    // What is free after the header's last part (its caret), and what the words have now.
+    const free = head.getBoundingClientRect().right - (parseFloat(style.paddingRight) || 0) - head.lastElementChild!.getBoundingClientRect().right
+    const shown = noteWords.offsetParent !== null
+    const room = shown ? noteWords.getBoundingClientRect().width + free : free - (parseFloat(style.columnGap) || 0)
+    setWordsFit(room >= (parseFloat(style.fontSize) || 13) * 5)
+  }
+  const watch = new ResizeObserver(() => fitWords())
+  onCleanup(() => watch.disconnect())
+  createEffect(on(() => live() && [props.note?.text, paused(), took(elapsed())], () => requestAnimationFrame(fitWords)))
   return (
     <div class="msg assistant turn" data-item={props.items[0]!.id}>
       <Show when={steps().length}>
         <button
           class="turn-head"
+          ref={(el) => {
+            head = el
+            watch.observe(el)
+          }}
           classList={{ live: live() }}
           aria-expanded={open()}
           onClick={(e) => {
@@ -515,8 +537,9 @@ function Turn(props: { items: ChatAssistant[]; current: boolean; note?: NoteRow 
                       {note().n}
                     </span>
                   </span>
-                  {/* The note's words, cut first where the line is short. */}
-                  <span class="turn-note" title={note().text}>
+                  {/* The note's words take the room the time leaves (cut first), and go
+                      altogether where that is under about ten characters (fitWords). */}
+                  <span class="turn-note" ref={noteWords} classList={{ hide: !wordsFit() }} title={note().text}>
                     {note().text}
                   </span>
                   <Show when={!paused()}>
@@ -531,7 +554,7 @@ function Turn(props: { items: ChatAssistant[]; current: boolean; note?: NoteRow 
               · {model()}
             </span>
           </Show>
-          <Show when={counts()}>
+          <Show when={!live() && counts()}>
             <span class="turn-counts">· {counts()}</span>
           </Show>
           <Icon name="right" class="caret" />
