@@ -185,7 +185,8 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border-radius: 7px;
+  /* Inside the box's 1px border: its corners less that. */
+  border-radius: calc(var(--radius) - 1px);
   background: color-mix(in srgb, var(--accent) 8%, var(--background));
   font-size: var(--text-control);
   font-weight: 500;
@@ -217,7 +218,7 @@
 }
 
 .wait-cancel:hover {
-  background: var(--surface-strong);
+  background: var(--hover-fill);
 }
 
 /* A pin clicked on the page points at its message. */
@@ -261,13 +262,26 @@
 }
 
 .copy-btn:hover {
-  background: var(--surface);
+  background: var(--hover-fill);
   color: var(--foreground);
 }
 
-.copy-btn.copied,
-.code-copy.copied {
+.copy-btn.copied {
   color: var(--ink-good);
+}
+
+/* "Copy" and "Copied" in one cell, the other hidden: one width for both (copy.tsx). */
+.copy-words {
+  display: inline-grid;
+}
+
+.copy-words > span {
+  grid-area: 1 / 1;
+}
+
+.copy-btn:not(.copied) .copy-words > :last-child,
+.copy-btn.copied .copy-words > :first-child {
+  visibility: hidden;
 }
 
 /* ── long output and code ─────────────────────────────────────────────────────────────────── */
@@ -288,7 +302,7 @@
 }
 
 .more-btn:hover {
-  background: var(--surface);
+  background: var(--hover-fill);
   color: var(--foreground);
 }
 
@@ -352,22 +366,6 @@
 
 .md .code > .more-btn {
   margin: 0 0 4px 4px;
-}
-
-.code-copy {
-  height: 22px;
-  padding: 0 8px;
-  border-radius: var(--radius);
-  font-family: var(--font-sans);
-  font-size: var(--text-control);
-  font-weight: 500;
-  color: var(--muted);
-}
-
-.code-copy:hover,
-.code-copy:focus-visible {
-  background: var(--surface-strong);
-  color: var(--foreground);
 }
 
 /* Diffs wrap instead of scrolling sideways; the +/− stays in a gutter of its own and wrapped
@@ -596,6 +594,14 @@
   color: var(--foreground);
 }
 
+/* Stop and Send, one at a time, at the row's end: the slot keeps Stop's width either way. */
+.send-slot {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  min-width: 59px;
+}
+
 .stop-btn {
   flex: none;
   gap: 4px;
@@ -730,7 +736,7 @@
   border: 1px solid var(--background-05);
   border-radius: 8px;
   background: var(--background);
-  animation: fadeIn var(--duration-exit) var(--ease-entrance);
+  animation: fadeIn var(--duration-enter) var(--ease-entrance);
 }
 
 .meter-head {
@@ -819,7 +825,8 @@
   gap: 4px;
   height: 40px;
   padding: 0 6px 0 12px;
-  border-bottom: 1px solid var(--rule);
+  /* (A line drawn inside, as the note view's head has: its icons on whole pixels.) */
+  box-shadow: inset 0 -1px 0 var(--rule);
   font-size: var(--text-control);
 }
 
@@ -927,9 +934,13 @@
 }
 
 .convo > .menu .menu-acts .icon-btn:hover,
-.convo > .menu .menu-acts .icon-btn:focus-visible,
-.convo > .menu .menu-acts .icon-btn[aria-pressed="true"] {
+.convo > .menu .menu-acts .icon-btn:focus-visible {
   background: var(--surface-strong);
+  color: var(--foreground);
+}
+
+.convo > .menu .menu-acts .icon-btn[aria-pressed="true"] {
+  background: var(--on);
   color: var(--foreground);
 }
 
@@ -1072,6 +1083,11 @@
   background: color-mix(in srgb, var(--accent) 85%, var(--foreground));
 }
 
+/* (On the accent fill the ring is the ink's, as on the chosen mode.) */
+.icon-btn.send:not(:disabled):focus-visible {
+  outline-color: var(--foreground);
+}
+
 /* ── what the agent is on ─────────────────────────────────────────────────────────────────── */
 
 .working {
@@ -1177,7 +1193,8 @@
   gap: 4px;
   height: 36px;
   padding: 0 6px 0 4px;
-  border-bottom: 1px solid var(--rule);
+  /* A line drawn inside, not a border: the bar's 36px stay even, so its icons sit on whole pixels. */
+  box-shadow: inset 0 -1px 0 var(--rule);
 }
 
 .note-back {
@@ -1193,7 +1210,7 @@
 }
 
 .note-back:hover {
-  background: var(--surface);
+  background: var(--card-hover);
 }
 
 /* The arrow on --edge-a, "Notes" on --edge-b, as in the notes' own header. */
@@ -1221,9 +1238,11 @@
 }
 
 .note-said {
-  display: flex;
+  /* Its state on --edge-b, as a note's words in the list, whatever the badge's digits. */
+  display: grid;
+  grid-template-columns: var(--lead) auto minmax(0, 1fr);
+  justify-items: start;
   align-items: center;
-  /* Its state on --edge-b, as a note's words in the list. */
   gap: calc(var(--edge-b) - var(--edge-a) - var(--lead));
 }
 
@@ -1345,7 +1364,7 @@
 
 .repo-chip:hover,
 .repo-chip[aria-expanded="true"] {
-  background: var(--surface-strong);
+  background: var(--card-hover);
 }
 
 .repo-pop {
@@ -1363,7 +1382,7 @@
   border: 1px solid var(--background-05);
   border-radius: 8px;
   background: var(--background);
-  animation: fadeIn var(--duration-exit) var(--ease-entrance);
+  animation: fadeIn var(--duration-enter) var(--ease-entrance);
 }
 
 .repo-head {

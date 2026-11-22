@@ -87,6 +87,29 @@ export function Icon(props: { name: IconName; size?: 16 | 20 | 24; class?: strin
   )
 }
 
+/** The same drawing as <Icon>, for markup built outside Solid (a code block's Copy). */
+export function iconElement(name: IconName, size: 16 | 20 | 24 = 16): SVGSVGElement {
+  const ns = "http://www.w3.org/2000/svg"
+  const svg = document.createElementNS(ns, "svg")
+  const attrs: Record<string, string> = {
+    class: "icon",
+    width: String(size),
+    height: String(size),
+    viewBox: "0 0 24 24",
+    fill: name === "stop" ? "currentColor" : "none",
+    stroke: "currentColor",
+    "stroke-width": size === 16 ? "2" : "1.75",
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+    "aria-hidden": "true",
+  }
+  for (const [k, v] of Object.entries(attrs)) svg.setAttribute(k, v)
+  const path = document.createElementNS(ns, "path")
+  path.setAttribute("d", PATHS[name])
+  svg.append(path)
+  return svg
+}
+
 // ── the agents' marks ──────────────────────────────────────────────────────────────────────────
 // Filled, one colour (currentColor), on the same 24 grid. Path data from simple-icons (CC0):
 // claude, googlegemini and opencode from 16.38.0; OpenAI's, for Codex, from 15.0.0 (16 left it

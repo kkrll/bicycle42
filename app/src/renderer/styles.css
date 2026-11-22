@@ -46,6 +46,14 @@
   /* A card: a section of the panel standing a step off the window's own colour (the panel's
      place, notes and conversation). Mixed from the two ends, so it follows the theme. */
   --card: color-mix(in srgb, var(--foreground) 8%, var(--background));
+  /* A control's hover (or open) fill on a card: always a step toward the foreground, in either
+     theme, and enough of one to be seen (about 1.2:1 on the card). Paper-coloured parts laid in
+     or over a card (the message box, menus) keep the surface's fill: --hover-fill says which. */
+  --card-hover: color-mix(in srgb, var(--foreground) 15%, var(--background));
+  --hover-fill: var(--surface-strong);
+  /* What is chosen or pressed and is not the mode: a light chip with the foreground's ink (the
+     device in use, the pen, the panel button). */
+  --on: color-mix(in srgb, var(--foreground) 26%, var(--background));
   --add: color-mix(in srgb, var(--status-done) 20%, transparent);
   --del: color-mix(in srgb, var(--status-failed) 18%, transparent);
 
@@ -58,10 +66,11 @@
        conversation's title, the transcript and its suggestions, a banner's icon;
      · --edge-b, the words after a leading mark: the agent's name, "12 notes", a note's words and
        the line under it, the unpinned pins' explanation, a tool's verb, a banner's words.
-     --lead is the room a leading mark takes, a note's badge: a 16px icon sits at its left, and
-     --icon-lead is from that icon's left to the words. */
+     --lead is the room a leading mark takes, a note's badge with two digits (one digit's disc is
+     20px, at its left): a 16px icon sits at its left, and --icon-lead is from that icon's left to
+     the words. */
   --edge-a: 8px;
-  --lead: 20px;
+  --lead: 24px;
   --edge-b: calc(var(--edge-a) + var(--lead) + 6px);
   --icon-lead: calc(var(--edge-b) - var(--edge-a) - 16px);
 }
@@ -206,6 +215,16 @@ pre,
   display: none;
 }
 
+/* Lists whose scrollbar comes and goes keep its room either way: a list that starts to scroll
+   does not narrow and re-wrap what is in it. */
+.notes-list,
+.transcript,
+.menu,
+.rows,
+.connect-screen {
+  scrollbar-gutter: stable;
+}
+
 /* ── controls ─────────────────────────────────────────────────────────────────────────────── */
 
 .icon-btn {
@@ -216,7 +235,6 @@ pre,
   width: 28px;
   height: 28px;
   border-radius: var(--radius);
-  transition: background var(--duration-micro) var(--ease-micro);
 }
 
 .icon-btn.small {
@@ -224,9 +242,15 @@ pre,
   height: 24px;
 }
 
-.icon-btn:not(:disabled):hover,
-.icon-btn[aria-pressed="true"] {
-  background: var(--surface-strong);
+.icon-btn:not(:disabled):hover {
+  background: var(--hover-fill);
+}
+
+/* Pressed is its own look, not the hover's: the panel button with the panel open does not read
+   as hovered for good. */
+.icon-btn[aria-pressed="true"],
+.icon-btn[aria-pressed="true"]:hover {
+  background: var(--on);
 }
 
 /* Disabled controls keep their words at 4.5:1 (muted text, no fading); they read as disabled by
@@ -260,11 +284,10 @@ pre,
   font-size: var(--text-control);
   font-weight: 500;
   white-space: nowrap;
-  transition: background var(--duration-micro) var(--ease-micro);
 }
 
 .btn:not(:disabled):hover {
-  background: var(--surface-strong);
+  background: var(--hover-fill);
 }
 
 .btn.primary {
@@ -302,7 +325,57 @@ pre,
 }
 
 .text-btn:hover {
-  background: var(--surface-strong);
+  background: var(--hover-fill);
+}
+
+/* Every control that fills on hover fills the same way, in the same time. */
+.icon-btn,
+.btn,
+.text-btn,
+.url,
+.toggle,
+.mode,
+.device,
+.counts-btn,
+.place-agent,
+.place-folder,
+.section-toggle,
+.note-main,
+.convo-current,
+.crumb,
+.jump,
+.copy-btn,
+.more-btn,
+.repo-chip,
+.wait-cancel,
+.pick,
+.select,
+.meter,
+summary.tool-row,
+.thinking > summary {
+  transition: background-color var(--duration-micro) var(--ease-micro);
+}
+
+/* The cards (the place, the notes, the conversation) take the card's hover; what is laid in or
+   over them on paper keeps the surface's. */
+.place,
+.notes,
+.chat {
+  --hover-fill: var(--card-hover);
+}
+
+.agent-pop,
+.menu,
+.jump,
+.composer-box,
+.suggest,
+.meter-pop,
+.lightbox,
+.menu-rename,
+.repo-pop,
+.repo-message,
+.dialog {
+  --hover-fill: var(--surface-strong);
 }
 
 .input {
@@ -313,7 +386,20 @@ pre,
   border-radius: var(--radius);
   background: transparent;
   font-size: var(--text-control);
+  text-overflow: ellipsis;
   user-select: text;
+}
+
+/* One focus look for every place text is typed: the field's own edge in the accent, doubled
+   inside-out by a shadow, instead of the ring around it. It is drawn on the box, so a scroll box
+   around the field never cuts it. (.field-focus is the same look for any other field.) */
+.input:focus-visible,
+.url:focus-visible,
+.field-focus:focus-visible,
+.composer-box:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  outline: none;
 }
 
 .input::placeholder,
@@ -385,7 +471,7 @@ details[open] > summary > .caret {
   place-items: center;
   min-width: 20px;
   height: 20px;
-  padding: 0 5px;
+  padding: 0 4px;
   border-radius: 10px;
   background: transparent;
   color: var(--foreground);
@@ -520,8 +606,9 @@ details[open] > summary > .caret {
   flex: 1;
   min-width: 0;
   height: 28px;
-  padding: 0 10px;
-  border: 0;
+  /* (A border that shows only with the focus: 9 + 1 puts the address where it was.) */
+  padding: 0 9px;
+  border: 1px solid transparent;
   border-radius: var(--radius);
   background: var(--surface);
   font-family: var(--font-mono);
@@ -529,7 +616,6 @@ details[open] > summary > .caret {
   text-overflow: ellipsis;
   user-select: text;
   cursor: text;
-  transition: background var(--duration-micro) var(--ease-micro);
 }
 
 .url:hover,
@@ -624,7 +710,7 @@ details[open] > summary > .caret {
 }
 
 .draw-btn[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--foreground) 26%, var(--background));
+  background: var(--on);
   color: var(--foreground);
 }
 
@@ -656,7 +742,6 @@ details[open] > summary > .caret {
   font-weight: 500;
   white-space: nowrap;
   color: var(--muted);
-  transition: background var(--duration-micro) var(--ease-micro);
 }
 
 /* The chosen mode's words are bolder; each keeps the width of its bold words either way, so
@@ -688,11 +773,16 @@ details[open] > summary > .caret {
   font-weight: 600;
 }
 
+/* On an accent fill, an accent ring reads as its border: the ring there is the ink's. */
+.mode[aria-checked="true"]:focus-visible {
+  outline-color: var(--foreground);
+}
+
 /* The accent is the mode's alone: it says what a click on the page does. Which device the page
    is shown as is a quieter fact, but a plain one: the chosen one is a light chip with the
    foreground's ink, the other is dimmed. */
 .device[aria-checked="true"] {
-  background: color-mix(in srgb, var(--foreground) 26%, var(--background));
+  background: var(--on);
   color: var(--foreground);
 }
 
@@ -823,7 +913,6 @@ details[open] > summary > .caret {
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  transition: background var(--duration-micro) var(--ease-micro);
 }
 
 .counts-full {
@@ -1441,7 +1530,7 @@ details[open] > summary > .caret {
 }
 
 .section-toggle:hover {
-  background: var(--surface);
+  background: var(--card-hover);
 }
 
 /* (The head's 4 and its own 4: the chevron on --edge-a, the name on --edge-b.) */
@@ -1484,34 +1573,20 @@ details[open] > summary > .caret {
   display: none;
 }
 
-/* Pins that lost their element: one more count in the header's words ("· 2 unpinned"), right
-   after the others, which opens what it means. The toggle then takes only its words' width, and
-   where there is no room it is the counts that give way, whole parts at a time ("· 8 left" first,
-   panel.tsx): the button is never cut to a fragment. */
-.section-head:has(> .lost-btn) > .section-toggle {
-  flex: 0 1 auto;
-}
-
-/* A button, so it looks like Clear done (.text-btn): underlined words; the dot before them is
-   the header's, muted and not underlined. */
+/* Pins that lost their element: "2 unpinned", which opens what it means, in a place of its own
+   at the header's end, before Clear done: the counts coming and going with the list (folded,
+   the toggle says them) never move it. Where there is no room it is the counts that give way,
+   whole parts at a time ("· 8 left" first, panel.tsx): the button is never cut to a fragment.
+   A button, so it looks like Clear done (.text-btn): underlined words. */
 .lost-btn {
   flex: none;
-  margin: 0 auto 0 -10px;
-  padding: 0 4px;
+  margin-left: auto;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
-.lost-btn::before {
-  content: "·";
-  display: inline-block;
-  padding-right: 5px;
-  color: var(--muted);
-  font-weight: 400;
-}
-
 .lost-btn[aria-expanded="true"] {
-  background: var(--surface-strong);
+  background: var(--card-hover);
 }
 
 .notes-lost-more {
@@ -1531,6 +1606,21 @@ details[open] > summary > .caret {
   max-height: var(--list-h);
   overflow-y: auto;
   padding-bottom: 6px;
+}
+
+/* Scrolled, its top 24px fade under the header as the transcript's do (chat.css), so a row cut
+   by the edge goes instead of showing as a sliver; the scrollbar's 8px stay whole. */
+.notes-list.scrolled {
+  mask-image:
+    linear-gradient(to bottom, transparent, var(--foreground) 24px),
+    linear-gradient(var(--foreground), var(--foreground));
+  mask-size:
+    calc(100% - 8px) 100%,
+    8px 100%;
+  mask-position:
+    0 0,
+    100% 0;
+  mask-repeat: no-repeat;
 }
 
 /* Where the panel's notes and conversations are: the server, then the code folder. */
@@ -1562,7 +1652,6 @@ details[open] > summary > .caret {
   padding: 0 6px;
   border-radius: var(--radius);
   font-size: inherit;
-  transition: background var(--duration-micro) var(--ease-micro);
 }
 
 /* The agent keeps its width (its name is cut only past half the row): the path's room is what
@@ -1600,7 +1689,7 @@ details[open] > summary > .caret {
 /* In a narrow panel the name, the host and the path cut together read "Claude … dev-… ~/…": the
    mark says which agent (the button's label and title name it), so the name goes and the host
    and the path's last folder stay whole. */
-@container place (width < 340px) {
+@container place (width < 362px) {
   .place-agent-name {
     display: none;
   }
@@ -1655,7 +1744,7 @@ details[open] > summary > .caret {
 .place-agent[aria-expanded="true"],
 .place-folder:not(:disabled):hover,
 .place-folder:focus-visible {
-  background: var(--surface);
+  background: var(--card-hover);
 }
 
 .place-agent:not(:disabled):hover > .icon,
@@ -1685,7 +1774,7 @@ details[open] > summary > .caret {
   border-radius: 8px;
   background: var(--background);
   font-weight: 400;
-  animation: fadeIn var(--duration-exit) var(--ease-entrance);
+  animation: fadeIn var(--duration-enter) var(--ease-entrance);
 }
 
 .agent-pop-row {
@@ -1808,7 +1897,13 @@ button.note-group-name:hover {
 .note-main {
   flex: 1;
   min-width: 0;
-  display: flex;
+  /* The badge in a column of --lead, whatever its digits, so every row's words start on --edge-b;
+     the marks and words after them take what they need. */
+  display: grid;
+  grid-template-columns: var(--lead) minmax(0, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: auto;
+  justify-items: start;
   align-items: center;
   gap: calc(var(--edge-b) - var(--edge-a) - var(--lead));
   height: 32px;
@@ -1817,7 +1912,7 @@ button.note-group-name:hover {
 }
 
 .note-main:hover {
-  background: var(--surface);
+  background: var(--card-hover);
 }
 
 .note-main:focus-visible {
@@ -1826,6 +1921,7 @@ button.note-group-name:hover {
 
 .note-text {
   flex: 1;
+  justify-self: stretch;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1857,7 +1953,7 @@ button.note-group-name:hover {
 
 /* The note whose pin was clicked: marked while it is the one, flashed when it is clicked. */
 .note[aria-current] .note-main {
-  background: var(--surface);
+  background: var(--card-hover);
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
@@ -2257,7 +2353,9 @@ button.note-group-name:hover {
   gap: 4px;
   height: 36px;
   padding: 0 6px 0 4px;
-  border-bottom: 1px solid var(--rule);
+  /* A line drawn inside, not a border: the row's 36px stay even, so its icons sit on whole
+     pixels. */
+  box-shadow: inset 0 -1px 0 var(--rule);
 }
 
 .convo-current {
@@ -2276,7 +2374,7 @@ button.note-group-name:hover {
 
 .convo-current:not(:disabled):hover,
 .convo-current[aria-expanded="true"] {
-  background: var(--surface);
+  background: var(--card-hover);
 }
 
 .convo-current > .icon {
@@ -2314,7 +2412,7 @@ button.note-group-name:hover {
   border-top: 0;
   border-radius: 0 0 var(--radius) var(--radius);
   background: var(--background);
-  animation: fadeIn var(--duration-exit) var(--ease-entrance);
+  animation: fadeIn var(--duration-enter) var(--ease-entrance);
 }
 
 .menu button {
@@ -2700,7 +2798,16 @@ summary.tool-row,
 
 summary.tool-row:hover,
 .thinking > summary:hover {
-  background: var(--surface);
+  background: var(--card-hover);
+}
+
+/* Rows as wide as the transcript, which scrolls: a ring outside them is cut at its sides, so it
+   is drawn inside, as a note's is. */
+.turn-head:focus-visible,
+summary.tool-row:focus-visible,
+.thinking > summary:focus-visible,
+.msg-tools .copy-btn:focus-visible {
+  outline-offset: -2px;
 }
 
 summary::-webkit-details-marker {
@@ -3152,14 +3259,13 @@ details[open] > summary > .caret {
 .composer-box {
   border: 1px solid var(--background-05);
   border-radius: 6px;
-  transition: border-color var(--duration-micro) var(--ease-micro);
+  transition:
+    border-color var(--duration-micro) var(--ease-micro),
+    box-shadow var(--duration-micro) var(--ease-micro);
   /* The window's own colour: set into the card, where the writing goes. */
   background: var(--background);
 }
 
-.composer-box:focus-within {
-  border-color: var(--foreground);
-}
 
 .composer textarea {
   display: block;

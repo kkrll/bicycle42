@@ -725,7 +725,9 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
           <ContextMeter />
           {/* While the agent works and there is nothing to send, Send gives its place to Stop. Not
               while it is paused (offline, and not at work elsewhere): its process is gone, and
-              with it the run Stop would end, so the box keeps Send, and what is sent waits. */}
+              with it the run Stop would end, so the box keeps Send, and what is sent waits. The
+              two share one slot as wide as Stop, so the swap moves nothing before them. */}
+          <div class="send-slot">
           <Show
             when={!(busy() && !(offline() && !awayHost()) && !text().trim() && !images().length)}
             fallback={
@@ -748,6 +750,7 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
             <Icon name="send" />
           </button>
           </Show>
+          </div>
         </div>
         <Show when={dropping()}>
           <div class="composer-drop" aria-hidden="true">

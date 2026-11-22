@@ -46,6 +46,14 @@ export function RepoBar(props: { onOpen?: () => void }) {
     }
     setOpen(!open())
   }
+  /** Escape closes it from the chip as well as from inside it (a click leaves the focus on the
+   *  chip, and the popover comes after it in the tab order), and the focus is on the chip after. */
+  const escape = (e: KeyboardEvent) => {
+    if (e.key !== "Escape" || !open()) return
+    e.stopPropagation()
+    setOpen(false)
+    chip.focus()
+  }
   const outside = (e: PointerEvent) => {
     const target = e.target as Node
     if (open() && !chip.contains(target) && !pop?.contains(target)) setOpen(false)
@@ -73,6 +81,7 @@ export function RepoBar(props: { onOpen?: () => void }) {
         aria-expanded={open()}
         title={`${state.repo?.branch ? `${state.repo.branch}: ` : ""}${count()}, not committed`}
         onClick={toggle}
+        onKeyDown={escape}
       >
         <Icon name="branch" />
         <span class="counts">
@@ -86,12 +95,7 @@ export function RepoBar(props: { onOpen?: () => void }) {
           role="dialog"
           aria-label="Changes that are not committed"
           ref={pop}
-          onKeyDown={(e) => {
-            if (e.key !== "Escape") return
-            e.stopPropagation()
-            setOpen(false)
-            chip.focus()
-          }}
+          onKeyDown={escape}
         >
           <p class="repo-head">
             <Show when={state.repo?.branch}>

@@ -207,7 +207,8 @@ src/renderer/paths.ts   a path under the home folder as ~, and cut in the middle
   (`NoteRow.session`), so the note's view can name one that is not open and Follow up can open
   it first; a background note's follow-up stays in the open conversation, since the background
   one is not a conversation to talk in.
-- **"· 2 unpinned" counts what the page says now.** The overlay reports which pins it can't place
+- **"2 unpinned" counts what the page says now.** It sits at the notes header's end, before
+  Clear done, so the counts that come into the header when the list folds never move it. The overlay reports which pins it can't place
   (`pins-placement`) only while it draws them, so main counts, of the notes on the list that are
   not done, those in the last report: none in Preview, none of a note taken off meanwhile, and
   none after a new document ("ready") or a page that failed, until the page says again. A done

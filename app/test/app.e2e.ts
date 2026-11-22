@@ -449,6 +449,54 @@ async function main() {
     return { a: [box(".place-mark"), box(".notes .section-toggle .caret"), words(".convo-title"), pad], b: [words(".place-agent-name"), words(".notes .section-name")] }
   })()`)) as { a: number[]; b: number[] }
   check("the panel's leading marks, titles and transcript start on one edge, the words after a mark on another", new Set(edges.a).size === 1 && new Set(edges.b).size === 1 && edges.b[0]! > edges.a[0]!, JSON.stringify(edges))
+  // Twelve notes and two pins that lost their element, handed to the window as main would send
+  // them: a two-digit badge is wider, yet every row's words start on one edge; the list that
+  // scrolls keeps its rows' width; "2 unpinned" stays put when the list folds (and the counts come
+  // into the header); Copy is as wide as Copied.
+  {
+    const base = state()
+    const many = Array.from({ length: 12 }, (_, i) => ({ ...base.review.notes[0]!, id: `e2e-many-${i}`, n: i + 1, status: "queued", lost: false, text: `note number ${i + 1}` }))
+    const pose = (notes: typeof many, unplaced: number) => win.webContents.send("b42:state", { ...state(), review: { ...state().review, notes, unplaced } })
+    const open = () => ui(`!!document.querySelector(".notes-list")`) as Promise<boolean>
+    if (!(await open())) await ui(`document.querySelector(".notes .section-toggle").click()`)
+    pose(many.slice(0, 2), 2)
+    await until(async () => (await ui(`document.querySelectorAll(".notes-list .note").length`)) === 2)
+    const rowWidth = () => ui(`Math.round(document.querySelector(".notes-list .note-main").getBoundingClientRect().width * 10) / 10`) as Promise<number>
+    const fewWide = await rowWidth()
+    pose(many, 2)
+    await until(async () => (await ui(`document.querySelectorAll(".notes-list .note").length`)) === 12)
+    await sleep(100)
+    const words = (await ui(`[...document.querySelectorAll(".notes-list .note-main")].map((b) => b.querySelector(".badge").textContent + "@" + Math.round(b.querySelector(".note-text").getBoundingClientRect().left * 10) / 10)`)) as string[]
+    const scrolls = (await ui(`(() => { const l = document.querySelector(".notes-list"); return l.scrollHeight > l.clientHeight })()`)) as boolean
+    check("a note's words start on one edge whether its badge has one digit or two", words.length === 12 && new Set(words.map((w) => w.split("@")[1])).size === 1, words.join(" "))
+    check("…and a list long enough to scroll keeps its rows as wide as a short one", scrolls && (await rowWidth()) === fewWide, `${fewWide} → ${await rowWidth()}, scrolls ${scrolls}`)
+    const listFade = () => ui(`getComputedStyle(document.querySelector(".notes-list")).maskImage`) as Promise<string>
+    const fadeAtTop = await listFade()
+    await ui(`(() => { const l = document.querySelector(".notes-list"); l.scrollTop = 40; l.dispatchEvent(new Event("scroll")) })()`)
+    const fadeScrolled = await until(async () => (/ 24px/.test(await listFade()) ? listFade() : ""), 2000)
+    check("…and fades under its header once scrolled, as the transcript does, not at its top", fadeAtTop === "none" && / 24px/.test(fadeScrolled || ""), `${fadeAtTop} / ${fadeScrolled}`)
+    await ui(`(() => { const l = document.querySelector(".notes-list"); l.scrollTop = 0; l.dispatchEvent(new Event("scroll")) })()`)
+    const lostAt = () => ui(`Math.round(document.querySelector(".notes .lost-btn").getBoundingClientRect().left * 10) / 10`) as Promise<number>
+    const listedAt = await lostAt()
+    await ui(`document.querySelector(".notes .section-toggle").click()`)
+    await until(async () => !(await open()))
+    const foldedAt = await lostAt()
+    await ui(`document.querySelector(".notes .section-toggle").click()`)
+    await until(open)
+    check('"2 unpinned" stays where it is when the list folds and the counts come into the header', listedAt === foldedAt, `${listedAt} → ${foldedAt}`)
+    win.webContents.send("b42:state", base)
+    await until(async () => (await ui(`document.querySelectorAll(".notes-list .note").length`)) === base.review.notes.length)
+    // (The clipboard is stood in for: the copy is not what is measured.)
+    const copyWidth = () => ui(`(() => { const b = document.querySelector(".msg-tools .copy-btn"); return b ? b.textContent + "|" + Math.round(b.getBoundingClientRect().width * 10) / 10 : "" })()`) as Promise<string>
+    const copyBefore = await copyWidth()
+    await ui(`(() => { Object.defineProperty(navigator.clipboard, "writeText", { value: async () => {}, configurable: true }); document.querySelector(".msg-tools .copy-btn").click() })()`)
+    const copied = () => ui(`document.querySelector(".msg-tools .copy-btn").classList.contains("copied")`) as Promise<boolean>
+    await until(copied, 1000)
+    const copyAfter = await copyWidth()
+    await ui(`delete navigator.clipboard.writeText`)
+    const widthOf = (s: string) => s.split("|")[1]
+    check("a reply's Copy is as wide as its Copied", !!copyBefore && !!copyAfter && widthOf(copyBefore) === widthOf(copyAfter) && (await copied()) === true, `${copyBefore} → ${copyAfter}`)
+  }
   // The transcript fades under the conversation's header once something has scrolled under it,
   // and not at its very top.
   const fade = () => ui(`getComputedStyle(document.querySelector(".transcript")).maskImage`) as Promise<string>
@@ -1071,10 +1119,22 @@ async function main() {
   check("under half full the message box shows no meter", (await meterText()) === "", String(await meterText()))
   await counting?.usage(124_000, 200_000)
   check("from half full it shows the percentage, quietly", (await until(async () => (await meterText()) === "62%|false|Context: 124k of 200k tokens")) === true, String(await meterText()))
+  // Stop and Send take one place: the meter beside them stays put while the agent works, when
+  // something is typed then (Send instead of Stop), and once it is done.
+  const meterRight = () => ui(`Math.round(document.querySelector(".composer-row .meter").getBoundingClientRect().right * 10) / 10`) as Promise<number>
+  const endButton = () => ui(`document.querySelector(".composer-row .stop-btn") ? "stop" : document.querySelector(".composer-row .icon-btn.send") ? "send" : "none"`) as Promise<string>
+  const meterBusyAt = (await endButton()) === "stop" ? await meterRight() : NaN
+  await typeBox("a")
+  await until(async () => (await endButton()) === "send")
+  const meterTypedAt = await meterRight()
+  await typeBox("")
   await counting?.usage(170_000, 200_000)
   check("from 80% it takes the warning colour", (await until(async () => (await meterText()) === "85%|true|Context: 170k of 200k tokens")) === true, String(await meterText()))
   counting?.end()
   await until(() => state().session?.busy === false)
+  await until(async () => (await endButton()) === "send")
+  const meterIdleAt = await meterRight()
+  check("the context meter does not move between busy (Stop), busy with words typed (Send) and idle", meterBusyAt === meterTypedAt && meterTypedAt === meterIdleAt, `${meterBusyAt} / ${meterTypedAt} / ${meterIdleAt}`)
   await ui(`document.querySelector(".composer-row .meter").click()`)
   const asked = (await until(() => ui(`document.querySelector(".meter-pop")?.textContent ?? ""`))) as string
   check("pressing it asks first, and says what compacting does", /summarises the conversation so far/.test(asked) && /cannot be undone/.test(asked) && compacts() === 1, asked)

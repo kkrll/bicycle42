@@ -264,7 +264,11 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
               observer.observe(el)
             }}
             style={{ "--list-h": `${snap() ?? props.listHeight}px` }}
-            onScroll={measure}
+            onScroll={(e) => {
+              // The fade at the top edge only once a row has gone under it.
+              e.currentTarget.classList.toggle("scrolled", e.currentTarget.scrollTop > 4)
+              measure()
+            }}
           >
             <For each={GROUPS}>
               {(g) => (

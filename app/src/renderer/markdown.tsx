@@ -19,7 +19,7 @@
 import { createEffect, onCleanup } from "solid-js"
 import { Marked } from "marked"
 import DOMPurify from "dompurify"
-import { copyText } from "./copy"
+import { copiedElement, copyButtonElement, copyText } from "./copy"
 
 const escape = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 
@@ -112,8 +112,7 @@ function enhance(container: Element): void {
     const lang = document.createElement("span")
     lang.className = "code-lang"
     lang.textContent = /language-([\w-]+)/.exec(code.className)?.[1] ?? "code"
-    const copy = button("code-copy", "Copy")
-    copy.setAttribute("aria-label", "Copy code")
+    const copy = copyButtonElement("Copy code", "code-copy")
     copy.dataset.source = source
     head.append(lang, copy)
     wrap.append(head, pre)
@@ -134,16 +133,7 @@ function onCodeClick(e: MouseEvent): void {
   if (copy) {
     const text = copy.dataset.source ?? ""
     void copyText(text).then((ok) => {
-      if (!ok) return
-      copy.textContent = "Copied"
-      copy.classList.add("copied")
-      clearTimeout(Number(copy.dataset.timer))
-      copy.dataset.timer = String(
-        setTimeout(() => {
-          copy.textContent = "Copy"
-          copy.classList.remove("copied")
-        }, 1500),
-      )
+      if (ok) copiedElement(copy)
     })
     return
   }
