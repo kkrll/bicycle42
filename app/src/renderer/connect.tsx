@@ -133,8 +133,8 @@ export function SetupSteps(props: { at: 1 | 2 | 3 }) {
 type AgentState = "using" | "missing" | "signin" | "ready"
 
 /** One agent the app knows, as a row: its mark, its name, how it stands in plain words, and the
- *  one thing to do about it (Start, or copy what installs it). The command that starts it is
- *  there on request. */
+ *  one thing to do about it (Start, or copy what installs it or signs in to it: a Start there
+ *  would only fail). The command that starts it is there on request. */
 function AgentRow(props: { agent: LocalAgent; using: boolean; busy: boolean; error?: string; onStart: () => void; where?: string }) {
   const [how, setHow] = createSignal(false)
   // The row as main says it after its toggle (the command and version change with it).
@@ -192,6 +192,9 @@ function AgentRow(props: { agent: LocalAgent; using: boolean; busy: boolean; err
         <Switch>
           <Match when={st() === "missing"}>
             <CopyButton class="btn" text={() => a().install ?? ""} label="Copy the install command" />
+          </Match>
+          <Match when={st() === "signin"}>
+            <CopyButton class="btn" text={login} label="Copy the sign-in command" />
           </Match>
           <Match when={st() !== "using"}>
             <button class="btn" type="button" data-start={a().id} disabled={props.busy} onClick={() => props.onStart()}>
@@ -257,7 +260,18 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
   /** Which row an error belongs to: an agent's id, "custom", or "" for the form. */
   const [errorAt, setErrorAt] = createSignal("")
   // The ACP agents this computer can run, each said installed or not.
-  const [agents] = createResource(() => b42.invoke("localAgents").catch(() => [] as LocalAgent[]))
+  const [agents, { refetch: reloadAgents }] = createResource(() => b42.invoke("localAgents").catch(() => [] as LocalAgent[]))
+  // Back in the window (from a terminal, most likely), an agent that was not installed or not
+  // signed in is looked at again: its Copy becomes Start once it is. A sign-in an agent refused
+  // goes too, so its row can be tried again.
+  const recheck = () => {
+    if (connecting()) return
+    const refused = /sign in/i.test(error())
+    if (refused) setError("")
+    if (refused || (agents() ?? []).some((a) => !a.installed || a.signIn)) void reloadAgents()
+  }
+  window.addEventListener("focus", recheck)
+  onCleanup(() => window.removeEventListener("focus", recheck))
   const using = (id: string) => state.connection.status === "online" && state.connection.url === `acp://${id}`
   const [custom, setCustom] = createSignal("")
   // The agents used before on other computers, and those run by a command typed by hand: one
@@ -342,7 +356,7 @@ function ConnectForm(props: { onDone?: () => void; onBusy?: (busy: boolean) => v
       <section class="connect-section">
         <h3 class="label">Agents on this computer</h3>
         <ul class="agent-list">
-          <Show when={agents.loading}>
+          <Show when={agents.loading && !agents()}>
             <li class="agent-row agent-wait">
               <Icon name="spinner" />
               <span class="agent-status">Looking for agents</span>
@@ -479,7 +493,6 @@ export function ConnectScreen() {
       <div class="connect-card">
         <SetupSteps at={1} />
         <h1>Connect an agent</h1>
-        <p class="connect-lead">Your notes go to a coding agent that works in the site's code. It makes the changes; you keep reviewing.</p>
         <ConnectForm autofocus onBusy={setFirstRunConnecting} />
       </div>
     </div>
@@ -607,7 +620,7 @@ export function ModelChooser(props: { suggested?: ModelRef; onDone?: () => void;
         </For>
       </div>
       <Show when={state.models.some((m) => !m.images)}>
-        <p class="form-help">“no images”: notes send words only.</p>
+        <p class="form-help">“no images”: the model can't see pictures; notes send words only.</p>
       </Show>
       <Show when={picked()?.variants.length}>
         <label class="form-row">
@@ -644,7 +657,7 @@ export function ModelScreen() {
         <SetupSteps at={1} />
         <h1>Choose a model</h1>
         <p class="connect-lead">
-          New conversations start with it. You can change it any time under the chat box.
+          Used for new conversations.
           <Show when={choice()?.previous}>
             {(was) => <> The one used before ({was().id}) is no longer offered by this agent.</>}
           </Show>
@@ -776,7 +789,7 @@ export function SettingsDialog(props: { onClose: () => void }) {
             <p class="dialog-status">
               <span>
                 Default model: {defaultName()}
-                <span class="dialog-sub">New conversations start with it</span>
+                <span class="dialog-sub">Used for new conversations</span>
               </span>
             </p>
             <button class="btn" data-action="default-model" aria-expanded={choosing()} onClick={() => setChoosing(!choosing())}>

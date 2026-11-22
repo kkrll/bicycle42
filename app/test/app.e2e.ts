@@ -110,6 +110,16 @@ async function main() {
   )
   process.env.BICYCLE42_DATA = profile
   process.env.BICYCLE42_TEST = "1"
+  // Codex installed here and not signed in: a program named codex first on the PATH, and a Codex
+  // home of its own with no auth.json in it and no key in the environment.
+  const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), "bicycle42-e2e-codex-"))
+  fs.mkdirSync(path.join(codexDir, "bin"))
+  fs.writeFileSync(path.join(codexDir, "bin", "codex"), "#!/bin/sh\n", { mode: 0o755 })
+  const keptEnv = { PATH: process.env.PATH, CODEX_HOME: process.env.CODEX_HOME, OPENAI_API_KEY: process.env.OPENAI_API_KEY, CODEX_API_KEY: process.env.CODEX_API_KEY }
+  process.env.PATH = `${path.join(codexDir, "bin")}${path.delimiter}${process.env.PATH}`
+  process.env.CODEX_HOME = codexDir
+  delete process.env.OPENAI_API_KEY
+  delete process.env.CODEX_API_KEY
   // Not a literal, so the bundler leaves it alone: this must be the app as built.
   const built = path.join(__dirname, "..", "main.cjs")
   require(built)
@@ -123,6 +133,18 @@ async function main() {
   const custom = `document.querySelector(${JSON.stringify('.connect-screen input[aria-label^="Another ACP agent"]')})`
   await until(() => chooser(`!!${custom}`).catch(() => false))
   check("the connect screen offers agents, and no OpenCode server, address or password", (await chooser(`!/OpenCode server|password|Enter address/i.test(document.body.innerText) && !document.querySelector('input[type=password]')`)) === true)
+  // An agent that needs a sign-in offers to copy the command that signs in, not a Start that would
+  // only fail; back in the window once it is signed in, the row offers Start.
+  const codexRow = () => chooser(`(() => { const r = document.querySelector('.connect-screen [data-agent="codex"]'); return r ? r.dataset.state + "|" + !!r.querySelector('[data-start="codex"]') + "|" + (r.querySelector('.copy-btn')?.title ?? "") : "" })()`) as Promise<string>
+  const signedOut = await until(async () => ((await codexRow()) === "signin|false|Copy the sign-in command" ? "signin|false|Copy the sign-in command" : ""), 10000)
+  check("an agent not signed in offers Copy for its sign-in command, and no Start", signedOut === "signin|false|Copy the sign-in command", (await codexRow()) || "no codex row")
+  fs.writeFileSync(path.join(codexDir, "auth.json"), "{}")
+  await chooser(`window.dispatchEvent(new Event("focus"))`)
+  const signedIn = await until(async () => ((await codexRow()).startsWith("ready|true") ? "ready" : ""), 10000)
+  check("…and once signed in, back in the window, it offers Start", signedIn === "ready", await codexRow())
+  Object.assign(process.env, keptEnv)
+  for (const [k, v] of Object.entries(keptEnv)) if (v === undefined) delete process.env[k]
+  fs.rmSync(codexDir, { recursive: true, force: true })
   await chooser(`(() => { const el = ${custom}; el.value = "fake-agent"; el.dispatchEvent(new Event("input", { bubbles: true })) })()`)
   await chooser(`document.querySelector('[data-start="custom"]').click()`)
 
@@ -1216,12 +1238,15 @@ async function main() {
   check("…and off the row, the outline goes", (await until(async () => (await outlined()).length === 0, 3000)) === true)
   await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
   await until(() => state().review.mode === "notes" && state().review.enabled)
-  // A row's Note is out of sight until its row has the pointer or the focus, and stays in the tab order.
-  const noteSeen = (focus: boolean) =>
-    until(() => ui(`(() => { const r = [...document.querySelectorAll('.fp-fact')].find((r) => r.querySelector('.fp-label').textContent === "Start free trial"); const b = r?.querySelector('.fp-note'); if (!b) return null; if (${focus}) r.querySelector('.fp-hit').focus(); else document.activeElement?.blur(); return getComputedStyle(b).opacity + "|" + b.tabIndex })()`), 3000) as Promise<string | null>
-  const restNote = await noteSeen(false)
-  const focusNote = await noteSeen(true)
-  check("in Annotate a row's Note shows only with the row's focus (or pointer), and can be tabbed to", restNote === "0|0" && focusNote === "1|0", `${restNote} / ${focusNote}`)
+  // A row's Note is out of sight until its row has the pointer or the focus, and Tab from the row
+  // goes to it, a button in sight.
+  const trialRow = `[...document.querySelectorAll('.fp-fact')].find((r) => r.querySelector('.fp-label').textContent === "Start free trial")`
+  const restNote = await until(() => ui(`(() => { const b = ${trialRow}?.querySelector('.fp-note'); if (!b) return null; document.activeElement?.blur(); return getComputedStyle(b).opacity })()`), 3000)
+  await ui(`${trialRow}.querySelector('.fp-hit').focus()`)
+  win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Tab" })
+  win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Tab" })
+  const tabbedNote = await until(() => ui(`(() => { const b = document.activeElement; return b?.matches('.fp-note') && b.closest('.fp-fact') === ${trialRow} && getComputedStyle(b).opacity === "1" ? "1" : null })()`), 3000)
+  check("in Annotate a row's Note shows only with the row's focus (or pointer), and Tab from the row goes to it", restNote === "0" && tabbedNote === "1", `${restNote} / ${await ui(`(document.activeElement?.className ?? "") + "|" + (document.activeElement && getComputedStyle(document.activeElement).opacity)`)}`)
   await ui(`document.activeElement?.blur()`)
   // In Annotate a row's Note button starts a note about its element: the card opens on the page,
   // with that element chosen, and the keyboard is the page's.
