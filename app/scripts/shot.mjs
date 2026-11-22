@@ -145,15 +145,15 @@ const SHOTS = [
   { name: "folder-browse", mock: "folder", run: [click(".folder .folder-actions .btn")], wait: 500 },
   { name: "fresh", mock: "fresh" },
   { name: "review", mock: "review" },
-  // "· 2 unpinned" clicked: which notes, and that nothing needs doing.
-  { name: "review-unpinned", mock: "review", run: [click(".lost-btn")], wait: 300 },
+  // "2 lost" clicked: which notes, and that nothing needs doing.
+  { name: "review-lost", mock: "review", run: [click(".lost-btn")], wait: 300 },
   { name: "review-mac", mock: "review", query: "&platform=darwin" },
   { name: "review-menu", mock: "review", run: [click(".convo-current")] },
   { name: "review-open", mock: "review", run: [`document.querySelectorAll(".transcript details").forEach((d) => (d.open = true))`] },
   { name: "review-narrow", mock: "review", size: [760, 560] },
-  // "· 2 unpinned" clicked: what it means, under the notes header; and in the least panel.
-  { name: "unpinned", mock: "review", run: [click(".lost-btn")], wait: 300 },
-  { name: "unpinned-narrow", mock: "review", run: [leastPanel, pause(200), click(".lost-btn")], wait: 300 },
+  // "2 lost" clicked: what it means, under the notes header; and in the least panel.
+  { name: "lost", mock: "review", run: [click(".lost-btn")], wait: 300 },
+  { name: "lost-narrow", mock: "review", run: [leastPanel, pause(200), click(".lost-btn")], wait: 300 },
   // Draw pressed (it turns Annotate on too), and Preview with Draw not pressed: the top bar keeps
   // every control's width either way.
   { name: "draw", mock: "review", query: "&mode=preview", run: [click("[data-action=draw]")], wait: 300 },

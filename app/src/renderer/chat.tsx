@@ -1222,8 +1222,7 @@ function Conversations(props: { openSettings: () => void }) {
           <Match when={true}>
             <button
               class="menu-main"
-              role="menuitemradio"
-              aria-checked={current()}
+              aria-current={current() ? "true" : undefined}
               onClick={() => {
                 if (s().archived) return putAway(s(), false)
                 close(true)
@@ -1297,7 +1296,7 @@ function Conversations(props: { openSettings: () => void }) {
       <button
         ref={button}
         class="convo-current"
-        aria-haspopup="menu"
+        aria-haspopup="dialog"
         aria-expanded={open()}
         disabled={!state.session}
         title="Conversations: switch, rename, archive"
@@ -1322,9 +1321,12 @@ function Conversations(props: { openSettings: () => void }) {
         <Icon name="plus" />
       </button>
       <Show when={open()}>
+        {/* Not a menu: besides the conversations it has a search field, each row's own buttons
+            and the archived ones. A dialog of buttons, then, that ↑ and ↓ still step through. */}
         <div
           class="menu"
-          role="menu"
+          role="dialog"
+          aria-label="Conversations"
           ref={menu}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
@@ -1342,7 +1344,7 @@ function Conversations(props: { openSettings: () => void }) {
               <input
                 type="text"
                 aria-label="Search conversations, by name or by what a note said"
-                placeholder="Search names and notes"
+                placeholder="Search names and notes…"
                 spellcheck={false}
                 autocomplete="off"
                 value={query()}

@@ -707,7 +707,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
           ],
         },
         { kind: "user", id: "h-u2", time: t + 200_000, text: "Which file sets the button radius?", images: [] },
-        { kind: "assistant", id: "h-a2", time: t + 200_000, ended: t + 209_000, done: true, model: "Kimi K3.1 Pro · moonshotai", parts: [{ kind: "text", key: "x1", text: "`src/styles/buttons.css`, as `--radius-button`." }] },
+        { kind: "assistant", id: "h-a2", time: t + 200_000, ended: t + 209_000, done: true, model: "Kimi K3.1 Pro · Moonshot AI", parts: [{ kind: "text", key: "x1", text: "`src/styles/buttons.css`, as `--radius-button`." }] },
         { kind: "user", id: "h-u3", time: t + 300_000, text: "Review note 4\n\nless space above the plans", images: [pics[0]!], note: { n: 4, text: "less space above the plans" } },
         {
           kind: "marker",

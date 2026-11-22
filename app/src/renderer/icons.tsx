@@ -61,6 +61,8 @@ const PATHS = {
   muted: "M4 9.5h3.5L12 6v12l-4.5-3.5H4zM16 9.5l5 5M21 9.5l-5 5",
   // The facts pane's marks on the page: a viewfinder's corners around what is marked.
   marks: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5M10 10h4v4h-4z",
+  // A note that is lost: the same corners, and no element in them.
+  lost: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5M10 10l4 4M14 10l-4 4",
 } as const
 
 export type IconName = keyof typeof PATHS

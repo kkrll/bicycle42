@@ -2,6 +2,7 @@
 // conversation. Before the site has a code folder, the folder picker takes the whole panel; before
 // there is a site, the panel shows how far setup has come.
 import { For, Match, Show, Switch, createEffect, createMemo, createResource, createSelector, createSignal, on, onCleanup } from "solid-js"
+import { Dynamic } from "solid-js/web"
 import { AWAY_HOURS, type NoteRow } from "../shared/types"
 import { Chat } from "./chat"
 import { CopyButton } from "./copy"
@@ -87,11 +88,11 @@ const LIST_MIN = ROW + 6
 
 function Notes(props: { listHeight: number; open: boolean; onToggle: () => void; width: number; hidden: boolean }) {
   const counts = createMemo(countNotes)
-  // Every count in words when they fit beside "Notes", "· 2 unpinned" and "Clear done" (about
+  // Every count in words when they fit beside "Notes", "2 lost" and "Clear done" (about
   // 6.4px a character at 12px); otherwise the short form, which drops nothing.
   const room = () => (props.width || 400) - 24 - 96 - (counts().done ? 84 : 0) - (state.review.unplaced ? 80 : 0)
   const tight = () => countWords(counts()).join(" · ").length * 6.4 > room()
-  /** The short form, with "· 8 left" dropped first where even it does not fit: "· 2 unpinned"
+  /** The short form, with "· 8 left" dropped first where even it does not fit: "2 lost"
    *  beside it is never cut. */
   const short = () => fitShort(shortWords(counts()), room())
   /** What the agent had is paused: it can't be reached, and works nowhere else meanwhile. */
@@ -141,10 +142,10 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
     const note = state.review.notes.find((n) => n.id === id)
     if (note && groupOf(note) === "done" && !doneOpen()) setDoneOpenSignal(true)
   }
-  /** "Note 5's pin" or "The pins of notes 5 and 7": the ones the count counts (main marks them). */
-  const lostPins = () => {
+  /** "Note 5" or "Notes 5 and 7": the ones the count counts (main marks them). */
+  const lostNotes = () => {
     const ns = state.review.notes.filter((n) => n.lost).map((n) => n.n)
-    return ns.length === 1 ? `Note ${ns[0]}'s pin` : `The pins of notes ${ns.slice(0, -1).join(", ")} and ${ns[ns.length - 1]}`
+    return ns.length === 1 ? `Note ${ns[0]}` : `Notes ${ns.slice(0, -1).join(", ")} and ${ns[ns.length - 1]}`
   }
   const rows = new Map<string, HTMLLIElement>()
   /** The row of the pin clicked last: a click touches the row it leaves and the row it lands on,
@@ -204,7 +205,7 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
     })
   })
   const lostLabel = () =>
-    state.review.unplaced === 1 ? "1 pin can't find its element" : `${state.review.unplaced} pins can't find their element`
+    state.review.unplaced === 1 ? "1 note lost: its element isn't on this page" : `${state.review.unplaced} notes lost: their elements aren't on this page`
 
   return (
     <section class="notes" aria-label="Notes" hidden={props.hidden}>
@@ -237,7 +238,7 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
         </button>
         <Show when={state.review.unplaced > 0}>
           <button class="text-btn lost-btn" aria-expanded={why()} title={lostLabel()} onClick={() => setWhy(!why())}>
-            {state.review.unplaced} unpinned
+            {state.review.unplaced} lost
           </button>
         </Show>
         <Show when={counts().done}>
@@ -250,7 +251,7 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
         <div class="notes-lost-more">
           {/* Nothing to do: a pin finds its element again by itself once it is back on the page. */}
           <p>
-            {lostPins()} can't find {state.review.unplaced === 1 ? "its" : "their"} element on this page.{" "}
+            {lostNotes()} {state.review.unplaced === 1 ? "is lost: its element isn't" : "are lost: their elements aren't"} on this page now.{" "}
             {state.review.unplaced === 1 ? "The note still goes" : "The notes still go"} to the agent.
           </p>
         </div>
@@ -331,8 +332,8 @@ function Notes(props: { listHeight: number; open: boolean; onToggle: () => void;
                           )}
                         </Show>
                         <Show when={note.lost}>
-                          <span class="note-lost" title="Its pin can't find its element on the page">
-                            <Icon name="alert" />
+                          <span class="note-lost" title="Lost: its element isn't on this page">
+                            <Icon name="lost" />
                           </span>
                         </Show>
                         {/* The group says waiting, working, paused and done, and a failed row's badge
@@ -448,15 +449,17 @@ export function RepoScreen() {
   return (
     <div class="connect-screen">
       <div class="connect-card repo-card">
-        <FolderPicker />
+        <FolderPicker step />
       </div>
     </div>
   )
 }
 
 /** `open` is what choosing a folder does; without it, the folder becomes the one the site on
- *  screen works in (`setDirectory`). With `onCancel` it is not a first-run step: no step line. */
-export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void; open?: (directory: string) => Promise<unknown>; browse?: boolean }) {
+ *  screen works in (`setDirectory`). With `onCancel` it is not a first-run step: no step line.
+ *  `step`: it is the first-run step's own screen, titled as the other steps are (an h1 in the
+ *  display size). */
+export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void; open?: (directory: string) => Promise<unknown>; browse?: boolean; step?: boolean }) {
   const h = () => harnessNow()
   const here = () => !!h()?.here
   /** Where the agent works, in words: "this computer", or the other computer it runs on. */
@@ -501,7 +504,7 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
         <Show when={!props.onCancel}>
           <SetupSteps at={2} />
         </Show>
-        <h2 class="folder-title">
+        <Dynamic component={props.step ? "h1" : "h2"} class="folder-title">
           <Show when={h()} fallback={props.open ? "Open a project" : "Open the repo"}>
             {(a) => (
               <>
@@ -512,7 +515,7 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
               </>
             )}
           </Show>
-        </h2>
+        </Dynamic>
         <p class="folder-lead">
           <Show when={!props.open && state.missingFolder}>
             <span class="folder-missing">
@@ -538,7 +541,7 @@ export function FolderPicker(props: { onCancel?: () => void; onDone?: () => void
             <Switch>
               <Match when={recent.loading}>
                 <p class="quiet">
-                  <Icon name="spinner" /> Looking for folders
+                  <Icon name="spinner" /> Looking for folders…
                 </p>
               </Match>
               <Match when={recent.error}>
@@ -763,8 +766,8 @@ function Place(props: { openSettings: () => void }) {
   const h = () => harnessNow()
   const status = () => state.connection.status
   // Offline is said by the dot and by the banner above; the word would only squeeze the name.
-  const word = () => (status() === "connecting" ? "Connecting" : "")
-  const said = () => (status() === "offline" ? "offline" : word().toLowerCase())
+  const word = () => (status() === "connecting" ? "Connecting…" : "")
+  const said = () => (status() === "offline" ? "offline" : status() === "connecting" ? "connecting" : "")
   const tip = () => {
     const c = state.connection
     const what = h() ? `${h()!.name} on ${whereOf(h()!)}` : ""

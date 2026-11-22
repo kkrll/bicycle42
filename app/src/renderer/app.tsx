@@ -348,7 +348,7 @@ function TopBar(props: {
           <button
             class="icon-btn"
             aria-label="Reload"
-            title={state.page.loading ? "Loading" : "Reload"}
+            title={state.page.loading ? "Loading…" : "Reload"}
             disabled={!state.page.url}
             onClick={() => act("reload")}
           >
@@ -1021,8 +1021,10 @@ export function App() {
           <Show when={state.page.url !== "" && loadFailed()}>
             <div class="page-failed" role="alert">
               <Icon name="alert" size={20} />
-              <p class="chat-empty-lead page-failed-host" title={state.page.url}>
-                Can't load {host(state.page.url)}
+              {/* The host whole, on as many lines as it takes: it is what the card is there to
+                  name. A long one breaks after its dots, else anywhere. */}
+              <p class="chat-empty-lead" title={state.page.url}>
+                Can't load <For each={host(state.page.url).split(/(?<=\.)/)}>{(part, i) => (i() ? [<wbr />, part] : part)}</For>
               </p>
               <p class="page-failed-why">
                 {/refused|not_resolved|timed_out|unreachable/i.test(state.page.error ?? "")

@@ -65,7 +65,7 @@
      · --edge-a, the content's inset: the agent's mark, the notes' chevron and badges, the
        conversation's title, the transcript and its suggestions, a banner's icon;
      · --edge-b, the words after a leading mark: the agent's name, "12 notes", a note's words and
-       the line under it, the unpinned pins' explanation, a tool's verb, a banner's words.
+       the line under it, the lost notes' explanation, a tool's verb, a banner's words.
      --lead is the room a leading mark takes, a note's badge with two digits (one digit's disc is
      20px, at its left): a 16px icon sits at its left, and --icon-lead is from that icon's left to
      the words. */
@@ -199,19 +199,19 @@ pre,
 
 /* Thin scrollbars, a thumb and nothing else: the platform's thin ones keep their arrow buttons
    on Linux, two at each end of every scrolling part. */
-:is(.thin-scroll, .notes-list, .note-body, .repo-pop, .transcript, .asks, .menu, .rows, .diff, .output, .md pre)::-webkit-scrollbar {
+:is(.thin-scroll, .notes-list, .note-body, .repo-pop, .transcript, .asks, .menu, .rows, .model-list, .diff, .output, .md pre)::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
-:is(.thin-scroll, .notes-list, .note-body, .repo-pop, .transcript, .asks, .menu, .rows, .diff, .output, .md pre)::-webkit-scrollbar-thumb {
+:is(.thin-scroll, .notes-list, .note-body, .repo-pop, .transcript, .asks, .menu, .rows, .model-list, .diff, .output, .md pre)::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 4px;
   background: var(--background-05);
   background-clip: content-box;
 }
 
-:is(.thin-scroll, .notes-list, .note-body, .repo-pop, .transcript, .asks, .menu, .rows, .diff, .output, .md pre)::-webkit-scrollbar-button {
+:is(.thin-scroll, .notes-list, .note-body, .repo-pop, .transcript, .asks, .menu, .rows, .model-list, .diff, .output, .md pre)::-webkit-scrollbar-button {
   display: none;
 }
 
@@ -1260,13 +1260,6 @@ details[open] > summary > .caret {
   white-space: nowrap;
 }
 
-.page-failed-host {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* Before there is a site: one calm sentence in the middle of the panel. */
 .panel-waiting {
   flex: 1;
@@ -1360,6 +1353,28 @@ details[open] > summary > .caret {
 
 .repo-card .folder {
   padding: 0;
+}
+
+/* Its title is the step's, as big as "Connect an agent" (.connect-card h1), the agent's mark
+   before it at the words' size and in their line, so a long name wraps under the mark as words
+   do; its lead as far from it, and from the list, as there. */
+.repo-card .folder h1 {
+  display: block;
+}
+
+.repo-card .folder h1 > .mark {
+  width: 0.8em;
+  height: 0.8em;
+  margin-right: 0.25em;
+  vertical-align: -0.1em;
+}
+
+.repo-card .folder-head {
+  margin-bottom: 12px;
+}
+
+.repo-card .folder-lead {
+  margin-top: 10px;
 }
 
 .panel-empty {
@@ -1627,7 +1642,7 @@ details[open] > summary > .caret {
   display: none;
 }
 
-/* Pins that lost their element: "2 unpinned", which opens what it means, in a place of its own
+/* Notes that lost their element: "2 lost", which opens what it means, in a place of its own
    at the header's end, before Clear done: the counts coming and going with the list (folded,
    the toggle says them) never move it. Where there is no room it is the counts that give way,
    whole parts at a time ("· 8 left" first, panel.tsx): the button is never cut to a fragment.
@@ -3484,7 +3499,7 @@ details[open] > summary > .caret {
   outline-offset: -2px;
 }
 
-.model-list > .label {
+.model-group > .label {
   padding: 10px var(--gutter) 2px;
 }
 

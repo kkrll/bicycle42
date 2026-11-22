@@ -172,6 +172,21 @@ async function main() {
   await sleep(150)
   const created = () => agent.fa.calls.filter((c) => c.method === "session/new")
   check("no conversation is made before the answer", created().length === 0 && state().session === null)
+  // The list is a listbox of groups, one per provider, each named as its maker writes it; when it
+  // scrolls, its scrollbar is the thin one the app's other lists have (8 px), not the platform's.
+  const modelList = (await chooser(`(() => {
+    const l = document.querySelector(".model-list")
+    l.style.maxHeight = "40px"
+    const bar = l.offsetWidth - l.clientWidth
+    l.style.maxHeight = ""
+    return { roles: [...l.children].map((c) => c.getAttribute("role")), groups: [...l.querySelectorAll("[role=group]")].map((g) => g.getAttribute("aria-label") + ":" + g.querySelectorAll("[role=option]").length), headings: l.querySelectorAll("h1, h2, h3, h4").length, bar }
+  })()`)) as { roles: string[]; groups: string[]; headings: number; bar: number }
+  check(
+    "the model list holds only groups of options, one per provider, named as its maker writes it, with no headings among them",
+    modelList.roles.join() === "group,group" && modelList.groups.join() === "Anthropic:1,OpenCode:1" && modelList.headings === 0,
+    JSON.stringify(modelList),
+  )
+  check("…and when it scrolls, its scrollbar is the app's thin one", modelList.bar === 8, `${modelList.bar} px`)
   // Enter straight away accepts what is offered.
   await chooser(`document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }))`)
   await until(() => !state().modelChoice)
@@ -495,7 +510,32 @@ async function main() {
     const foldedAt = await lostAt()
     await ui(`document.querySelector(".notes .section-toggle").click()`)
     await until(open)
-    check('"2 unpinned" stays where it is when the list folds and the counts come into the header', listedAt === foldedAt, `${listedAt} → ${foldedAt}`)
+    check('"2 lost" stays where it is when the list folds and the counts come into the header', listedAt === foldedAt, `${listedAt} → ${foldedAt}`)
+    // A note whose element is not on the page is lost, in one word: in the header's count, what it
+    // opens and the row's mark, which is its own and not the errors' alert. "Pin" is the
+    // conversations' word (pinned to the top of their list).
+    pose(
+      many.map((n, i) => (i === 4 || i === 6 ? { ...n, lost: true as const } : n)),
+      2,
+    )
+    await until(async () => (await ui(`document.querySelectorAll(".notes-list .note-lost").length`)) === 2)
+    await ui(`document.querySelector(".notes .lost-btn").click()`)
+    const ALERT = "M12 4l9 16H3zM12 10v4.5M12 17.5h.01"
+    const lostSaid = (await until(() =>
+      ui(`(() => { const more = document.querySelector(".notes-lost-more"); const rows = [...document.querySelectorAll(".notes-list .note-lost")]; return more ? { count: document.querySelector(".notes .lost-btn").textContent, title: document.querySelector(".notes .lost-btn").title, more: more.textContent, rows: rows.map((r) => r.title), alert: rows.filter((r) => r.querySelector("path").getAttribute("d") === ${JSON.stringify(ALERT)}).length, text: document.querySelector(".notes").innerText } : null })()`),
+    )) as { count: string; title: string; more: string; rows: string[]; alert: number; text: string } | null
+    await ui(`document.querySelector(".notes .lost-btn").click()`)
+    check(
+      'notes whose element is not on the page are "lost" in the count, what it opens and their rows, with a mark that is not the alert, and nothing says unpinned',
+      !!lostSaid &&
+        lostSaid.count === "2 lost" &&
+        lostSaid.title === "2 notes lost: their elements aren't on this page" &&
+        lostSaid.more.startsWith("Notes 5 and 7 are lost: their elements aren't on this page now.") &&
+        lostSaid.rows.join("|") === "Lost: its element isn't on this page|Lost: its element isn't on this page" &&
+        lostSaid.alert === 0 &&
+        !/unpinned|can't find/i.test(lostSaid.text + lostSaid.title + lostSaid.rows.join()),
+      JSON.stringify({ ...lostSaid, text: undefined }),
+    )
     win.webContents.send("b42:state", base)
     await until(async () => (await ui(`document.querySelectorAll(".notes-list .note").length`)) === base.review.notes.length)
     // (The clipboard is stood in for: the copy is not what is measured.)
@@ -508,6 +548,68 @@ async function main() {
     await ui(`delete navigator.clipboard.writeText`)
     const widthOf = (s: string) => s.split("|")[1]
     check("a reply's Copy is as wide as its Copied", !!copyBefore && !!copyAfter && widthOf(copyBefore) === widthOf(copyAfter) && (await copied()) === true, `${copyBefore} → ${copyAfter}`)
+    // Hidden, Copy takes no room: the reply ends at its words, Copy hangs in the 24 px under them,
+    // and what comes next (or the transcript's end) keeps those 24 px. Nor is it hit while hidden.
+    const room = (await ui(`(() => {
+      const t = document.querySelector(".msg-tools"), m = t.parentElement, words = t.previousElementSibling.getBoundingClientRect().bottom
+      const next = m.nextElementSibling, c = document.querySelector(".transcript-content")
+      const below = next ? next.getBoundingClientRect().top - words : c.getBoundingClientRect().bottom - parseFloat(getComputedStyle(c).paddingBottom) - words + parseFloat(getComputedStyle(m).marginBottom)
+      return { msg: Math.round((m.getBoundingClientRect().bottom - words) * 10) / 10, copy: Math.round((t.getBoundingClientRect().top - words) * 10) / 10, below: Math.round(below * 10) / 10, hit: getComputedStyle(t).pointerEvents }
+    })()`)) as { msg: number; copy: number; below: number; hit: string }
+    check("a reply's hidden Copy takes no room: the reply ends at its words, and Copy sits in the 24 px kept under them", room.msg === 0 && room.copy === 0 && room.below === 24 && room.hit === "none", JSON.stringify(room))
+
+    // A wrapped line of code goes on 2ch further in than it starts, not under its own indentation,
+    // where it would read as the next line.
+    const hang = (await ui(`(() => {
+      const md = document.createElement("div")
+      md.className = "md"
+      md.id = "e2e-code"
+      md.style.width = "220px"
+      md.innerHTML = '<div class="code"><pre><code><span class="cl" style="--indent: 2">  { name: "Starter", price: 4, seats: 2, featured: false },</span></code></pre></div>'
+      document.querySelector(".transcript-content").prepend(md)
+      const text = md.querySelector(".cl").firstChild, r = document.createRange()
+      const at = (i) => (r.setStart(text, i), r.setEnd(text, i + 1), r.getBoundingClientRect())
+      const first = at(2)
+      let i = 3
+      while (i < text.length && at(i).top < first.bottom - 1) i++
+      const zero = document.createElement("span")
+      zero.textContent = "0"
+      md.querySelector("code").append(zero)
+      const ch = zero.getBoundingClientRect().width
+      const out = { wrapped: i < text.length, hang: Math.round(((at(i).left - first.left) / ch) * 100) / 100 }
+      md.remove()
+      return out
+    })()`)) as { wrapped: boolean; hang: number }
+    check("a wrapped line of code goes on 2ch further in than its first line's words", hang.wrapped && hang.hang === 2, JSON.stringify(hang))
+
+    // The conversations' list is a dialog of buttons (a search field, each row's own buttons,
+    // Archived), not a menu, which may hold only menu items; the open one is the current one.
+    await ui(`document.querySelector(".convo-current").click()`)
+    const convo = (await until(() =>
+      ui(`(() => { const m = document.querySelector(".convo .menu"); return m && m.querySelector(".menu-main") ? { role: m.getAttribute("role"), label: m.getAttribute("aria-label"), popup: document.querySelector(".convo-current").getAttribute("aria-haspopup"), menuRoles: m.querySelectorAll("[role^=menu]").length, current: [...m.querySelectorAll(".menu-main")].filter((b) => b.getAttribute("aria-current") === "true").length } : null })()`),
+    )) as { role: string; label: string; popup: string; menuRoles: number; current: number } | null
+    await ui(`document.querySelector(".convo .menu").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`)
+    await until(() => ui(`!document.querySelector(".convo .menu")`))
+    check(
+      "the conversations' list is a labelled dialog with no menu roles in it, the open conversation marked current",
+      convo?.role === "dialog" && convo.label === "Conversations" && convo.popup === "dialog" && convo.menuRoles === 0 && convo.current === 1,
+      JSON.stringify(convo),
+    )
+
+    // A page that would not load names its host whole, on as many lines as it takes.
+    const LONG = "a-very-long-development-hostname.some-team.example:3000"
+    win.webContents.send("b42:state", { ...state(), page: { ...state().page, url: `http://${LONG}/products/category/shoes?page=4`, error: "The connection was refused (ERR_CONNECTION_REFUSED).", loading: false } })
+    const failed = (await until(() =>
+      ui(`(() => { const p = document.querySelector(".page-failed .chat-empty-lead"); return p ? { text: p.innerText.replace(/\\s+/g, " "), cut: p.scrollWidth > p.clientWidth, overflow: getComputedStyle(p).textOverflow, lines: Math.round(p.getBoundingClientRect().height / parseFloat(getComputedStyle(p).lineHeight)) } : null })()`),
+    )) as { text: string; cut: boolean; overflow: string; lines: number } | null
+    check(
+      "a page that would not load names its whole host, wrapped, not cut with an ellipsis",
+      !!failed && failed.text.replace(/ /g, "") === `Can'tload${LONG}` && !failed.cut && failed.overflow !== "ellipsis" && failed.lines > 1,
+      JSON.stringify(failed),
+    )
+
+    win.webContents.send("b42:state", base)
+    await until(() => ui(`!document.querySelector(".page-failed")`))
   }
   // The transcript fades under the conversation's header once something has scrolled under it,
   // and not at its very top.
@@ -2099,6 +2201,20 @@ async function main() {
     Object.assign(hook.acpTiming, { retryMin: 1_000, healthy: 60_000, crashes: 5 })
     await ui(`[...document.querySelectorAll(".banner.bad .btn")].find((b) => b.textContent.trim() === "Retry").click()`)
     check("…and Retry once signed in starts it again", (await until(() => state().connection.status === "online" && state().session?.id === SES, 8000)) === true, JSON.stringify(state().connection))
+  }
+
+  // The repo step's title is the step's h1, in the size of the other steps' ("Connect an agent").
+  // (Last of the window's checks: without a folder the panel's conversation makes way for the
+  // folder picker, and comes back as a new one.)
+  {
+    const now = state()
+    win.webContents.send("b42:state", { ...now, site: { ...now.site!, directory: undefined } })
+    const stepTitle = (await until(() =>
+      ui(`(() => { const s = document.querySelector(".repo-card"); const h = s?.querySelector(".folder-title"); return h ? { tag: h.localName, size: parseFloat(getComputedStyle(h).fontSize), h1s: document.querySelectorAll(".connect-screen h1").length, h2s: s.querySelectorAll("h2").length } : null })()`),
+    )) as { tag: string; size: number; h1s: number; h2s: number } | null
+    check("the repo step's title is its screen's one h1, in the display size the other steps have", stepTitle?.tag === "h1" && stepTitle.size >= 24 && stepTitle.h1s === 1 && stepTitle.h2s === 0, JSON.stringify(stepTitle))
+    win.webContents.send("b42:state", state())
+    await until(() => ui(`!document.querySelector(".repo-card")`))
   }
 
   // ── what is on disk ────────────────────────────────────────────────────────────────────────

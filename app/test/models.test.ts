@@ -3,7 +3,7 @@
 // metadata give, and OpenCode's model list in both of its shapes.
 import test from "node:test"
 import assert from "node:assert/strict"
-import { labelText, modelLabel, modelTags, modelWords, plainName, sharedNames } from "../src/shared/models"
+import { labelText, modelLabel, modelTags, modelWords, plainName, providerName, sharedNames } from "../src/shared/models"
 import { addKeyCommand, isOpenCode, NO_PICTURES, parseModelApi, parseModelsVerbose, PICTURE_UNREAD } from "../src/main/model-facts"
 import type { ModelInfo } from "../src/shared/types"
 
@@ -13,11 +13,17 @@ test("names: two providers' models of one name each say their provider; a name o
   const all = [m("kimi-code-plan-global", "Kimi K3.1 Pro"), m("moonshotai", "Kimi K3.1 Pro"), m("moonshotai", "Kimi K3"), m("opencode", "Big Pickle")]
   assert.deepEqual([...sharedNames(all)], ["kimi k3.1 pro"])
   assert.deepEqual(modelLabel(all[0]!, all), { name: "Kimi K3.1 Pro", provider: "kimi-code-plan-global", tags: "", images: true })
-  assert.deepEqual(modelLabel(all[1]!, all), { name: "Kimi K3.1 Pro", provider: "moonshotai", tags: "", images: true })
+  assert.deepEqual(modelLabel(all[1]!, all), { name: "Kimi K3.1 Pro", provider: "Moonshot AI", tags: "", images: true })
   assert.equal(labelText(modelLabel(all[2]!, all)), "Kimi K3")
-  assert.equal(labelText(modelLabel(all[2]!, all, { provider: "always" })), "Kimi K3 · moonshotai")
+  assert.equal(labelText(modelLabel(all[2]!, all, { provider: "always" })), "Kimi K3 · Moonshot AI")
   // The same provider twice is not two models: no provider needed.
   assert.equal(sharedNames([m("a", "X"), m("a", "X")]).size, 0)
+})
+
+test("providers as headings: the known ones as their makers write them, any other id as the agent says it", () => {
+  assert.deepEqual(["anthropic", "openai", "google", "moonshotai", "opencode", "OpenAI"].map(providerName), ["Anthropic", "OpenAI", "Google", "Moonshot AI", "OpenCode", "OpenAI"])
+  assert.equal(providerName("kimi-code-plan-global"), "kimi-code-plan-global")
+  assert.equal(providerName("local"), "local")
 })
 
 test("labels: free and pre-release from the name or id, in that order; the word Free leaves the name", () => {

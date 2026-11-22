@@ -131,7 +131,7 @@ export function RepoBar(props: { onOpen?: () => void }) {
             class="repo-message"
             rows={Math.min(6, Math.max(2, text().split("\n").length))}
             aria-label="Commit message"
-            placeholder="What this commit is"
+            placeholder="What this commit is…"
             spellcheck={false}
             value={text()}
             onInput={(e) => (setText(e.currentTarget.value), setEdited(true))}

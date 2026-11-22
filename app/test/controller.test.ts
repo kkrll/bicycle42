@@ -1530,22 +1530,22 @@ test("a conversation the agent really no longer has (not in its list either) is 
   }
 })
 
-test("unpinned counts the list's notes the page says it can't place now, and nothing in Preview or after a new document", async () => {
+test("lost counts the list's notes the page says it can't place now, and nothing in Preview or after a new document", async () => {
   const h = await boot()
   try {
     await h.ready()
     h.page.message({ type: "ready" })
     const [a, b] = [h.note("a"), h.note("b")]
     await until(() => h.snap().review.notes.length === 2)
-    const unpinned = () => h.snap().review.unplaced
+    const lost = () => h.snap().review.unplaced
     h.page.message({ type: "pins-placement", unplaced: [a, b] })
-    assert.equal(unpinned(), 2)
+    assert.equal(lost(), 2)
     await h.cmd("setMode", "preview")
-    assert.equal(unpinned(), 0, "Preview draws no pins: nothing is said of them")
+    assert.equal(lost(), 0, "Preview draws no pins: nothing is said of them")
     await h.cmd("setMode", "notes")
-    assert.equal(unpinned(), 2, "back in review, what the page said last")
+    assert.equal(lost(), 2, "back in review, what the page said last")
 
-    // The owner's way into "4 unpinned" that nothing cleared: the notes go while in Preview, where
+    // The owner's way into "4 unpinned" (now "4 lost") that nothing cleared: the notes go while in Preview, where
     // the page reports no placement, and a reload starts the page's report over from nothing, so
     // an empty list is never reported.
     await h.cmd("setMode", "preview")
@@ -1554,15 +1554,15 @@ test("unpinned counts the list's notes the page says it can't place now, and not
     h.page.message({ type: "ready" })
     await h.cmd("setMode", "notes")
     await until(() => h.snap().review.notes.length === 0)
-    assert.equal(unpinned(), 0, "no notes, nothing unpinned")
+    assert.equal(lost(), 0, "no notes, nothing lost")
 
     // A new document has placed nothing yet: what the last one said is gone.
     const c = h.note("c")
     await until(() => h.snap().review.notes.length === 1)
     h.page.message({ type: "pins-placement", unplaced: [c] })
-    assert.equal(unpinned(), 1)
+    assert.equal(lost(), 1)
     h.page.message({ type: "ready" })
-    assert.equal(unpinned(), 0, "a new document starts with nothing said")
+    assert.equal(lost(), 0, "a new document starts with nothing said")
   } finally {
     await h.close()
   }

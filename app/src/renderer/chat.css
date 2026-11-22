@@ -236,17 +236,31 @@
   }
 }
 
-/* Copy a reply: out of the way until the reader is in the message. */
+/* Copy a reply: out of the way until the reader is in the message, and taking no room while it
+   is. The reply ends at its words; Copy hangs in the 24px under them (its margins take back the
+   message's 12px gap and its own height), and what comes next keeps those 24px, the room a
+   message from the reviewer has anyway. Hidden, it is not hit either: the pointer in that room
+   is not in the reply. */
 .msg-tools {
   display: flex;
-  margin: -8px 0 -4px -6px;
+  margin: -12px 0 -24px -6px;
   opacity: 0;
+  pointer-events: none;
   transition: opacity var(--duration-micro) var(--ease-micro);
 }
 
 .assistant:hover > .msg-tools,
 .msg-tools:focus-within {
   opacity: 1;
+  pointer-events: auto;
+}
+
+.transcript-content > .msg:has(> .msg-tools) + * {
+  margin-top: 8px;
+}
+
+.transcript-content > .msg:has(> .msg-tools):last-child {
+  margin-bottom: 8px;
 }
 
 .copy-btn {
@@ -352,10 +366,12 @@
   overflow-wrap: anywhere;
 }
 
+/* A wrapped line goes on 2ch further in than it starts: under its own indentation it would read
+   as the next line of the code. */
 .cl {
   display: block;
-  padding-left: calc(var(--indent, 0) * 1ch);
-  text-indent: calc(var(--indent, 0) * -1ch);
+  padding-left: calc((var(--indent, 0) + 2) * 1ch);
+  text-indent: calc((var(--indent, 0) + 2) * -1ch);
 }
 
 .md .code.folded > pre {
@@ -546,12 +562,13 @@
 
 /* A message far from the view is neither laid out nor painted: a frame costs what is on screen,
    not the whole conversation. Until it is first drawn it counts as 160px tall, and afterwards as
-   tall as it was then. Drawn, it paints only this far outside its box: enough for a tool row's
-   hover background (8px out) and the focus ring around it. */
+   tall as it was then. Drawn, it paints only this far outside its box: enough for a reply's Copy,
+   which hangs 24px under it, a tool row's hover background (8px out) and the focus ring around
+   it. */
 .transcript-content > .msg {
   content-visibility: auto;
   contain-intrinsic-size: auto 160px;
-  overflow-clip-margin: 12px;
+  overflow-clip-margin: 24px;
 }
 
 /* A message above the view that is drawn for the first time (the reader scrolls up into it)

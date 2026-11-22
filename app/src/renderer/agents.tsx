@@ -128,7 +128,7 @@ export function AgentSwitch(props: { anchor: () => HTMLElement | undefined; onCl
         when={!servers.loading || servers()}
         fallback={
           <p class="quiet agent-pop-wait">
-            <Icon name="spinner" /> Looking for agents
+            <Icon name="spinner" /> Looking for agents…
           </p>
         }
       >
