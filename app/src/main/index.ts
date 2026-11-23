@@ -10,7 +10,7 @@ import path from "node:path"
 import type { Shortcut } from "../shared/types"
 import { timing as acpTiming, type Transport } from "./acp"
 import { createCore } from "./core"
-import { createPage, holdDownloadsIn, type PageView } from "./page"
+import { createPage, holdDownloadsIn, type PageView, zoomKeyOf } from "./page"
 import { SCHEME } from "./pictures"
 
 type Level = "info" | "warn" | "error"
@@ -99,6 +99,10 @@ function menu() {
         submenu: [
           { role: "togglefullscreen" },
           { type: "separator" },
+          item("Zoom In", "CmdOrCtrl+=", () => zoomBy("in")),
+          item("Zoom Out", "CmdOrCtrl+-", () => zoomBy("out")),
+          item("Actual Size", "CmdOrCtrl+0", () => zoomBy("reset")),
+          { type: "separator" },
           { label: "Developer Tools: App", accelerator: "Alt+CmdOrCtrl+I", click: () => window?.webContents.openDevTools({ mode: "detach" }) },
           { label: "Developer Tools: Page", accelerator: "Alt+CmdOrCtrl+J", click: () => page?.openDevTools() },
         ],
@@ -140,6 +144,13 @@ function copyPageUrl() {
 
 /** The app icon, copied beside the bundle by scripts/build.mjs. Absent in a build without assets. */
 const iconFile = path.join(__dirname, "icon.png")
+
+/** The whole window one zoom step in, out, or back: the window's own UI by its zoom factor, the
+ *  page view placed and drawn to match by core (stepZoom). From the window, the page or the menu. */
+function zoomBy(dir: "in" | "out" | "reset") {
+  const z = core.stepZoom(dir)
+  if (window && !window.isDestroyed()) window.webContents.setZoomFactor(z)
+}
 const appIcon = fs.existsSync(iconFile) ? iconFile : undefined
 
 async function createWindow() {
@@ -160,6 +171,7 @@ async function createWindow() {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      zoomFactor: core.zoom(),
     },
   }))
   // The app window shows only the app. Links go to the system browser.
@@ -169,6 +181,13 @@ async function createWindow() {
     return { action: "deny" }
   })
   windowContents = win.webContents
+  // The zoom keys while the window has the focus (the page's own: page.ts, onShortcut below).
+  win.webContents.on("before-input-event", (event, input) => {
+    const z = zoomKeyOf(input)
+    if (!z) return
+    event.preventDefault()
+    zoomBy(z)
+  })
   win.once("ready-to-show", () => win.show())
   win.on("closed", () => {
     page?.dispose()
@@ -188,6 +207,7 @@ async function createWindow() {
       if (key === "toggle-review") return void core.commands.toggleReview()
       // Copied here, and the keyboard left in the page: copying is no reason to leave it.
       if (key === "copy-url") return copyPageUrl()
+      if (key === "zoom-in" || key === "zoom-out" || key === "zoom-reset") return zoomBy(key === "zoom-in" ? "in" : key === "zoom-out" ? "out" : "reset")
       const shortcut: Shortcut = key
       win.webContents.send("b42:shortcut", shortcut)
       // The keys were pressed in the page; the field they lead to is in the window.

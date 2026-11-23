@@ -48,8 +48,11 @@ export type Page = {
   reload(): void
   back(): void
   forward(): void
-  /** Where the view sits in the window (CSS px); null hides it. */
+  /** Where the view sits in the window (the window's own pixels, DIP); null hides it. */
   setBounds(bounds: Rect | null): void
+  /** The app window's zoom: a phone's page is drawn up to that much larger than life, as the
+   *  window draws the phone around it. Said before the bounds that come with it. */
+  setZoom(zoom: number): void
   /** The page laid out as a phone's browser lays it out, or as it is (Device in shared/types.ts).
    *  How wide the view is stays the window's to say (setBounds). */
   setDevice(device: Device, phone: Phone): void
@@ -126,7 +129,7 @@ type Options = {
   onMessage(msg: PageMessage): void
   /** state() changed. */
   onChange(): void
-  onShortcut(key: "focus-url" | "toggle-panel" | "focus-chat" | "toggle-review" | "copy-url"): void
+  onShortcut(key: "focus-url" | "toggle-panel" | "focus-chat" | "toggle-review" | "copy-url" | "zoom-in" | "zoom-out" | "zoom-reset"): void
   /** What a download the page starts becomes: held in a file of its own in `folder` (one of
    *  the app's, not where the reviewer keeps files; see holdDownloadsIn) and said to `ask`;
    *  `gone` once one that was asked about and not answered ended by itself (it failed, or the
@@ -470,10 +473,13 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   let device: Device = "desktop"
   let phone: Phone = PHONE
   let committed = false
-  /** How much smaller than life the phone is drawn: the view's width over the phone's, 1 at most. */
+  /** The app window's zoom (setZoom). */
+  let zoom = 1
+  /** How much smaller than life the phone is drawn: the view's width over the phone's, the
+   *  window's zoom at most (the window draws the phone that much larger). */
   const fit = () => {
     const w = view.getBounds().width
-    return w > 0 && w < phone.width ? w / phone.width : 1
+    return w > 0 && w < phone.width * zoom ? w / phone.width : zoom
   }
   let fitted = 1
   /** The view's corners: the pane's (inside its hairline), or a phone's, square: its top corners
@@ -490,8 +496,17 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     if (device === "phone") {
       fitted = fit()
       wc.enableDeviceEmulation({ screenPosition: "mobile", screenSize: { width: phone.width, height: phone.height }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: viewportOf(phone), scale: fitted })
-    } else wc.disableDeviceEmulation()
+    } else {
+      wc.disableDeviceEmulation()
+      pinchable()
+    }
     tellEdge()
+  }
+  /** A desktop's page can be pinched larger, as in a browser (a phone's can already: its mobile
+   *  viewport has a page scale of its own). Electron holds every page at 1 unless told; told again
+   *  with each document, after it has committed (as emulate is, above). */
+  const pinchable = () => {
+    if (device === "desktop" && !gone() && committed && !wc.isCrashed()) void wc.setVisualZoomLevelLimits(1, 5).catch(() => {})
   }
 
   // ── what of the phone is over its page: the overlay draws it ─────────────────────────────────
@@ -516,6 +531,7 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
   each((w) => w.on("did-navigate", mine(w, () => {
     committed = true
     if (device === "phone") emulate()
+    else pinchable()
     applyTouch()
   })))
 
@@ -995,6 +1011,13 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
     }
     const mod = process.platform === "darwin" ? input.meta : input.control
     const key = input.key.toLowerCase()
+    // The window's zoom, from here as from the window.
+    const z = zoomKeyOf(input)
+    if (z) {
+      event.preventDefault()
+      opts.onShortcut(`zoom-${z}`)
+      return
+    }
     if (key === "f5" && !mod && !input.alt) {
       event.preventDefault()
       reload()
@@ -1155,6 +1178,9 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       // scrollbar (IS_PHONE above): a desktop's page is told, and takes it back at once.
       if (!gone() && committed && !wc.isCrashed()) wc.send(IS_PHONE, d === "phone")
     },
+    setZoom(z) {
+      zoom = z
+    },
     setTouch(on) {
       if (on === touch) return
       touch = on
@@ -1193,4 +1219,15 @@ export async function createPage(window: BrowserWindow, opts: Options): Promise<
       if (!wc.isDestroyed()) wc.close()
     },
   }
+}
+
+/** mod+= (or +), mod+-, mod+0: the app window's zoom in, out, back to 100%. By the key's place
+ *  too, and the number pad's. Not with alt (mod+alt+… are other keys). */
+export function zoomKeyOf(input: Electron.Input): "in" | "out" | "reset" | undefined {
+  const mod = process.platform === "darwin" ? input.meta : input.control
+  if (input.type !== "keyDown" || !mod || input.alt) return undefined
+  if (input.code === "Equal" || input.code === "NumpadAdd" || input.key === "+" || input.key === "=") return "in"
+  if (input.code === "Minus" || input.code === "NumpadSubtract" || input.key === "-") return "out"
+  if (!input.shift && (input.code === "Digit0" || input.code === "Numpad0")) return "reset"
+  return undefined
 }

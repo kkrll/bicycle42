@@ -76,6 +76,7 @@ export function testShell(dataDir: string, opts: { docks?: Pane[]; agent?: (comm
     forward() {},
     setBounds: (bounds) => void stub.calls.push(["bounds", bounds]),
     setDevice: (device, phone) => void stub.calls.push(["device", device], ...(device === "phone" ? [["phone", phone.id] as [string, string]] : [])),
+    setZoom: () => undefined,
     setTouch(on) {
       if (on === touch) return
       touch = on

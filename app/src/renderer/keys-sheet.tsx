@@ -32,6 +32,7 @@ function groups(): { name: string; rows: Row[] }[] {
         { keys: or(keys("mod", "K")), what: "The message box" },
         { keys: or(keys("mod", "shift", "C")), what: "Copy the page's address" },
         { keys: or(keys("mod", "R"), "F5"), what: "Reload the page" },
+        { keys: or(keys("mod", "="), keys("mod", "-"), keys("mod", "0")), what: "Zoom the app in, out, back to 100%" },
         { keys: or("?"), what: "This list (outside a text field)" },
       ],
     },
@@ -39,6 +40,7 @@ function groups(): { name: string; rows: Row[] }[] {
       name: "Annotate",
       rows: [
         { keys: or(w("click"), [keys("shift"), w("click")], w("drag")), what: "Select an element, add one, select an area" },
+        { keys: or([keys("shift"), w("while drawing")]), what: "A straight line; let go to draw on freehand" },
         { keys: or(keys("up"), keys("down")), what: "Parent, child element (while the note is empty)" },
         { keys: or(keys("enter"), keys("alt", "enter")), what: "Send the note; to the background conversation" },
         { keys: or("Esc"), what: "Cancel the note; again for Preview" },

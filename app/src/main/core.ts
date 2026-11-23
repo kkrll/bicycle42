@@ -67,7 +67,7 @@ import type {
   SlashCommand,
   TakeBackWay,
 } from "../shared/types"
-import { HOSTED_PANES, PHONE, phoneOf } from "../shared/types"
+import { HOSTED_PANES, PHONE, ZOOMS, phoneOf, zoomStep } from "../shared/types"
 import { noteImages, notePicture, type Frame } from "./images"
 import { isPlaceholder, placeholderTitle, titleFrom } from "./naming"
 import { parseNote } from "./chat-items"
@@ -139,6 +139,11 @@ export type Core = {
   /** Where the window last put the page, if a rectangle was kept: the shell lays the page out
    *  there while it loads, hidden, before the window can say where it goes. */
   lastPageBounds(): Rect | undefined
+  /** The app window's zoom, 1 at 100%: what the window's CSS pixels are in the page view's. */
+  zoom(): number
+  /** mod+= / mod+- / mod+0: the zoom one step in, out, or back to 100%. Returns the new one; the
+   *  shell zooms the window to it (its webContents), the page view is placed by it from here. */
+  stepZoom(dir: "in" | "out" | "reset"): number
   /** Once the window and the page are there: starts the saved agent, and says what the person
    *  has to know first. */
   start(): void
@@ -522,6 +527,20 @@ export function createCore(host: Host): Core {
   const docks = host.docks ?? HOSTED_PANES
   const isPane = (name: unknown): name is Pane => docks.includes(name as Pane)
   const device = (): Device => (store.settings().device === "phone" ? "phone" : "desktop")
+  /** The app window's zoom, from disk: a step of ZOOMS, else 1. */
+  const zoom = () => {
+    const z = store.settings().zoom
+    return typeof z === "number" && ZOOMS.some((s) => s === z) ? z : 1
+  }
+  /** The window says where things are in its CSS pixels; the page view is placed in the window's
+   *  own (DIP): zoomed, the one is the other times the zoom. */
+  const inWindow = (r: Rect): Rect => {
+    const z = zoom()
+    return z === 1 ? r : { x: r.x * z, y: r.y * z, width: r.width * z, height: r.height * z }
+  }
+  /** The ring round a phone's screen, as wide as the window draws it: the overlay draws its
+   *  corners in the page view's pixels. */
+  const surroundInView = (): PhoneSurround | undefined => surround && { ...surround, ring: surround.ring * zoom() }
   const phone = () => phoneOf(store.settings().phone)
 
   function snapshot(): AppState {
@@ -537,6 +556,7 @@ export function createCore(host: Host): Core {
       ...(agentStep ? { agentStep } : {}),
       ...(harness() ? { harness: harness() } : {}),
       home: machine.home,
+      ...(zoom() !== 1 ? { zoom: zoom() } : {}),
       page: {
         ...(p ?? { url: "", loading: false, canGoBack: false, canGoForward: false, hmr: false }),
         ...(blocked && !p?.url ? { url: blocked.url, error: blocked.error, loading: false } : {}),
@@ -2561,7 +2581,7 @@ export function createCore(host: Host): Core {
     },
     setPageBounds(bounds) {
       pageShownAt = bounds
-      page?.setBounds(bounds)
+      page?.setBounds(bounds && inWindow(bounds))
       // Kept for the next start, when the page is laid out before the window can say where it is
       // (lastPageBounds). Hidden (null) is no place to come back to. A window being resized says
       // a new place with every frame: written once it has come to rest (and at quit), not four
@@ -2593,7 +2613,7 @@ export function createCore(host: Host): Core {
       const shape = typeof around?.shape === "string" && /^[a-z0-9().\s-]{1,80}$/i.test(around.shape) ? around.shape : "round"
       if (!around || !(typeof around.ring === "number" && around.ring >= 0 && around.ring <= 100) || !colour(around.ringColour) || !colour(around.around)) return
       surround = { shape, ring: around.ring, ringColour: around.ringColour, around: around.around }
-      page?.setSurround(surround)
+      page?.setSurround(surroundInView())
     },
 
     setPhone(id) {
@@ -3222,7 +3242,8 @@ export function createCore(host: Host): Core {
       page = p
       // A page is a desktop's until told otherwise: only a phone's is said.
       if (device() === "phone") p.setDevice("phone", phone())
-      p.setSurround(surround)
+      p.setZoom(zoom())
+      p.setSurround(surroundInView())
     },
     detach() {
       // (The page cancels what it held as it closes.)
@@ -3249,7 +3270,20 @@ export function createCore(host: Host): Core {
       // From disk: only a rectangle if it has the four numbers of one.
       const b = store.settings().pageBounds
       const ok = !!b && typeof b === "object" && [b.x, b.y, b.width, b.height].every((n) => typeof n === "number" && Number.isFinite(n)) && b.width >= 1 && b.height >= 1
-      return ok ? { x: b.x, y: b.y, width: b.width, height: b.height } : undefined
+      return ok ? inWindow({ x: b.x, y: b.y, width: b.width, height: b.height }) : undefined
+    },
+    zoom,
+    stepZoom(dir) {
+      const to = zoomStep(zoom(), dir)
+      if (to === zoom()) return to
+      store.update((s) => void (to === 1 ? delete s.zoom : (s.zoom = to)))
+      // The window lays itself out again and says where the page is then; till that frame, the
+      // page view is where it was, at the new zoom, so it does not lag a frame behind the bar.
+      page?.setZoom(to)
+      if (pageShownAt) page?.setBounds(inWindow(pageShownAt))
+      page?.setSurround(surroundInView())
+      push()
+      return to
     },
     start() {
       void reconnectSaved()

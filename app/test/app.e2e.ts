@@ -482,6 +482,48 @@ async function main() {
     check(`${name} in the window reloads the page`, (await until(async () => (await js("window.__kept").catch(() => 1)) === undefined)) === true)
     await until(() => js(`${shadow}?.querySelector('.pins')?.classList.contains('live') ?? false`))
   }
+  // mod+= / mod+- / mod+0 zoom the whole window, the keyboard in the window or in the page; the
+  // page view is placed where the zoomed window has its pane, and the zoom is said for a moment.
+  {
+    const press = (to: Electron.WebContents, keyCode: string) => {
+      to.sendInputEvent({ type: "keyDown", keyCode, modifiers: [mod] })
+      to.sendInputEvent({ type: "keyUp", keyCode, modifiers: [mod] })
+    }
+    /** The pane's inner box, in the window's pixels: where the view should be. */
+    const pane = async () => {
+      const r = (await ui(`(() => { const p = document.querySelector('.page'), r = p.getBoundingClientRect(); return { x: r.x + p.clientLeft, y: r.y + p.clientTop, width: p.clientWidth, height: p.clientHeight } })()`)) as Rect
+      const z = win.webContents.getZoomFactor()
+      return { x: r.x * z, y: r.y * z, width: r.width * z, height: r.height * z }
+    }
+    const placed = async () => {
+      const [p, v] = [await pane(), page.view.getBounds()]
+      return Math.abs(p.x - v.x) <= 2 && Math.abs(p.y - v.y) <= 2 && Math.abs(p.width - v.width) <= 2 && Math.abs(p.height - v.height) <= 2
+    }
+    const before = page.view.getBounds()
+    press(win.webContents, "=")
+    check("mod+= in the window zooms it in a step", (await until(() => win.webContents.getZoomFactor() === 1.1)) === true && state().zoom === 1.1, String(win.webContents.getZoomFactor()))
+    check("…the page view is where the zoomed pane is", (await until(placed)) === true, `${JSON.stringify(await pane())} view ${JSON.stringify(page.view.getBounds())}`)
+    check("…and the bar says how far", (await until(async () => /Zoom 110%/.test(await ui(`document.querySelector('.bar-hint')?.textContent ?? ""`)))) === true)
+    press(wc, "-")
+    press(wc, "-")
+    check("mod+- with the page focused zooms out, past 100%", (await until(() => win.webContents.getZoomFactor() === 0.9)) === true && (await until(placed)) === true, String(win.webContents.getZoomFactor()))
+    press(win.webContents, "0")
+    check("mod+0 is 100% again, the page view where it was", (await until(() => win.webContents.getZoomFactor() === 1 && state().zoom === undefined)) === true && (await until(async () => JSON.stringify(page.view.getBounds()) === JSON.stringify(before))) === true, `${JSON.stringify(before)} → ${JSON.stringify(page.view.getBounds())}`)
+    await until(async () => !(await ui(`!!document.querySelector('.bar-hint')`)), 3000) // (its words go after a moment)
+  }
+  // A desktop's page can be pinched larger, as in a browser (Electron holds pages at 1 unless told).
+  {
+    const d = wc.debugger
+    const ours = !d.isAttached() // (the page may have it attached already)
+    if (ours) d.attach("1.3")
+    const v = page.view.getBounds()
+    await d.sendCommand("Input.synthesizePinchGesture", { x: Math.round(v.width / 2), y: Math.round(v.height / 2), scaleFactor: 2, relativeSpeed: 2000 }).catch(() => undefined)
+    const scale = () => js("visualViewport.scale") as Promise<number>
+    check("a pinch zooms a desktop's page", (await until(async () => (await scale()) > 1.5, 3000)) === true, String(await scale()))
+    await d.sendCommand("Emulation.resetPageScaleFactor").catch(() => undefined)
+    if (ours) d.detach()
+    await until(async () => (await scale()) === 1, 2000)
+  }
   // Resting the pointer on a control shows what it does and its key, in the bar; the chosen
   // mode keeps its colours under the pointer.
   const centreOf = (sel: string) => ui(`(() => { const r = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } })()`) as Promise<{ x: number; y: number }>
@@ -1653,6 +1695,32 @@ async function main() {
   await sleep(200)
   win.setSize(1441, 900)
   check("and the page is laid out as a phone's", (await until(() => js("document.documentElement.clientWidth === 390"), 3000)) === true, String(await js("document.documentElement.clientWidth")))
+  // Zoomed, the window draws the phone at another size: the page view fills its body as before,
+  // and the page is still laid out at the phone's width, drawn that much larger or smaller.
+  {
+    const zoomKey = (keyCode: string) => {
+      win.webContents.sendInputEvent({ type: "keyDown", keyCode, modifiers: [mod] })
+      win.webContents.sendInputEvent({ type: "keyUp", keyCode, modifiers: [mod] })
+    }
+    const inBody = async () => {
+      const z = win.webContents.getZoomFactor(), b = (await frameNow()).body, v = page.view.getBounds()
+      return Math.abs(v.width - b.width * z) <= 2 && Math.abs(v.x - b.x * z) <= 2
+    }
+    for (const [keyCode, z] of [["-", 0.8], ["=", 1.25]] as const) {
+      zoomKey(keyCode)
+      zoomKey(keyCode)
+      await until(() => win.webContents.getZoomFactor() === z)
+      check(
+        `a phone's page zoomed to ${z * 100}%: the view fills the phone the window draws, laid out at the phone's width`,
+        (await until(inBody, 3000)) === true && (await until(() => js("document.documentElement.clientWidth === 390"), 3000)) === true,
+        `${JSON.stringify((await frameNow()).body)} view ${JSON.stringify(page.view.getBounds())} zoom ${win.webContents.getZoomFactor()} width ${await js("document.documentElement.clientWidth")}`,
+      )
+      zoomKey("0")
+      await until(() => win.webContents.getZoomFactor() === 1)
+    }
+    await until(() => shaped(page.view.getBounds(), VIEW.width, VIEW.height))
+    await until(async () => !(await ui(`!!document.querySelector('.bar-hint')`)), 3000)
+  }
   // The page view runs to the screen's bottom edge and the window cannot draw over it: the
   // screen's bottom corners are the overlay's, in the window's shape and colours there (its
   // squircle, its ring, and what is around the phone). Compared with the window's own picture,

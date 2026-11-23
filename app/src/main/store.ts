@@ -51,6 +51,8 @@ export type Settings = {
   /** Where the window last had the page (CSS px): what the page is laid out to at the next
    *  start, while the window is still loading and can't say. The window's, whatever the agent. */
   pageBounds?: Rect
+  /** The app window's zoom (ZOOMS in shared/types.ts). Absent: 100%. */
+  zoom?: number
   /** The page shown as a phone's (Device in shared/types.ts). Absent: as a desktop's. */
   device?: "phone"
   /** Which phone that is (an id in PHONES). Absent: the usual one. */

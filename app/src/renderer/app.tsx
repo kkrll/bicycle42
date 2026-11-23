@@ -7,7 +7,7 @@
 //   · no page is open yet, or the connect screen is up
 //   · the settings dialog is open
 //   · the panel is being resized (the native view would swallow the drag)
-import { For, Match, Show, Switch, batch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
+import { For, Match, Show, Switch, batch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js"
 import { PHONES, phoneOf, type Device, type Rect, type ReviewMode, type Shortcut } from "../shared/types"
 import { sizeOf } from "../shared/wire"
 import { DockRegion, PhoneAside, dockShown } from "./dock"
@@ -1037,6 +1037,8 @@ export function App() {
   const copyUrl = async () => {
     if (state.page.url && (await copyText(state.page.url))) flashHint("Copied the page's address")
   }
+  // The app zoomed (mod+= / mod+- / mod+0, from anywhere): how far, for a moment where hints are.
+  createEffect(on(() => state.zoom ?? 1, (z) => flashHint(`Zoom ${Math.round(z * 100)}%`), { defer: true }))
   const onShortcut = (s: Shortcut) => {
     if (s === "url-copied") return flashHint("Copied the page's address")
     if (setup() || settings()) return

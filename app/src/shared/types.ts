@@ -447,6 +447,15 @@ export type SessionSummary = {
  *  look at what moves on the page and change one animation at a time. */
 export type ReviewMode = "preview" | "notes" | "edit" | "motion"
 
+/** The app window's zoom (mod+= / mod+- / mod+0): the steps a press goes through, as Chrome's. */
+export const ZOOMS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const
+/** The step after `z` toward `dir` ("reset": 1); `z` off the list goes to the nearest step that way. */
+export function zoomStep(z: number, dir: "in" | "out" | "reset"): number {
+  if (dir === "reset") return 1
+  const next = dir === "in" ? ZOOMS.find((s) => s > z + 0.001) : [...ZOOMS].reverse().find((s) => s < z - 0.001)
+  return next ?? z
+}
+
 export type AppState = {
   connection: ConnectionState
   /** The reviewer's name for the agent in use, else its own. */
@@ -466,6 +475,8 @@ export type AppState = {
   harness?: Harness
   /** This computer's home folder: a path in it, on this computer, is shown as ~/…. */
   home?: string
+  /** The app window's zoom; absent at 100%. */
+  zoom?: number
   page: {
     /** What the URL bar shows. Empty before the first page. */
     url: string
