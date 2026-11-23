@@ -848,10 +848,14 @@ details[open] > summary > .caret {
   opacity: 0.55;
 }
 
-/* What the control under the pointer does, and its key: in the bar, just left of the controls
-   (below the bar the page view would cover it). */
-.tools {
+/* What the control under the pointer does, and its key: in the bar, over the end of the address
+   (below the bar the page view would cover it). The anchor takes no room: its -8px cancels the
+   bar's gap, so it sits on the field's right edge. */
+.hint-anchor {
+  flex: none;
   position: relative;
+  width: 0;
+  margin-left: -8px;
 }
 
 .bar-hint {

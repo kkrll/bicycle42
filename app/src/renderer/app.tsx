@@ -130,8 +130,8 @@ function UrlField(props: { ref: (el: HTMLInputElement) => void }) {
 
 // ── hints: what a control does and its key, after the pointer rests on it ──────────────────────
 // Not a tooltip under the control: the page view is drawn over the window below the top bar, so
-// anything there would be hidden under it. The hint sits in the bar itself, just left of the
-// controls, over the end of the address field.
+// anything there would be hidden under it. The hint sits in the bar itself, over the end of the
+// address field, so it covers none of the controls right of the address.
 
 type HintText = { text: string; keys: string[] }
 const [hint, setHint] = createSignal<HintText | null>(null)
@@ -431,11 +431,15 @@ function TopBar(props: {
             })
           }}
         />
+        {/* The hint's place: at the end of the address, left of every control after it (one
+            anchored by the tools covered the device switch and the page's error). */}
+        <div class="hint-anchor">
+          <Hint />
+        </div>
         <DeviceSwitch disabled={!state.page.url} />
         <PageError />
         <PageRefused />
         <div class="tools">
-          <Hint />
           {/* The pen alone, in a look of its own: pressed, it turns Annotate on too, and is not a
               fourth mode beside it. Its name and key are in its hint. */}
           <button

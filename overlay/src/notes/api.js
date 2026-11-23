@@ -4,7 +4,7 @@ import { clearDraft, hasDraft, restore } from "./draft.js";
 import { finish, refuse } from "./submit.js";
 import { hideSent, showSent } from "./sent.js";
 import { frame, INK_HTML, outlines } from "./frame.js";
-import { key, pointerCancel, pointerDown, pointerMove, pointerUp } from "./input.js";
+import { drawShift, key, pointerCancel, pointerDown, pointerMove, pointerUp } from "./input.js";
 import { mount, syncUi, textarea } from "./mount.js";
 
 // ── what the rest of the overlay sees ───────────────────────────────────────────────────────
@@ -14,6 +14,8 @@ export {
   textarea,
   INK_HTML as inkHtml, CARD_HTML as cardHtml, mount, syncUi, outlines, frame,
   pointerDown, pointerMove, pointerUp, pointerCancel, key,
+  /** Shift pressed or let go: a drawing in progress turns straight, or free. */
+  drawShift,
   /** A note in progress: something on the page is selected, framed or drawn for it. */
   hasDraft,
   clearDraft, restore, openCard, closeCard, setTemplate,

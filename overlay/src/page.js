@@ -311,13 +311,22 @@ export function strokeTargets(pts) {
     if (inside.length) return inside;
   }
   const hits = [];
-  let last = null;
-  for (const [x, y] of view) {
-    if (last && Math.hypot(x - last[0], y - last[1]) < 10) continue;
-    last = [x, y];
+  const at = (x, y) => {
     const el = pick(x, y);
     if (el && !hits.includes(el)) hits.push(el);
+  };
+  // Every 10 px along the line, not only at its points: a straight one (shift) has just its two
+  // ends, and a fast stroke's points are far apart.
+  at(...view[0]);
+  let since = 0; // how far along the line since the last look
+  for (let i = 1; i < view.length; i++) {
+    const [ax, ay] = view[i - 1], [bx, by] = view[i];
+    const len = Math.hypot(bx - ax, by - ay);
+    let t = 10 - since;
+    for (; t <= len; t += 10) at(ax + ((bx - ax) * t) / len, ay + ((by - ay) * t) / len);
+    since = len - (t - 10);
   }
+  at(...view[view.length - 1]);
   // keep the deepest elements: drop any hit that contains another hit
   return hits.filter((el) => !hits.some((o) => o !== el && el.contains(o))).slice(0, 12);
 }

@@ -244,6 +244,35 @@ test("alt+drag line selects what it crosses; a closed loop selects what it enclo
   await page.close();
 });
 
+test("shift held while drawing makes the line straight; let go, it goes on freehand", async () => {
+  const { page, f } = await open();
+  const hs = await Promise.all([1, 3].map((i) => box(f, `#cards article:nth-of-type(${i}) h3`)));
+  const y = center(hs[0])[1];
+  const x0 = hs[0].x + 2, x1 = hs[1].x + hs[1].width - 2;
+  await page.keyboard.down("Alt");
+  await page.keyboard.down("Shift");
+  await page.mouse.move(x0, y);
+  await page.mouse.down();
+  // A wobbly path: with shift down only its end counts.
+  for (let i = 1; i <= 20; i++) await page.mouse.move(x0 + ((x1 - x0) * i) / 20, y + (i % 2 ? 40 : -40));
+  await page.mouse.move(x1, y);
+  await page.keyboard.up("Shift");
+  await page.mouse.move(x1, y + 30, { steps: 5 });
+  await page.mouse.up();
+  await page.keyboard.up("Alt");
+  await page.keyboard.type("align these");
+  await page.keyboard.press("Enter");
+  await waitNotes(page, 1);
+  const [stroke] = await page.evaluate(() => window.__harness.notes[0].strokes);
+  // start, the straight line's end, then the freehand tail: nothing of the wobble between.
+  assert.ok(Math.abs(stroke[1][1] - stroke[0][1]) <= 1, `straight: ${JSON.stringify(stroke.slice(0, 3))}`);
+  assert.ok(stroke.slice(1).every(([, py]) => py >= stroke[0][1] - 1), "no wobble above the line");
+  assert.ok(stroke.length > 2, "the freehand tail after shift was let go");
+  // Two points far apart still select what the line crosses.
+  assert.ok((await notes(page))[0].targets.length >= 3, `targets: ${(await notes(page))[0].targets}`);
+  await page.close();
+});
+
 test("↑ moves the selection to the parent", async () => {
   const { page, f } = await open();
   await clickAt(page, f, "#cards article:nth-of-type(2) h3");

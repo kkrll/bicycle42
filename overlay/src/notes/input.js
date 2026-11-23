@@ -45,10 +45,32 @@ export function pointerMove(e) {
   d.x = e.clientX;
   d.y = e.clientY;
   if (!d.mode && Math.hypot(d.x - d.x0, d.y - d.y0) > DRAG_PX) d.mode = d.alt ? "draw" : "area";
-  if (d.mode === "draw") {
-    const [lx, ly] = toView(d.pts[d.pts.length - 1]);
-    if (Math.hypot(d.x - lx, d.y - ly) > 2) d.pts.push([d.x + window.scrollX, d.y + window.scrollY]);
+  if (d.mode === "draw") ink(d, e.shiftKey);
+  kick();
+}
+
+/** The drawing follows the pointer. With shift held it is a straight line, from where the
+ *  drawing was when shift went down (its start, if shift was down from the press) to the
+ *  pointer; shift let go, it goes on freehand from the line's end. */
+function ink(d, straight) {
+  const at = [d.x + window.scrollX, d.y + window.scrollY];
+  if (straight) {
+    d.straightFrom ??= d.pts.length;
+    d.pts.length = d.straightFrom;
+    d.pts.push(at);
+    return;
   }
+  d.straightFrom = undefined;
+  const [lx, ly] = toView(d.pts[d.pts.length - 1]);
+  if (Math.hypot(d.x - lx, d.y - ly) > 2) d.pts.push(at);
+}
+
+/** Shift pressed or let go mid-drawing: the line turns straight, or free, at once, not on the
+ *  pointer's next move. */
+export function drawShift(down) {
+  const d = S.drag;
+  if (d?.mode !== "draw" || down === (d.straightFrom !== undefined)) return;
+  ink(d, down);
   kick();
 }
 
@@ -119,6 +141,7 @@ function walk(dir) {
 }
 
 export function key(e) {
+  if (e.key === "Shift") return drawShift(true);
   if (e.key === "Escape" && Canvas.closePop()) {
     block(e);
     return;
