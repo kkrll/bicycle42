@@ -158,14 +158,14 @@ panel's conversation row), where reloading the page after a note is switched too
 The top bar has the mode: **Preview** (the page as it is, without the notes' pins), **Annotate** (point at something
 and say what to change), **Edit** (change the page itself, then press Send) and **Motion** (see
 what moves on the page, change one animation, then send it), with **Draw** (the pencil) beside
-them, and **Figma** and **Paper** after it: each starts that tool's own Chrome extension on the
+them, and **Figma** and **Paper** after the address: each starts that tool's own Chrome extension on the
 page, which copies what you pick there to the clipboard, to paste in Figma or Paper as layers.
 The page goes to Preview first, since the extension's picker takes the clicks. The extensions are
 not shipped with the app: the first press of each downloads it from the Chrome Web Store, checks
 its developer's signature and keeps it in the app's data folder. Paper's needs no account;
 Figma's asks you to log in with Figma once, in a window of its own (Figma's "Continue with Google"
 is likely to be refused there, as Google refuses sign-ins inside apps: use email or SSO). In a narrow window the address gives up its width first; past that, each mode's name goes
-under its icon. Beside the address, **Desktop | Phone** shows the page as wide as its pane or as a phone
+under its icon. Left of the address, **Desktop | Phone** shows the page as wide as its pane or as a phone
 has it; which phone (iPhone SE to iPhone 18 Pro Max, a Pixel, a Galaxy) is the list above the
 page. The window draws the phone around the page: its screen's shape with a faint ring and the
 status bar above (the time, the camera's island, notch or hole, signal and battery, in the page's

@@ -421,6 +421,7 @@ function TopBar(props: {
             <Icon name={state.page.loading ? "spinner" : "reload"} />
           </button>
         </div>
+        <DeviceSwitch disabled={!state.page.url} />
         <UrlField
           ref={(el) => {
             props.urlRef(el)
@@ -432,32 +433,18 @@ function TopBar(props: {
           }}
         />
         {/* The hint's place: at the end of the address, left of every control after it (one
-            anchored by the tools covered the device switch and the page's error). */}
+            anchored by the tools covered the page's error). */}
         <div class="hint-anchor">
           <Hint />
         </div>
-        <DeviceSwitch disabled={!state.page.url} />
         <PageError />
         <PageRefused />
-        <div class="tools">
-          {/* The pen alone, in a look of its own: pressed, it turns Annotate on too, and is not a
-              fourth mode beside it. Its name and key are in its hint. */}
-          <button
-            class="icon-btn draw-btn"
-            data-action="draw"
-            aria-label="Draw on the page"
-            aria-pressed={state.review.brush}
-            aria-description="A line selects what it crosses, a loop what it encloses"
-            disabled={noOverlay()}
-            onClick={() => act("toggleBrush")}
-            {...hinted(() => ({ text: "Draw: a line selects what it crosses", keys: [keys("mod", "shift", "P"), `${keys("alt")} drag`] }))}
-          >
-            <Icon name="draw" size={20} />
-          </button>
-          {/* Copy to Figma, to Paper: their own Chrome extensions, started on the page (its picker
-              takes the clicks, so review goes to preview). The first press downloads one. */}
-          <Show when={state.capture}>
-            {(capture) => (
+        {/* Copy to Figma, to Paper: their own Chrome extensions, started on the page (its picker
+            takes the clicks, so review goes to preview). The first press downloads one. After
+            the address, apart from Draw and the modes: they copy the page out, not mark it up. */}
+        <Show when={state.capture}>
+          {(capture) => (
+            <div class="captures">
               <For each={CAPTURES}>
                 {(c) => (
                   <button
@@ -473,8 +460,24 @@ function TopBar(props: {
                   </button>
                 )}
               </For>
-            )}
-          </Show>
+            </div>
+          )}
+        </Show>
+        <div class="tools">
+          {/* The pen alone, in a look of its own: pressed, it turns Annotate on too, and is not a
+              fourth mode beside it. Its name and key are in its hint. */}
+          <button
+            class="icon-btn draw-btn"
+            data-action="draw"
+            aria-label="Draw on the page"
+            aria-pressed={state.review.brush}
+            aria-description="A line selects what it crosses, a loop what it encloses"
+            disabled={noOverlay()}
+            onClick={() => act("toggleBrush")}
+            {...hinted(() => ({ text: "Draw: a line selects what it crosses", keys: [keys("mod", "shift", "P"), `${keys("alt")} drag`] }))}
+          >
+            <Icon name="draw" size={20} />
+          </button>
           <ModeSwitch disabled={noOverlay()} stacked={stacked()} ref={(el) => (modes = el)} />
           {/* With the panel open the agent button is in its conversation row, and the notes are
               right there: both are here only while they cannot be seen in the panel. */}
