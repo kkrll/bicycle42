@@ -274,6 +274,10 @@ export function allowPermission(session: Session, permission: "clipboard-sanitiz
   set.add(permission)
   allowed.set(session, set)
 }
+/** That permission refused again (the extension that needed it taken out). */
+export function disallowPermission(session: Session, permission: "clipboard-sanitized-write") {
+  allowed.get(session)?.delete(permission)
+}
 /** A session the page is made in refuses everything, once and for every view in it. */
 function guard(session: Session) {
   if (guarded.has(session)) return

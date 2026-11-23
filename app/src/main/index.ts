@@ -62,6 +62,7 @@ const extensions = createExtensions({
 const core = createCore({
   dataDir: app.getPath("userData"),
   capture: (kind) => extensions.press(kind),
+  uncapture: (kind) => extensions.unload(kind),
   emit(stream, value) {
     if (window && !window.isDestroyed()) window.webContents.send(`b42:${stream}`, value)
   },

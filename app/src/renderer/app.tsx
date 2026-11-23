@@ -12,7 +12,7 @@ import { PHONES, phoneOf, type CaptureKind, type Device, type Rect, type ReviewM
 import { sizeOf } from "../shared/wire"
 import { DockRegion, PhoneAside, dockShown } from "./dock"
 import { copyText } from "./copy"
-import { ConnectScreen, ModelScreen, ServerButton, SettingsDialog, SetupSteps, firstRunConnecting } from "./connect"
+import { CAPTURES, ConnectScreen, ModelScreen, ServerButton, SettingsDialog, SetupSteps, firstRunConnecting } from "./connect"
 import { Icon, Kbd, type IconName } from "./icons"
 import { frameOf } from "./phone"
 import { StatusStrip, surroundOf } from "./phone-frame"
@@ -441,11 +441,12 @@ function TopBar(props: {
         <PageRefused />
         {/* Copy to Figma, to Paper: their own Chrome extensions, started on the page (its picker
             takes the clicks, so review goes to preview). The first press downloads one. After
-            the address, apart from Draw and the modes: they copy the page out, not mark it up. */}
-        <Show when={state.capture}>
+            the address, apart from Draw and the modes: they copy the page out, not mark it up.
+            Only those switched on in Settings. */}
+        <Show when={state.capture?.on.length ? state.capture : undefined}>
           {(capture) => (
             <div class="captures">
-              <For each={CAPTURES}>
+              <For each={CAPTURES.filter((c) => capture().on.includes(c.kind))}>
                 {(c) => (
                   <button
                     class="icon-btn capture-btn"
@@ -494,11 +495,6 @@ function TopBar(props: {
 }
 
 /** The page's error is about the review overlay, not the page: the page itself is fine. */
-/** The design tools the page can be copied to (Commands.capture), as their buttons show them. */
-const CAPTURES: Array<{ kind: CaptureKind; name: string }> = [
-  { kind: "figma", name: "Figma" },
-  { kind: "paper", name: "Paper" },
-]
 
 const overlayError = () => /overlay/i.test(state.page.error ?? "")
 /** The page itself failed to load: the view would show a stale or blank page. */

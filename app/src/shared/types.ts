@@ -448,6 +448,8 @@ export type SessionSummary = {
 export type ReviewMode = "preview" | "notes" | "edit" | "motion"
 /** A design tool the page can be copied to, by its own Chrome extension (main/extensions.ts). */
 export type CaptureKind = "figma" | "paper"
+/** Every design tool the page can be copied to (Commands.capture), in the bar's order. */
+export const CAPTURE_KINDS: readonly CaptureKind[] = ["figma", "paper"]
 
 /** The app window's zoom (mod+= / mod+- / mod+0): the steps a press goes through, as Chrome's. */
 export const ZOOMS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const
@@ -541,8 +543,9 @@ export type AppState = {
    *  another computer's): another one has to be chosen. */
   missingFolder?: string
   /** Copying the page to Figma and Paper (Commands.capture): absent where the shell cannot.
-   *  `busy` while a press is under way (the first one downloads the extension). */
-  capture?: { busy?: CaptureKind }
+   *  `on`: the tools whose buttons the bar shows (Settings; both to begin with). `busy` while a
+   *  press is under way (the first one downloads the extension). */
+  capture?: { on: CaptureKind[]; busy?: CaptureKind }
   /** The open repo under version control: its branch, and what is changed and not committed.
    *  Absent when the folder is not a repository. */
   repo?: Repo
@@ -614,6 +617,9 @@ export type Commands = {
    *  paste in that tool. Review goes to preview first (the extension's picker takes the clicks).
    *  The first press downloads the extension (`AppState.capture.busy` meanwhile). */
   capture(kind: CaptureKind): void
+  /** A design tool's button shown or not (Settings). Off, its extension is taken out of the
+   *  page's session too, and stops running; the download is kept for when it is back on. */
+  setCapture(kind: CaptureKind, on: boolean): void
   toggleAutoReload(): void
   /** From a hosted dock, to the overlay: what the reviewer did there. Nothing is answered here;
    *  what changed comes back as the dock's next view. */

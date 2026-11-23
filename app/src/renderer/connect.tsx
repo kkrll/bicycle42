@@ -2,7 +2,7 @@
 // one over ssh. One form, used twice: full-window before the first connection, and inside the
 // settings dialog afterwards.
 import { For, Match, Show, Switch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js"
-import type { ConnectionState, LocalAgent, ModelInfo, ModelRef, RemoteInfo } from "../shared/types"
+import type { CaptureKind, ConnectionState, LocalAgent, ModelInfo, ModelRef, RemoteInfo } from "../shared/types"
 import { modelLabel, providerName, tagLine } from "../shared/models"
 import { harnessNow, kindOfAgent } from "./agents"
 import { CopyButton } from "./copy"
@@ -706,7 +706,14 @@ export function Toggle(props: { on: boolean; label: string; title: string; disab
   )
 }
 
-/** What used to sit in the top bar and is set once: reloading after a note, and the sounds. */
+/** The design tools the page can be copied to (Commands.capture), as their buttons show them. */
+export const CAPTURES: Array<{ kind: CaptureKind; name: string }> = [
+  { kind: "figma", name: "Figma" },
+  { kind: "paper", name: "Paper" },
+]
+
+/** What used to sit in the top bar and is set once: reloading after a note, the sounds, and
+ *  which design tools' buttons the bar shows. */
 function Preferences() {
   return (
     <div class="dialog-prefs">
@@ -726,6 +733,25 @@ function Preferences() {
         <Toggle on={soundOn()} label="Sounds" title="A question, a failure, finished" onClick={toggleSound} />
         <span class="dialog-sub">Questions, failures and finished work.</span>
       </div>
+      <Show when={state.capture}>
+        {(capture) => (
+          <For each={CAPTURES}>
+            {(c) => (
+              <div class="dialog-pref">
+                <Toggle
+                  on={capture().on.includes(c.kind)}
+                  label={`${c.name} button`}
+                  title={`Show the Copy to ${c.name} button in the bar`}
+                  onClick={() => act("setCapture", c.kind, !capture().on.includes(c.kind))}
+                />
+                <span class="dialog-sub">
+                  Copies what you pick on the page, to paste in {c.name}. The first press downloads {c.name}'s Chrome extension; off, it stops running.
+                </span>
+              </div>
+            )}
+          </For>
+        )}
+      </Show>
     </div>
   )
 }

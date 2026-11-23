@@ -179,6 +179,15 @@ async function main() {
   check("a second press does not download it again", downloads.length === 1)
   await click()
   check("…and copies again", (await until(clipboardHtml)).includes("B42 Tandem"))
+  // Switched off in Settings: out of the session, so it stops; back on, in again without a download.
+  const paperId = real ? EXTENSION_IDS.paper : paper.id
+  extensions.unload("paper")
+  check("switched off, the extension is taken out of the page's session", await until(() => !wc().session.extensions.getExtension(paperId), 3000))
+  await clipboard.clear()
+  await extensions.press("paper")
+  check("…pressed again, it is back in, with no second download", !!wc().session.extensions.getExtension(paperId) && downloads.length === 1)
+  await click()
+  check("…and copies", (await until(clipboardHtml)).includes("B42 Tandem"))
 
   if (real) {
     // Figma's own: no sign-in yet, so its screen opens in a window, and its button goes to figma.com.

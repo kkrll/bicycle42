@@ -19,7 +19,7 @@ import os from "node:os"
 import path from "node:path"
 import type { CaptureKind } from "../shared/types"
 import { openCrx, unpackCrx } from "./crx"
-import { allowPermission } from "./page"
+import { allowPermission, disallowPermission } from "./page"
 
 /** The store's ids: what the store, Chrome, and their sign-in addresses know them by. */
 export const EXTENSION_IDS: Record<CaptureKind, string> = {
@@ -47,6 +47,9 @@ export type Extensions = {
   /** The kind's button pressed: its extension made ready (downloaded the first time) and its
    *  toolbar button pressed on the page. Rejects with a sentence for the person. */
   press(kind: CaptureKind): Promise<void>
+  /** The kind's extension taken out of every session it was loaded into, and its windows closed:
+   *  it stops running. Its folder stays, so the next press loads it without a download. */
+  unload(kind: CaptureKind): void
   dispose(): void
 }
 
@@ -66,9 +69,10 @@ export function createExtensions(opts: Options): Extensions {
   /** Each kind's folder, once it is there: one download at a time each. */
   const ready = new Map<CaptureKind, Promise<string>>()
   /** Each session's extensions, loaded (by kind): the id Electron gave it. */
-  const loaded = new WeakMap<Session, Map<CaptureKind, Promise<string>>>()
-  /** The windows opened as an extension's tabs, by their web contents' id. */
+  const loaded = new Map<Session, Map<CaptureKind, Promise<string>>>()
+  /** The windows opened as an extension's tabs, by their web contents' id, and whose they are. */
   const tabs = new Map<number, BrowserWindow>()
+  const tabKind = new Map<number, CaptureKind>()
   /** Page views told about already (navigations, closing). */
   const watched = new WeakSet<WebContents>()
   const workers = new WeakSet<Electron.ServiceWorkerMain>()
@@ -161,7 +165,7 @@ export function createExtensions(opts: Options): Extensions {
 
   /** A window for an extension's tab (Figma's sign-in screen, and figma.com's sign-in it goes
    *  to): in the page's session, where the extension is and its sign-in is kept. */
-  function openTab(session: Session, url: string) {
+  function openTab(session: Session, url: string, kind: CaptureKind | undefined) {
     const parent = opts.window()
     const win = new BrowserWindow({
       width: 960,
@@ -173,6 +177,7 @@ export function createExtensions(opts: Options): Extensions {
     const wc = win.webContents
     const id = wc.id
     tabs.set(id, win)
+    if (kind) tabKind.set(id, kind)
     // A sign-in comes back to https://<id>.chromiumapp.org/…, which is no site: Chrome hands that
     // address to the extension that watches for it (tabs.onUpdated), and so is it here.
     const back = (event: Electron.Event, to: string) => {
@@ -191,6 +196,7 @@ export function createExtensions(opts: Options): Extensions {
     })
     win.on("closed", () => {
       tabs.delete(id)
+      tabKind.delete(id)
       void fire(session, "tabs.onRemoved", id, { windowId: -1, isWindowClosing: true })
     })
     void win.loadURL(url)
@@ -219,7 +225,7 @@ export function createExtensions(opts: Options): Extensions {
           // Its own pages (a path is one of them), or a web page; nothing else.
           const full = /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : new URL(url, worker.scope).href
           if (!/^https:/i.test(full) && !full.startsWith(worker.scope)) throw new Error("Not an address a tab opens.")
-          return tabInfo(openTab(session, full))
+          return tabInfo(openTab(session, full, kind))
         }
         case "tabs.remove": {
           const ids = Array.isArray(args[0]) ? args[0] : [args[0]]
@@ -299,7 +305,7 @@ export function createExtensions(opts: Options): Extensions {
       case "tabs.create": {
         const url = (args[0] as { url?: unknown } | undefined)?.url
         if (typeof url !== "string" || !/^(https:|chrome-extension:)/i.test(url)) throw new Error("Not an address a tab opens.")
-        return tabInfo(openTab(session, url))
+        return tabInfo(openTab(session, url, tabKind.get(event.sender.id)))
       }
     }
     throw new Error(`chrome.${name} is not stood in for.`)
@@ -325,6 +331,22 @@ export function createExtensions(opts: Options): Extensions {
       const worker = await workerOf(session, id)
       attach(worker)
       worker.send("b42-ext:fire", "action.onClicked", [tabInfo(page)])
+    },
+    unload(kind) {
+      for (const [session, mine] of loaded) {
+        const p = mine.get(kind)
+        if (!p) continue
+        mine.delete(kind)
+        // Once it is in (a press may still be loading it): out again, and what it was granted with it.
+        void p.then(
+          (id) => {
+            if (session.extensions.getExtension(id)) session.extensions.removeExtension(id)
+            if (kind === "figma") disallowPermission(session, "clipboard-sanitized-write")
+          },
+          () => undefined,
+        )
+      }
+      for (const [id, k] of tabKind) if (k === kind) tabs.get(id)?.destroy()
     },
     dispose() {
       ipcMain.removeHandler("b42-ext:page-call")

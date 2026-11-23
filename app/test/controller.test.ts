@@ -47,7 +47,7 @@ const GONE = path.join(ROOT, "gone")
 /** The command the app is given for the fake agent; another word makes another agent. */
 const FAKE = "fake-agent"
 
-async function boot(opts: { settings?: Record<string, unknown>; reviews?: Record<string, unknown>; outbox?: Record<string, unknown>; docks?: Pane[]; agent?: (w: Played) => void; dir?: string } = {}) {
+async function boot(opts: { settings?: Record<string, unknown>; reviews?: Record<string, unknown>; outbox?: Record<string, unknown>; docks?: Pane[]; agent?: (w: Played) => void; dir?: string; capture?: boolean } = {}) {
   const dir = opts.dir ?? fs.mkdtempSync(path.join(os.tmpdir(), "bicycle42-ctl-"))
   // What a note sends, as the app left it on disk (src/main/outbox.ts), by the note's id.
   for (const [id, payload] of Object.entries(opts.outbox ?? {})) {
@@ -74,7 +74,7 @@ async function boot(opts: { settings?: Record<string, unknown>; reviews?: Record
   if (!process.env.V) console.log = console.warn = console.error = () => {}
   const shells: TestShell[] = []
   const shellOn = () => {
-    const s = testShell(dir, { docks: opts.docks, agent: (command) => agentOf(command.join(" ")).fa.connect() })
+    const s = testShell(dir, { docks: opts.docks, capture: opts.capture, agent: (command) => agentOf(command.join(" ")).fa.connect() })
     shells.push(s)
     return s
   }
@@ -2081,6 +2081,36 @@ test("the page as a phone's: the page is told, the window is told, and the next 
     assert.deepEqual(devices(again), ["phone"])
     assert.deepEqual(phones(again), ["pixel-11"])
     await again.core.dispose()
+  } finally {
+    await h.close()
+  }
+})
+
+test("Figma's and Paper's buttons switched off and on in Settings: kept, refused off, the extension unloaded", async () => {
+  const h = await boot({ capture: true })
+  try {
+    assert.deepEqual(h.snap().capture?.on, ["figma", "paper"]) // both, to begin with
+    await h.cmd("setCapture", "paper", false)
+    assert.deepEqual(h.snap().capture?.on, ["figma"])
+    assert.deepEqual(h.shell.captures, [["unload", "paper"]])
+    await h.cmd("capture", "paper") // off: its press does nothing
+    await h.cmd("setCapture", "paper", false) // already off: not unloaded again
+    await h.cmd("setCapture", "sketch", false) // not a tool
+    assert.deepEqual(h.shell.captures, [["unload", "paper"]])
+    await h.cmd("capture", "figma")
+    assert.deepEqual(h.shell.captures.at(-1), ["press", "figma"])
+    await h.cmd("setCapture", "figma", false)
+    assert.deepEqual(h.snap().capture?.on, [])
+    await h.cmd("setCapture", "paper", true)
+    assert.deepEqual(h.snap().capture?.on, ["paper"])
+    // The next start remembers (once it is on disk).
+    await until(() => /"captureOff":\s*\[\s*"figma"\s*\]/.test(fs.readFileSync(path.join(h.dir, "settings.json"), "utf8")))
+    const again = testShell(h.dir, { capture: true })
+    assert.deepEqual(again.core.snapshot().capture?.on, ["paper"])
+    await again.core.dispose()
+    // Both back on: nothing about it left in the settings.
+    await h.cmd("setCapture", "figma", true)
+    await until(() => !fs.readFileSync(path.join(h.dir, "settings.json"), "utf8").includes("captureOff"))
   } finally {
     await h.close()
   }

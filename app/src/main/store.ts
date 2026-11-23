@@ -13,7 +13,7 @@
 // as it is, and what would have gone into it stays in memory for this run.
 import fs from "node:fs"
 import path from "node:path"
-import type { Checkpoint, ModelRef, Rect } from "../shared/types"
+import type { CaptureKind, Checkpoint, ModelRef, Rect } from "../shared/types"
 import { REVIEW_VERSION } from "./review"
 
 /** `pinned`: the conversations kept at the top of the site's list, by id. */
@@ -57,6 +57,8 @@ export type Settings = {
   device?: "phone"
   /** Which phone that is (an id in PHONES). Absent: the usual one. */
   phone?: string
+  /** The design tools whose buttons are switched off (Commands.setCapture). Absent: none. */
+  captureOff?: CaptureKind[]
   /** Key: the site's origin. */
   /** `url` and `seen`: the page last open on the site and when, to come back to with its project. */
   sites: Sites

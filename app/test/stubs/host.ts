@@ -6,7 +6,7 @@ import { createCore, type Core } from "../../src/main/core"
 import type { Frame } from "../../src/main/images"
 import type { Page, PageMessage, PageState } from "../../src/main/page"
 import type { Transport } from "../../src/main/acp"
-import type { Pane } from "../../src/shared/types"
+import type { CaptureKind, Pane } from "../../src/shared/types"
 
 export type TestShell = {
   core: Core
@@ -16,6 +16,8 @@ export type TestShell = {
   /** The Save dialog: the name each one was opened for, and what it answers (a file, or
    *  undefined as if cancelled), which the test sets before it is opened. */
   saveDialog: { asked: string[]; answer?: string | Promise<string | undefined> }
+  /** With `capture`: each press of a design tool's button and each unload of its extension. */
+  captures: ["press" | "unload", CaptureKind][]
   page: {
     load(url: string): void
     /** Speak as the overlay (which may say anything). */
@@ -36,7 +38,8 @@ export type TestShell = {
 
 /** Starts a controller on `dataDir` the way the shell does: the page made, laid out where it was
  *  last and hidden, loaded at the address it was last at, then `start`. */
-export function testShell(dataDir: string, opts: { docks?: Pane[]; agent?: (command: string[]) => Transport } = {}): TestShell {
+export function testShell(dataDir: string, opts: { docks?: Pane[]; agent?: (command: string[]) => Transport; capture?: boolean } = {}): TestShell {
+  const captures: TestShell["captures"] = []
   const sent: TestShell["sent"] = []
   const dialogs: unknown[] = []
   const saveDialog: TestShell["saveDialog"] = { asked: [] }
@@ -50,6 +53,10 @@ export function testShell(dataDir: string, opts: { docks?: Pane[]; agent?: (comm
     },
     ...(opts.docks ? { docks: opts.docks } : {}),
     ...(opts.agent ? { agentTransport: opts.agent } : {}),
+    // With `capture`: Figma's and Paper's buttons, their presses and unloads noted, not done.
+    ...(opts.capture
+      ? { capture: async (kind: CaptureKind) => void captures.push(["press", kind]), uncapture: (kind: CaptureKind) => void captures.push(["unload", kind]) }
+      : {}),
     log: (level, msg, data) => console[level === "info" ? "log" : level](`[bicycle42] ${msg}`, data === undefined ? "" : data),
   })
 
@@ -115,5 +122,5 @@ export function testShell(dataDir: string, opts: { docks?: Pane[]; agent?: (comm
   page.setBounds(null)
   page.load(core.lastUrl())
   core.start()
-  return { core, sent, dialogs, saveDialog, page: stub }
+  return { core, sent, dialogs, saveDialog, captures, page: stub }
 }

@@ -68,7 +68,7 @@ import type {
   SlashCommand,
   TakeBackWay,
 } from "../shared/types"
-import { HOSTED_PANES, PHONE, ZOOMS, phoneOf, zoomStep } from "../shared/types"
+import { CAPTURE_KINDS, HOSTED_PANES, PHONE, ZOOMS, phoneOf, zoomStep } from "../shared/types"
 import { noteImages, notePicture, type Frame } from "./images"
 import { isPlaceholder, placeholderTitle, titleFrom } from "./naming"
 import { parseNote } from "./chat-items"
@@ -105,6 +105,8 @@ export type Host = {
   /** The design tool's extension pressed on the page (extensions.ts): rejects with a sentence
    *  for the person. Without it, the window shows no such buttons. */
   capture?(kind: CaptureKind): Promise<void>
+  /** That tool's extension taken out of the page's session (its button switched off). */
+  uncapture?(kind: CaptureKind): void
   /** For tests: the agent a command names, reached in this process instead of started (an agent
    *  on this computer only). */
   agentTransport?(command: string[]): Transport
@@ -430,6 +432,11 @@ export function createCore(host: Host): Core {
   let pageMode = { canvas: false, motion: false, brush: false }
   /** A design tool's extension being pressed (commands.capture): its button looks busy. */
   let capturing: CaptureKind | undefined
+  /** The design tools whose buttons are on (Commands.setCapture): all but those switched off. */
+  const capturesOn = (): CaptureKind[] => {
+    const off = store.settings().captureOff
+    return CAPTURE_KINDS.filter((k) => !(Array.isArray(off) && off.includes(k)))
+  }
   /** Which site's notes an event for a conversation belongs to. Entries are never removed: a
    *  conversation the reviewer switched away from may still be finishing notes. */
   const owners = new Map<string, string>()
@@ -584,7 +591,7 @@ export function createCore(host: Host): Core {
       site: site ? { origin: addressOf(site.origin), ...(saved ? { directory: saved.directory } : {}) } : null,
       ...(starting && siteAsked === session?.id ? { startingSite: true as const } : {}),
       ...(missingFolder && !saved ? { missingFolder } : {}),
-      ...(host.capture ? { capture: capturing ? { busy: capturing } : {} } : {}),
+      ...(host.capture ? { capture: { on: capturesOn(), ...(capturing ? { busy: capturing } : {}) } } : {}),
       ...(repo ? { repo } : {}),
       session,
       sessions: listed(),
@@ -2667,8 +2674,8 @@ export function createCore(host: Host): Core {
     },
     async capture(kind) {
       if (!host.capture) throw new Error("Copying to a design tool is not available here.")
-      if (kind !== "figma" && kind !== "paper") throw new Error("No such design tool.")
-      if (capturing) return
+      if (!CAPTURE_KINDS.includes(kind)) throw new Error("No such design tool.")
+      if (capturing || !capturesOn().includes(kind)) return
       // The extension's picker takes the page's clicks: the overlay steps aside.
       if (site?.review.enabled) commands.setMode("preview")
       capturing = kind
@@ -2679,6 +2686,17 @@ export function createCore(host: Host): Core {
         capturing = undefined
         push()
       }
+    },
+    setCapture(kind, on) {
+      if (!host.capture || !CAPTURE_KINDS.includes(kind) || capturesOn().includes(kind) === !!on) return
+      store.update((s) => {
+        const off = new Set(CAPTURE_KINDS.filter((k) => k !== kind && !capturesOn().includes(k)))
+        if (!on) off.add(kind)
+        if (off.size) s.captureOff = [...off]
+        else delete s.captureOff
+      })
+      if (!on) host.uncapture?.(kind)
+      push()
     },
     toggleAutoReload() {
       if (!site) return
