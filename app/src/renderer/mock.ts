@@ -433,6 +433,7 @@ function base(): AppState {
     home: "/home/dev",
     page: { url: `${ORIGIN}/pricing`, loading: false, canGoBack: true, canGoForward: false, hmr: false, device: "desktop", phone: PHONE.id },
     review: { enabled: true, mode: "notes", brush: false, autoReload: true, notes: notes(), unplaced: 2, docks: [] },
+    capture: {},
     site: { origin: ORIGIN, directory: DIRECTORY },
     repo: {
       branch: "pricing-polish",
@@ -1014,6 +1015,10 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     toggleBrush() {
       state.review.brush = !state.review.brush
       if (state.review.brush) Object.assign(state.review, { enabled: true, mode: "notes" })
+      push()
+    },
+    capture() {
+      Object.assign(state.review, { enabled: false, mode: "preview", brush: false })
       push()
     },
     toggleAutoReload() {

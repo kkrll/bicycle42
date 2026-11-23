@@ -5,6 +5,8 @@
 //                 shared in-page review layer built into it (../overlay/src: the overlay's own
 //                 build does that part, see ../../overlay/scripts/build.mjs)
 //   renderer/     the app window's UI                 (vite + solid, src/renderer)
+//   ext-worker-preload.cjs, ext-page-preload.cjs  what Figma's and Paper's extensions are
+//                 given of a browser (src/ext-*.ts, see src/main/extensions.ts)
 //   helper.cjs    the app's helper on another computer reached over ssh (esbuild, src/helper/helper.ts):
 //                 one file, for node 18 or newer there, put at ~/.bicycle42/helper-<version>.js
 //   icon.png      the app icon, when there is one     (copied from ../assets)
@@ -58,6 +60,10 @@ const entries = [
   // Runs in the page's renderer, which is Chromium, not Node. Main reads it again for every
   // document the page loads, so it goes without the inline source map.
   { entryPoints: ["src/page-preload.ts"], outfile: "dist/page-preload.cjs", plugins: [pageOverlay], target: "chrome140", sourcemap: false },
+  // Figma's and Paper's extensions (main/extensions.ts): in their background workers, and in the
+  // windows they open. Both run in Chromium.
+  { entryPoints: ["src/ext-worker-preload.ts"], outfile: "dist/ext-worker-preload.cjs", target: "chrome140", sourcemap: false },
+  { entryPoints: ["src/ext-page-preload.ts"], outfile: "dist/ext-page-preload.cjs", target: "chrome140", sourcemap: false },
 ]
 if (flags.has("--tests")) {
   // Built afresh: a test whose source is gone must not stay behind and pass on its own old copy

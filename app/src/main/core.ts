@@ -37,6 +37,7 @@ import type {
   CommandResult,
   ChatEvent,
   ChatItem,
+  CaptureKind,
   ChatMarker,
   Checkpoint,
   Commands,
@@ -101,6 +102,9 @@ export type Host = {
   saveDialog(name: string): Promise<string | undefined>
   /** The panes this shell's window draws itself. Without it, HOSTED_PANES (shared/types.ts). */
   docks?: readonly Pane[]
+  /** The design tool's extension pressed on the page (extensions.ts): rejects with a sentence
+   *  for the person. Without it, the window shows no such buttons. */
+  capture?(kind: CaptureKind): Promise<void>
   /** For tests: the agent a command names, reached in this process instead of started (an agent
    *  on this computer only). */
   agentTransport?(command: string[]): Transport
@@ -419,6 +423,8 @@ export function createCore(host: Host): Core {
   /** What the overlay on the page last said about itself: in canvas ("edit") or motion mode, the
    *  brush on. Not saved: the page remembers its own mode across a reload and says it again. */
   let pageMode = { canvas: false, motion: false, brush: false }
+  /** A design tool's extension being pressed (commands.capture): its button looks busy. */
+  let capturing: CaptureKind | undefined
   /** Which site's notes an event for a conversation belongs to. Entries are never removed: a
    *  conversation the reviewer switched away from may still be finishing notes. */
   const owners = new Map<string, string>()
@@ -558,6 +564,7 @@ export function createCore(host: Host): Core {
       site: site ? { origin: addressOf(site.origin), ...(saved ? { directory: saved.directory } : {}) } : null,
       ...(starting && siteAsked === session?.id ? { startingSite: true as const } : {}),
       ...(missingFolder && !saved ? { missingFolder } : {}),
+      ...(host.capture ? { capture: capturing ? { busy: capturing } : {} } : {}),
       ...(repo ? { repo } : {}),
       session,
       sessions: listed(),
@@ -2637,6 +2644,21 @@ export function createCore(host: Host): Core {
       page?.send({ type: "mode", brush: on })
       if (on) page?.focus()
       changed(site)
+    },
+    async capture(kind) {
+      if (!host.capture) throw new Error("Copying to a design tool is not available here.")
+      if (kind !== "figma" && kind !== "paper") throw new Error("No such design tool.")
+      if (capturing) return
+      // The extension's picker takes the page's clicks: the overlay steps aside.
+      if (site?.review.enabled) commands.setMode("preview")
+      capturing = kind
+      push()
+      try {
+        await host.capture(kind)
+      } finally {
+        capturing = undefined
+        push()
+      }
     },
     toggleAutoReload() {
       if (!site) return

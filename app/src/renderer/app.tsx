@@ -8,7 +8,7 @@
 //   · the settings dialog is open
 //   · the panel is being resized (the native view would swallow the drag)
 import { For, Match, Show, Switch, batch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js"
-import { PHONES, phoneOf, type Device, type Rect, type ReviewMode, type Shortcut } from "../shared/types"
+import { PHONES, phoneOf, type CaptureKind, type Device, type Rect, type ReviewMode, type Shortcut } from "../shared/types"
 import { sizeOf } from "../shared/wire"
 import { DockRegion, PhoneAside, dockShown } from "./dock"
 import { copyText } from "./copy"
@@ -454,6 +454,27 @@ function TopBar(props: {
           >
             <Icon name="draw" size={20} />
           </button>
+          {/* Copy to Figma, to Paper: their own Chrome extensions, started on the page (its picker
+              takes the clicks, so review goes to preview). The first press downloads one. */}
+          <Show when={state.capture}>
+            {(capture) => (
+              <For each={CAPTURES}>
+                {(c) => (
+                  <button
+                    class="icon-btn capture-btn"
+                    data-action={`capture-${c.kind}`}
+                    aria-label={`Copy to ${c.name}`}
+                    aria-busy={capture().busy === c.kind}
+                    disabled={!state.page.url || !!state.page.error || !!capture().busy}
+                    onClick={() => act("capture", c.kind)}
+                    {...hinted(() => ({ text: `${c.name}: pick what to copy, then paste it in ${c.name}`, keys: [] }))}
+                  >
+                    <Icon name={capture().busy === c.kind ? "spinner" : c.kind} size={20} />
+                  </button>
+                )}
+              </For>
+            )}
+          </Show>
           <ModeSwitch disabled={noOverlay()} stacked={stacked()} ref={(el) => (modes = el)} />
           {/* With the panel open the agent button is in its conversation row, and the notes are
               right there: both are here only while they cannot be seen in the panel. */}
@@ -470,6 +491,12 @@ function TopBar(props: {
 }
 
 /** The page's error is about the review overlay, not the page: the page itself is fine. */
+/** The design tools the page can be copied to (Commands.capture), as their buttons show them. */
+const CAPTURES: Array<{ kind: CaptureKind; name: string }> = [
+  { kind: "figma", name: "Figma" },
+  { kind: "paper", name: "Paper" },
+]
+
 const overlayError = () => /overlay/i.test(state.page.error ?? "")
 /** The page itself failed to load: the view would show a stale or blank page. */
 const loadFailed = () => !!state.page.error && !overlayError()
