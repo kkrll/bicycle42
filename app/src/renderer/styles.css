@@ -630,6 +630,7 @@ details[open] > summary > .caret {
 }
 
 .nav,
+.captures,
 .tools {
   flex: none;
   display: flex;
@@ -763,7 +764,7 @@ details[open] > summary > .caret {
 }
 
 /* Preview | Notes | Edit. The one in use is the accent: it says what a click on the page does.
-   Desktop | Phone, beside the address, has the same look with icons only: how the page is shown. */
+   Desktop | Phone, left of the address, has the same look with icons only: how the page is shown. */
 .modes,
 .devices {
   flex: none;

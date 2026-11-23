@@ -546,7 +546,7 @@ async function main() {
   // (Rest is about half a second: well under the two seconds it was, frames late as they are here.)
   const restedFor = Date.now() - rested
   check("…after a moment's rest, not two seconds", restedFor < 1500, `${restedFor} ms`)
-  check("…in the bar, left of the controls (the device switch too), where the page view cannot cover it", (await ui(`(() => { const h = document.querySelector('.bar-hint').getBoundingClientRect(), b = document.querySelector('.topbar').getBoundingClientRect(), t = document.querySelector('.devices').getBoundingClientRect(); return h.top >= b.top && h.bottom <= b.bottom && h.right <= t.left })()`)) === true)
+  check("…in the bar, left of the controls after the address, where the page view cannot cover it", (await ui(`(() => { const h = document.querySelector('.bar-hint').getBoundingClientRect(), b = document.querySelector('.topbar').getBoundingClientRect(), t = document.querySelector('.captures, .tools').getBoundingClientRect(); return h.top >= b.top && h.bottom <= b.bottom && h.right <= t.left })()`)) === true)
   await hover('.mode[data-mode="edit"]')
   await sleep(100)
   // "At once" is without the rest the first hint needs; the hidden window still draws a few frames late.

@@ -10,6 +10,7 @@ import path from "node:path"
 import type { Shortcut } from "../shared/types"
 import { timing as acpTiming, type Transport } from "./acp"
 import { createCore } from "./core"
+import { createExtensions } from "./extensions"
 import { createPage, holdDownloadsIn, type PageView, zoomKeyOf } from "./page"
 import { SCHEME } from "./pictures"
 
@@ -45,8 +46,22 @@ const heldDownloads = path.join(app.getPath("userData"), "Held downloads")
  *  its profile, so nothing of a test run is ever in the real one. */
 const theirDownloads = process.env.BICYCLE42_TEST ? path.join(app.getPath("userData"), "Downloads") : app.getPath("downloads")
 
+/** Figma's and Paper's extensions on the page (extensions.ts). The end-to-end test hands over the
+ *  extension's file itself, never the store's. */
+const testExtension = process.env.BICYCLE42_TEST ? ((globalThis as Record<string, unknown>).__b42Extension as ((id: string) => Promise<Buffer>) | undefined) : undefined
+const extensions = createExtensions({
+  folder: path.join(app.getPath("userData"), "Extensions"),
+  workerPreload: path.join(__dirname, "ext-worker-preload.cjs"),
+  pagePreload: path.join(__dirname, "ext-page-preload.cjs"),
+  page: () => page?.view.webContents,
+  window: () => window,
+  ...(testExtension ? { download: testExtension } : {}),
+  log,
+})
+
 const core = createCore({
   dataDir: app.getPath("userData"),
+  capture: (kind) => extensions.press(kind),
   emit(stream, value) {
     if (window && !window.isDestroyed()) window.webContents.send(`b42:${stream}`, value)
   },
@@ -190,6 +205,7 @@ async function createWindow() {
   })
   win.once("ready-to-show", () => win.show())
   win.on("closed", () => {
+    extensions.dispose()
     page?.dispose()
     page = undefined
     core.detach()

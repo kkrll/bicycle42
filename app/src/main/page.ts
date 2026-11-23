@@ -247,6 +247,8 @@ const internal = (url: string) => /^(data|about):/.test(url)
 // Nothing the review needs is a permission: the overlay runs in the preload's world and reaches
 // the app over IPC; a note's picture is taken by main (capturePage); a picture pasted into a note
 // comes with the paste event (no clipboard-read); the developer tools are opened by the app.
+// One exception, asked for by the app and not the page: once Figma's extension is in a session
+// (extensions.ts), writing to the clipboard is allowed there (allowPermission).
 
 /** Where a frame may go: the top one to web pages only; one inside it also to what never leaves
  *  the page (about:blank, srcdoc, data:, blob:), which a site's own frames are made of. */
@@ -261,6 +263,17 @@ const refusers = new WeakMap<WebContents, (to: string) => void>()
  *  there, or Electron shows its own dialog). A download of a view not here is refused. */
 const holders = new WeakMap<WebContents, (event: Electron.Event, item: DownloadItem) => void>()
 const guarded = new WeakSet<Session>()
+/** What a session grants after all, by allowPermission. */
+const allowed = new WeakMap<Session, Set<string>>()
+/** One permission granted in the page's session from now on, where the app needs it: Figma's
+ *  extension (extensions.ts) writes what it captured to the clipboard from the page,
+ *  "clipboard-sanitized-write", which Chrome grants a page in front by itself. Writing only: never
+ *  reading what is on the clipboard. */
+export function allowPermission(session: Session, permission: "clipboard-sanitized-write") {
+  const set = allowed.get(session) ?? new Set()
+  set.add(permission)
+  allowed.set(session, set)
+}
 /** A session the page is made in refuses everything, once and for every view in it. */
 function guard(session: Session) {
   if (guarded.has(session)) return
@@ -268,9 +281,9 @@ function guard(session: Session) {
   session.setPermissionRequestHandler((contents, permission, callback, details) => {
     // A link of another scheme, by whatever way it came (a frame, a redirect): the system would open it.
     if (permission === "openExternal") refusers.get(contents)?.((details as { externalURL?: string }).externalURL ?? "")
-    callback(false)
+    callback(!!allowed.get(session)?.has(permission))
   })
-  session.setPermissionCheckHandler(() => false)
+  session.setPermissionCheckHandler((_contents, permission) => !!allowed.get(session)?.has(permission))
   // USB, HID and serial devices (WebUSB, WebHID, Web Serial): Electron's default is no, said here too.
   session.setDevicePermissionHandler(() => false)
   // Every download is the page's to hold, or refused (see "downloads" in createPage).

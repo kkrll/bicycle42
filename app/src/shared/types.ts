@@ -446,6 +446,8 @@ export type SessionSummary = {
  *  and say what to change. "edit": change the page itself (the overlay's canvas mode). "motion":
  *  look at what moves on the page and change one animation at a time. */
 export type ReviewMode = "preview" | "notes" | "edit" | "motion"
+/** A design tool the page can be copied to, by its own Chrome extension (main/extensions.ts). */
+export type CaptureKind = "figma" | "paper"
 
 /** The app window's zoom (mod+= / mod+- / mod+0): the steps a press goes through, as Chrome's. */
 export const ZOOMS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const
@@ -538,6 +540,9 @@ export type AppState = {
   /** The repo that was open is not a folder where the agent in use works (it was moved, or it is
    *  another computer's): another one has to be chosen. */
   missingFolder?: string
+  /** Copying the page to Figma and Paper (Commands.capture): absent where the shell cannot.
+   *  `busy` while a press is under way (the first one downloads the extension). */
+  capture?: { busy?: CaptureKind }
   /** The open repo under version control: its branch, and what is changed and not committed.
    *  Absent when the folder is not a repository. */
   repo?: Repo
@@ -605,6 +610,10 @@ export type Commands = {
   setMode(mode: ReviewMode, stay?: boolean): void
   /** The brush on or off. On, it turns review on and goes to notes mode. */
   toggleBrush(): void
+  /** Figma's or Paper's extension started on the page: what the reviewer picks there is copied to
+   *  paste in that tool. Review goes to preview first (the extension's picker takes the clicks).
+   *  The first press downloads the extension (`AppState.capture.busy` meanwhile). */
+  capture(kind: CaptureKind): void
   toggleAutoReload(): void
   /** From a hosted dock, to the overlay: what the reviewer did there. Nothing is answered here;
    *  what changed comes back as the dock's next view. */

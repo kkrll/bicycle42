@@ -8,7 +8,7 @@
 //   · the settings dialog is open
 //   · the panel is being resized (the native view would swallow the drag)
 import { For, Match, Show, Switch, batch, createEffect, createMemo, createSignal, on, onCleanup, onMount } from "solid-js"
-import { PHONES, phoneOf, type Device, type Rect, type ReviewMode, type Shortcut } from "../shared/types"
+import { PHONES, phoneOf, type CaptureKind, type Device, type Rect, type ReviewMode, type Shortcut } from "../shared/types"
 import { sizeOf } from "../shared/wire"
 import { DockRegion, PhoneAside, dockShown } from "./dock"
 import { copyText } from "./copy"
@@ -421,6 +421,7 @@ function TopBar(props: {
             <Icon name={state.page.loading ? "spinner" : "reload"} />
           </button>
         </div>
+        <DeviceSwitch disabled={!state.page.url} />
         <UrlField
           ref={(el) => {
             props.urlRef(el)
@@ -432,13 +433,36 @@ function TopBar(props: {
           }}
         />
         {/* The hint's place: at the end of the address, left of every control after it (one
-            anchored by the tools covered the device switch and the page's error). */}
+            anchored by the tools covered the page's error). */}
         <div class="hint-anchor">
           <Hint />
         </div>
-        <DeviceSwitch disabled={!state.page.url} />
         <PageError />
         <PageRefused />
+        {/* Copy to Figma, to Paper: their own Chrome extensions, started on the page (its picker
+            takes the clicks, so review goes to preview). The first press downloads one. After
+            the address, apart from Draw and the modes: they copy the page out, not mark it up. */}
+        <Show when={state.capture}>
+          {(capture) => (
+            <div class="captures">
+              <For each={CAPTURES}>
+                {(c) => (
+                  <button
+                    class="icon-btn capture-btn"
+                    data-action={`capture-${c.kind}`}
+                    aria-label={`Copy to ${c.name}`}
+                    aria-busy={capture().busy === c.kind}
+                    disabled={!state.page.url || !!state.page.error || !!capture().busy}
+                    onClick={() => act("capture", c.kind)}
+                    {...hinted(() => ({ text: `${c.name}: pick what to copy, then paste it in ${c.name}`, keys: [] }))}
+                  >
+                    <Icon name={capture().busy === c.kind ? "spinner" : c.kind} size={20} />
+                  </button>
+                )}
+              </For>
+            </div>
+          )}
+        </Show>
         <div class="tools">
           {/* The pen alone, in a look of its own: pressed, it turns Annotate on too, and is not a
               fourth mode beside it. Its name and key are in its hint. */}
@@ -470,6 +494,12 @@ function TopBar(props: {
 }
 
 /** The page's error is about the review overlay, not the page: the page itself is fine. */
+/** The design tools the page can be copied to (Commands.capture), as their buttons show them. */
+const CAPTURES: Array<{ kind: CaptureKind; name: string }> = [
+  { kind: "figma", name: "Figma" },
+  { kind: "paper", name: "Paper" },
+]
+
 const overlayError = () => /overlay/i.test(state.page.error ?? "")
 /** The page itself failed to load: the view would show a stale or blank page. */
 const loadFailed = () => !!state.page.error && !overlayError()
