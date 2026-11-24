@@ -1,4 +1,4 @@
-// bicycle 42, the controller: the app without a window.
+// Bicycle42, the controller: the app without a window.
 //
 // It owns the one piece of state the rest of the app looks at (AppState) and connects four parts
 // that know nothing of each other:
@@ -67,6 +67,7 @@ import type {
   SessionSummary,
   SlashCommand,
   TakeBackWay,
+  UpdateInfo,
 } from "../shared/types"
 import { CAPTURE_KINDS, HOSTED_PANES, PHONE, ZOOMS, phoneOf, zoomStep } from "../shared/types"
 import { noteImages, notePicture, type Frame } from "./images"
@@ -107,6 +108,11 @@ export type Host = {
   capture?(kind: CaptureKind): Promise<void>
   /** That tool's extension taken out of the page's session (its button switched off). */
   uncapture?(kind: CaptureKind): void
+  /** The newer release of the app the shell knows of, if any (update.ts); it says `refresh` when
+   *  that changes. */
+  update?(): UpdateInfo | undefined
+  /** Restarts into it, or opens its release page: rejects with a sentence for the person. */
+  installUpdate?(): Promise<void>
   /** For tests: the agent a command names, reached in this process instead of started (an agent
    *  on this computer only). */
   agentTransport?(command: string[]): Transport
@@ -121,6 +127,8 @@ export type Core = {
    *  command that fails, rejects with one sentence for the person at the screen. */
   invoke(name: string, args: unknown): Promise<unknown>
   snapshot(): AppState
+  /** Something of the shell's own that the window is told of changed (Host.update). */
+  refresh(): void
   /** The window asks for the open conversation: a "reset" follows on the chat stream. */
   chat(): void
   /** One of the conversation's pictures, by its b42-img: address (pictures.ts). */
@@ -558,6 +566,7 @@ export function createCore(host: Host): Core {
 
   function snapshot(): AppState {
     const p = page?.state()
+    const update = host.update?.()
     const review = site?.review
     const saved = site && siteSettings(site.origin)
     const model = defaultModel()
@@ -603,6 +612,7 @@ export function createCore(host: Host): Core {
       questions: [...questions.values()],
       ...(backend ? { can: { ...backend.can } } : {}),
       ...(contextShown() ? { context: contextShown() } : {}),
+      ...(update ? { update } : {}),
     }
   }
 
@@ -3252,6 +3262,10 @@ export function createCore(host: Host): Core {
       await need().dismissQuestion(pendingSession(questions, id), id)
       if (questions.delete(id)) push()
     },
+    async installUpdate() {
+      if (!host.installUpdate) throw new Error("This copy of the app does not update itself.")
+      await host.installUpdate()
+    },
   }
 
   // ── for the shell ───────────────────────────────────────────────────────────────────────────────
@@ -3272,6 +3286,7 @@ export function createCore(host: Host): Core {
     commands,
     invoke,
     snapshot,
+    refresh: push,
     chat() {
       if (session) void openChat(session.id)
       else toChat({ type: "reset", session: "", items: [] })
@@ -3330,8 +3345,8 @@ export function createCore(host: Host): Core {
       if (store.readOnly)
         host.dialog({
           type: "warning",
-          message: "Settings were written by a newer bicycle 42",
-          detail: "This version leaves them untouched, so nothing you change now will be remembered. Update bicycle 42 to keep your changes.",
+          message: "Settings were written by a newer Bicycle42",
+          detail: "This version leaves them untouched, so nothing you change now will be remembered. Update Bicycle42 to keep your changes.",
         })
     },
     dispose() {

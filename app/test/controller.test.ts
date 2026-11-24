@@ -2315,7 +2315,7 @@ test("file history: a take-back is told only once the agent has the message; unt
     assert.equal(await h.cmd("takeBackNote", a, "restored"), "restored")
     await h.cmd("send", "and the footer", [])
     await until(() => h.w.prompts.length === 3)
-    assert.match(lastPrompt(h).text, /^\(bicycle 42: I took back note 1 .*\)\n\nand the footer$/)
+    assert.match(lastPrompt(h).text, /^\(Bicycle42: I took back note 1 .*\)\n\nand the footer$/)
     // The agent has it (it is working on it): /redo would make what it says untrue.
     await assert.rejects(h.cmd("runCommand", "redo", ""), /Nothing to redo/)
     await turn(h, s)
@@ -2339,7 +2339,7 @@ test("file history: before a summary or an agent's own command, the line about w
     assert.equal(await h.cmd("takeBackNote", a, "restored"), "restored")
     await h.cmd("runCommand", "compact", "")
     await until(() => h.w.prompts.length === 3)
-    assert.match(lastPrompt(h).text, /^\(bicycle 42: I took back note 1 \("a"\) myself, before this message: [^\n]*\)$/)
+    assert.match(lastPrompt(h).text, /^\(Bicycle42: I took back note 1 \("a"\) myself, before this message: [^\n]*\)$/)
     await turn(h, s)
     await until(() => h.w.prompts.length === 4)
     assert.equal(lastPrompt(h).text, "/compact")
@@ -2383,7 +2383,7 @@ test("file history: an older note is taken back exactly from the app's snapshots
     assert.equal(await h.cmd("takeBackNote", a, "restored"), "restored")
     await h.cmd("send", "and the footer", [])
     await until(() => h.w.prompts.length === 3)
-    assert.match(lastPrompt(h).text, /^\(bicycle 42: I took back note 1 \("a"\) myself, before this message: .*\)\n\nand the footer$/)
+    assert.match(lastPrompt(h).text, /^\(Bicycle42: I took back note 1 \("a"\) myself, before this message: .*\)\n\nand the footer$/)
     await assert.rejects(h.cmd("runCommand", "redo", ""), /Nothing to redo|working in this folder/)
     assert.equal(t.line(2), "line 2")
     // Only once.

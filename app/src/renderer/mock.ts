@@ -633,6 +633,10 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   const full = Number(params.get("context"))
   if (full > 0) state.context = { used: Math.round(full * 200_000), limit: 200_000 }
   switch (scenario) {
+    // `&status=manual`: a copy that can't replace itself.
+    case "update":
+      state.update = { version: "0.2.0", status: params.get("status") === "manual" ? "manual" : "ready" }
+      break
     case "connect":
       Object.assign(state, { ...base(), connection: { status: "unconfigured" }, site: null, session: null, sessions: [] })
       // `&retired`: OpenCode servers saved by an earlier version were just put aside.
@@ -1141,7 +1145,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     startSite() {
       state.startingSite = true
       push()
-      deliver("Get this project's site running so I can review it in bicycle 42.\n\nRun it as a background command of your shell tool (not nohup, & or tmux), so I can stop it from here.\n\nWhen it answers, end your reply with one line: SITE: <address>", undefined, undefined, REPLY)
+      deliver("Get this project's site running so I can review it in Bicycle42.\n\nRun it as a background command of your shell tool (not nohup, & or tmux), so I can stop it from here.\n\nWhen it answers, end your reply with one line: SITE: <address>", undefined, undefined, REPLY)
     },
     setDirectory(directory) {
       state.site = { origin: state.page.url ? ORIGIN : "", directory }
@@ -1311,6 +1315,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
       state.questions = state.questions.filter((q) => q.id !== id)
       push()
     },
+    installUpdate() {},
   }
 
   // What the window asked for, for the screenshot script to assert on.

@@ -144,7 +144,7 @@ test("transcript after the agent is started again: session/load's replay gives t
   const first = setup(fake, dir)
   const s = await first.backend.createSession({ directory: "/repo" })
   await first.backend.prompt(s.id, { id: "msg_a", text: "first" })
-  await first.backend.prompt(s.id, { id: "msg_b", text: "Get this project's site running so I can review it in bicycle 42.\n\nmore" })
+  await first.backend.prompt(s.id, { id: "msg_b", text: "Get this project's site running so I can review it in Bicycle42.\n\nmore" })
   await until(() => of(first.events, "run").some((e) => e.status === "succeeded"))
   const streamed = structuredClone(first.items)
   assert.equal(streamed.length, 4)

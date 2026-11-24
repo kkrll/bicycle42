@@ -121,14 +121,14 @@ for (const [name, content] of BROKEN)
     assert.equal(fs.readFileSync(path.join(dir, aside[0]!), "utf8"), content)
   })
 
-test("settings from a newer bicycle 42: left alone, never written, changes kept in memory", (t) => {
+test("settings from a newer Bicycle42: left alone, never written, changes kept in memory", (t) => {
   const { dir, open, logs, settingsFile } = setup(t)
   const content = '{"version":2,"sites":{"http://x":{"folder":"/new/shape"}},"future":true}'
   fs.writeFileSync(settingsFile, content)
   const store = open()
   assert.equal(store.readOnly, true)
   assert.deepEqual(store.settings(), { version: 1, sites: {} }, "a shape we don't know is not read as ours")
-  assert.deepEqual(logs.map((l) => [l.level, l.msg]), [["error", "store: settings.json was written by a newer bicycle 42 (version 2); this version won't change it"]])
+  assert.deepEqual(logs.map((l) => [l.level, l.msg]), [["error", "store: settings.json was written by a newer Bicycle42 (version 2); this version won't change it"]])
 
   store.update((s) => (s.lastUrl = "http://x/"))
   store.saveReview(ORIGIN, { version: 1, notes: [] })
@@ -140,7 +140,7 @@ test("settings from a newer bicycle 42: left alone, never written, changes kept 
   assert.equal(logs.length, 1, "said once, not on every save")
 })
 
-test("a review from a newer bicycle 42: left alone, this run's notes stay in memory", (t) => {
+test("a review from a newer Bicycle42: left alone, this run's notes stay in memory", (t) => {
   const { open, logs, reviews } = setup(t)
   fs.mkdirSync(reviews)
   const file = path.join(reviews, "http%3A%2F%2Flocalhost%3A3000.json")
@@ -150,7 +150,7 @@ test("a review from a newer bicycle 42: left alone, this run's notes stay in mem
   assert.equal(store.readOnly, false, "nothing newer met yet")
   assert.equal(store.loadReview(ORIGIN), undefined)
   assert.equal(store.readOnly, true)
-  assert.match(logs[0]!.msg, /http%3A%2F%2Flocalhost%3A3000\.json was written by a newer bicycle 42 \(version 3\); this version won't change it/)
+  assert.match(logs[0]!.msg, /http%3A%2F%2Flocalhost%3A3000\.json was written by a newer Bicycle42 \(version 3\); this version won't change it/)
   assert.equal(logs[0]!.level, "error")
 
   store.saveReview(ORIGIN, { version: 1, notes: ["mine"] })

@@ -1,4 +1,4 @@
-// bicycle 42, main process: the Electron shell around the controller.
+// Bicycle42, main process: the Electron shell around the controller.
 //
 // The controller (core.ts) owns the app's state and knows nothing of Electron. This file is what
 // it runs in here: the window and its menu, the page's view (page.ts), the three
@@ -13,6 +13,7 @@ import { createCore } from "./core"
 import { createExtensions } from "./extensions"
 import { createPage, holdDownloadsIn, type PageView, zoomKeyOf } from "./page"
 import { SCHEME } from "./pictures"
+import { bundleOf, createUpdater, wordsOf, type Updater } from "./update"
 
 type Level = "info" | "warn" | "error"
 const log = (level: Level, msg: string, data?: unknown) =>
@@ -21,7 +22,7 @@ const log = (level: Level, msg: string, data?: unknown) =>
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 // Tests point the app at a scratch profile. Otherwise the folder is named here, so the packaged
-// app ("bicycle 42") and a run from source keep their settings and notes in the same place.
+// app ("Bicycle42") and a run from source keep their settings and notes in the same place.
 app.setPath("userData", process.env.BICYCLE42_DATA || path.join(app.getPath("appData"), "bicycle42"))
 
 // The conversation's pictures have an address of their own (pictures.ts), in the app window's
@@ -59,10 +60,16 @@ const extensions = createExtensions({
   log,
 })
 
+/** The app's own updates (update.ts): the packaged app on macOS, once it is the one instance. */
+let updater: Updater | undefined
+const RELEASES = "https://github.com/kkrll/bicycle42/releases"
+
 const core = createCore({
   dataDir: app.getPath("userData"),
   capture: (kind) => extensions.press(kind),
   uncapture: (kind) => extensions.unload(kind),
+  update: () => updater?.state(),
+  installUpdate,
   emit(stream, value) {
     if (window && !window.isDestroyed()) window.webContents.send(`b42:${stream}`, value)
   },
@@ -108,7 +115,26 @@ function menu() {
   // No "Reload" item for the window: ⌘R belongs to the page under review, not to the app window.
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
-      ...(mac ? [{ role: "appMenu" as const }] : []),
+      // The app menu as Electron makes it (role "appMenu"), with the updates' item.
+      ...(mac
+        ? [
+            {
+              label: app.name,
+              submenu: [
+                { role: "about" as const },
+                ...(updater ? [{ label: "Check for Updates…", click: () => void checkForUpdates(true) }] : []),
+                { type: "separator" as const },
+                { role: "services" as const },
+                { type: "separator" as const },
+                { role: "hide" as const },
+                { role: "hideOthers" as const },
+                { role: "unhide" as const },
+                { type: "separator" as const },
+                { role: "quit" as const },
+              ],
+            },
+          ]
+        : []),
       { role: "editMenu" },
       {
         label: "View",
@@ -158,6 +184,40 @@ function copyPageUrl() {
   window.webContents.send("b42:shortcut", "url-copied" satisfies Shortcut)
 }
 
+// ── updates ─────────────────────────────────────────────────────────────────────────────────────
+
+/** Restarts into the update that is ready, or opens the release page when there is none to
+ *  install. The quit is the same as any other (before-quit, below: what is being written is
+ *  written first); the swap waits for this process to end. */
+async function installUpdate() {
+  if (updater?.state()?.status !== "ready") return void (await shell.openExternal(`${RELEASES}/latest`))
+  await updater.install()
+  // A sign-in window of an extension's (extensions.ts) holds a site, which may ask to stay open
+  // and so cancel the quit: closed here, unasked.
+  for (const win of BrowserWindow.getAllWindows()) if (win !== window) win.destroy()
+  app.quit()
+}
+
+/** Looks for a newer release. `asked` (the menu): whatever comes of it is said, in a dialog. */
+async function checkForUpdates(asked: boolean) {
+  if (!updater) return
+  let downloading = false
+  const tell = (outcome: Parameters<typeof wordsOf>[0]) => {
+    // (The window's button says it then, as the "downloading" dialog said it would.)
+    if (outcome.status === "ready" && downloading) return
+    downloading = outcome.status === "downloading"
+    const { act, ...words } = wordsOf(outcome, app.getVersion())
+    const box = { ...words, ...(act ? { buttons: [act, "Later"], defaultId: 0, cancelId: 1 } : {}) }
+    void (window ? dialog.showMessageBox(window, box) : dialog.showMessageBox(box)).then(({ response }) => {
+      if (act && response === 0) return installUpdate()
+    }).catch((err) => {
+      log("warn", "installUpdate failed", String(err))
+      dialog.showErrorBox("The update could not be installed", err instanceof Error ? err.message : String(err))
+    })
+  }
+  await updater.check(asked ? tell : undefined).catch((err) => log("warn", "update check", err instanceof Error ? err.message : err))
+}
+
 /** The app icon, copied beside the bundle by scripts/build.mjs. Absent in a build without assets. */
 const iconFile = path.join(__dirname, "icon.png")
 
@@ -177,7 +237,7 @@ async function createWindow() {
     minWidth: 720,
     minHeight: 480,
     show: false,
-    title: "bicycle 42",
+    title: "Bicycle42",
     ...(appIcon ? { icon: appIcon } : {}),
     // The design system's paper and near-black, so the window doesn't flash before the UI paints.
     backgroundColor: dark ? "#0a0a0a" : "#f1eadf",
@@ -258,6 +318,16 @@ ipcMain.handle("b42:command", (event, name: string, args: unknown) => (fromWindo
 
 if (!app.requestSingleInstanceLock()) app.quit()
 else {
+  // Only once the lock is won: a second launch would remove this one's download as it starts.
+  if (app.isPackaged && process.platform === "darwin")
+    updater = createUpdater({
+      current: app.getVersion(),
+      manifestUrl: process.env.BICYCLE42_UPDATE_URL || `${RELEASES}/latest/download/latest.json`,
+      bundle: bundleOf(process.execPath),
+      dir: path.join(app.getPath("userData"), "updates"),
+      log,
+      onChange: () => core.refresh(),
+    })
   app.on("second-instance", () => {
     if (window?.isMinimized()) window.restore()
     window?.focus()
@@ -267,6 +337,7 @@ else {
   // (3 s at most), so a note made just before it is still sent after the restart.
   let written = false
   app.on("before-quit", (event?: Electron.Event) => {
+    updater?.dispose()
     const writes = core.dispose()
     // (The tests emit before-quit by itself, with no event, for the flush alone.)
     if (written || !event) return
@@ -286,6 +357,7 @@ else {
     if (appIcon && process.platform === "darwin") app.dock?.setIcon(appIcon)
     await createWindow()
     core.start()
+    void checkForUpdates(false)
   })
 }
 

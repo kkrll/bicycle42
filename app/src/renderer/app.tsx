@@ -379,7 +379,7 @@ function TopBar(props: {
   onCleanup(() => watch.disconnect())
   return (
     <header class="topbar" classList={{ mac: mac() }}>
-      <Show when={!props.bare} fallback={<span class="wordmark">bicycle 42</span>}>
+      <Show when={!props.bare} fallback={<><span class="wordmark">Bicycle42</span><UpdateButton /></>}>
         {/* First in the bar, over the panel it shows and hides. (A plain title, as the buttons
             beside it have: the bar's own hint is at the other end, by the modes.) */}
         <button
@@ -439,6 +439,9 @@ function TopBar(props: {
         </div>
         <PageError />
         <PageRefused />
+        {/* Of the app, not of the page: apart from the controls after it, which end where they
+            always do (the address gives up its room). */}
+        <UpdateButton />
         {/* Copy to Figma, to Paper: their own Chrome extensions, started on the page (its picker
             takes the clicks, so review goes to preview). The first press downloads one. After
             the address, apart from Draw and the modes: they copy the page out, not mark it up.
@@ -531,6 +534,27 @@ function PageRefused() {
           </span>
         </div>
       )}
+    </Show>
+  )
+}
+
+/** A newer release of the app: ready to restart into, or (a copy that can't replace itself) its
+ *  release page. Nothing while it is still coming, or when that failed. */
+function UpdateButton() {
+  const shown = () => (state.update?.status === "ready" || state.update?.status === "manual" ? state.update : undefined)
+  return (
+    <Show when={shown()}>
+      {(update) => {
+        const ready = () => update().status === "ready"
+        const words = () => (ready() ? "Restart to update" : `${update().version} is out`)
+        const what = () => (ready() ? `Restart into Bicycle42 ${update().version}` : `Open the release page of Bicycle42 ${update().version}`)
+        return (
+          <button class="icon-btn labelled update-btn" data-action="update" aria-label={words()} aria-description={what()} title={what()} onClick={() => act("installUpdate")}>
+            <Icon name="download" />
+            <span>{words()}</span>
+          </button>
+        )
+      }}
     </Show>
   )
 }

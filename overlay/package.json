@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "In-page review layer shared by every bicycle 42 host.",
+  "description": "In-page review layer shared by every Bicycle42 host.",
   "exports": {
     "./overlay.js": "./overlay.js",
     "./prompt.js": "./prompt.js"

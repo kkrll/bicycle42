@@ -6,7 +6,7 @@ import { commitPrompt, parseAsk, splitTold, startPrompt, takeBackPrompt, toldLin
 
 test("startPrompt says what the agent cannot know, and no more", () => {
   const near = startPrompt("")
-  assert.match(near, /^Get this project's site running so I can review it in bicycle 42\.\n/)
+  assert.match(near, /^Get this project's site running so I can review it in Bicycle42\.\n/)
   assert.doesNotMatch(near, /another computer|did not answer/)
   assert.match(near, /SITE: <address>$/)
   const failed = startPrompt("http://box:4242/")
@@ -37,7 +37,7 @@ test("parseAsk: what each of the app's requests asks, in a line", () => {
 })
 
 test("parseAsk: the requests as they were before they were shortened are still read", () => {
-  const start = "Get this project's site running so I can review it in bicycle 42.\nI expected it at http://box:4242/, which did not answer.\n\n- If its dev server is already running, use that."
+  const start = "Get this project's site running so I can review it in Bicycle42.\nI expected it at http://box:4242/, which did not answer.\n\n- If its dev server is already running, use that."
   assert.deepEqual(parseAsk(start), { title: "Get the site running" })
   const commit = ["Commit the work in this folder with git.", "", "- Stage every change in the working tree, new files included (git add -A).", "- Use exactly this commit message, as it is written between the lines:", "----", "Tidy the hero", "----", "- Do not push, and do not change any file."].join("\n")
   assert.deepEqual(parseAsk(commit), { title: "Commit: Tidy the hero" })
@@ -55,7 +55,7 @@ test("the line about notes the app took back names them, and the message after i
   const line = toldLine([{ n: 4, text: "and the footer" }, { n: 3, text: "make the header blue" }], 1)
   assert.equal(
     line,
-    '(bicycle 42: I took back note 3 ("make the header blue"), note 4 ("and the footer") and what you changed for one other message myself, before this message: those files are as they were before it, though the conversation above still shows the changes. Do not make them again unless I ask.)',
+    '(Bicycle42: I took back note 3 ("make the header blue"), note 4 ("and the footer") and what you changed for one other message myself, before this message: those files are as they were before it, though the conversation above still shows the changes. Do not make them again unless I ask.)',
   )
   assert.match(toldLine([], 2), /I took back what you changed for 2 other messages myself/)
   // A typed message: its first line, with the line folded under it.

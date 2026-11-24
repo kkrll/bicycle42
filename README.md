@@ -1,10 +1,10 @@
-<img src="assets/icon.png" width="96" alt="bicycle 42">
+<img src="assets/icon.png" width="96" alt="Bicycle42">
 
-# bicycle 42
+# Bicycle42
 
 A bicycle for two: the designer and the agent.
 
-bicycle 42 is a desktop app for reviewing a web page together with a coding agent. The page under
+Bicycle42 is a desktop app for reviewing a web page together with a coding agent. The page under
 review fills the window. You click or draw on it and type a note, or change it directly in edit
 mode (DOM tree, raw CSS, drag), and each note goes to a coding agent, which makes the change in
 the code while you keep going: one the app runs over [ACP](https://agentclientprotocol.com)
@@ -16,14 +16,36 @@ It is for designers who work with a coding agent, and it is open source.
 
 ## Requirements
 
+- For the packaged app: a Mac with Apple silicon, with macOS 13 or newer. That is the only one
+  for now; from source it also runs on Intel Macs, Linux and Windows.
 - An agent: one of Claude Code, Codex, Gemini CLI or OpenCode installed and signed in on this
   computer (Claude Code and Codex are reached through their ACP adapters, which `npx` fetches the
   first time, at the version the app pins), or on another computer you reach with `ssh` (it
   needs Node 18 or newer there).
-- Node 22 or newer with npm, or Bun.
+- Node 22 or newer with npm, for the agents that run on this computer. The packaged app opens
+  without it and does not bring one.
 - git, for the repo's branch and changes when the agent runs on this computer.
 
-## Run it
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kkrll/bicycle42/main/install.sh | sh
+```
+
+The script downloads the latest release, checks it against its checksum and puts `Bicycle42.app`
+in `/Applications`, or in `~/Applications` when that one can't be written to. An older copy there
+is replaced only once the new one is whole. If Node is missing or older than 22 it says so, and
+installs the app all the same. Run it again to update, or let the app do it: it looks for a new
+release when it starts and every six hours, and offers to restart into it.
+
+The app is not signed with an Apple Developer ID, so macOS (Gatekeeper) blocks a zip you downloaded
+with a browser from the [releases page](https://github.com/kkrll/bicycle42/releases): open the app
+once, then allow it under **System Settings → Privacy & Security → Open Anyway**. The install script
+avoids this, since what `curl` downloads is not marked as coming from a browser.
+
+## Run from source
+
+Needs Node 22 or newer, with npm or Bun.
 
 ```bash
 cd app
@@ -32,7 +54,7 @@ bun run start        # or: npm start. Builds, then opens the app
 ```
 
 `bun run pack` (or `npm run pack`) builds a real app for this computer in `app/release/`, with
-its own name and icon. It is not signed with a developer certificate, and there are no installers yet.
+its own name (and, on a Mac, its icon). It makes no zip and no installer.
 
 ## First launch
 
@@ -61,7 +83,7 @@ its own name and icon. It is not signed with a developer certificate, and there 
    Every agent you start is remembered: the connect screen lists the ones on other computers and
    those started by a typed command under **Connected before**, and going back to one brings back
    its repo, page and notes.
-   An earlier bicycle 42 also connected to an OpenCode server by its address and password. That
+   An earlier Bicycle42 also connected to an OpenCode server by its address and password. That
    is no longer supported: OpenCode is one of the agents above, and a server's computer is
    reached over ssh. A server saved then is not connected to again, its password is removed, and
    the connect screen says so once; its notes stay on disk.
@@ -249,7 +271,7 @@ In the chat box, `/` lists commands: the app's own (`/compact`, `/new`, `/undo`,
 
 ## Not built yet
 
-- Signed builds and installers.
+- A Developer ID signature and notarisation, Intel Mac builds, and Linux and Windows packages.
 - Tabs and device widths.
 - Edit mode: adding new elements (other than a copy) and editing HTML, moving one into another container.
 

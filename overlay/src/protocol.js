@@ -1,5 +1,5 @@
 /*
- * bicycle 42 overlay: the in-page review layer.
+ * Bicycle42 overlay: the in-page review layer.
  *
  * One dependency-free script. A host (the Electron app, or the test harness) injects
  * it into the page under review. The overlay draws outlines, strokes, the note card and pins, and

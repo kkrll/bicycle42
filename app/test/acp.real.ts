@@ -112,7 +112,7 @@ async function main() {
   check("starts and answers initialize", true, `${info.computer} ${info.version}, ${Math.round((Date.now() - t0) / 1000)} s`)
   let stop = backend.listen(on)
   check("can", true, JSON.stringify(backend.can))
-  const session = await backend.createSession({ directory: dir, title: "bicycle 42 real test" })
+  const session = await backend.createSession({ directory: dir, title: "Bicycle42 real test" })
   const models = await backend.models()
   check("models from the agent's options", models.length > 0, `${models.length}, first ${models[0]?.id}; current ${session.model?.id}`)
   check("modes", true, (await backend.agents()).map((a) => a.id).join(", "))
