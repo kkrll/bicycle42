@@ -77,8 +77,8 @@ git push origin main v0.1.1
 ```
 
 `.github/workflows/release.yml` then checks that the tag and `package.json` agree, runs the
-typecheck and the unit tests on Linux (some of them read `/proc`; not the e2e suites, whose flakes
-would hold a release back), builds on an Apple silicon runner with `bun run dist`, checks the zip
+typecheck and the unit tests on Linux (not `ssh.test`, which has hung there, nor the e2e suites,
+whose flakes would hold a release back: run `bun run test` yourself before a tag), builds on an Apple silicon runner with `bun run dist`, checks the zip
 (its signature, and what is in the app), and publishes a GitHub Release with three files:
 
 - `bicycle42-mac-arm64.zip`, the app
