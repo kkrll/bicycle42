@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  BUN_VERSION: 1.4.4
+  NODE_VERSION: 26.12.0
+
+defaults:
+  run:
+    working-directory: app
+
+jobs:
+  # On Linux, where the unit tests run every day: some of them look for processes in /proc. The
+  # e2e suites are left out on purpose: their known flakes must not hold a release back.
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Tag matches package.json
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME doesn't match package.json $version" >&2; exit 1; }
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test:unit
+
+  mac:
+    needs: check
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - run: bun install --frozen-lockfile
+
+      - name: Package
+        run: bun run dist
+
+      # The zip as install.sh and the updater unpack it, not the folder it was made from.
+      - name: Check the zip
+        run: |
+          ditto -x -k release/bicycle42-mac-arm64.zip "$RUNNER_TEMP/unpacked"
+          app="$RUNNER_TEMP/unpacked/bicycle 42.app"
+          codesign --verify --deep --strict "$app"
+          [ "$(lipo -archs "$app/Contents/MacOS/bicycle 42")" = arm64 ]
+          node_modules/.bin/asar list "$app/Contents/Resources/app.asar" > "$RUNNER_TEMP/asar.txt"
+          for file in package.json dist/main.cjs dist/preload.cjs dist/page-preload.cjs dist/ext-worker-preload.cjs \
+            dist/ext-page-preload.cjs dist/helper.cjs dist/icon.png dist/renderer/index.html; do
+            grep -qx "/$file" "$RUNNER_TEMP/asar.txt" || { echo "The app lacks $file" >&2; exit 1; }
+          done
+          if grep -E '^/(node_modules|dist/test)(/|$)' "$RUNNER_TEMP/asar.txt"; then
+            echo "The app carries files it doesn't need" >&2
+            exit 1
+          fi
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          pre=()
+          [[ "$GITHUB_REF_NAME" == *-* ]] && pre=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" \
+            release/bicycle42-mac-arm64.zip release/SHA256SUMS release/latest.json \
+            --title "bicycle 42 ${GITHUB_REF_NAME#v}" \
+            --generate-notes \
+            --verify-tag \
+            "${pre[@]}"

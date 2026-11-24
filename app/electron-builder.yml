@@ -1,0 +1,21 @@
+appId: com.bicycle42.app
+productName: bicycle 42
+directories:
+  output: release
+files:
+  - package.json
+  - dist/**
+  - "!dist/test{,/**}"
+npmRebuild: false
+publish: null
+artifactName: bicycle42-mac-${arch}.${ext}
+mac:
+  target:
+    - target: zip
+      arch: arm64
+  icon: ../assets/icon.png
+  category: public.app-category.developer-tools
+  # "-" is an ad-hoc signature: enough for Apple silicon to run it, no Developer ID needed.
+  identity: "-"
+  hardenedRuntime: false
+  notarize: false

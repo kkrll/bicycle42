@@ -215,6 +215,9 @@ const SHOTS = [
   { name: "question", mock: "question" },
   { name: "noconversation", mock: "noconversation" },
   { name: "offline", mock: "offline" },
+  // A newer release: ready to restart into, and where the app can't put it in place itself.
+  { name: "update", mock: "update" },
+  { name: "update-manual", mock: "update", query: "&status=manual" },
   // The same without `away` (an agent here, or one that is not kept running there), started again
   // by itself: the shorter line, and what it was on paused.
   { name: "offline-plain", mock: "offline", run: [`delete window.__mock.state.connection.away; window.__mock.state.connection.retry = true; 0`, ...resend], report: `document.querySelector(".banner p").textContent` },
