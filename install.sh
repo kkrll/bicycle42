@@ -1,6 +1,6 @@
 #!/bin/sh
 # Installs or updates Bicycle42 on a Mac with Apple silicon:
-#   curl -fsSL https://raw.githubusercontent.com/kkrll/bicycle42/main/install.sh | sh
+#   curl -fsSL https://bicycle42.com/install.sh | sh
 # BICYCLE42_VERSION=0.2.0 installs that release; BICYCLE42_DIR=~/Apps installs there.
 set -eu
 

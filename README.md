@@ -29,7 +29,7 @@ It is for designers who work with a coding agent, and it is open source.
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kkrll/bicycle42/main/install.sh | sh
+curl -fsSL https://bicycle42.com/install.sh | sh
 ```
 
 The script downloads the latest release, checks it against its checksum and puts `Bicycle42.app`
