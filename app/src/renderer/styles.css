@@ -745,6 +745,29 @@ details[open] > summary > .caret {
   color: var(--ink-bad);
 }
 
+/* A newer release of the app (UpdateButton): after the address, or at the end of the bar that has
+   only the app's name. */
+.update-btn {
+  white-space: nowrap;
+}
+
+.wordmark + .update-btn {
+  margin-left: auto;
+}
+
+/* A narrow window: its icon alone, so the bar's end stays in the window (its words in the title). */
+@media (max-width: 860px) {
+  .update-btn > span {
+    display: none;
+  }
+
+  .icon-btn.labelled.update-btn {
+    justify-content: center;
+    width: 28px;
+    padding: 0;
+  }
+}
+
 /* The brush: the pen alone on a surface of its own, beside the mode switch, not a fourth mode in
    it (pressed, it turns Annotate on, and the accent is that mode's). Pressed, a light chip with
    the foreground's ink, as the chosen device has. One size in every state. */
