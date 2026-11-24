@@ -16,14 +16,36 @@ It is for designers who work with a coding agent, and it is open source.
 
 ## Requirements
 
+- For the packaged app: a Mac with Apple silicon, with macOS 13 or newer. That is the only one
+  for now; from source it also runs on Intel Macs, Linux and Windows.
 - An agent: one of Claude Code, Codex, Gemini CLI or OpenCode installed and signed in on this
   computer (Claude Code and Codex are reached through their ACP adapters, which `npx` fetches the
   first time, at the version the app pins), or on another computer you reach with `ssh` (it
   needs Node 18 or newer there).
-- Node 22 or newer with npm, or Bun.
+- Node 22 or newer with npm, for the agents that run on this computer. The packaged app opens
+  without it and does not bring one.
 - git, for the repo's branch and changes when the agent runs on this computer.
 
-## Run it
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kkrll/bicycle42/main/install.sh | sh
+```
+
+The script downloads the latest release, checks it against its checksum and puts `bicycle 42.app`
+in `/Applications`, or in `~/Applications` when that one can't be written to. An older copy there
+is replaced only once the new one is whole. If Node is missing or older than 22 it says so, and
+installs the app all the same. Run it again to update, or let the app do it: it looks for a new
+release when it starts and every six hours, and offers to restart into it.
+
+The app is not signed with an Apple Developer ID, so macOS (Gatekeeper) blocks a zip you downloaded
+with a browser from the [releases page](https://github.com/kkrll/bicycle42/releases): open the app
+once, then allow it under **System Settings → Privacy & Security → Open Anyway**. The install script
+avoids this, since what `curl` downloads is not marked as coming from a browser.
+
+## Run from source
+
+Needs Node 22 or newer, with npm or Bun.
 
 ```bash
 cd app
@@ -32,7 +54,7 @@ bun run start        # or: npm start. Builds, then opens the app
 ```
 
 `bun run pack` (or `npm run pack`) builds a real app for this computer in `app/release/`, with
-its own name and icon. It is not signed with a developer certificate, and there are no installers yet.
+its own name (and, on a Mac, its icon). It makes no zip and no installer.
 
 ## First launch
 
@@ -249,7 +271,7 @@ In the chat box, `/` lists commands: the app's own (`/compact`, `/new`, `/undo`,
 
 ## Not built yet
 
-- Signed builds and installers.
+- A Developer ID signature and notarisation, Intel Mac builds, and Linux and Windows packages.
 - Tabs and device widths.
 - Edit mode: adding new elements (other than a copy) and editing HTML, moving one into another container.
 

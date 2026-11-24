@@ -55,6 +55,65 @@ It runs OpenCode (`opencode acp`) unless told another: `bun run test:real -- cla
 node scripts/build.mjs && node_modules/.bin/electron --ozone-platform=headless --disable-gpu scripts/shot.mjs
 ```
 
+## Package and release
+
+`bun run pack` builds the app for this computer into `release/`, unzipped; `bun run dist` builds
+what a release holds. `electron-builder.yml` puts only `package.json` and `dist/` (without
+`dist/test`) in the app, in one `app.asar`: the build bundles every package into `dist/`, which is
+why they are all `devDependencies` (electron-builder copies each of the `dependencies` into the
+app). Nothing is read from outside `dist/`: the adapters' lockfiles are text inside `main.cjs`. And
+nothing needs to be a real file on disk: the preloads, the icon and the window are read by
+Electron, which looks inside the asar, and `helper.cjs` is read by main and sent over ssh, never
+started from here. A file that another program has to open or run would need `asarUnpack`.
+
+A release is a version tag on a commit of main whose `package.json` has that version:
+
+```bash
+cd app
+npm version patch                # package.json alone: npm neither commits nor tags in a subfolder
+git commit -am "Version 0.1.1"
+git tag v0.1.1
+git push origin main v0.1.1
+```
+
+`.github/workflows/release.yml` then checks that the tag and `package.json` agree, runs the
+typecheck and the unit tests on Linux (some of them read `/proc`; not the e2e suites, whose flakes
+would hold a release back), builds on an Apple silicon runner with `bun run dist`, checks the zip
+(its signature, and what is in the app), and publishes a GitHub Release with three files:
+
+- `bicycle42-mac-arm64.zip`, the app
+- `SHA256SUMS`, which `install.sh` checks the zip against
+- `latest.json` (`version`, `url`, `sha256`), which the app reads to find updates
+
+Installed copies look for these names and this shape: don't change them. A tag with a suffix
+(`npm version 0.2.0-beta.1`, then `v0.2.0-beta.1`) becomes a prerelease. The app and the install
+script pass over those, so a beta is installed by asking for it: `BICYCLE42_VERSION=0.2.0-beta.1`.
+
+The app's signature is ad-hoc (`identity: "-"` in `electron-builder.yml`): enough for Apple silicon
+to run it, with no Developer ID and no notarisation. That is why it has its own updater
+(`src/main/update.ts`) instead of electron-updater: Squirrel.Mac takes only an update signed by the
+same identity, and an ad-hoc signature is another one with every build.
+
+### Trying a release here
+
+On a Mac with Apple silicon, from `app/`:
+
+```bash
+bun run dist                                                  # release/, as the workflow makes it
+node scripts/release-files.mjs --base http://127.0.0.1:8642   # latest.json with the zip at that address
+(cd release && python3 -m http.server 8642)
+
+# in another terminal, also in app/: install from it
+curl -fsSL "file://$PWD/../install.sh" | BICYCLE42_BASE_URL=http://127.0.0.1:8642 BICYCLE42_DIR=/tmp/b42 sh
+
+# or let an older version installed there find it
+BICYCLE42_DATA=/tmp/b42-data BICYCLE42_UPDATE_URL=http://127.0.0.1:8642/latest.json "/tmp/b42/bicycle 42.app/Contents/MacOS/bicycle 42"
+```
+
+`BICYCLE42_DATA` keeps the test away from your real settings, and `BICYCLE42_NO_OPEN=1` has the
+script install without opening. On Linux `bun run dist` makes the same files with no signature:
+good for looking at what is in the app, but no Mac runs it.
+
 ## How it's built
 
 ```
@@ -84,6 +143,7 @@ src/main/snapshots.ts   the app's own file history: a shadow git repository per 
 src/main/ops.ts         the work done where the files are (vcs, the history's git side): by the app here, by the helper there, one call each
 src/main/pictures.ts    the conversation's pictures by address (b42-img:), served to the window by main
 src/main/store.ts       settings and notes on disk, versioned, atomic writes off the main thread (flushed at quit)
+src/main/update.ts      updates of the packaged macOS app, from GitHub Releases
 src/preload.ts          window.b42: the only door between the window and main
 src/renderer/           the window: top bar, notes list, chat (Solid, @kkrll/design tokens)
 src/renderer/agents.tsx the agent in use as the window shows it (AppState.harness): mark, name, the switcher, paths
@@ -1017,4 +1077,4 @@ on its pin and in the chat. A note may be new CSS rules and nothing else.
   can't run the overlay's code or send a note, but it can still read or change what the layer
   shows (the words being typed, the panels). Closing the root, or moving the panels into the
   app window, would end that.
-- Signed builds and installers. `npm run pack` makes an unsigned app for this computer.
+- A Developer ID signature and notarisation, Intel and universal Mac builds, Linux and Windows packages.
