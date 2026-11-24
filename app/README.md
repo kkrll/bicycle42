@@ -86,8 +86,8 @@ would hold a release back), builds on an Apple silicon runner with `bun run dist
 - `latest.json` (`version`, `url`, `sha256`), which the app reads to find updates
 
 Installed copies look for these names and this shape: don't change them. A tag with a suffix
-(`npm version 0.2.0-beta.1`, then `v0.2.0-beta.1`) becomes a prerelease. The app and the install
-script pass over those, so a beta is installed by asking for it: `BICYCLE42_VERSION=0.2.0-beta.1`.
+(`npm version 0.2.0-alpha.1`, then `v0.2.0-alpha.1`) becomes a prerelease. The app and the install
+script pass over those, so an alpha is installed by asking for it: `BICYCLE42_VERSION=0.2.0-alpha.1`.
 
 The app's signature is ad-hoc (`identity: "-"` in `electron-builder.yml`): enough for Apple silicon
 to run it, with no Developer ID and no notarisation. That is why it has its own updater
