@@ -16,7 +16,7 @@ const head = (s: string, max = 120) => {
 // ── the site ────────────────────────────────────────────────────────────────────────────────────
 
 /** How the request to get the site running starts, in every version of it. */
-const START_PROMPT = "Get this project's site running so I can review it in bicycle 42."
+const START_PROMPT = "Get this project's site running so I can review it in Bicycle42."
 
 /** What the agent is asked when the reviewer has a repo and no running site. It says only what
  *  the agent cannot know: that what it starts as a background command of its shell tool ends
@@ -81,7 +81,8 @@ export function takeBackPrompt(n: number, text: string, diff: FileChange[]) {
 // the conversation still has the note and the agent's changes in it. So the next message to that
 // conversation, whatever it is, starts with a line that says so, and a blank line.
 
-const TOLD = /^\(bicycle 42: I took back .*\)$/
+// (Conversations from before the app was renamed say "bicycle 42".)
+const TOLD = /^\((?:Bicycle42|bicycle 42): I took back .*\)$/
 
 /** The line put before the next message: the notes taken back (number and words) and how many
  *  other turns of the agent's (a typed message's, from /undo or a checkpoint). */
@@ -91,7 +92,7 @@ export function toldLine(notes: Array<{ n: number; text: string }>, others: numb
     ...(others ? [others === 1 ? "what you changed for one other message" : `what you changed for ${others} other messages`] : []),
   ]
   const list = what.length > 1 ? `${what.slice(0, -1).join(", ")} and ${what.at(-1)}` : (what[0] ?? "some of your changes")
-  return `(bicycle 42: I took back ${list} myself, before this message: those files are as they were before it, though the conversation above still shows the changes. Do not make them again unless I ask.)`
+  return `(Bicycle42: I took back ${list} myself, before this message: those files are as they were before it, though the conversation above still shows the changes. Do not make them again unless I ask.)`
 }
 
 /** A message with the line in front, and without it. The line alone is a message too: sent

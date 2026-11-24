@@ -1145,7 +1145,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     startSite() {
       state.startingSite = true
       push()
-      deliver("Get this project's site running so I can review it in bicycle 42.\n\nRun it as a background command of your shell tool (not nohup, & or tmux), so I can stop it from here.\n\nWhen it answers, end your reply with one line: SITE: <address>", undefined, undefined, REPLY)
+      deliver("Get this project's site running so I can review it in Bicycle42.\n\nRun it as a background command of your shell tool (not nohup, & or tmux), so I can stop it from here.\n\nWhen it answers, end your reply with one line: SITE: <address>", undefined, undefined, REPLY)
     },
     setDirectory(directory) {
       state.site = { origin: state.page.url ? ORIGIN : "", directory }

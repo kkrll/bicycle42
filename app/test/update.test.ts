@@ -46,9 +46,9 @@ test("a manifest needs a version, an http(s) url and a sha256", () => {
 })
 
 test("the bundle is found from the executable inside it", () => {
-  assert.equal(bundleOf("/Applications/bicycle 42.app/Contents/MacOS/bicycle 42"), "/Applications/bicycle 42.app")
+  assert.equal(bundleOf("/Applications/Bicycle42.app/Contents/MacOS/Bicycle42"), "/Applications/Bicycle42.app")
   assert.equal(bundleOf("/usr/local/bin/electron"), undefined)
-  assert.match(cannotReplace("/private/var/folders/x/AppTranslocation/y/d/bicycle 42.app") ?? "", /translocated/)
+  assert.match(cannotReplace("/private/var/folders/x/AppTranslocation/y/d/Bicycle42.app") ?? "", /translocated/)
   assert.match(cannotReplace(undefined) ?? "", /bundle/)
 })
 
@@ -93,7 +93,7 @@ test("a copy that can't replace itself offers the release page instead of downlo
 
 test("a download whose hash doesn't match is not installed", async (t) => {
   const root = setup(t)
-  const bundle = path.join(root, "Apps", "bicycle 42.app")
+  const bundle = path.join(root, "Apps", "Bicycle42.app")
   fs.mkdirSync(bundle, { recursive: true })
   const { fetch } = fakeFetch({ "https://m/latest.json": manifest("0.2.0"), "https://dl/app.zip": () => new Response("not the zip") })
   const updater = createUpdater({ current: "0.1.0", manifestUrl: "https://m/latest.json", bundle, dir: path.join(root, "u"), log: () => {}, onChange: () => {}, fetch })
@@ -112,7 +112,7 @@ const ZIP_SHA = createHash("sha256").update(ZIP).digest("hex")
  *  `bad`: the versions codesign refuses. */
 function place(t: { after(fn: () => void): void }) {
   const root = setup(t)
-  const bundle = path.join(root, "Apps", "bicycle 42.app")
+  const bundle = path.join(root, "Apps", "Bicycle42.app")
   fs.mkdirSync(bundle, { recursive: true })
   const dir = path.join(root, "u")
   const bad = new Set<string>()
@@ -120,7 +120,7 @@ function place(t: { after(fn: () => void): void }) {
   const tools = {
     async unpack(zip: string, into: string) {
       assert.ok(fs.existsSync(zip))
-      fs.mkdirSync(path.join(into, "bicycle 42.app", "Contents"), { recursive: true })
+      fs.mkdirSync(path.join(into, "Bicycle42.app", "Contents"), { recursive: true })
     },
     async verify(app: string) {
       assert.ok(fs.existsSync(path.join(app, "Contents")))
@@ -136,7 +136,7 @@ function place(t: { after(fn: () => void): void }) {
     return { updater, calls, told, asked: () => updater.check((o) => told.push(o)) }
   }
   /** A release an earlier run staged. */
-  const stage = (version: string) => fs.mkdirSync(path.join(dir, version, "unpacked", "bicycle 42.app", "Contents"), { recursive: true })
+  const stage = (version: string) => fs.mkdirSync(path.join(dir, version, "unpacked", "Bicycle42.app", "Contents"), { recursive: true })
   return { dir, bundle, bad, verified, start, stage, has: () => fs.readdirSync(dir).sort() }
 }
 const good = (version: string) => ({ "https://m/latest.json": manifest(version, ZIP_SHA), "https://dl/app.zip": () => new Response(ZIP) })
@@ -152,7 +152,7 @@ test("a release whose hash matches is verified, staged under its version and off
   assert.equal(await updater.check(), "0.2.0")
   assert.deepEqual(updater.state(), { version: "0.2.0", status: "ready" })
   assert.deepEqual(p.has(), ["0.2.0"])
-  assert.deepEqual(p.verified, [path.join("download", "unpacked", "bicycle 42.app")])
+  assert.deepEqual(p.verified, [path.join("download", "unpacked", "Bicycle42.app")])
   assert.equal(fs.existsSync(path.join(p.dir, "0.2.0", "update.zip")), false)
 })
 
@@ -165,7 +165,7 @@ test("a staged release outlives a quit: verified again and offered at the next s
   await until(() => next.updater.state())
   assert.deepEqual(next.updater.state(), { version: "0.2.0", status: "ready" })
   assert.equal(changes, 1)
-  assert.deepEqual(p.verified, [path.join("0.2.0", "unpacked", "bicycle 42.app")])
+  assert.deepEqual(p.verified, [path.join("0.2.0", "unpacked", "Bicycle42.app")])
   // …and it is not downloaded again.
   const third = p.start(good("0.2.0"))
   await third.asked()
@@ -177,7 +177,7 @@ test("at a start, only the newest release staged that still verifies is kept", a
   const p = place(t)
   for (const v of ["0.0.9", "0.1.0", "0.2.0", "0.3.0", "0.10.0"]) p.stage(v)
   // A download the last run did not finish, the swap's script, a release with no app in it.
-  fs.mkdirSync(path.join(p.dir, "download", "unpacked", "bicycle 42.app"), { recursive: true })
+  fs.mkdirSync(path.join(p.dir, "download", "unpacked", "Bicycle42.app"), { recursive: true })
   fs.writeFileSync(path.join(p.dir, "download", "update.zip"), "half")
   fs.writeFileSync(path.join(p.dir, "swap.sh"), "")
   fs.mkdirSync(path.join(p.dir, "0.11.0", "unpacked"), { recursive: true })
@@ -229,7 +229,7 @@ test("whoever asked hears every outcome, of a download already under way too", a
     async unpack(_zip, into) {
       unpacking = true
       await held
-      fs.mkdirSync(path.join(into, "bicycle 42.app", "Contents"), { recursive: true })
+      fs.mkdirSync(path.join(into, "Bicycle42.app", "Contents"), { recursive: true })
     },
   })
   // The app's own check began it; the menu asks in the middle.
@@ -302,7 +302,7 @@ test("the swap leaves everything as it is when the app doesn't quit", { skip: pr
   const root = setup(t)
   const script = path.join(root, "swap.sh")
   fs.writeFileSync(script, SWAP_SCRIPT.replace(/^open .*$/m, ":"))
-  const target = path.join(root, "bicycle 42.app")
+  const target = path.join(root, "Bicycle42.app")
   const staged = path.join(root, "staged.app")
   for (const [dir, v] of [[target, "old"], [staged, "new"]] as const) {
     fs.mkdirSync(dir)
@@ -339,7 +339,7 @@ test("the swap script puts the new bundle in place and keeps the old one when it
   const root = setup(t)
   const script = path.join(root, "swap.sh")
   fs.writeFileSync(script, SWAP_SCRIPT.replace(/^open .*$/m, ":"))
-  const target = path.join(root, "bicycle 42.app")
+  const target = path.join(root, "Bicycle42.app")
   const staged = path.join(root, "staged.app")
   fs.mkdirSync(target)
   fs.writeFileSync(path.join(target, "v"), "old")
@@ -355,24 +355,24 @@ test("the swap script puts the new bundle in place and keeps the old one when it
 
 test("a real zip with a matching hash is unpacked, verified and staged", { skip: process.platform !== "darwin" }, async (t) => {
   const root = setup(t)
-  const app = path.join(root, "src", "bicycle 42.app")
+  const app = path.join(root, "src", "Bicycle42.app")
   fs.mkdirSync(path.join(app, "Contents", "MacOS"), { recursive: true })
-  fs.copyFileSync("/usr/bin/true", path.join(app, "Contents", "MacOS", "bicycle 42"))
+  fs.copyFileSync("/usr/bin/true", path.join(app, "Contents", "MacOS", "Bicycle42"))
   fs.writeFileSync(
     path.join(app, "Contents", "Info.plist"),
-    `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>bicycle 42</string><key>CFBundleIdentifier</key><string>test.bicycle42</string></dict></plist>`,
+    `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleExecutable</key><string>Bicycle42</string><key>CFBundleIdentifier</key><string>test.bicycle42</string></dict></plist>`,
   )
   execFileSync("/usr/bin/codesign", ["--force", "--sign", "-", app], { stdio: "ignore" })
   const zip = path.join(root, "app.zip")
   execFileSync("/usr/bin/ditto", ["-c", "-k", "--keepParent", app, zip])
   const bytes = fs.readFileSync(zip)
   const sha = createHash("sha256").update(bytes).digest("hex")
-  const bundle = path.join(root, "Apps", "bicycle 42.app")
+  const bundle = path.join(root, "Apps", "Bicycle42.app")
   fs.mkdirSync(bundle, { recursive: true })
   const { fetch } = fakeFetch({ "https://m/latest.json": manifest("0.2.0", sha), "https://dl/app.zip": () => new Response(bytes) })
   const updater = createUpdater({ current: "0.1.0", manifestUrl: "https://m/latest.json", bundle, dir: path.join(root, "u"), log: () => {}, onChange: () => {}, fetch })
   t.after(() => updater.dispose())
   await updater.check()
   assert.deepEqual(updater.state(), { version: "0.2.0", status: "ready" })
-  assert.ok(fs.existsSync(path.join(root, "u", "0.2.0", "unpacked", "bicycle 42.app", "Contents", "Info.plist")))
+  assert.ok(fs.existsSync(path.join(root, "u", "0.2.0", "unpacked", "Bicycle42.app", "Contents", "Info.plist")))
 })

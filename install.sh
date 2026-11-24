@@ -1,18 +1,18 @@
 #!/bin/sh
-# Installs or updates bicycle 42 on a Mac with Apple silicon:
+# Installs or updates Bicycle42 on a Mac with Apple silicon:
 #   curl -fsSL https://raw.githubusercontent.com/kkrll/bicycle42/main/install.sh | sh
 # BICYCLE42_VERSION=0.2.0 installs that release; BICYCLE42_DIR=~/Apps installs there.
 set -eu
 
 repo=kkrll/bicycle42
-app="bicycle 42.app"
+app="Bicycle42.app"
 asset=bicycle42-mac-arm64.zip
 tmp=
 stage=
 dest=
 
 fail() {
-  printf 'bicycle 42: %s\n' "$*" >&2
+  printf 'Bicycle42: %s\n' "$*" >&2
   exit 1
 }
 
@@ -20,7 +20,7 @@ fail() {
 cleanup() {
   if [ -n "$stage" ]; then
     if [ -d "$stage/previous.app" ] && [ ! -e "$dest/$app" ]; then
-      mv "$stage/previous.app" "$dest/$app" || { printf 'bicycle 42: the previous app is in %s\n' "$stage" >&2; stage=; }
+      mv "$stage/previous.app" "$dest/$app" || { printf 'Bicycle42: the previous app is in %s\n' "$stage" >&2; stage=; }
     fi
     [ -z "$stage" ] || rm -rf "$stage" || true
   fi
@@ -42,7 +42,7 @@ node_note() {
     fi
   fi
   printf '\nNote: agents on this Mac need Node 22 or newer with npm, and %s\n' "$found"
-  printf 'Get it from https://nodejs.org or your package manager, then open bicycle 42 again.\n'
+  printf 'Get it from https://nodejs.org or your package manager, then open Bicycle42 again.\n'
 }
 
 # All of it in a function called on the last line: a download of this script that was cut short
@@ -74,7 +74,7 @@ main() {
   trap 'exit 143' TERM
   tmp=$(mktemp -d)
 
-  printf 'Downloading bicycle 42…\n'
+  printf 'Downloading Bicycle42…\n'
   curl -fSL --progress-bar --retry 3 -o "$tmp/$asset" "$base/$asset" || fail "download failed: $base/$asset"
   curl -fsSL --retry 3 -o "$tmp/SHA256SUMS" "$base/SHA256SUMS" || fail "download failed: $base/SHA256SUMS"
   (cd "$tmp" && grep " $asset\$" SHA256SUMS | shasum -a 256 -c - >/dev/null) || fail "the download doesn't match its checksum."
@@ -90,13 +90,13 @@ main() {
   ditto "$tmp/unpacked/$app" "$stage/$app" || fail "can't copy the app into $dest."
   xattr -dr com.apple.quarantine "$stage/$app" 2>/dev/null || true
 
-  if pgrep -xq "bicycle 42"; then
-    printf 'Quitting bicycle 42…\n'
-    osascript -e 'quit app "bicycle 42"' >/dev/null 2>&1 || true
+  if pgrep -xq "Bicycle42"; then
+    printf 'Quitting Bicycle42…\n'
+    osascript -e 'quit app "Bicycle42"' >/dev/null 2>&1 || true
     i=0
-    while pgrep -xq "bicycle 42"; do
+    while pgrep -xq "Bicycle42"; do
       i=$((i + 1))
-      [ "$i" -lt 50 ] || fail "bicycle 42 is still running. Quit it and run this again."
+      [ "$i" -lt 50 ] || fail "Bicycle42 is still running. Quit it and run this again."
       sleep 0.2
     done
   fi
@@ -106,7 +106,7 @@ main() {
   fi
   mv "$stage/$app" "$dest/$app" || fail "can't put the app in $dest."
 
-  printf 'Installed bicycle 42 %s in %s\n' "$version" "$dest"
+  printf 'Installed Bicycle42 %s in %s\n' "$version" "$dest"
   node_note
   [ -n "${BICYCLE42_NO_OPEN:-}" ] || open "$dest/$app"
 }

@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "bicycle 42: a standalone design-review app. The page is the interface; a coding agent, run over ACP here or on another computer over ssh, does the work.",
+  "description": "Bicycle42: a standalone design-review app. The page is the interface; a coding agent, run over ACP here or on another computer over ssh, does the work.",
   "main": "dist/main.cjs",
   "scripts": {
     "build": "node scripts/build.mjs",

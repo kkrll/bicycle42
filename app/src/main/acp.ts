@@ -504,7 +504,7 @@ export function createAcp(opts: AcpOptions): Acp {
               terminal: false,
               elicitation: { form: {} },
             },
-            clientInfo: { name: "bicycle42", title: "bicycle 42", version: VERSION },
+            clientInfo: { name: "bicycle42", title: "Bicycle42", version: VERSION },
           }),
           ended.then((r) => Promise.reject(new Error(why(r)))),
           new Promise((_, reject) => (cancelLate = upTimer(timing.start, () => reject(new Error(`${name} did not answer in ${timing.start / 1000} s`))))),

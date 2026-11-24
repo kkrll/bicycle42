@@ -1,6 +1,6 @@
 # app
 
-The Electron app of bicycle 42. What it is, how to run it and its keys are in the
+The Electron app of Bicycle42. What it is, how to run it and its keys are in the
 [root README](../README.md); this page is for working on it.
 
 ## Build and run
@@ -107,7 +107,7 @@ node scripts/release-files.mjs --base http://127.0.0.1:8642   # latest.json with
 curl -fsSL "file://$PWD/../install.sh" | BICYCLE42_BASE_URL=http://127.0.0.1:8642 BICYCLE42_DIR=/tmp/b42 sh
 
 # or let an older version installed there find it
-BICYCLE42_DATA=/tmp/b42-data BICYCLE42_UPDATE_URL=http://127.0.0.1:8642/latest.json "/tmp/b42/bicycle 42.app/Contents/MacOS/bicycle 42"
+BICYCLE42_DATA=/tmp/b42-data BICYCLE42_UPDATE_URL=http://127.0.0.1:8642/latest.json "/tmp/b42/Bicycle42.app/Contents/MacOS/Bicycle42"
 ```
 
 `BICYCLE42_DATA` keeps the test away from your real settings, and `BICYCLE42_NO_OPEN=1` has the

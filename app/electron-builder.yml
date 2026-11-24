@@ -1,5 +1,5 @@
 appId: com.bicycle42.app
-productName: bicycle 42
+productName: Bicycle42
 directories:
   output: release
 files:

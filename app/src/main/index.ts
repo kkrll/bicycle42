@@ -1,4 +1,4 @@
-// bicycle 42, main process: the Electron shell around the controller.
+// Bicycle42, main process: the Electron shell around the controller.
 //
 // The controller (core.ts) owns the app's state and knows nothing of Electron. This file is what
 // it runs in here: the window and its menu, the page's view (page.ts), the three
@@ -22,7 +22,7 @@ const log = (level: Level, msg: string, data?: unknown) =>
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 // Tests point the app at a scratch profile. Otherwise the folder is named here, so the packaged
-// app ("bicycle 42") and a run from source keep their settings and notes in the same place.
+// app ("Bicycle42") and a run from source keep their settings and notes in the same place.
 app.setPath("userData", process.env.BICYCLE42_DATA || path.join(app.getPath("appData"), "bicycle42"))
 
 // The conversation's pictures have an address of their own (pictures.ts), in the app window's
@@ -237,7 +237,7 @@ async function createWindow() {
     minWidth: 720,
     minHeight: 480,
     show: false,
-    title: "bicycle 42",
+    title: "Bicycle42",
     ...(appIcon ? { icon: appIcon } : {}),
     // The design system's paper and near-black, so the window doesn't flash before the UI paints.
     backgroundColor: dark ? "#0a0a0a" : "#f1eadf",

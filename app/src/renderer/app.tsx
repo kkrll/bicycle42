@@ -379,7 +379,7 @@ function TopBar(props: {
   onCleanup(() => watch.disconnect())
   return (
     <header class="topbar" classList={{ mac: mac() }}>
-      <Show when={!props.bare} fallback={<><span class="wordmark">bicycle 42</span><UpdateButton /></>}>
+      <Show when={!props.bare} fallback={<><span class="wordmark">Bicycle42</span><UpdateButton /></>}>
         {/* First in the bar, over the panel it shows and hides. (A plain title, as the buttons
             beside it have: the bar's own hint is at the other end, by the modes.) */}
         <button
@@ -547,7 +547,7 @@ function UpdateButton() {
       {(update) => {
         const ready = () => update().status === "ready"
         const words = () => (ready() ? "Restart to update" : `${update().version} is out`)
-        const what = () => (ready() ? `Restart into bicycle 42 ${update().version}` : `Open the release page of bicycle 42 ${update().version}`)
+        const what = () => (ready() ? `Restart into Bicycle42 ${update().version}` : `Open the release page of Bicycle42 ${update().version}`)
         return (
           <button class="icon-btn labelled update-btn" data-action="update" aria-label={words()} aria-description={what()} title={what()} onClick={() => act("installUpdate")}>
             <Icon name="download" />

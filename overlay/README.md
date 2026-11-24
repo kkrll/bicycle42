@@ -1,6 +1,6 @@
 # overlay
 
-The in-page review layer of bicycle 42: `overlay.js` (one dependency-free script that a host
+The in-page review layer of Bicycle42: `overlay.js` (one dependency-free script that a host
 injects into the page) and `prompt.js` (note → prompt text). The protocol between the overlay and
 its host is in [`protocol.ts`](protocol.ts): the messages of both directions and what a note
 carries, as types the overlay's files and the app both name. What it is for and its keys are in the

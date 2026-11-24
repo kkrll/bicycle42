@@ -1,4 +1,4 @@
-// bicycle 42, the controller: the app without a window.
+// Bicycle42, the controller: the app without a window.
 //
 // It owns the one piece of state the rest of the app looks at (AppState) and connects four parts
 // that know nothing of each other:
@@ -3345,8 +3345,8 @@ export function createCore(host: Host): Core {
       if (store.readOnly)
         host.dialog({
           type: "warning",
-          message: "Settings were written by a newer bicycle 42",
-          detail: "This version leaves them untouched, so nothing you change now will be remembered. Update bicycle 42 to keep your changes.",
+          message: "Settings were written by a newer Bicycle42",
+          detail: "This version leaves them untouched, so nothing you change now will be remembered. Update Bicycle42 to keep your changes.",
         })
     },
     dispose() {

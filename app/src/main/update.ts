@@ -107,15 +107,15 @@ export function cannotReplace(bundle: string | undefined): string | undefined {
 export function wordsOf(o: Outcome, current: string): { type: "info" | "warning"; message: string; detail: string; act?: string } {
   switch (o.status) {
     case "latest":
-      return { type: "info", message: "bicycle 42 is up to date", detail: `Version ${current} is the latest.` }
+      return { type: "info", message: "Bicycle42 is up to date", detail: `Version ${current} is the latest.` }
     case "downloading":
-      return { type: "info", message: `Downloading bicycle 42 ${o.version}`, detail: "You can go on working. “Restart to update” appears at the top of the window when it is ready." }
+      return { type: "info", message: `Downloading Bicycle42 ${o.version}`, detail: "You can go on working. “Restart to update” appears at the top of the window when it is ready." }
     case "ready":
-      return { type: "info", message: `bicycle 42 ${o.version} is ready`, detail: "It is put in place when the app restarts.", act: "Restart to Update" }
+      return { type: "info", message: `Bicycle42 ${o.version} is ready`, detail: "It is put in place when the app restarts.", act: "Restart to Update" }
     case "manual":
-      return { type: "info", message: `bicycle 42 ${o.version} is out`, detail: `This copy can't replace itself: ${o.reason}. The new version is on its release page.`, act: "Open Release Page" }
+      return { type: "info", message: `Bicycle42 ${o.version} is out`, detail: `This copy can't replace itself: ${o.reason}. The new version is on its release page.`, act: "Open Release Page" }
     case "failed":
-      return { type: "warning", message: o.version ? `bicycle 42 ${o.version} could not be downloaded` : "Couldn't check for updates", detail: o.reason }
+      return { type: "warning", message: o.version ? `Bicycle42 ${o.version} could not be downloaded` : "Couldn't check for updates", detail: o.reason }
   }
 }
 

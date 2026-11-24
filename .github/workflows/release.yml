@@ -76,9 +76,9 @@ jobs:
       - name: Check the zip
         run: |
           ditto -x -k release/bicycle42-mac-arm64.zip "$RUNNER_TEMP/unpacked"
-          app="$RUNNER_TEMP/unpacked/bicycle 42.app"
+          app="$RUNNER_TEMP/unpacked/Bicycle42.app"
           codesign --verify --deep --strict "$app"
-          [ "$(lipo -archs "$app/Contents/MacOS/bicycle 42")" = arm64 ]
+          [ "$(lipo -archs "$app/Contents/MacOS/Bicycle42")" = arm64 ]
           node_modules/.bin/asar list "$app/Contents/Resources/app.asar" > "$RUNNER_TEMP/asar.txt"
           for file in package.json dist/main.cjs dist/preload.cjs dist/page-preload.cjs dist/ext-worker-preload.cjs \
             dist/ext-page-preload.cjs dist/helper.cjs dist/icon.png dist/renderer/index.html; do
@@ -98,7 +98,7 @@ jobs:
           [[ "$GITHUB_REF_NAME" == *-* ]] && pre=(--prerelease)
           gh release create "$GITHUB_REF_NAME" \
             release/bicycle42-mac-arm64.zip release/SHA256SUMS release/latest.json \
-            --title "bicycle 42 ${GITHUB_REF_NAME#v}" \
+            --title "Bicycle42 ${GITHUB_REF_NAME#v}" \
             --generate-notes \
             --verify-tag \
             "${pre[@]}"

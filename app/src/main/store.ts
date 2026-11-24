@@ -9,7 +9,7 @@
 // A setting that follows a drag (where the window has the page) waits for the drag to end
 // (settle): only its last value is worth a write.
 // A file we can't read is never written over: it is moved aside as <name>.corrupt-<time> for a
-// person to look at. A file written by a newer bicycle 42 is not ours to touch at all: it stays
+// person to look at. A file written by a newer Bicycle42 is not ours to touch at all: it stays
 // as it is, and what would have gone into it stays in memory for this run.
 import fs from "node:fs"
 import path from "node:path"
@@ -69,7 +69,7 @@ export type Settings = {
   /** The known agents whose adapter npx starts at its newest instead of the app's pin, by id
    *  (agents.ts: adapterOf). Absent: all pinned. */
   agentLatest?: string[]
-  /** OpenCode servers saved by an earlier bicycle 42, which no longer connects to one: each as it
+  /** OpenCode servers saved by an earlier Bicycle42, which no longer connects to one: each as it
    *  was saved, without its password, and with what was its own (`space`: its repo, sites and
    *  conversations; its notes files stay under its prefix). Kept, not used. */
   retired?: Record<string, unknown>[]
@@ -98,7 +98,7 @@ export type Store = {
   flush(): void
   /** Writes everything pending now, off the main thread, and resolves once all of it is on disk. */
   idle(): Promise<void>
-  /** A file read so far was written by a newer bicycle 42, so changes to it are not being saved.
+  /** A file read so far was written by a newer Bicycle42, so changes to it are not being saved.
    *  The log says which file; the user should hear that this run won't remember them. */
   readonly readOnly: boolean
 }
@@ -115,7 +115,7 @@ export function createStore(dir: string, opts: { debounceMs?: number; settleMs?:
   // An origin has ":" and "/" in it; percent-encoding keeps the name readable and one-to-one.
   const reviewFile = (origin: string) => path.join(dir, "reviews", `${encodeURIComponent(origin).replace(/\*/g, "%2A")}.json`)
 
-  /** Files a newer bicycle 42 wrote. Never written for the rest of the run. */
+  /** Files a newer Bicycle42 wrote. Never written for the rest of the run. */
   const newer = new Set<string>()
 
   /** Parsed contents when the file holds this version's JSON object; undefined when there is no
@@ -139,7 +139,7 @@ export function createStore(dir: string, opts: { debounceMs?: number; settleMs?:
       if (isObj(data) && typeof data.version === "number" && data.version > version) {
         // Downgrading must not cost the newer version its data: moving the file aside would.
         newer.add(file)
-        log("error", `store: ${path.basename(file)} was written by a newer bicycle 42 (version ${data.version}); this version won't change it`, {
+        log("error", `store: ${path.basename(file)} was written by a newer Bicycle42 (version ${data.version}); this version won't change it`, {
           file,
           version: data.version,
           understands: version,
