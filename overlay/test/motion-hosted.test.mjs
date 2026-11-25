@@ -508,3 +508,52 @@ test("hosted: after a reload the view comes again, with the unsent edits and wor
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("hosted: Only this puts the element alone in the middle, a small one enlarged; go steps through what moves", async () => {
+  const { page, f, errors, v } = await open();
+  const box = () => f.evaluate(() => {
+    const r = document.querySelector(".spinner").getBoundingClientRect();
+    return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, s: new DOMMatrix(getComputedStyle(document.body).transform).a, vw: document.documentElement.clientWidth, vh: document.documentElement.clientHeight, y: scrollY };
+  });
+  await act(page, { type: "row", id: rowId(v, "spin") });
+  await view(page, "v.open && v.open.name === 'spin'");
+  const was = await box();
+  await act(page, { type: "isolate", on: true });
+  await view(page, "v.isolate");
+  // the 12px spinner: four times as large, in the middle of the view
+  let b = await box();
+  assert.ok(Math.abs(b.cx - b.vw / 2) <= 2 && Math.abs(b.cy - b.vh / 2) <= 2, JSON.stringify(b));
+  assert.equal(b.s, 4);
+  assert.match(await adopted(f), /visibility: hidden !important/);
+  // it still plays, and the outline is where it is drawn
+  assert.equal((await view(page)).clock.playing, true);
+  // the next thing that moves is put there in its place; the one before brings the spinner back
+  await act(page, { type: "go", by: 1 });
+  const next = await view(page, "v.open && v.open.name !== 'spin'");
+  assert.ok(next.rows.some((r) => r.on && r.sub), "the next stop is one element of rise, not the row of its name");
+  const mid = await f.evaluate(() => {
+    const el = [...document.querySelectorAll(".hero h2, .hero p")].find((x) => getComputedStyle(x).visibility === "visible"), r = el.getBoundingClientRect();
+    return { dx: r.left + r.width / 2 - document.documentElement.clientWidth / 2, dy: r.top + r.height / 2 - document.documentElement.clientHeight / 2, spinner: getComputedStyle(document.querySelector(".spinner")).visibility };
+  });
+  // (rise moves it up 18px: the middle is the middle of the whole motion)
+  assert.ok(Math.abs(mid.dx) <= 2 && Math.abs(mid.dy) <= 12, JSON.stringify(mid));
+  assert.equal(mid.spinner, "hidden");
+  await act(page, { type: "go", by: -1 });
+  await view(page, "v.open && v.open.name === 'spin'");
+  b = await box();
+  assert.ok(Math.abs(b.cx - b.vw / 2) <= 2 && Math.abs(b.cy - b.vh / 2) <= 2, JSON.stringify(b));
+  // round at the ends: the one before the first is the last, and it is not keyframes nothing plays
+  await act(page, { type: "go", by: -1 });
+  const last = await view(page, "v.open && v.open.name !== 'spin'");
+  assert.notEqual(last.open.name, "wiggle");
+  // off: the page as it was, where it was
+  await act(page, { type: "isolate", on: false });
+  await view(page, "!v.isolate");
+  assert.doesNotMatch(await adopted(f), /transform|overflow|visibility/);
+  await act(page, { type: "row", id: rowId(v, "spin") });
+  await view(page, "v.open && v.open.name === 'spin'");
+  b = await box();
+  assert.deepEqual([Math.round(b.cx), Math.round(b.cy), b.s, b.y], [Math.round(was.cx), Math.round(was.cy), 1, was.y]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

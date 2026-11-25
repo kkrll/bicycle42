@@ -38,6 +38,7 @@ import { animOf, knownNames, newAnimation, position, reveal, running, seek, sele
 import { addKey, addLane, commit, cssText, detach, discard, keyInfo, laneOrder, moveKey, removeKey, removeLane, rowNow, rows, segEase, setCss, setKey, setName, setTiming, sharedBy, timing, travel } from "./edit.js";
 import { submit } from "./send.js";
 import { draw, flash, sentStatus } from "./draw.js";
+import { go, restage } from "./stage.js";
 
 // ── the view ─────────────────────────────────────────────────────────────────────────────
 const ROW = ["id", "kind", "text", "aside", "duration", "on", "sub", "last", "off", "running", "dirty"];
@@ -224,9 +225,10 @@ const ACTS = {
   },
   isolate(a) {
     M.isolate = !!a.on && !!M.sel;
-    apply();
+    restage();
     draw();
   },
+  go: (a) => go(+a.by < 0 ? -1 : 1),
   undo: () => travel(M.past, M.future),
   redo: () => travel(M.future, M.past),
   discard: () => discard(),

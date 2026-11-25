@@ -564,7 +564,8 @@ export function MotionDock() {
   }
 
   // ── keys while the dock has the keyboard ──
-  // space plays, ←/→ step (shift: ten times as far), Delete removes the keyframe, mod+Z and
+  // space plays, ←/→ step (shift: ten times as far), ↑/↓ open the one before and the next,
+  // Delete removes the keyframe, mod+Z and
   // mod+shift+Z undo and redo, Enter sends (alt: to the background), Esc steps back. A field
   // keeps its own keys (Field). The window's own keys (mod+I, mod+L, …) go on to it.
   const onKey = (e: KeyboardEvent) => {
@@ -596,6 +597,10 @@ export function MotionDock() {
     if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && x.open) {
       done()
       return send({ type: "step", by: (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 0.1 : 0.01) })
+    }
+    if ((e.key === "ArrowUp" || e.key === "ArrowDown") && x.open && !pop()) {
+      done()
+      return send({ type: "go", by: e.key === "ArrowUp" ? -1 : 1 })
     }
     if (e.key === "Escape") {
       done()
@@ -637,6 +642,16 @@ export function MotionDock() {
   }
 
   const rowsHover = (id: string | null) => send({ type: "hover", id })
+  /** How many things there are to step through (as the overlay's "go" counts them: each element
+   *  that moves, not the row of a name several play, not what cannot be opened). */
+  const steps = () => {
+    const rows = v()?.rows ?? []
+    return rows.filter((r, i) => {
+      if ("group" in r || r.off || r.kind === "unused" || r.kind === "frames") return false
+      const next = rows[i + 1]
+      return r.sub || !(next && !("group" in next) && next.sub)
+    }).length
+  }
 
   return (
     <PopContext.Provider value={popCtx}>
@@ -697,6 +712,16 @@ export function MotionDock() {
                   <button type="button" class="icon-btn mdock-back" title="Everything that moves" aria-label="Everything that moves" onClick={() => send({ type: "back" })}>
                     <Icon name="back" />
                   </button>
+                  <Show when={open() && steps() > 1}>
+                    <div class="mdock-tools mdock-go">
+                      <button type="button" class="icon-btn" title="The one before (↑)" aria-label="The one before" onClick={() => send({ type: "go", by: -1 })}>
+                        <Icon name="up" />
+                      </button>
+                      <button type="button" class="icon-btn" title="The next one (↓)" aria-label="The next one" onClick={() => send({ type: "go", by: 1 })}>
+                        <Icon name="down" />
+                      </button>
+                    </div>
+                  </Show>
                   <Show when={open()}>
                     {(o) => <Header open={o()} view={v()!} />}
                   </Show>
@@ -884,7 +909,7 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
           class="text-btn mdock-solo"
           aria-pressed={props.view.isolate}
           disabled={!props.view.sel}
-          title="Show only this element"
+          title="Show only this element, in the middle of the page and large enough to look at"
           onClick={() => send({ type: "isolate", on: !props.view.isolate })}
         >
           Only this

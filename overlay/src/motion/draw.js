@@ -12,6 +12,7 @@ import { snapshot } from "./edit.js";
 import { tagEl } from "./input.js";
 import { modeOn, setMode } from "../mode.js";
 import { kick } from "../render.js";
+import { restage } from "./stage.js";
 
 // ── mode ─────────────────────────────────────────────────────────────────────────────────
 /** Motion mode's own part of switching it on or off. The switch is setMode (mode.js): it
@@ -34,6 +35,7 @@ export function setOn(on) {
   } else {
     letGo();
     M.isolate = false;
+    restage();
     M.drag = null;
     M.hover = null;
     M.rowEls = null;

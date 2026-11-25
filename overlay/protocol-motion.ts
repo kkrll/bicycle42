@@ -151,10 +151,13 @@ export type MotionAct =
   /** A field of the timing, or a choice of the "more" sheet: typed (done: false, the page shows
    *  it at once) or finished (done: true, one undo step). `how` is what starts it. */
   | { type: "timing"; what: "duration" | "delay" | "easing" | "count" | "direction" | "fill" | "how"; value: string; done: boolean }
-  /** While looking: the speed, playing it again and again, everything else hidden. */
+  /** While looking: the speed, playing it again and again, and the element alone: everything
+   *  else hidden, and it in the middle of the view, large enough to look at. */
   | { type: "rate"; rate: number }
   | { type: "loop"; on: boolean }
   | { type: "isolate"; on: boolean }
+  /** The next thing that moves (1) or the one before (-1), opened; round at the ends. */
+  | { type: "go"; by: 1 | -1 }
   | { type: "undo" }
   | { type: "redo" }
   /** The open animation as the page has it (a new one: taken off the element). */

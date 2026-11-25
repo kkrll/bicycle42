@@ -10,6 +10,7 @@ import { removeKey, travel } from "./edit.js";
 import { submit } from "./send.js";
 import { hostListen } from "./host.js";
 import { draw } from "./draw.js";
+import { go } from "./stage.js";
 import { setMode } from "../mode.js";
 import { block, isOurs } from "../input.js";
 import { kick } from "../render.js";
@@ -26,6 +27,8 @@ export function pointerDown(e) {
   if (e.button !== 0) return;
   const el = pick(e.clientX, e.clientY);
   if (root.activeElement && root.activeElement.blur) root.activeElement.blur();
+  // On the stage there is nothing else to press: a press beside the element keeps it.
+  if (!el && M.isolate && M.sel) return;
   selectEl(el);
 }
 /** A press let go on the page is kept from it, as the press was. */
@@ -48,7 +51,8 @@ export function pointerMove(e) {
 }
 
 /** Keys while motion mode is on and the page has the keyboard: what the host's dock does with
- *  its own (space plays, ←/→ step, Delete, mod+Z, Enter sends, Esc steps back). */
+ *  its own (space plays, ←/→ step, ↑/↓ the one before and the next, Delete, mod+Z, Enter sends,
+ *  Esc steps back). */
 export function key(e) {
   if (mod(e) && e.key.toLowerCase() === "z") {
     block(e);
@@ -72,6 +76,10 @@ export function key(e) {
     if (!M.open) return;
     block(e);
     return seek((position() ?? M.pos) + (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 0.1 : 0.01));
+  }
+  if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    block(e);
+    return go(e.key === "ArrowUp" ? -1 : 1);
   }
   if (e.key === "Escape") {
     block(e);

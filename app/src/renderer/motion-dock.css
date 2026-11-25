@@ -313,6 +313,11 @@
   margin-left: -8px;
 }
 
+/* the one before, the next: first in the header, beside the way back when there is one */
+.mdock-hd > .mdock-go {
+  margin: 0 -6px 0 -4px;
+}
+
 .mdock .mdock-rate,
 .mdock .mdock-solo {
   height: 28px;

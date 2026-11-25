@@ -6,6 +6,7 @@ import { apply, clamp, fromApi, M, mq, parseKf, pathOf, r1, readList, scan, seri
 import { commit, nameProblem, snapshot } from "./edit.js";
 import { draw, flash } from "./draw.js";
 import { kick } from "../render.js";
+import { restage } from "./stage.js";
 
 // ── opening one ──────────────────────────────────────────────────────────────────────────
 function baseFor(rs, el) {
@@ -27,7 +28,7 @@ export function show(open) {
   M.loopAt = 0;
   if (!open || open.kind === "css") M.ro = null;
   M.snap = snapshot();
-  apply();
+  restage(); // (applies: the rules, and where the stage puts what is open now)
   draw();
 }
 export function openCss(el, nm) {

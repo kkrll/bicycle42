@@ -51,6 +51,7 @@ export const M = {
   key: null, // the selected keyframe: { at, prop } (prop null: the whole keyframe)
   lanes: [], // the properties, in the order their lanes were first drawn
   isolate: false, rate: 1, loop: false, loopAt: 0, pos: 0,
+  stageCss: "", // where the isolated element is put and what is behind it, as rules (stage.js)
   past: [], future: [], snap: "",
   held: null, // the page's Animation object for what is open
   // What moves on the page, as last looked at; it holds the page's elements, so it is kept only
@@ -238,7 +239,7 @@ function rulesText() {
     out.push(`${rs}${BOOST} { animation: ${entries.filter(Boolean).map(entryCss).join(", ")}; }`);
   }
   if (M.on && M.ro && M.ro.on && M.ro.state) out.push(`${M.open.rs}${BOOST} { ${M.ro.state.css} }`);
-  if (M.on && M.isolate && M.selRs) out.push(`body *:not(${M.selRs}, ${M.selRs} *) { visibility: hidden !important; }`, `${M.selRs} { visibility: visible !important; }`);
+  if (M.on && M.isolate && M.selRs) out.push(`body *:not(${M.selRs}, ${M.selRs} *) { visibility: hidden !important; }`, `${M.selRs} { visibility: visible !important; }`, M.stageCss);
   return out.join("\n");
 }
 export function apply() {
