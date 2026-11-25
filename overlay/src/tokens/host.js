@@ -10,11 +10,13 @@
 // effect and no rule named are listed all the same, with nowhere to say they are from.
 //
 // A value the view sets is a rule in a stylesheet of the layer's own, adopted after the page's:
+// The view goes at once (putView), not with the next frame as a dock's does: the page is not
+// shown while its variables are, and a page that is not shown is given no frames.
 // for every selector that declares the variable (so a theme's rule does not win over it), and
 // `:root`. It is on the page until it is put back or the document goes.
 
 import { adopt, restyled } from "../page.js";
-import { hosted, onAct, onHosted, sendView } from "../panel.js";
+import { hosted, onAct, onHosted, putView } from "../panel.js";
 import { root } from "../mount.js";
 import { TOKEN_NAME } from "../canvas/suggest-model.js";
 import { colourOf, sizeOf, tokensOf } from "../canvas/tokens.js";
@@ -239,7 +241,7 @@ function look() {
     }
     tokens.push(t);
   }
-  sendView("tokens", { tokens, loose: looseOf(loose, tokens), unread, partial });
+  putView("tokens", { tokens, loose: looseOf(loose, tokens), unread, partial });
 }
 
 /** The literal values worth saying: those a variable already says, and those written often
@@ -319,7 +321,7 @@ function act(a) {
     case "stop":
       if (!T.want) return;
       T.want = false;
-      return sendView("tokens", null);
+      return putView("tokens", null);
     case "set":
       return setValue(a.name, a.value);
     case "reset":
@@ -334,5 +336,5 @@ onAct("tokens", act);
 // As the facts: a host whose view is up hears that nothing is read yet (null), and asks.
 onHosted("tokens", () => {
   if (!hosted("tokens")) T.want = false;
-  else if (!T.want) sendView("tokens", null);
+  else if (!T.want) putView("tokens", null);
 });

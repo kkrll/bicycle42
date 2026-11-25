@@ -519,7 +519,7 @@ export function DsSpace() {
       </Show>
       <div class="ds-body">
         <div class="ds-list">
-          <Show when={tab() === "suggestions"}>
+          <Show when={tab() === "suggestions" && view()}>
             <Show when={suggestions().length} fallback={<p class="ds-empty">Nothing to suggest: no value is written out where a variable would say it.</p>}>
               <ul class="ds-sugs">
                 <For each={suggestions()}>
@@ -562,6 +562,9 @@ export function DsSpace() {
                 </For>
               </ul>
             </Show>
+          </Show>
+          <Show when={!view()}>
+            <p class="ds-empty">Reading the page's stylesheets…</p>
           </Show>
           <Show when={tab() === "variables"}>
           <Show when={view() && !all().length}>

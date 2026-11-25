@@ -1647,6 +1647,15 @@ async function main() {
 
   // ── the page as a phone's: the switch beside the address ───────────────────────────────────
   const wide = page.view.getBounds()
+  // The page's design system in its place (Desktop | Phone | Design system): its variables are read
+  // though the page is not shown meanwhile (a page that is not shown is given no frames to send with).
+  await js(`(() => { const s = document.createElement("style"); s.id = "b42-ds-probe"; s.textContent = ":root{--b42-probe:#123456}"; document.head.append(s) })()`)
+  await ui(`document.querySelector('[data-device="ds"]').click()`)
+  const dsRead = await until(() => ui(`!!document.querySelector('.ds-swatch[title^="--b42-probe"]')`), 4000)
+  check("the design system's view lists the page's variables, with the page away", dsRead === true, String(await ui(`document.querySelector(".ds-list")?.textContent.slice(0, 120)`)))
+  await ui(`document.querySelector('[data-device="desktop"]').click()`)
+  await until(() => state().page.device === "desktop")
+  await js(`document.getElementById("b42-ds-probe")?.remove()`)
   await ui(`document.querySelector('[data-device="phone"]').click()`)
   // (The phone's shape, as large as life or as large as fits this window: never cut.)
   // (The page's box is the screen less the phone's status bar, which the window draws above it.)
