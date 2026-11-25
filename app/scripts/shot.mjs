@@ -63,7 +63,7 @@ const SHOTS = [
   // The page's design system in its place (ds-space.tsx): the list, and one colour chosen.
   { name: "ds", mock: "review", query: "&device=ds", wait: 500 },
   { name: "ds-colour", mock: "review", query: "&device=ds", run: [click('.ds-swatch[title^="--brand-500"]')], wait: 500 },
-  { name: "ds-suggest", mock: "review", query: "&device=ds", run: [click(".ds-tabs .device:nth-child(2)"), pause(100), click(".ds-sug:nth-child(1) .icon-btn"), click(".ds-sug:nth-child(3) .icon-btn")], wait: 500 },
+  { name: "ds-suggest", mock: "review", query: "&device=ds", run: [click(".ds-tabs .device:nth-child(2)"), pause(100), click(".ds-sug .icon-btn"), `document.querySelectorAll(".ds-sug .icon-btn")[2]?.click()`], wait: 500 },
   { name: "ds-size", mock: "review", query: "&device=ds", run: [click('.ds-row:nth-child(4)')], wait: 500 },
   { name: "connect", mock: "connect" },
   // The adapter's version under the command: Claude Code at its tested pin, Codex switched to the newest.

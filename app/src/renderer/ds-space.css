@@ -762,3 +762,17 @@
 .ds-sug-title {
   font-family: inherit;
 }
+
+/* Suggestions under their headings: the first few of each, and the rest on asking. */
+.ds-sugs {
+  padding-top: 0;
+}
+
+.ds-more {
+  margin: 4px 0 0 40px;
+  color: var(--muted);
+}
+
+.ds-more:hover {
+  color: var(--foreground);
+}

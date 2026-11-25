@@ -93,6 +93,8 @@ const KINDS: Array<{ kind: TokenKind; title: string }> = [
 // for the agent, sent with the rest when it is picked.
 type Suggestion = {
   id: string
+  /** The heading it is listed under. */
+  group: string
   /** Colours to draw before the words. */
   swatches: string[]
   title: string
@@ -109,7 +111,8 @@ const code = (s: string) => `\`${s}\``
 const rules = (n: number) => `${n} ${n === 1 ? "rule" : "rules"}`
 /** `var(--other)` and nothing else: the variable is another one's name for the same value. */
 const aliasOf = (t: Token) => t.where.length > 0 && t.where.every((w) => /^var\(\s*--[\w-]+\s*\)$/.test(w.value))
-const familyOf = (t: Token) => STEP.exec(t.name)?.[1] ?? t.name
+/** A colour's own name, as a palette's steps are called (--grey-100, --brand-blue-500). */
+const HUE = /^(gr[ae]y|white|black|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|magenta|pink|rose|slate|zinc|neutral|stone|sand|brown|gold|silver|mint|navy|coral|peach|olive|cream|ink|mono)$/i
 
 function suggest(tokens: readonly Token[], loose: readonly LooseValue[]): Suggestion[] {
   const out: Suggestion[] = []
@@ -122,6 +125,7 @@ function suggest(tokens: readonly Token[], loose: readonly LooseValue[]): Sugges
     if (l.tokens.length)
       out.push({
         id: `use ${l.kind} ${l.value}`,
+        group: "Written out where a variable says it",
         short: `${l.value} → ${l.tokens[0]}`,
         swatches,
         title: `${l.value} is written out in ${rules(l.rules)}; ${l.tokens[0]} says it`,
@@ -132,6 +136,7 @@ function suggest(tokens: readonly Token[], loose: readonly LooseValue[]): Sugges
     else
       out.push({
         id: `add ${l.kind} ${l.value}`,
+        group: "Written out, and no variable says it",
         short: `${l.value}: ${l.kind === "colour" ? "a new variable" : "onto the scale"}`,
         swatches,
         title: `${l.value} is written out in ${rules(l.rules)}, and no variable says it`,
@@ -140,44 +145,104 @@ function suggest(tokens: readonly Token[], loose: readonly LooseValue[]): Sugges
         names: [],
       })
   }
-  // Two variables, one colour (neither another's name for it), or nearly one: not two steps of a ramp.
-  const colours = tokens.filter((t) => t.kind === "colour" && !t.local && t.set === undefined && !aliasOf(t)).slice(0, 400)
-  const labs = colours.map((t) => {
+  // Colours that are one colour under several names. Counted a colour, not a pair (a white with
+  // ten names is one line, not forty-five), and by what the names are: a palette's own (--grey-100,
+  // a numbered step of a colour's name, or one other variables refer to) or a name for a use
+  // (--status-neutral). A use that writes a palette colour out could refer to it; two palette
+  // names for one colour are one too many; uses that share a colour the palette lacks may want it there.
+  const referred = new Set<string>()
+  for (const t of tokens) for (const w of t.where) for (const m of w.value.matchAll(/var\(\s*(--[\w-]+)/g)) referred.add(m[1]!)
+  const palette = (t: Token) => {
+    const m = STEP.exec(t.name)
+    return (!!m && HUE.test(m[1]!.split(/[-_]/).pop() ?? "")) || (referred.has(t.name) && !aliasOf(t))
+  }
+  type Lab = { l: number; a: number; b: number }
+  const colours = tokens.filter((t) => t.kind === "colour" && !t.local && t.set === undefined && !aliasOf(t)).slice(0, 2000)
+  const byColour = new Map<string, { tokens: Token[]; lab: Lab; alpha: number }>()
+  for (const t of colours) {
     const c = rgbOf(cssOf(t))
-    return c ? { ...toOklab(c), alpha: c.a } : null
-  })
+    if (!c) continue
+    const key = [c.r, c.g, c.b, c.a].map((x) => Math.round(x * 255)).join(",")
+    const at = byColour.get(key) ?? { tokens: [], lab: toOklab(c), alpha: c.a }
+    at.tokens.push(t)
+    byColour.set(key, at)
+  }
+  const list = (names: string[], max = 12) => names.slice(0, max).map(code).join(", ") + (names.length > max ? ` and ${names.length - max} more` : "")
+  const alone: Array<{ uses: Token[]; lab: Lab; alpha: number }> = []
+  const steps: Array<{ t: Token; lab: Lab; alpha: number }> = []
+  for (const g of byColour.values()) {
+    const own = g.tokens.filter(palette)
+    // (Only a use a readable rule writes out: of the others it is not known how they are written.)
+    const uses = g.tokens.filter((t) => !palette(t) && t.where.length > 0)
+    const value = g.tokens[0]!.value
+    for (const t of own) steps.push({ t, lab: g.lab, alpha: g.alpha })
+    if (own.length > 1)
+      out.push({
+        id: `same ${own.map((t) => t.name).join(" ")}`,
+        group: "One colour, two names in the palette",
+        short: `${own[0]!.name} = ${own[1]!.name}${own.length > 2 ? "…" : ""}`,
+        swatches: [cssOf(own[0]!)],
+        title: `${own.map((t) => t.name).join(", ")} are the same colour`,
+        detail: value,
+        say: `${list(own.map((t) => t.name))} are the same colour (${code(value)}): keep one, or make the others refer to it with var().`,
+        names: own.map((t) => t.name),
+      })
+    if (own.length && uses.length)
+      out.push({
+        id: `refer ${own[0]!.name}`,
+        group: "A palette colour written out again",
+        short: `${uses.length} → ${own[0]!.name}`,
+        swatches: [cssOf(own[0]!)],
+        title: `${uses.length === 1 ? `${uses[0]!.name} writes` : `${uses.length} variables write`} out ${value}, which is ${own[0]!.name}`,
+        detail: "",
+        say: `${list(uses.map((t) => t.name), 40)} ${uses.length === 1 ? "writes" : "write"} out ${code(value)}, which is ${code(own[0]!.name)}: make ${uses.length === 1 ? "it" : "them"} refer to it, ${code(`var(${own[0]!.name})`)}, unless the build writes the values in on purpose.`,
+        names: uses.map((t) => t.name),
+      })
+    if (!own.length && uses.length) alone.push({ uses, lab: g.lab, alpha: g.alpha })
+  }
+  // A use's colour the palette does not have: a hair off one it has (likely a slip), or shared
+  // by three uses or more (likely a colour the palette wants).
   let near = 0
-  for (let i = 0; i < colours.length; i++)
-    for (let j = i + 1; j < colours.length; j++) {
-      const a = labs[i], b = labs[j]
-      if (!a || !b || Math.abs(a.alpha - b.alpha) > 0.01) continue
-      const d = Math.hypot(a.l - b.l, a.a - b.a, a.b - b.b)
-      const x = colours[i]!, y = colours[j]!
-      if (d < 0.0015)
-        out.push({
-          id: `same ${x.name} ${y.name}`,
-          short: `${x.name} = ${y.name}`,
-          swatches: [cssOf(x)],
-          title: `${x.name} and ${y.name} are the same colour`,
-          detail: x.value,
-          say: `${code(x.name)} and ${code(y.name)} are the same colour (${code(x.value)}): keep one, or make one refer to the other with var().`,
-          names: [x.name, y.name],
-        })
-      else if (d < 0.02 && familyOf(x) !== familyOf(y) && near++ < 12)
-        out.push({
-          id: `near ${x.name} ${y.name}`,
-          short: `${x.name} ≈ ${y.name}`,
-          swatches: [cssOf(x), cssOf(y)],
-          title: `${x.name} and ${y.name} are almost the same colour`,
-          detail: `${x.value} · ${y.value}`,
-          say: `${code(x.name)} (${code(x.value)}) and ${code(y.name)} (${code(y.value)}) are almost the same colour: make them one if the difference is not meant.`,
-          names: [x.name, y.name],
-        })
+  for (const g of alone) {
+    let best: (typeof steps)[number] | undefined
+    let d = 0.02
+    for (const s of steps) {
+      if (Math.abs(s.alpha - g.alpha) > 0.01) continue
+      const x = Math.hypot(s.lab.l - g.lab.l, s.lab.a - g.lab.a, s.lab.b - g.lab.b)
+      if (x < d) {
+        d = x
+        best = s
+      }
     }
+    const names = g.uses.map((t) => t.name), value = g.uses[0]!.value
+    if (best && near++ < 40)
+      out.push({
+        id: `near ${names[0]} ${best.t.name}`,
+        group: "A hair off a palette colour",
+        short: `${names[0]} ≈ ${best.t.name}`,
+        swatches: [cssOf(g.uses[0]!), cssOf(best.t)],
+        title: `${names.length === 1 ? names[0] : `${names.length} variables`} (${value}) ${names.length === 1 ? "is" : "are"} almost ${best.t.name} (${best.t.value})`,
+        detail: "",
+        say: `${list(names)} (${code(value)}) ${names.length === 1 ? "is" : "are"} almost ${code(best.t.name)} (${code(best.t.value)}): use the palette's colour if the difference is not meant.`,
+        names: [...names, best.t.name],
+      })
+    else if (!best && names.length >= 3)
+      out.push({
+        id: `lack ${names[0]}`,
+        group: "A colour the palette does not have",
+        short: `${names.length} share ${value}`,
+        swatches: [cssOf(g.uses[0]!)],
+        title: `${names.length} variables are ${value}, and the palette has no such colour`,
+        detail: "",
+        say: `${list(names)} are all ${code(value)}, which no palette variable has: add it to the palette and make them refer to it, if it is one colour of the design.`,
+        names,
+      })
+  }
   const unused = tokens.filter((t) => !t.uses && !t.local && t.where.length > 0)
   if (unused.length)
     out.push({
       id: "unused",
+      group: "Not used",
       short: `${unused.length} unused`,
       swatches: [],
       title: `No rule uses ${unused.length === 1 ? unused[0]!.name : `${unused.length} variables`}`,
@@ -386,6 +451,14 @@ export function DsSpace() {
   /** Variables | Suggestions: what the list shows. */
   const [tab, setTab] = createSignal<"variables" | "suggestions">("variables")
   const suggestions = createMemo(() => suggest(all(), view()?.loose ?? []))
+  /** Under their headings, in the order they were worked out; a heading shows its first few. */
+  const FEW = 5
+  const sugGroups = createMemo(() => {
+    const by = new Map<string, Suggestion[]>()
+    for (const x of suggestions()) by.set(x.group, [...(by.get(x.group) ?? []), x])
+    return [...by].map(([title, list]) => ({ title, all: list }))
+  })
+  const [wide, setWide] = createSignal<ReadonlySet<string>>(new Set())
   /** The suggestions picked for the agent, by id; and those it was told. */
   const [picked, setPicked] = createSignal<ReadonlySet<string>>(new Set())
   const [said, setSaid] = createSignal<ReadonlySet<string>>(new Set())
@@ -521,46 +594,63 @@ export function DsSpace() {
         <div class="ds-list">
           <Show when={tab() === "suggestions" && view()}>
             <Show when={suggestions().length} fallback={<p class="ds-empty">Nothing to suggest: no value is written out where a variable would say it.</p>}>
-              <ul class="ds-sugs">
-                <For each={suggestions()}>
-                  {(x) => (
-                    <li class="ds-sug" classList={{ picked: picked().has(x.id) }}>
-                      <span class="ds-sug-swatches">
-                        <For each={x.swatches}>{(c) => <i style={{ "--c": c }} />}</For>
-                      </span>
-                      <div class="ds-sug-words">
-                        <p class="ds-sug-title">{x.title}</p>
-                        <Show when={x.names.length} fallback={<p class="ds-sug-detail">{x.detail}</p>}>
-                          <p class="ds-sug-detail">
-                            <For each={x.names}>
-                              {(n) => (
-                                <button type="button" class="ds-sug-name" onClick={() => setChosen(n)}>
-                                  {n}
-                                </button>
-                              )}
-                            </For>
-                            <Show when={x.id.startsWith("use ")}>
-                              <span>{x.detail}</span>
+              <For each={sugGroups()}>
+                {(g) => (
+                  <section class="ds-section">
+                    <h3 class="ds-section-title">
+                      {g.title} <span class="ds-count">{g.all.length}</span>
+                    </h3>
+                    <ul class="ds-sugs">
+                      <For each={wide().has(g.title) ? g.all : g.all.slice(0, FEW)}>
+                        {(x) => (
+                          <li class="ds-sug" classList={{ picked: picked().has(x.id) }}>
+                            <span class="ds-sug-swatches">
+                              <For each={x.swatches}>{(c) => <i style={{ "--c": c }} />}</For>
+                            </span>
+                            <div class="ds-sug-words">
+                              <p class="ds-sug-title">{x.title}</p>
+                              <Show when={x.names.length} fallback={<p class="ds-sug-detail">{x.detail}</p>}>
+                                <p class="ds-sug-detail">
+                                  <For each={x.names.slice(0, 12)}>
+                                    {(n) => (
+                                      <button type="button" class="ds-sug-name" onClick={() => setChosen(n)}>
+                                        {n}
+                                      </button>
+                                    )}
+                                  </For>
+                                  <Show when={x.names.length > 12}>
+                                    <span>+{x.names.length - 12} more</span>
+                                  </Show>
+                                  <Show when={x.id.startsWith("use ")}>
+                                    <span>{x.detail}</span>
+                                  </Show>
+                                </p>
+                              </Show>
+                            </div>
+                            <Show when={!said().has(x.id)} fallback={<span class="ds-sug-sent">Sent</span>}>
+                              <button
+                                type="button"
+                                class="icon-btn"
+                                aria-pressed={picked().has(x.id)}
+                                aria-label={picked().has(x.id) ? "Take out of what is sent" : "Add to what is sent"}
+                                title={picked().has(x.id) ? "Take out of what is sent" : "Add to what is sent"}
+                                onClick={() => pick(x.id)}
+                              >
+                                <Icon name={picked().has(x.id) ? "check" : "plus"} />
+                              </button>
                             </Show>
-                          </p>
-                        </Show>
-                      </div>
-                      <Show when={!said().has(x.id)} fallback={<span class="ds-sug-sent">Sent</span>}>
-                        <button
-                          type="button"
-                          class="icon-btn"
-                          aria-pressed={picked().has(x.id)}
-                          aria-label={picked().has(x.id) ? "Take out of what is sent" : "Add to what is sent"}
-                          title={picked().has(x.id) ? "Take out of what is sent" : "Add to what is sent"}
-                          onClick={() => pick(x.id)}
-                        >
-                          <Icon name={picked().has(x.id) ? "check" : "plus"} />
-                        </button>
-                      </Show>
-                    </li>
-                  )}
-                </For>
-              </ul>
+                          </li>
+                        )}
+                      </For>
+                    </ul>
+                    <Show when={g.all.length > FEW}>
+                      <button type="button" class="text-btn ds-more" onClick={() => setWide((w) => { const n = new Set(w); if (!n.delete(g.title)) n.add(g.title); return n })}>
+                        {wide().has(g.title) ? "Show fewer" : `Show all ${g.all.length}`}
+                      </button>
+                    </Show>
+                  </section>
+                )}
+              </For>
             </Show>
           </Show>
           <Show when={!view()}>

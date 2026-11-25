@@ -198,7 +198,8 @@ function look() {
     if (!text.includes("var(")) return;
     const names = new Set();
     for (const m of text.matchAll(USES)) names.add(m[1]);
-    for (const name of names) if (found.has(name) || TOKEN_NAME.test(name)) entry(name).uses++;
+    // (Tailwind's own --tw-* are its plumbing, here as where they are declared.)
+    for (const name of names) if (!name.startsWith("--tw-") && (found.has(name) || TOKEN_NAME.test(name))) entry(name).uses++;
   });
   // What the root element has in effect: the value each comes to, and the variables no readable
   // rule declared.
