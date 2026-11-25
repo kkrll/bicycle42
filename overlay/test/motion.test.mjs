@@ -255,7 +255,7 @@ test("Esc on the page steps back: the keyframe, the animation, then notes mode; 
   const { page, f, errors } = await open();
   await clickEl(page, f, ".sync .spinner");
   const o = (await view(page, "v.open && v.open.lanes.length > 0")).open;
-  await act(page, { type: "select", key: { at: o.lanes[0].keys[0].at, prop: o.lanes[0].prop } });
+  await act(page, { type: "select", key: { at: o.lanes[0].keys.find((k) => !k.implied).at, prop: o.lanes[0].prop } });
   await view(page, "v.open.key");
   assert.equal(await f.evaluate(() => document.querySelector(".spinner").getAnimations()[0].playState), "paused");
   await focusPage(page);

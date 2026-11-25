@@ -41,6 +41,7 @@ const MPATHS = {
   loop: "M4.5 11.25V10.5a4.5 4.5 0 0 1 4.5-4.5h10.5M16.5 3l3 3-3 3M19.5 12.75v.75a4.5 4.5 0 0 1-4.5 4.5H4.5M7.5 21l-3-3 3-3",
   undo: "M9 5.25 4.5 9.75l4.5 4.5M4.5 9.75h9.375a4.875 4.875 0 0 1 0 9.75H10.5",
   more: "M5.25 12h.01M12 12h.01M18.75 12h.01",
+  solo: "M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M9.5 9.5h5v5h-5z",
   contrast: "M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18ZM12 3v18M12 7.5l5.6-2M12 12h9M12 16.5l5.6 2",
   link: "M10.5 13.5a3.75 3.75 0 0 0 5.25 0l3-3A3.75 3.75 0 0 0 13.5 5.25l-.75.75M13.5 10.5a3.75 3.75 0 0 0-5.25 0l-3 3a3.75 3.75 0 0 0 5.25 5.25l.75-.75",
 } as const
@@ -406,7 +407,7 @@ export function MotionDock() {
     const d = drag(), o = open()
     if (!d || !d.done || !o) return
     const lane = d.prop === null ? null : o.lanes.find((l) => l.prop === d.prop)
-    if (d.prop === null ? o.frames.includes(d.to) : lane?.keys.some((k) => k.at === d.to)) setDrag(null)
+    if (d.prop === null ? o.frames.includes(d.to) : lane?.keys.some((k) => !k.implied && k.at === d.to)) setDrag(null)
   })
   createEffect(() => {
     const s = scrub(), p = v()?.clock.pos ?? null
@@ -488,8 +489,8 @@ export function MotionDock() {
       return { lanes, frames: d.frames.map((f) => (f === d.from ? to : f)).sort((a, b) => a - b) }
     }
     const lane = d.lanes.find((l) => l.prop === d.prop)
-    if (!lane || lane.keys.some((k) => k.at === to && k.at !== d.from)) return null
-    const lanes = d.lanes.map((l) => (l !== lane ? l : { ...l, keys: l.keys.map((k) => (k.at === d.from ? { ...k, at: to } : k)).sort((a, b) => a.at - b.at) }))
+    if (!lane || lane.keys.some((k) => !k.implied && k.at === to && k.at !== d.from)) return null
+    const lanes = d.lanes.map((l) => (l !== lane ? l : { ...l, keys: l.keys.filter((k) => !(k.implied && k.at === to)).map((k) => (k.at === d.from && !k.implied ? { ...k, at: to } : k)).sort((a, b) => a.at - b.at) }))
     return { lanes, frames: [...new Set(lanes.flatMap((l) => l.keys.map((k) => k.at)))].sort((a, b) => a - b) }
   }
   let base: Drag | null = null
@@ -682,7 +683,7 @@ export function MotionDock() {
                       data-row={r.id}
                       role="listitem"
                       aria-disabled={r.off}
-                      title={r.sub ? "" : `${r.kind === "unused" && v()!.partial ? "Keyframes nothing was seen to play" : KIND_TITLE[r.kind]}${r.running ? ", playing" : ""}`}
+                      title={r.sub ? "" : `${r.kind === "unused" && r.aside ? `Keyframes that play on ${r.aside}, which nothing is now` : r.kind === "unused" && v()!.partial ? "Keyframes nothing was seen to play" : KIND_TITLE[r.kind]}${r.running ? ", playing" : ""}`}
                       onPointerEnter={() => rowsHover(r.id)}
                       onClick={() => !r.off && send({ type: "row", id: r.id })}
                     >
@@ -753,6 +754,7 @@ export function MotionDock() {
                           sel={selKey()}
                           pos={pos()}
                           playing={v()!.clock.playing}
+                          wait={v()!.clock.wait}
                           flipped={v()!.clock.on}
                           props={v()!.choices.props}
                           onLane={() => wantFocus("[data-kval]")}
@@ -907,12 +909,13 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
         </button>
         <button
           type="button"
-          class="text-btn mdock-solo"
+          class="btn mdock-solo"
           aria-pressed={props.view.isolate}
           disabled={!props.view.sel}
           title="Show only this element, in the middle of the page and large enough to look at"
           onClick={() => send({ type: "isolate", on: !props.view.isolate })}
         >
+          <MIcon name="solo" />
           Only this
         </button>
         <Show when={props.view.isolate && props.view.sel}>
@@ -1081,6 +1084,7 @@ function Timeline(props: {
   sel: { at: number; prop: string | null } | null
   pos: number | null
   playing: boolean
+  wait: number | null
   flipped: boolean
   props: string[]
   onLane: () => void
@@ -1108,6 +1112,16 @@ function Timeline(props: {
           >
             <MIcon name={props.playing ? "pause" : "play"} />
           </button>
+          <Show when={!tr() && props.open.timing.delay > 0}>
+            <span
+              class="mdock-wait"
+              classList={{ on: props.wait !== null }}
+              style={{ "--w": props.wait ?? 0 }}
+              title={`It waits ${props.open.timing.delay}ms before it starts (its delay); the timeline is what follows`}
+            >
+              {secs(props.open.timing.delay)} wait
+            </span>
+          </Show>
         </div>
         <div class="mdock-trk" data-ruler>
           <For each={ticks()}>
@@ -1186,6 +1200,14 @@ function Timeline(props: {
               </div>
               <div class="mdock-trk">
                 <div class="mdock-kspan" data-lane={lane.prop}>
+                  <Show when={lane.keys.length > 0}>
+                    <span class="mdock-vals" aria-hidden="true">
+                      <b>{lane.keys[0]!.value}</b>
+                      <Show when={lane.keys.length > 1}>
+                        <b>{lane.keys[lane.keys.length - 1]!.value}</b>
+                      </Show>
+                    </span>
+                  </Show>
                   <Show when={lane.keys.length === 1}>
                     <i class="mdock-sb solo" classList={{ on: on(lane.keys[0]!.at, lane.prop) }} style={{ "--fa": lane.keys[0]!.at / 100, "--fb": lane.keys[0]!.at / 100, "--l": "-10px", "--r": "10px" }} />
                   </Show>
@@ -1197,10 +1219,10 @@ function Timeline(props: {
                       return (
                         <i
                           class="mdock-sb"
-                          classList={{ on: on(k.at, lane.prop), flat: k.value === next().value }}
-                          data-seg={k.at}
-                          data-at={k.at}
-                          data-prop={lane.prop}
+                          classList={{ on: !k.implied && on(k.at, lane.prop), flat: k.value === next().value, said: !k.implied }}
+                          data-seg={k.implied ? undefined : k.at}
+                          data-at={k.implied ? undefined : k.at}
+                          data-prop={k.implied ? undefined : lane.prop}
                           title={lane.eases[i()] ?? ""}
                           style={{
                             "--fa": k.at / 100,
@@ -1213,7 +1235,17 @@ function Timeline(props: {
                     }}
                   </For>
                   <For each={lane.keys}>
-                    {(k) => <i class="mdock-key gr" classList={{ on: on(k.at, lane.prop) }} style={{ "--at": k.at / 100 }} data-at={k.at} data-prop={lane.prop} title={k.value} />}
+                    {(k) =>
+                      k.implied ? (
+                        <i
+                          class="mdock-ghost"
+                          style={{ "--at": k.at / 100 }}
+                          title={`${k.value}: the element’s own value. The keyframes do not say where ${lane.prop} ${k.at ? "ends" : "starts"}; press twice here to make it a keyframe`}
+                        />
+                      ) : (
+                        <i class="mdock-key gr" classList={{ on: on(k.at, lane.prop) }} style={{ "--at": k.at / 100 }} data-at={k.at} data-prop={lane.prop} title={k.value} />
+                      )
+                    }
                   </For>
                 </div>
               </div>

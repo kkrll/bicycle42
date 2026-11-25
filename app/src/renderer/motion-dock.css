@@ -318,10 +318,23 @@
   margin: 0 -6px 0 -4px;
 }
 
-.mdock .mdock-rate,
-.mdock .mdock-solo {
+.mdock .mdock-rate {
   height: 28px;
   text-decoration: none;
+}
+
+/* "Only this": a switch with its name on it, not one more word in the row; on, it is filled. */
+.mdock .mdock-solo {
+  height: 28px;
+  gap: 6px;
+  padding: 0 10px 0 8px;
+  margin-left: 4px;
+}
+
+.mdock .mdock-solo[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--background);
 }
 
 .mdock .mdock-rate {
@@ -707,6 +720,69 @@
 .mdock-sb.on {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* a keyframe the keyframes do not have: where the property starts from, or ends at, the
+   element's own value. Hollow, and not to be taken hold of. */
+.mdock-ghost {
+  position: absolute;
+  left: calc(100% * var(--at));
+  top: 50%;
+  z-index: 1;
+  width: 6px;
+  height: 12px;
+  margin: -6px 0 0 -3px;
+  border: 1px dashed var(--muted);
+  border-radius: 2px;
+}
+
+.mdock-sb:not(.said) {
+  background: none;
+  box-shadow: none;
+  outline: 1px dashed color-mix(in srgb, var(--foreground) 22%, transparent);
+  outline-offset: -1px;
+}
+
+/* what the lane goes from and to, in words: at its two ends, under the grips */
+.mdock-vals {
+  position: absolute;
+  inset: 0 14px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  color: var(--muted);
+  font: 400 11px/1 var(--font-mono);
+  pointer-events: none;
+}
+
+.mdock-vals b {
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mdock-vals b:only-child {
+  margin-left: auto;
+}
+
+/* the delay: beside Play, filling while it is waited out */
+.mdock-wait {
+  margin-left: auto;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: linear-gradient(to right, color-mix(in srgb, var(--accent) 35%, transparent) calc(100% * var(--w)), color-mix(in srgb, var(--foreground) 8%, transparent) 0);
+  color: var(--muted);
+  font: 400 11px/1 var(--font-mono);
+  white-space: nowrap;
+}
+
+.mdock-wait.on {
+  color: var(--foreground);
 }
 
 .mdock-key.gr {

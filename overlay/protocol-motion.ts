@@ -47,8 +47,11 @@ export type MotionRow =
     }
 
 /** One property's lane: its keyframes in order, and between each two the easing of that stretch
- *  (`eases[i]` runs from `keys[i]` to `keys[i + 1]`). */
-export type MotionLane = { prop: string; keys: Array<{ at: number; value: string }>; eases: string[] }
+ *  (`eases[i]` runs from `keys[i]` to `keys[i + 1]`). A key that is `implied` is not in the
+ *  keyframes: they do not say where the property starts (or ends), so it starts from the
+ *  element's own value, which is what the key says. It is drawn, not selected or dragged; a
+ *  keyframe added there (addKey) makes it one. */
+export type MotionLane = { prop: string; keys: Array<{ at: number; value: string; implied?: boolean }>; eases: string[] }
 
 /** The selected keyframe: one property's (`prop`), or the whole keyframe (`prop` null, then
  *  `value` is null and `props` says how many properties it sets). `ease` is its own easing, ""
@@ -89,9 +92,10 @@ export type MotionOpen = {
 }
 
 /** The playhead: where the open animation is (0…1 along its keyframes; null when the page has no
- *  frame of it to show), whether it plays, and for a transition whether its state is switched on.
+ *  frame of it to show), whether it plays, for a transition whether its state is switched on, and
+ *  while it waits out its delay how far through it is (`wait`, 0…1; null when it does not wait).
  *  The overlay sends a whole view whenever this changes, at most once a frame while it plays. */
-export type MotionClock = { pos: number | null; playing: boolean; on: boolean }
+export type MotionClock = { pos: number | null; playing: boolean; on: boolean; wait: number | null }
 
 /** The words of the choices the dock offers, the overlay's (so the host never has a
  *  different list): `[value, label, what it means]`. */

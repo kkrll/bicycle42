@@ -269,7 +269,7 @@ export function cssText() {
   const k = openKf();
   if (k) return serialize(k.name, k.frames);
   if (M.ro && M.open.kind === "script") return serialize(M.open.name, M.ro.frames);
-  if (M.ro && M.open.kind === "transition") return `${editSel(M.sel)} {\n  transition: ${M.ro.items.map((x) => `${x.prop} ${ms(x.duration)} ${x.easing}`).join(",\n    ")};\n}`;
+  if (M.ro && M.open.kind === "transition") return `${editSel(M.sel)} {\n  transition: ${M.ro.items.map((x) => `${x.prop} ${ms(x.duration)} ${x.easing}${x.delay ? ` ${ms(x.delay)}` : ""}`).join(",\n    ")};\n}`;
   return "";
 }
 export function setCss(text) {
@@ -382,6 +382,9 @@ export function rows() {
       duration: +a.effect.getTiming().duration || 0, open: () => openScript(a) });
   for (const el of M.suspects)
     if (el.isConnected) out.push({ kind: "frames", els: [el], path: pathOf(el), text: name(el, true), aside: "per frame", duration: null, open: () => {} });
+  // Keyframes a rule of the page plays, though no element does now: in a state, on a ::before.
+  if (found.idle.length) out.push({ group: "Not playing now" });
+  for (const x of found.idle) out.push({ kind: "unused", els: [], path: "", text: x.name, aside: x.on.length > 60 ? `${x.on.slice(0, 59)}…` : x.on, duration: null, open: () => useKf(x.name) });
   // (A page looked at in part: what no element was seen to play may be played further down.)
   if (found.unused.length) out.push({ group: found.partial ? "Not seen playing" : "Unused" });
   for (const n of found.unused) out.push({ kind: "unused", els: [], path: "", text: n, aside: "", duration: null, open: () => useKf(n) });

@@ -1526,7 +1526,7 @@ const MOTION: MotionView = {
   note: "",
   msg: "",
   status: "",
-  clock: { pos: 0.42, playing: false, on: false },
+  clock: { pos: 0.42, playing: false, on: false, wait: null },
   choices: {
     easings: ["linear", "ease", "ease-in", "ease-out", "ease-in-out", "cubic-bezier(0.2, 0.8, 0.2, 1)", "cubic-bezier(0.34, 1.56, 0.64, 1)", "steps(4, end)"], // kkrll-ignore: CSS easings the page is offered, as data
     props: ["translate", "scale", "rotate", "background-color", "color", "filter", "clip-path", "width", "height"],

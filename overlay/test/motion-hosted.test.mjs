@@ -172,7 +172,7 @@ test("hosted: each act changes the page and the next view; undo takes it back", 
   for (const to of [95, 85, 75, 60]) await act(page, { type: "drag", to });
   await act(page, { type: "drop" });
   w = await view(page, "v.open.key && v.open.key.at === 60");
-  assert.deepEqual(w.open.lanes.find((l) => l.prop === "opacity").keys.map((k) => k.at), [0, 60]);
+  assert.deepEqual(w.open.lanes.find((l) => l.prop === "opacity").keys.filter((k) => !k.implied).map((k) => k.at), [0, 60]);
   assert.match(await adopted(f), /@keyframes rise \{[^]*?60% \{ opacity: 1; \}/);
   // its value
   await act(page, { type: "key", what: "val", value: "0.6", done: true });
@@ -601,6 +601,48 @@ test("hosted: on the stage the backdrop is the page's until a light or dark one 
   assert.equal(await bg(), own);
   await frames(f, 3);
   assert.equal(await f.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelectorAll(".box.mrow").length), 2);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted: where the keyframes do not say how a property starts, its lane has the element's own value as an implied key", async () => {
+  const { page, errors, v } = await open();
+  await act(page, { type: "row", id: rowId(v, "spin") });
+  const o = (await view(page, "v.open && v.open.name === 'spin'")).open;
+  // @keyframes spin { to { rotate: 360deg } }
+  assert.deepEqual(o.lanes.map((l) => [l.prop, l.keys.map((k) => [k.at, !!k.implied])]), [["rotate", [[0, true], [100, false]]]]);
+  assert.match(o.lanes[0].keys[0].value, /none|0deg/);
+  assert.equal(o.lanes[0].eases.length, 1);
+  assert.deepEqual(o.frames, [100]);
+  assert.doesNotMatch(o.css, /\s0%/);
+  // a keyframe added there is one of the keyframes: no longer implied
+  await act(page, { type: "addKey", prop: "rotate", at: 0 });
+  const w = (await view(page, "v.open.frames.length === 2")).open;
+  assert.deepEqual(w.lanes[0].keys.map((k) => [k.at, !!k.implied]), [[0, false], [100, false]]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted: keyframes a rule plays in a state are not unused; a scroll-driven animation is sought without an error; a transition nothing explains says so", async () => {
+  const { page, f, errors, v } = await open({ before: `
+    const s = document.createElement("style");
+    s.textContent = ":root { --shake: wiggle 1s infinite; } .cards:hover .card h3 { animation: var(--shake); } @keyframes grow { from { scale: 0.5 } to { scale: 1 } } .ghost { animation: grow linear both; animation-timeline: view(); } nav { transition: opacity 300ms; }";
+    document.head.appendChild(s);
+    document.querySelector(".ghost").classList.add("ghost");
+  ` });
+  const names = v.rows.map((r) => (r.group ? `#${r.group}` : `${r.text}|${r.aside}`));
+  assert.ok(names.includes("#Not playing now") && names.includes("wiggle|.cards:hover .card h3"), names.join(" "));
+  assert.ok(!names.includes("#Unused"), names.join(" "));
+  await act(page, { type: "row", id: rowId(v, "grow") });
+  await view(page, "v.open && v.open.name === 'grow'");
+  await act(page, { type: "seek", p: 0.5 });
+  await frames(f, 3);
+  assert.ok(Math.abs(await f.evaluate(() => +getComputedStyle(document.querySelector(".ghost")).scale) - 0.75) < 0.02);
+  // the nav's opacity transition: no rule of the page says what changes it
+  await act(page, { type: "row", id: v.rows.find((r) => r.kind === "transition" && r.aside === "opacity").id });
+  await view(page, "v.open && v.open.kind === 'transition'");
+  await act(page, { type: "play" });
+  assert.match((await view(page, "v.msg !== ''")).msg, /Nothing in the page’s CSS says what changes this/);
   assert.deepEqual(errors, []);
   await page.close();
 });

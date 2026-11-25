@@ -18,7 +18,7 @@
 import { BOOST } from "../page.js";
 import { apply, clamp, M, mq, pathOf } from "./model.js";
 import { flash } from "./draw.js";
-import { animOf, reveal } from "./open.js";
+import { animOf, reveal, scrolled } from "./open.js";
 import { rowNow, rows } from "./edit.js";
 
 /** How much of the view the motion may fill, how long the longer side of a small element is made
@@ -33,7 +33,7 @@ function bounds(el) {
   const o = M.open, a = o && o.kind !== "transition" ? animOf() : null;
   // (A script's animation that has ended is left alone: seeking it would end it once more, and
   // its script would hear that.)
-  if (a && a.effect && a.currentTime !== null && (o.kind === "css" || a.playState === "running" || a.playState === "paused")) {
+  if (a && a.effect && a.currentTime !== null && !scrolled(a) && (o.kind === "css" || a.playState === "running" || a.playState === "paused")) {
     const t = a.effect.getComputedTiming(), was = a.currentTime, dur = +t.duration || 0;
     try {
       for (const p of SAMPLES) {

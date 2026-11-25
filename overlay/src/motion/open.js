@@ -221,6 +221,9 @@ function revive() {
   getComputedStyle(el).animationName;
   return animOf();
 }
+/** It plays along a scroll, not along time: its place is a part of the scroll (a percentage),
+ *  and a time in ms is refused by the browser. */
+export const scrolled = (a) => !!a && !!a.timeline && typeof DocumentTimeline !== "undefined" && !(a.timeline instanceof DocumentTimeline);
 const backward = (t) => t.direction === "reverse" || t.direction === "alternate-reverse";
 export function play() {
   if (M.open && M.open.kind === "transition") return flip();
@@ -246,6 +249,13 @@ export function seek(p) {
   const a = animOf() || revive();
   M.pos = p = clamp(p, 0, 1);
   if (!a) return;
+  if (scrolled(a)) {
+    try {
+      a.pause();
+      a.currentTime = /** @type {any} */ (CSS).percent(Math.min(backward(a.effect.getComputedTiming()) ? 1 - p : p, 0.99999) * 100);
+    } catch {}
+    return kick();
+  }
   const t = a.effect.getComputedTiming(), dur = +t.duration || 0;
   a.pause();
   // Just short of the end: at the end itself an animation that does not hold its last frame shows nothing.
@@ -254,7 +264,8 @@ export function seek(p) {
 }
 /** A transition: switch its state on or off, and the page runs it. */
 function flip() {
-  if (!M.ro || !M.ro.state) return;
+  if (!M.ro) return;
+  if (!M.ro.state) return flash("Nothing in the page’s CSS says what changes this: do it on the page, and say in the note what it should do");
   M.ro.on = !M.ro.on;
   apply();
   const el = openEl();
@@ -276,6 +287,16 @@ export function position() {
   if (!a) return null;
   const p = a.effect.getComputedTiming().progress;
   return p === null ? null : p;
+}
+/** How far through its delay what is open is (0…1), while it waits to start; null when it does
+ *  not wait. */
+export function waiting() {
+  const o = M.open;
+  if (!o || o.kind === "transition") return null;
+  const a = animOf();
+  if (!a || !a.effect || scrolled(a) || a.playState !== "running") return null;
+  const t = a.effect.getComputedTiming(), at = +a.currentTime;
+  return t.delay > 0 && at >= 0 && at < t.delay ? at / t.delay : null;
 }
 /** What was paused to be looked at plays again, and nothing is switched on for it: leaving
  *  motion mode leaves the page moving as it does (with the unsent edits). */

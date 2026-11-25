@@ -40,7 +40,7 @@ export const r1 = (n) => Math.round(n * 10) / 10;
 export const ms = (n) => `${Math.round(n)}ms`;
 /** What a scan finds on a page nothing moves on (and what is known of any page while motion mode
  *  is off: nothing). */
-const nothing = () => ({ anims: [], unused: [], transitions: [], scripts: [], rules: new Map(), partial: false });
+const nothing = () => ({ anims: [], unused: [], idle: [], transitions: [], scripts: [], rules: new Map(), partial: false });
 export const M = {
   on: false,
   sel: null, selRs: "", hover: null,
@@ -268,14 +268,48 @@ export function forget() {
   M.suspects.clear();
   M.list = null;
 }
+/** Keyframes no element plays now, in two: those a rule of the page plays (`idle`, with the
+ *  rule's selector: on hover, in a state, on a ::before, on an element not in the page yet), and
+ *  those nothing speaks of (`unused`). A name set in a custom property (`--animate-draw: draw
+ *  700ms`) is played by the rule whose animation reads that property. */
+function idleOrUnused(names, says) {
+  const idle = [], unused = [];
+  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  for (const n of names) {
+    const word = `(?<![\\w-])${esc(n)}(?![\\w-])`;
+    const direct = new RegExp(`(?:^|;)\\s*animation(?:-name)?\\s*:[^;]*${word}`), viaVar = new RegExp(`(?:^|;)\\s*(--[\\w-]+)\\s*:[^;]*${word}`);
+    let on = "";
+    for (const [sel, t] of says) {
+      if (direct.test(t)) on = sel;
+      else {
+        const m = viaVar.exec(t);
+        if (!m) continue;
+        const reads = new RegExp(`(?:^|;)\\s*animation(?:-name)?\\s*:[^;]*var\\(\\s*${esc(m[1])}(?![\\w-])`);
+        const by = says.find(([, x]) => reads.test(x));
+        if (by) on = by[0];
+      }
+      if (on) break;
+    }
+    if (on) idle.push({ name: n, on });
+    else unused.push(n);
+  }
+  return { idle, unused };
+}
 /** Looks at the page (while motion mode is on: off, there is no one to look for). */
 export function scan() {
   if (!M.on) return forget();
   const rules = new Map(); // name → the @keyframes rule that wins (the last one)
+  const says = []; // [selector, declarations] of the rules that speak of an animation or set a custom property
   const walk = (list) => {
     for (const r of list) {
       if (r instanceof CSSKeyframesRule) rules.set(r.name, r);
-      else if (r.cssRules) walk(r.cssRules);
+      else {
+        if (r.selectorText && r.style) {
+          const t = r.style.cssText;
+          if (t.includes("animation") || t.includes("--")) says.push([r.selectorText, t]);
+        }
+        if (r.cssRules && r.cssRules.length) walk(r.cssRules);
+      }
     }
   };
   for (const s of document.styleSheets) {
@@ -312,7 +346,8 @@ export function scan() {
     rules,
     partial,
     anims: [...anims].map(([nm, els]) => ({ name: nm, els: [...els], running: running.has(nm) })),
-    unused: [...rules.keys()].filter((n) => !anims.has(n)),
+    // (A page looked at in part: what was not seen to play is one list, as no more is known of it.)
+    ...idleOrUnused([...rules.keys()].filter((n) => !anims.has(n)), partial ? [] : says),
     transitions,
     scripts: live.filter((a) => !(a instanceof CSSAnimation) && !(a instanceof CSSTransition) && a.effect && a.effect.target && a.effect.target.getRootNode() !== root),
   };

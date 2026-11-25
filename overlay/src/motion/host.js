@@ -34,7 +34,7 @@ import { draftChanged } from "../draft.js";
 import { setMode } from "../mode.js";
 import { kick } from "../render.js";
 import { apply, clamp, COUNT, DIRECTION, EASINGS, FILL, frames, HOW, M, name, openDirty, openKf, openUse, pathOf, PROPS, r1, RATE_TEXT, RATES, readOnly } from "./model.js";
-import { animOf, knownNames, newAnimation, position, reveal, running, seek, selectEl, toggle, useKf } from "./open.js";
+import { animOf, knownNames, newAnimation, position, reveal, running, seek, selectEl, toggle, useKf, waiting } from "./open.js";
 import { addKey, addLane, commit, cssText, detach, discard, keyInfo, laneOrder, moveKey, removeKey, removeLane, rowNow, rows, segEase, setCss, setKey, setName, setTiming, sharedBy, timing, travel } from "./edit.js";
 import { submit } from "./send.js";
 import { draw, flash, sentStatus } from "./draw.js";
@@ -88,10 +88,26 @@ function choices(open) {
   if (is !== M.hostLanes || !M.hostChoices) (M.hostLanes = is), (M.hostChoices = { ...CHOICES, props: PROPS.filter((p) => !lanes.includes(p)) });
   return M.hostChoices;
 }
+/** What the keyframes leave unsaid: where they have no first or last keyframe for a property,
+ *  the animation starts from (or ends at) the element's own value, which the browser knows.
+ *  { prop: [at 0, at 100] }, a value or undefined each. */
+function implied() {
+  const out = {}, a = M.open && M.open.kind === "css" ? animOf() : null;
+  if (!a || !a.effect || !a.effect.getKeyframes) return out;
+  const kebab = (s) => (s.startsWith("--") ? s : s === "cssFloat" ? "float" : s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`));
+  try {
+    for (const kf of a.effect.getKeyframes()) {
+      const end = kf.computedOffset === 0 ? 0 : kf.computedOffset === 1 ? 1 : -1;
+      if (end < 0) continue;
+      for (const p in kf) if (!["offset", "computedOffset", "easing", "composite"].includes(p)) (out[kebab(p)] || (out[kebab(p)] = []))[end] = String(kf[p]);
+    }
+  } catch {}
+  return out;
+}
 function openView() {
   const o = M.open;
   if (!o) return null;
-  const t = timing(), k = openKf(), u = openUse(), fr = frames(), ki = keyInfo();
+  const t = timing(), k = openKf(), u = openUse(), fr = frames(), ki = keyInfo(), unsaid = k ? implied() : {};
   const T = Math.max(1, +t.duration || 0);
   return {
     kind: o.kind,
@@ -107,7 +123,11 @@ function openView() {
     frames: fr.map((f) => f.at),
     lanes: laneOrder().map((p) => {
       const own = fr.filter((f) => p in f.vals);
-      return { prop: p, keys: own.map((f) => ({ at: f.at, value: String(f.vals[p]) })), eases: own.slice(0, -1).map((f) => segEase(f.at, p)) };
+      const keys = own.map((f) => ({ at: f.at, value: String(f.vals[p]) })), eases = own.slice(0, -1).map((f) => segEase(f.at, p));
+      const [from, to] = unsaid[p] || [];
+      if (own.length && own[0].at > 0 && from !== undefined) (keys.unshift({ at: 0, value: from, implied: true }), eases.unshift(String(t.easing)));
+      if (own.length && own[own.length - 1].at < 100 && to !== undefined) (keys.push({ at: 100, value: to, implied: true }), eases.push(segEase(own[own.length - 1].at, p)));
+      return { prop: p, keys, eases };
     }),
     key: ki && { at: ki.at, prop: ki.prop, value: ki.value === null || ki.value === undefined ? null : String(ki.value), ease: ki.ease, dflt: ki.dflt, last: ki.last, props: Object.keys(ki.f.vals).length },
     css: cssText(),
@@ -146,8 +166,11 @@ function body() {
 const clockNow = () => (M.on && S.enabled ? { pos: (() => {
   const p = position();
   return p === null ? null : Math.round(p * 10000) / 10000;
-})(), playing: running(), on: !!(M.ro && M.ro.on) } : { pos: null, playing: false, on: false });
-const clockKey = (c) => `${c.pos}|${c.playing}|${c.on}`;
+})(), playing: running(), on: !!(M.ro && M.ro.on), wait: (() => {
+  const w = waiting();
+  return w === null ? null : Math.round(w * 1000) / 1000;
+})() } : { pos: null, playing: false, on: false, wait: null });
+const clockKey = (c) => `${c.pos}|${c.playing}|${c.on}|${c.wait}`;
 function out() {
   if (!hosted("motion")) return;
   if (!M.hostBody) M.hostBody = body();
@@ -260,6 +283,8 @@ const ACTS = {
       return;
     }
     const at = r1(clamp(+a.key.at || 0, 0, 100)), prop = a.key.prop ? str(a.key.prop) : null;
+    // (An implied key is not a keyframe: the page shows that frame, and nothing is selected.)
+    if (!frames().some((f) => f.at === at && (prop === null || prop in f.vals))) return seek(at / 100);
     M.key = { at, prop };
     M.drag = a.grab && !readOnly() ? { type: "key", at, prop, moved: false } : null;
     seek(at / 100);
