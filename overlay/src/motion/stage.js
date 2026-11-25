@@ -155,7 +155,7 @@ export function restage() {
  *  element of keyframes several play is one stop (the row of their name is not: it opens the
  *  first of them); keyframes nothing plays are none (opening them puts them on an element). */
 export function go(by) {
-  const list = rows().filter((r) => !r.group && r.kind !== "unused" && r.kind !== "frames" && (r.sub || r.els.length === 1) && !rowNow(r).off);
+  const list = rows().filter((r) => !r.group && r.kind !== "unused" && (r.sub || r.els.length === 1) && !rowNow(r).off);
   if (!list.length) return;
   const i = list.findIndex((r) => rowNow(r).on), n = list.length;
   list[i < 0 ? (by > 0 ? 0 : n - 1) : (i + (by > 0 ? 1 : -1) + n) % n].open();

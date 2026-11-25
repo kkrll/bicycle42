@@ -5,13 +5,14 @@ import { adopt, BOOST, editSel } from "../page.js";
 import { kick } from "../render.js";
 import { treeVersion } from "../mount.js";
 import { draftChanged } from "../draft.js";
-import { apply, DIRECTION, FILL, frames, HOW, kfDirty, M, MAX_KF, mq, name, openKf, openUse, parseKf, pathOf, playsDirty, r1, readList, scan, serialize, splitTop, trCss, trDirty, useDirty } from "./model.js";
-import { animOf, applyScript, layout, openCss, openScript, openTransition, seek, syncTransition, useKf, useOf } from "./open.js";
+import { apiName, apply, DIRECTION, editKf, FILL, frames, HOW, kfDirty, M, MAX_KF, mq, name, openKf, openScr, openUse, parseKf, pathOf, playsDirty, r1, readList, scan, scriptDirty, serialize, splitTop, trCss, trDirty, useDirty } from "./model.js";
+import { animOf, applyScript, layout, openCss, openScript, openTransition, resetScript, seek, syncTransition, useKf, useOf } from "./open.js";
 import { draw, drawList, flash } from "./draw.js";
 import { near, nearAgain, nearDue } from "./near.js";
+import { openFrames } from "./frames.js";
 
 // ── undo ─────────────────────────────────────────────────────────────────────────────────
-export const snapshot = () => JSON.stringify({ kf: [...M.kf], use: [...M.use], tr: [...M.tr], sc: M.open && M.open.kind === "script" && M.ro ? M.ro.timing : null, open: M.open && M.open.kind === "css" ? M.open : null });
+export const snapshot = () => JSON.stringify({ kf: [...M.kf], use: [...M.use], tr: [...M.tr], sc: openScr() && (({ id, timing, frames }) => ({ id, timing, frames }))(M.ro), open: M.open && M.open.kind === "css" ? M.open : null });
 export function commit() {
   const now = snapshot();
   if (now !== M.snap) {
@@ -21,6 +22,7 @@ export function commit() {
     M.future = [];
   }
   apply();
+  applyScript();
   scan();
   draw();
   draftChanged();
@@ -34,8 +36,10 @@ export function travel(from, to) {
   M.use = new Map(s.use);
   M.tr = new Map(s.tr || []);
   syncTransition();
-  if (M.open && M.open.kind === "script" && M.ro && M.ro.orig) {
-    M.ro.timing = s.sc || JSON.parse(M.ro.orig);
+  // (A step of another reading of it, or of another animation, says nothing of this one.)
+  if (openScr() && s.sc && s.sc.id === M.ro.id) {
+    M.ro.timing = s.sc.timing;
+    M.ro.frames = s.sc.frames;
     applyScript();
   }
   const keep = M.open && M.open.kind !== "css" ? M.open : s.open;
@@ -53,9 +57,9 @@ export function discard() {
     syncTransition();
     return commit();
   }
-  if (M.open && M.open.kind === "script" && M.ro && M.ro.orig) {
-    M.ro.timing = JSON.parse(M.ro.orig);
-    applyScript();
+  if (openScr()) {
+    resetScript();
+    M.key = null;
     return commit();
   }
   let u = openUse(), k = openKf();
@@ -112,8 +116,10 @@ export function detach() {
 }
 
 // ── editing keyframes ────────────────────────────────────────────────────────────────────
+/** A keyframe made here: it adds to what is under it when the one it is like does. */
+const newFrame = (at, like) => ({ at, ease: "", vals: {}, ...(like && like.composite ? { composite: like.composite } : {}) });
 export function moveKey(prop, from, to) {
-  const k = openKf();
+  const k = editKf();
   if (!k) return false;
   const F = k.frames, a = F.find((f) => f.at === from);
   let b = F.find((f) => f.at === to);
@@ -123,7 +129,7 @@ export function moveKey(prop, from, to) {
     a.at = to;
   } else {
     if (b && prop in b.vals) return false;
-    if (!b) F.push((b = { at: to, ease: "", vals: {} }));
+    if (!b) F.push((b = newFrame(to, a)));
     b.vals[prop] = a.vals[prop];
     delete a.vals[prop];
     if (!Object.keys(a.vals).length) {
@@ -138,7 +144,7 @@ export function moveKey(prop, from, to) {
  *  moment, so adding one changes nothing until it is edited; a transform comes back from the
  *  browser as a matrix, which nobody wants to edit, so there the keyframe before is copied. */
 export function addKey(prop, at) {
-  const k = openKf(), el = mq(M.open && M.open.rs);
+  const k = editKf(), el = mq(M.open && M.open.rs);
   if (!k || !el) return;
   let f = k.frames.find((x) => x.at === at);
   const props = prop === null ? laneOrder() : [prop];
@@ -147,11 +153,11 @@ export function addKey(prop, at) {
   for (const p of props) {
     if (f && p in f.vals) continue;
     let v = cs.getPropertyValue(p).replace(/-?\d*\.\d{4,}/g, (/** @type {any} */ n) => String(Math.round(n * 1000) / 1000));
-    if (/^matrix/.test(v) || !v) {
+    if (/^matrix/.test(v) || !v || k.frames.some((x) => x.composite)) {
       const before = k.frames.filter((x) => x.at <= at && p in x.vals).pop() || k.frames.find((x) => p in x.vals);
       v = before ? before.vals[p] : v || "initial";
     }
-    if (!f) k.frames.push((f = { at, ease: "", vals: {} }));
+    if (!f) k.frames.push((f = newFrame(at, k.frames[0])));
     f.vals[p] = v;
   }
   k.frames.sort((x, y) => x.at - y.at);
@@ -159,7 +165,7 @@ export function addKey(prop, at) {
   commit();
 }
 export function removeKey() {
-  const k = openKf(), selKey = M.key;
+  const k = editKf(), selKey = M.key;
   if (!k || !selKey) return;
   const f = k.frames.find((x) => x.at === selKey.at);
   if (!f) return;
@@ -172,14 +178,14 @@ export function removeKey() {
   commit();
 }
 export function addLane(prop) {
-  const k = openKf(), el = mq(M.open && M.open.rs);
+  const k = editKf(), el = mq(M.open && M.open.rs);
   prop = prop.trim().toLowerCase();
   if (!k || !el || !prop || !CSS.supports(prop, "initial") || laneOrder().includes(prop)) return false;
   const now = getComputedStyle(el).getPropertyValue(prop) || "initial";
   const v = /^matrix/.test(now) ? "none" : now;
   for (const at of [0, 100]) {
     let f = k.frames.find((x) => x.at === at);
-    if (!f) k.frames.push((f = { at, ease: "", vals: {} }));
+    if (!f) k.frames.push((f = newFrame(at, k.frames[0])));
     f.vals[prop] = v;
   }
   k.frames.sort((x, y) => x.at - y.at);
@@ -189,7 +195,7 @@ export function addLane(prop) {
   return true;
 }
 export function removeLane(prop) {
-  const k = openKf();
+  const k = editKf();
   if (!k) return;
   for (const f of k.frames) delete f.vals[prop];
   k.frames = k.frames.filter((f) => Object.keys(f.vals).length);
@@ -208,14 +214,14 @@ export function keyInfo() {
   if (!selKey || !o) return null;
   const f = frames().find((x) => x.at === selKey.at);
   if (!f) return null;
-  const ro = o.kind !== "css";
+  const ro = !editKf();
   const t = timing();
   const ease = (M.ro && M.ro.laneEase && selKey.prop ? M.ro.laneEase[selKey.prop] : f.ease) || "";
-  return { f, at: f.at, prop: selKey.prop, value: selKey.prop ? f.vals[selKey.prop] : null, ease, dflt: t ? t.easing : "", last: f.at >= 100 || o.kind === "transition", ro };
+  return { f, at: f.at, prop: selKey.prop, value: selKey.prop ? f.vals[selKey.prop] : null, ease, dflt: o.kind === "script" ? "linear" : t ? t.easing : "", last: f.at >= 100 || o.kind === "transition", ro };
 }
 /** One field of the selected keyframe: "val", "ease" or "at". False when the browser says no. */
 export function setKey(what, v, done) {
-  const k = openKf(), selKey = M.key;
+  const k = editKf(), selKey = M.key;
   if (!k || !selKey) return false;
   const fr = k.frames.find((x) => x.at === selKey.at);
   if (!fr) return false;
@@ -234,6 +240,7 @@ export function setKey(what, v, done) {
   }
   if (!ok) return false;
   apply();
+  applyScript();
   if (done) {
     commit();
     seek(M.key ? M.key.at / 100 : M.pos);
@@ -244,6 +251,9 @@ export function segEase(at, prop) {
   const f = frames().find((x) => x.at === at);
   const own = M.ro && M.ro.laneEase ? M.ro.laneEase[prop] : f ? f.ease : "";
   const t = timing();
+  // (A script's easing is of the whole run, and between its keyframes it goes in a straight line:
+  // of two keyframes that is the one stretch.)
+  if (!own && openScr() && frames().length > 2) return "linear";
   return own || (t ? t.easing : "");
 }
 
@@ -253,6 +263,7 @@ export function timing() {
   if (!o) return null;
   if (o.kind === "css") return openUse().timing;
   if (o.kind === "script") return M.ro.timing;
+  if (o.kind === "frames") return { duration: (M.ro.seen && M.ro.seen.cycle) || 0, delay: 0, easing: "linear", count: "1", direction: "normal", fill: "none" };
   // A transition's is its properties': the longest, the earliest, the first's easing.
   const it = M.ro.items;
   return { duration: it.length ? Math.max(...it.map((x) => x.duration)) : 0, delay: it.length ? Math.min(...it.map((x) => x.delay)) : 0, easing: it.length ? it[0].easing : "ease", count: "1", direction: "normal", fill: "none" };
@@ -260,7 +271,7 @@ export function timing() {
 /** One field of the timing, or of what starts it ("how"). False when the value is not one. */
 export function setTiming(what, v, done) {
   if (M.open && M.open.kind === "transition") return setTransition(what, v, done);
-  const sc = M.open && M.open.kind === "script" && M.ro && M.ro.orig ? M.ro : null;
+  const sc = openScr();
   const u = sc || openUse();
   if (!u) return false;
   if (what === "how") {
@@ -318,19 +329,22 @@ export function cssText() {
   if (M.ro && M.open.kind === "transition") return `${editSel(M.sel)} {\n  transition: ${trCss(M.ro.items).replace(/, /g, ",\n    ")};\n}`;
   return "";
 }
+/** A script's keyframes as animate() takes them. */
+export const keysText = (list) => `[\n${list.map((f) => {
+  const q = (v) => JSON.stringify(String(v));
+  return `  { ${[`offset: ${r1(f.at) / 100}`, ...Object.entries(f.vals).map(([p, v]) => `${p.startsWith("--") ? q(p) : apiName(p)}: ${q(v)}`), ...(f.ease ? [`easing: ${q(f.ease)}`] : []), ...(f.composite ? [`composite: ${q(f.composite)}`] : [])].join(", ")} }`;
+}).join(",\n")}\n]`;
 /** A script's animation as the call that would make it: rebuilt from the animation as it runs,
  *  not the page's source (which nothing in the page leads back to), and it says so. */
 function animateText() {
-  const camel = (p) => (p.startsWith("--") ? JSON.stringify(p) : p === "float" ? "cssFloat" : p.replace(/-([a-z])/g, (_, c) => c.toUpperCase()));
   const t = M.ro.timing, q = (v) => JSON.stringify(String(v));
-  const kf = M.ro.frames.map((f) => `  { ${[`offset: ${r1(f.at) / 100}`, ...Object.entries(f.vals).map(([p, v]) => `${camel(p)}: ${q(v)}`), ...(f.ease ? [`easing: ${q(f.ease)}`] : [])].join(", ")} }`);
   const opts = [`duration: ${Math.round(+t.duration || 0)}`];
   if (t.delay) opts.push(`delay: ${Math.round(t.delay)}`);
   if (t.easing && t.easing !== "linear") opts.push(`easing: ${q(t.easing)}`);
   if (String(t.count) !== "1") opts.push(`iterations: ${t.count === "infinite" ? "Infinity" : t.count}`);
   if (t.direction !== "normal") opts.push(`direction: ${q(t.direction)}`);
   if (t.fill !== "none") opts.push(`fill: ${q(t.fill)}`);
-  return `// A script's animation, written out from the animation as it runs.\n// The page's own code may say it another way (a library, a helper).\nelement.animate([\n${kf.join(",\n")}\n], { ${opts.join(", ")} })`;
+  return `// A script's animation, written out from the animation as it runs.\n// The page's own code may say it another way (a library, a helper).\nelement.animate(${keysText(M.ro.frames)}, { ${opts.join(", ")} })`;
 }
 
 // ── what moves together ──────────────────────────────────────────────────────────────────
@@ -523,7 +537,7 @@ function listOf(found) {
     out.push({ kind: "script", anim: a, els: [a.effect.target], path: pathOf(a.effect.target), text: a.id || "animate()", aside: name(a.effect.target, true),
       duration: +a.effect.getTiming().duration || 0, open: () => openScript(a) });
   for (const el of M.suspects)
-    if (el.isConnected) out.push({ kind: "frames", els: [el], path: pathOf(el), text: name(el, true), aside: "per frame", duration: null, open: () => {} });
+    if (el.isConnected) out.push({ kind: "frames", els: [el], path: pathOf(el), text: name(el, true), aside: "per frame", duration: null, open: () => openFrames(el) });
   // Keyframes a rule of the page plays, though no element does now: in a state, on a ::before.
   if (found.idle.length) out.push({ group: "Not playing now" });
   for (const x of found.idle) out.push({ kind: "unused", els: [], path: "", text: x.name, aside: x.on.length > 60 ? `${x.on.slice(0, 59)}…` : x.on, duration: null, open: () => useKf(x.name) });
@@ -597,8 +611,11 @@ export function rowNow(r) {
   }
   else if (r.kind === "script") {
     now.on = !!o && o.kind === "script" && M.held === r.anim;
+    now.dirty = now.on && scriptDirty();
     now.running = r.anim.playState === "running";
-  } else if (r.kind === "frames") now.off = now.running = true;
-  else if (r.kind === "unused") now.off = !M.sel;
+  } else if (r.kind === "frames") {
+    now.on = !!o && o.kind === "frames" && M.sel === r.els[0];
+    now.running = true;
+  } else if (r.kind === "unused") now.off = !M.sel;
   return now;
 }

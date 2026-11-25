@@ -47,8 +47,8 @@ export const M = {
   kf: new Map(), // name → { name, frames: [{ at, ease, vals: { prop: value } }], orig, isNew }
   tr: new Map(), // an element's transition as changed here: selector → { rs, items: [{ prop, duration, delay, easing }], orig: the page's items, as JSON }
   use: new Map(), // "selector|name" → { rs, name, timing, orig, plays: { how, words }, base, index, isNew, from? }
-  open: null, // what is open: { kind: "css" | "script" | "transition", rs, name }
-  ro: null, // for the two kinds that are only read: { frames, timing?, laneEase?, state?, total?, on?, items? }
+  open: null, // what is open: { kind: "css" | "script" | "transition" | "frames", rs, name }
+  ro: null, // for the kinds that are not rules: { frames, timing?, laneEase?, state?, total?, on?, items?, seen?; a script's: see readScript }
   key: null, // the selected keyframe: { at, prop } (prop null: the whole keyframe)
   lanes: [], // the properties, in the order their lanes were first drawn
   isolate: false, rate: 1, loop: false, loopAt: 0, pos: 0,
@@ -66,7 +66,9 @@ export const M = {
   sheet: null, // the unsent edits, as rules
   // [{ id, sheet, seen, n, undo: [{ x, index, entry }] }]: applied until the pin is done. seen:
   // its pin has been listed; n: the pin's number, null until it has one; undo: the element's
-  // other uses x whose base had this one's entry written in at index, and the entry they had.
+  // other uses x whose base had this one's entry written in at index, and the entry they had. A
+  // script's animation has no sheet (null) but `script`: { a, raw }, the page's Animation object
+  // it was written into and what it was before (readScript in open.js).
   sent: [],
   unsent: null, // what the animation being sent was, until the host takes it
   view: "keys", // the timeline, or the keyframes as text
@@ -182,13 +184,20 @@ export function serialize(nm, frames) {
 }
 /** Keyframes as the Web Animations API gives them (a script's, or a stylesheet we may not read). */
 export function fromApi(list) {
-  const kebab = (s) => (s === "cssFloat" ? "float" : s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`));
+  const kebab = (s) => (s.startsWith("--") ? s : s === "cssFloat" ? "float" : s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`));
   return list.map((k) => {
     const vals = {};
     for (const p in k) if (!["offset", "computedOffset", "easing", "composite"].includes(p)) vals[kebab(p)] = String(k[p]);
     return { at: r1(k.computedOffset * 100), ease: k.easing && k.easing !== "linear" ? k.easing : "", vals };
   });
 }
+/** A property's name as the Web Animations API has it. */
+export const apiName = (p) => (p.startsWith("--") ? p : p === "float" ? "cssFloat" : p === "offset" ? "cssOffset" : p.replace(/-([a-z])/g, (_, c) => c.toUpperCase()));
+/** …and the keyframes as it takes them: fromApi's way back. */
+export const toApi = (list) => list.map((f) => ({ ...Object.fromEntries(Object.entries(f.vals).map(([p, v]) => [apiName(p), v])), offset: f.at / 100, easing: f.ease || "linear", ...(f.composite ? { composite: f.composite } : {}) }));
+/** Keyframes of a script's animation, to be compared: what order a keyframe's properties were
+ *  set in is not a difference. */
+export const kfIs = (list) => JSON.stringify(list.map((f) => [f.at, f.ease, f.composite || "", Object.entries(f.vals).sort()]));
 export function entryCss(e) {
   const out = [e.name, ms(e.duration)];
   if (e.easing !== "ease") out.push(e.easing);
@@ -219,13 +228,21 @@ export const playsDirty = (u) => !!u && (u.plays.how !== "asnow" || !!u.plays.wo
 export const openKf = () => (M.open && M.open.kind === "css" ? M.kf.get(M.open.name) : null);
 export const openUse = () => (M.open && M.open.kind === "css" ? M.use.get(`${M.open.rs}|${M.open.name}`) : null);
 export const frames = () => (openKf() ? openKf().frames : M.ro ? M.ro.frames : []);
-export const readOnly = () => !!M.open && M.open.kind !== "css";
+/** The open script's animation as read from the page and changed here (readScript in open.js). */
+export const openScr = () => (M.open && M.open.kind === "script" && M.ro && M.ro.raw ? M.ro : null);
+/** What is open that has keyframes to change: a rule's, or those of a script's animation. */
+export const editKf = () => openKf() || openScr();
+export const scriptDirty = () => {
+  const sc = openScr();
+  return !!sc && (JSON.stringify(sc.timing) !== sc.orig || kfIs(sc.frames) !== sc.origKf);
+};
+export const readOnly = () => !!M.open && M.open.kind !== "css" && !openScr();
 /** Anything unsent: an edit, or how it starts. */
 export const anyDirty = () => [...M.kf.values()].some(kfDirty) || [...M.use.values()].some((u) => useDirty(u) || playsDirty(u)) || [...M.tr.values()].some(trDirty);
 /** The open animation has something to send. */
 export const openDirty = () => {
   if (M.open && M.open.kind === "transition") return trDirty(M.tr.get(M.open.rs));
-  if (M.open && M.open.kind === "script") return !!M.ro && !!M.ro.orig && JSON.stringify(M.ro.timing) !== M.ro.orig;
+  if (M.open && M.open.kind === "script") return scriptDirty();
   const u = openUse();
   return !!u && (useDirty(u) || playsDirty(u) || kfDirty(openKf()));
 };
@@ -327,7 +344,7 @@ export function scan() {
       walk(s.cssRules);
     } catch {} // another origin's stylesheet: its animations are still read, through the API
   }
-  for (const b of M.sent) walk(b.sheet.cssRules); // what was sent is what the page plays now
+  for (const b of M.sent) if (b.sheet) walk(b.sheet.cssRules); // what was sent is what the page plays now
   const anims = new Map(), transitions = []; // anims: name → the elements that play it (a Set, in the order found)
   const plays = (nm, el) => (anims.get(nm) || anims.set(nm, new Set()).get(nm)).add(el);
   const all = document.body ? document.body.getElementsByTagName("*") : [];

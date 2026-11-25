@@ -2,13 +2,14 @@
 // object for it, played, paused and stopped at a frame.
 
 import { adopt, BOOST } from "../page.js";
-import { apply, clamp, fromApi, M, mq, parseKf, pathOf, r1, readList, scan, serialize, splitTop } from "./model.js";
+import { apply, clamp, fromApi, kfIs, M, mq, openScr, parseKf, pathOf, r1, readList, scan, scriptDirty, serialize, splitTop, toApi } from "./model.js";
 import { commit, nameProblem, snapshot } from "./edit.js";
 import { draw, flash } from "./draw.js";
 import { kick } from "../render.js";
 import { statesOf, styleRules } from "./states.js";
 import { restage } from "./stage.js";
 import { revealing } from "./near.js";
+import { openFrames, watch } from "./frames.js";
 
 // ── opening one ──────────────────────────────────────────────────────────────────────────
 function baseFor(rs, el) {
@@ -104,22 +105,53 @@ export function useKf(nm) {
   const { name: _, ...timing } = e || { duration: 600, delay: 0, easing: "ease-in-out", count: "1", direction: "normal", fill: "none" };
   attach(M.sel, nm, timing);
 }
-/** How a script's animation plays, as changed here: written into the animation itself (there is
- *  no rule to write over), and taken out again when it is left unsent. */
-export function applyScript(timing = M.ro && M.ro.timing) {
-  const a = M.held;
-  if (!a || !a.effect || !a.effect.updateTiming || !timing) return;
+/** A script's animation as changed here, how it plays and its keyframes: written into the
+ *  animation itself (there is no rule to write over), and taken out again when it is left unsent.
+ *  What is as the page's script made it is not written, unless something else was written there
+ *  before: then it is put back as the browser gave it, not as it is shown here (rounded). */
+export function applyScript() {
+  const a = M.held, sc = openScr();
+  if (!sc || !a || !a.effect) return;
+  const t = sc.timing, timed = JSON.stringify(t) !== sc.orig, keyed = kfIs(sc.frames) !== sc.origKf;
   try {
-    a.effect.updateTiming({ duration: +timing.duration || 0, delay: +timing.delay || 0, easing: timing.easing, iterations: timing.count === "infinite" ? Infinity : +timing.count || 0, direction: timing.direction, fill: timing.fill });
+    if (timed) a.effect.updateTiming({ duration: +t.duration || 0, delay: +t.delay || 0, easing: t.easing, iterations: t.count === "infinite" ? Infinity : +t.count || 0, direction: t.direction, fill: t.fill });
+    else if (sc.timed) a.effect.updateTiming(sc.raw.timing);
+    sc.timed = timed;
+  } catch {}
+  try {
+    if (keyed) a.effect.setKeyframes(toApi(sc.frames));
+    else if (sc.keyed) a.effect.setKeyframes(sc.raw.frames);
+    sc.keyed = keyed;
   } catch {}
 }
-export const scriptDirty = () => !!M.open && M.open.kind === "script" && !!M.ro && !!M.ro.orig && JSON.stringify(M.ro.timing) !== M.ro.orig;
+let readings = 0;
+/** A script's animation as it is now: how it plays and its keyframes as they are shown and
+ *  changed here, what they were (to say what changed), and both as the browser gives them (`raw`,
+ *  to put them back). `id` says which reading an undo step is of. */
+export function readScript(a) {
+  const t = a.effect.getTiming(), raw = a.effect.getKeyframes(), fr = fromApi(raw);
+  // (One that adds to what is under it goes on adding.)
+  fr.forEach((f, i) => {
+    if (raw[i].composite && raw[i].composite !== "auto") f.composite = raw[i].composite;
+  });
+  const timing = { duration: +t.duration || 0, delay: t.delay, easing: t.easing, count: t.iterations === Infinity ? "infinite" : String(t.iterations), direction: t.direction, fill: t.fill === "auto" ? "none" : t.fill };
+  return { id: ++readings, frames: fr, timing, orig: JSON.stringify(timing), origFrames: JSON.stringify(fr), origKf: kfIs(fr), raw: { timing: t, frames: raw }, timed: false, keyed: false };
+}
+/** Undo steps of a script's animation that is not open any more change nothing: they go. */
+export function forgetSteps(id) {
+  const of = `"sc":{"id":${id},`;
+  if (![...M.past, ...M.future].some((s) => s.includes(of))) return;
+  const rest = (s) => (({ kf, use, tr }) => JSON.stringify([kf, use, tr]))(JSON.parse(s)), now = rest(M.snap);
+  for (const list of [M.past, M.future]) {
+    list.splice(0, list.length, ...list.map((s) => (s.includes(of) ? JSON.stringify({ ...JSON.parse(s), sc: null }) : s)).filter((s, i, l) => !i || s !== l[i - 1]));
+    while (list.length && rest(list[list.length - 1]) === now) list.pop();
+  }
+}
 export function openScript(a) {
+  if (openScr() && M.held === a) return draw(); // it is open already: what was changed of it stays
   const el = a.effect.target;
   setSel(el);
-  const t = a.effect.getTiming();
-  M.ro = { orig: "", frames: fromApi(a.effect.getKeyframes()), timing: { duration: +t.duration || 0, delay: t.delay, easing: t.easing, count: t.iterations === Infinity ? "infinite" : String(t.iterations), direction: t.direction, fill: t.fill === "auto" ? "none" : t.fill } };
-  M.ro.orig = JSON.stringify(M.ro.timing);
+  M.ro = readScript(a);
   show({ kind: "script", rs: pathOf(el), name: a.id || "animate()" });
   M.held = a;
 }
@@ -205,11 +237,20 @@ export function syncTransition() {
   ro.items = mine ? mine.items : JSON.parse(ro.orig);
   layout();
 }
+/** The open script's animation as the page has it (or as it was last sent). */
+export function resetScript() {
+  const sc = openScr();
+  if (!sc) return;
+  sc.timing = JSON.parse(sc.orig);
+  sc.frames = JSON.parse(sc.origFrames);
+  applyScript();
+}
 export function setSel(el) {
-  // A script's animation changed here and left unsent plays as the page's script made it again.
-  if (scriptDirty()) {
-    M.ro.timing = JSON.parse(M.ro.orig);
-    applyScript();
+  // A script's animation changed here and left unsent is as the page's script made it again.
+  const sc = openScr();
+  if (sc) {
+    if (scriptDirty()) resetScript();
+    forgetSteps(sc.id);
   }
   M.sel = el;
   M.selRs = el ? pathOf(el) : "";
@@ -225,6 +266,7 @@ export function selectEl(el) {
   if (names.length) openCss(el, names[0].name);
   else if (script) openScript(script);
   else if (M.scan.transitions.includes(el)) openTransition(el);
+  else if (M.suspects.has(el)) openFrames(el);
   else {
     setSel(el);
     show(null);
@@ -277,9 +319,30 @@ function revive() {
 /** It plays along a scroll, not along time: its place is a part of the scroll (a percentage),
  *  and a time in ms is refused by the browser. */
 export const scrolled = (a) => !!a && !!a.timeline && typeof DocumentTimeline !== "undefined" && !(a.timeline instanceof DocumentTimeline);
+/** Where in one run (0…1) the keyframes are at `p`: a script may ease the whole of it, which CSS
+ *  does not (there each keyframe eases to the next). Looked for on an animation of nothing. */
+function inTime(easing, p) {
+  if (easing === "linear" || p <= 0 || p >= 1) return p;
+  try {
+    const fx = new KeyframeEffect(null, null, { duration: 1000, easing, fill: "both" }), a = new Animation(fx, document.timeline);
+    a.pause();
+    let from = 0, to = 1;
+    for (let i = 0; i < 20; i++) {
+      const mid = (from + to) / 2;
+      a.currentTime = mid * 1000;
+      if (fx.getComputedTiming().progress < p) from = mid;
+      else to = mid;
+    }
+    a.cancel();
+    return to;
+  } catch {
+    return p;
+  }
+}
 const backward = (t) => t.direction === "reverse" || t.direction === "alternate-reverse";
 export function play() {
   if (M.open && M.open.kind === "transition") return flip();
+  if (M.open && M.open.kind === "frames") return watch(); // there is nothing to play: it is looked at again
   const a = animOf() || revive();
   if (!a) return;
   a.playbackRate = M.rate;
@@ -302,6 +365,7 @@ export function seek(p) {
   const a = animOf() || revive();
   M.pos = p = clamp(p, 0, 1);
   if (!a) return;
+  if (M.open.kind === "script") p = inTime(a.effect.getTiming().easing, p);
   if (scrolled(a)) {
     try {
       a.pause();

@@ -33,8 +33,8 @@ import { hosted, onAct, sendView } from "../panel.js";
 import { draftChanged } from "../draft.js";
 import { setMode } from "../mode.js";
 import { kick } from "../render.js";
-import { apply, clamp, COUNT, DIRECTION, EASINGS, FILL, frames, HOW, M, name, openDirty, openKf, openUse, pathOf, PROPS, r1, RATE_TEXT, RATES, readOnly } from "./model.js";
-import { animOf, knownNames, newAnimation, position, reveal, running, seek, selectEl, setState, toggle, useKf, waiting } from "./open.js";
+import { apply, clamp, COUNT, DIRECTION, EASINGS, editKf, FILL, frames, HOW, M, name, openDirty, openKf, openUse, pathOf, PROPS, r1, RATE_TEXT, RATES, readOnly } from "./model.js";
+import { animOf, applyScript, knownNames, newAnimation, position, reveal, running, seek, selectEl, setState, toggle, useKf, waiting } from "./open.js";
 import { addKey, addLane, commit, cssText, detach, discard, keyInfo, laneOrder, moveKey, playTogether, removeKey, removeLane, rowNow, rows, score, segEase, setCss, setKey, setName, setStagger, setTiming, sharedBy, timing, travel } from "./edit.js";
 import { submit } from "./send.js";
 import { draw, flash, sentStatus } from "./draw.js";
@@ -134,6 +134,7 @@ function openView() {
     }),
     key: ki && { at: ki.at, prop: ki.prop, value: ki.value === null || ki.value === undefined ? null : String(ki.value), ease: ki.ease, dflt: ki.dflt, last: ki.last, props: Object.keys(ki.f.vals).length },
     score: score().map(({ id, text, name, delay, duration, on }) => ({ id, text, name, delay, duration, on })),
+    seen: o.kind === "frames" ? M.ro.seen : null,
     css: cssText(),
     cssError: M.cssWhy,
     dirty: openDirty(),
@@ -312,6 +313,7 @@ const ACTS = {
     M.key = { at: to, prop: d.prop };
     d.moved = true;
     apply();
+    applyScript();
     seek(to / 100);
     draw();
   },
@@ -322,14 +324,14 @@ const ACTS = {
     else draw();
   },
   addKey(a) {
-    if (openKf()) addKey(a.prop ? str(a.prop) : null, r1(clamp(+a.at || 0, 0, 100)));
+    if (editKf()) addKey(a.prop ? str(a.prop) : null, r1(clamp(+a.at || 0, 0, 100)));
   },
   key(a) {
     if (a.what === "val" || a.what === "ease" || a.what === "at") setKey(a.what, str(a.value), !!a.done);
     draw();
   },
   removeKey() {
-    if (M.key && openKf()) removeKey();
+    if (M.key && editKf()) removeKey();
   },
   addLane(a) {
     const p = str(a.prop).trim().toLowerCase();

@@ -5,10 +5,11 @@ import { S } from "../state.js";
 import { adopt, BOOST, describe, editSel, plainLabel, vp } from "../page.js";
 import { draftChanged } from "../draft.js";
 import { dispatch } from "../sent.js";
-import { anyDirty, apply, entryCss, kfDirty, M, MAX_KF, mq, ms, openDirty, openKf, openUse, playsDirty, readList, scan, serialize, trCss, trDirty, useDirty } from "./model.js";
-import { letGo, openCss, openTransition, setSel, show } from "./open.js";
-import { sharedBy, snapshot, timing } from "./edit.js";
+import { anyDirty, apply, entryCss, kfDirty, kfIs, M, MAX_KF, mq, ms, openDirty, openKf, openScr, openUse, playsDirty, readList, scan, serialize, trCss, trDirty, useDirty } from "./model.js";
+import { applyScript, forgetSteps, letGo, openCss, openTransition, readScript, setSel, show } from "./open.js";
+import { keysText, sharedBy, snapshot, timing } from "./edit.js";
 import { draw, drawFoot, flash } from "./draw.js";
+import { seenNow } from "./frames.js";
 
 // ── sending ──────────────────────────────────────────────────────────────────────────────
 /** How a script's animation plays, in one line. */
@@ -17,13 +18,24 @@ const said = (t) => `animate(): ${ms(t.duration)} ${t.easing}${t.delay ? ` ${ms(
 function payload() {
   const o = M.open, el = mq(o.rs);
   const who = { selector: editSel(el), label: plainLabel(el) };
+  if (o.kind === "frames") {
+    // Nothing of the page says how it moves: what was seen of it does.
+    const { props = [], cycle = null, over = 0 } = seenNow() || {};
+    return { kind: "frames", name: "inline-style", ...who, seen: props, over, ...(cycle ? { cycle } : {}) };
+  }
   if (o.kind !== "css") {
     const t = timing();
     const current = o.kind === "transition"
       ? `transition: ${trCss(JSON.parse(M.ro.orig))}`
       : said(M.ro.orig ? JSON.parse(M.ro.orig) : t);
     const out = /** @type {any} */ ({ kind: o.kind, name: o.kind === "transition" ? "transition" : o.name.slice(0, 64), ...who, current: current.slice(0, 400) });
-    if (o.kind === "script" && openDirty()) out.next = said(t).slice(0, 400);
+    const sc = openScr();
+    if (sc && JSON.stringify(sc.timing) !== sc.orig) out.next = said(t).slice(0, 400);
+    if (sc && kfIs(sc.frames) !== sc.origKf) {
+      // (What they were is left out when it is too long to be taken: what they are is the edit.)
+      const from = keysText(JSON.parse(sc.origFrames));
+      out.keyframes = { to: keysText(sc.frames), ...(from.length <= MAX_KF ? { from } : {}) };
+    }
     if (o.kind === "transition") {
       const mine = M.tr.get(o.rs), st = M.ro.state, v = M.ro.vals;
       if (trDirty(mine)) out.next = `transition: ${trCss(mine.items)}`.slice(0, 400);
@@ -50,7 +62,7 @@ export function submit(background) {
   if (!o || !el) return flash("Open an animation first: click something that moves, or a row of the list");
   if (!openDirty() && !words) return flash("Nothing to send yet: change it, or say what it should do");
   const k = openKf();
-  if (k && serialize(k.name, k.frames).length > MAX_KF) return flash("Too long to send: the keyframes are over 4000 characters");
+  if (k ? serialize(k.name, k.frames).length > MAX_KF : openScr() && keysText(M.ro.frames).length > MAX_KF) return flash("Too long to send: the keyframes are over 4000 characters");
   letGo(); // the screenshot shows the element as it plays, not stopped at a frame
   const motion = payload();
   const target = describe(el);
@@ -70,17 +82,10 @@ export function submit(background) {
   };
   // What it was, until the host takes it; then its rules move to a sheet of their own, and it
   // is no longer unsent.
-  M.unsent = { id: note.id, snap: M.snap, past: M.past, future: M.future, words: M.note, open: o, sel: M.sel };
+  M.unsent = { id: note.id, snap: M.snap, past: M.past, future: M.future, words: M.note, open: o, sel: M.sel, ro: M.ro, held: M.held };
   if (o.kind === "css") moveToSent(note.id);
   else if (o.kind === "transition" && trDirty(M.tr.get(o.rs))) moveTransitionToSent(note.id, el);
-  else if (o.kind === "script" && M.ro && M.ro.orig) {
-    // Sent, it goes on playing as changed (there is no rule to take away when the note is done:
-    // it is the page's own animation, until the page makes it again).
-    M.ro.orig = JSON.stringify(M.ro.timing);
-    M.past = [];
-    M.future = [];
-    M.snap = snapshot();
-  }
+  else if (o.kind === "script" && openDirty()) moveScriptToSent(note.id);
   M.note = ""; // the line under the timeline says it was sent
   S.quiet = note.id; // no "Sent" chip over the page: the dock's line says it
   S.sel = [el]; // its outline, in the screenshot
@@ -144,6 +149,39 @@ function moveTransitionToSent(id, el) {
   openTransition(el); // as the page has it now
   draftChanged();
 }
+/** A changed script's animation goes on playing as it was sent: there is no rule to take away
+ *  when the note is done, so what the animation was before is kept with the note's id. */
+function moveScriptToSent(id) {
+  M.sent.push({ id, sheet: null, seen: false, n: null, undo: [], script: { a: M.held, raw: M.ro.raw } });
+  M.ro = readScript(M.held); // as it plays now
+  M.past = [];
+  M.future = [];
+  M.snap = snapshot();
+}
+/** A sent script's animation is as it was before that note, if the page still has it. Another
+ *  note sent of it since stays on top of it, and what it was before that one is what it was
+ *  before this one now; so do unsent changes of it, of which only those are kept that were made
+ *  since (how it plays, its keyframes). */
+function putBackScript(b) {
+  const { a, raw } = b.script;
+  const later = M.sent.slice(M.sent.indexOf(b) + 1).find((x) => x.script && x.script.a === a);
+  if (later) return void (later.script.raw = raw);
+  if (!a.effect || !a.effect.target || !a.effect.target.isConnected) return;
+  try {
+    a.effect.updateTiming(raw.timing);
+    a.effect.setKeyframes(raw.frames);
+  } catch {}
+  const was = openScr();
+  if (!was || M.held !== a) return;
+  const now = readScript(a);
+  if (JSON.stringify(was.timing) !== was.orig) now.timing = was.timing;
+  if (kfIs(was.frames) !== was.origKf) now.frames = was.frames;
+  M.ro = now;
+  if (M.key && !now.frames.some((f) => f.at === M.key.at && (M.key.prop === null || M.key.prop in f.vals))) M.key = null;
+  forgetSteps(was.id);
+  M.snap = snapshot();
+  applyScript();
+}
 /** The host did not take the note: the animation is unsent again, with its undo steps and words.
  *  Another note's id (an older one, or a canvas note) changes nothing here. */
 export function refuse(id, say) {
@@ -151,7 +189,10 @@ export function refuse(id, say) {
   if (!u || u.id !== id) return false;
   M.unsent = null;
   const i = M.sent.findIndex((b) => b.id === id);
-  if (i >= 0) dropSent(M.sent.splice(i, 1)[0]);
+  if (i >= 0) {
+    dropSent(M.sent[i]);
+    M.sent.splice(i, 1);
+  }
   const s = JSON.parse(u.snap);
   M.kf = new Map(s.kf);
   M.use = new Map(s.use);
@@ -163,9 +204,14 @@ export function refuse(id, say) {
   S.sel = [];
   apply();
   scan();
+  setSel(u.sel && u.sel.isConnected ? u.sel : mq(u.open.rs)); // (what was opened since is left, as it is when another is opened)
   M.open = u.open;
   M.held = null;
-  setSel(u.sel && u.sel.isConnected ? u.sel : mq(u.open.rs));
+  if (u.open.kind !== "css") M.ro = u.ro;
+  if (u.open.kind === "script") {
+    M.held = u.held;
+    applyScript();
+  }
   if (u.open.kind === "transition" && M.sel) openTransition(M.sel); // with what was changed, which is unsent again
   draw();
   draftChanged();
@@ -174,6 +220,7 @@ export function refuse(id, say) {
 }
 /** Its sheet goes, and the element's other uses have the entry back that it wrote over. */
 function dropSent(b) {
+  if (b.script) return putBackScript(b);
   adopt(b.sheet, false);
   for (const { x, index, entry } of b.undo) if (x.base[index]) x.base[index] = entry;
 }

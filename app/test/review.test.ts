@@ -4,7 +4,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { createReview, pageCss, pageEdits, pageMotion, pageNote, REVIEW_VERSION, type Edit, type PageNote, type Review } from "../src/main/review"
-import { noteWords } from "../../overlay/prompt.js"
+import { motionLines, noteWords } from "../../overlay/prompt.js"
 import type { InboxStatus, NoteStatus } from "../src/shared/types"
 
 let seq = 0
@@ -996,6 +996,16 @@ test("a motion note is checked field by field: names, one-line values, keyframes
   // the kinds that are only talked about keep their one line, and nothing else
   assert.deepEqual(pageMotion({ kind: "transition", name: "transition", selector: "button.primary", label: "Button · Start", current: "transition: background-color 200ms ease", shared: 3 }),
     { kind: "transition", name: "transition", selector: "button.primary", label: "Button · Start", current: "transition: background-color 200ms ease" })
+  // a script's animation: its keyframes as animate() takes them, when they were changed
+  const script = { kind: "script", name: "bob", selector: ".badge", label: "Text · New", current: "animate(): 800ms linear", keyframes: { to: '[\n  { offset: 0, translate: "0px" }\n]', from: "[\n  { offset: 0 }\n]" } }
+  assert.deepEqual(pageMotion(script), script)
+  assert.equal(pageMotion({ ...script, keyframes: { to: "x".repeat(4001) } }), undefined)
+  assert.equal(noteWords(pageNote(motionNote(pageMotion(script)!))!), 'Motion: script on "Text · New": keyframes')
+  // what a script moves frame by frame: what was seen of it, a property and one line each
+  const seen = { kind: "frames", name: "inline-style", selector: ".meter > i", label: "Block · .meter i", seen: [{ prop: "width", range: "0…100%" }, { prop: "--x", range: "1…9" }], over: 1200, cycle: 640 }
+  assert.deepEqual(pageMotion(seen), seen)
+  assert.deepEqual(pageMotion({ ...seen, seen: [{ prop: "width; }", range: "1" }, { prop: "left", range: "1\n2" }, "x"], over: -1, cycle: "soon" }), { kind: "frames", name: "inline-style", selector: ".meter > i", label: "Block · .meter i" })
+  assert.deepEqual(motionLines(pageMotion(seen)!), ['Moved by a script, frame by frame: "Block · .meter i".', "width 0…100%.", "--x 1…9.", "One round takes about 640ms."])
   // not an identifier, no element, an unknown kind: not a motion
   assert.equal(pageMotion({ ...MOTION, name: "rise; } body { display: none" }), undefined)
   assert.equal(pageMotion({ ...MOTION, selector: "" }), undefined)

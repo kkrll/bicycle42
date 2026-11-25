@@ -203,7 +203,8 @@
   font-weight: 600;
 }
 
-.mdock .mdock-more-btn[hidden] {
+.mdock .mdock-more-btn[hidden],
+.mdock .mdock-hd [hidden] {
   display: none;
 }
 
@@ -506,6 +507,54 @@
 .mdock-empty .mdock-chips {
   justify-content: center;
   max-width: 560px;
+}
+
+/* what was seen of an element a script moves frame by frame */
+.mdock-seen {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 12px;
+  color: var(--muted);
+  user-select: text;
+}
+
+.mdock-seen :is(p, dl, dd) {
+  margin: 0;
+}
+
+.mdock-seen > p:first-child {
+  max-width: 72ch;
+}
+
+.mdock-seen dl > div {
+  display: flex;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--rule);
+  font-family: var(--font-mono);
+}
+
+.mdock-seen dt {
+  flex: 0 0 calc(var(--lab) - 24px);
+}
+
+.mdock-seen dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--foreground);
+}
+
+.mdock-seen-ft {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+/* (Its words start where the line's do when it is under it.) */
+.mdock-seen-ft .text-btn {
+  margin-left: -6px;
 }
 
 .mdock-addp {

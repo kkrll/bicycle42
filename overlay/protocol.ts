@@ -119,11 +119,11 @@ export type Edit = {
   textBefore?: string
 }
 
-/** One animation, changed in motion mode (or only talked about, for a transition or a script's
- *  animation, which the page can't edit). Everything in it ends up in the prompt or in the panel. */
+/** One animation, changed in motion mode (or only talked about, with its words; always so for what a script moves
+ *  frame by frame, "frames", which nothing in the page holds). Everything in it ends up in the prompt or in the panel. */
 export type Motion = {
-  kind: "keyframes" | "transition" | "script"
-  /** The keyframes' name (a script's animation id; "transition" for a transition). */
+  kind: "keyframes" | "transition" | "script" | "frames"
+  /** The keyframes' name (a script's animation id; "transition" for a transition, "inline-style" for frames). */
   name: string
   /** The element that plays it, and its plain name: "Heading · Ship calmer interfaces". */
   selector: string
@@ -136,7 +136,8 @@ export type Motion = {
   from?: string
   /** keyframes: the element's `animation` value now, and before. */
   animation?: { to: string; from?: string }
-  /** keyframes: the @keyframes text now, and before. */
+  /** keyframes: the @keyframes text now, and before. script: the keyframes as animate() takes
+   *  them, now and before, when they were changed. */
   keyframes?: { to: string; from?: string }
   /** keyframes: what changed in how it plays, each with its value before and after. */
   changes?: Array<{ prop: "duration" | "delay" | "easing" | "count" | "direction" | "fill"; from: string; to: string }>
@@ -148,6 +149,12 @@ export type Motion = {
    *  with what changes then ("hover: color rgb(…) → rgb(…)"). */
   next?: string
   state?: string
+  /** frames: the inline properties seen to change, each with what it was seen to be
+   *  ("0…100%"), how long it was watched, and how long one round takes when it was seen to come
+   *  round (ms). */
+  seen?: Array<{ prop: string; range: string }>
+  over?: number
+  cycle?: number
 }
 
 /** A note, as the overlay sends it. */

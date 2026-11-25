@@ -66,7 +66,8 @@ export function resume() {
  *  dock is the host's, beside the page: the page needs no room for it.) */
 export const syncUi = () => hostSync();
 /** What no stylesheet and no animation object accounts for: an inline style rewritten many
- *  times a second. It cannot be edited here, but the list can say it is there. Only while it is
+ *  times a second. It cannot be edited here, but the list can say it is there, and opened it is
+ *  watched (frames.js). Only while it is
  *  in the page: a toast a script slid in and took out again is no longer listed, and not kept
  *  (the count per element is the element's own, and goes with it). */
 function watchSuspects(on) {

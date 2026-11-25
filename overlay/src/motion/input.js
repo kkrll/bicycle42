@@ -4,7 +4,7 @@
 
 import { mod, S } from "../state.js";
 import { pick } from "../page.js";
-import { M, openKf } from "./model.js";
+import { editKf, M } from "./model.js";
 import { position, seek, selectEl, toggle } from "./open.js";
 import { removeKey, travel } from "./edit.js";
 import { submit } from "./send.js";
@@ -68,7 +68,7 @@ export function key(e) {
     block(e);
     return submit(e.altKey);
   }
-  if ((e.key === "Delete" || e.key === "Backspace") && M.key && openKf()) {
+  if ((e.key === "Delete" || e.key === "Backspace") && M.key && editKf()) {
     block(e);
     return removeKey();
   }

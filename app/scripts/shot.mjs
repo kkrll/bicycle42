@@ -204,6 +204,9 @@ const SHOTS = [
   { name: "dock-more", mock: "review", query: "&docks=motion&mode=motion", run: [click('.mdock-hd [aria-label="More"]')], wait: 400, report: TRACKS },
   // Under a page in a narrow window: what is open, with a way back to the list.
   { name: "dock-narrow", mock: "review", query: "&docks=motion&mode=motion", size: [1000, 720], report: TRACKS },
+  // What a script moves frame by frame, opened: what was seen of it, in place of a timeline.
+  { name: "dock-frames", mock: "review", query: "&docks=motion&mode=motion", run: [click("[data-row^=frames]")], wait: 400 },
+  { name: "dock-frames-narrow", mock: "review", query: "&device=phone&docks=motion&mode=motion", size: [1000, 720], run: [click("[data-row^=frames]")], wait: 400 },
   // Edit mode's inspector, drawn by the window under a desktop's page (mock-canvas.ts: a card selected).
   { name: "canvas-dock", mock: "review", query: "&docks=canvas&mode=edit", report: FOOTER },
   // …and its footer's list of the unsent edits, opened from the count: inside the inspector too.

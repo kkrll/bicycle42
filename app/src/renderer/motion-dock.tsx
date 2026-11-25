@@ -751,7 +751,7 @@ export function MotionDock() {
   const steps = () => {
     const rows = v()?.rows ?? []
     return rows.filter((r, i) => {
-      if ("group" in r || r.off || r.kind === "unused" || r.kind === "frames") return false
+      if ("group" in r || r.off || r.kind === "unused") return false
       const next = rows[i + 1]
       return r.sub || !(next && !("group" in next) && next.sub)
     }).length
@@ -828,7 +828,7 @@ export function MotionDock() {
               </Show>
 
               <Show
-                when={open() && v()!.view === "css"}
+                when={open() && v()!.view === "css" && open()!.kind !== "frames"}
                 fallback={
                   <div
                     class="mdock-tl thin-scroll"
@@ -845,20 +845,22 @@ export function MotionDock() {
                   >
                     <Show when={open()} fallback={<Empty view={v()!} onNew={() => wantFocus("[data-mname]")} />}>
                       {(o) => (
-                        <Timeline
-                          open={o()}
-                          lanes={lanes()}
-                          frames={wholeFrames()}
-                          sel={selKey()}
-                          total={axis().total}
-                          delay={delay()}
-                          head={playhead()}
-                          playing={v()!.clock.playing}
-                          wait={v()!.clock.wait}
-                          flipped={v()!.clock.on}
-                          props={v()!.choices.props}
-                          onLane={() => wantFocus("[data-kval]")}
-                        />
+                        <Show when={o().kind !== "frames"} fallback={<Seen open={o()} />}>
+                          <Timeline
+                            open={o()}
+                            lanes={lanes()}
+                            frames={wholeFrames()}
+                            sel={selKey()}
+                            total={axis().total}
+                            delay={delay()}
+                            head={playhead()}
+                            playing={v()!.clock.playing}
+                            wait={v()!.clock.wait}
+                            flipped={v()!.clock.on}
+                            props={v()!.choices.props}
+                            onLane={() => wantFocus("[data-kval]")}
+                          />
+                        </Show>
                       )}
                     </Show>
                   </div>
@@ -978,10 +980,12 @@ function Header(props: { open: MotionOpen; view: MotionView; steps: number }) {
     const rates = props.view.choices.rates.map(([r]) => r)
     return rates[(rates.indexOf(props.view.rate) + 1) % rates.length] ?? 1
   }
+  /** Moved frame by frame: no keyframes, no timing, nothing to play. */
+  const bare = () => props.open.kind === "frames"
   const rateText = () => props.view.choices.rates.find(([r]) => r === props.view.rate)?.[1] ?? `${props.view.rate}×`
   return (
     <>
-      <div class="devices mdock-seg" role="radiogroup" aria-label="Show">
+      <div class="devices mdock-seg" role="radiogroup" aria-label="Show" hidden={bare()}>
         <button type="button" role="radio" class="device" aria-checked={props.view.view === "keys"} onClick={() => send({ type: "view", view: "keys" })}>
           Keyframes
         </button>
@@ -1002,7 +1006,7 @@ function Header(props: { open: MotionOpen; view: MotionView; steps: number }) {
       </Show>
       <button
         type="button"
-        hidden={props.open.kind === "transition"}
+        hidden={props.open.kind === "transition" || bare()}
         class="icon-btn mdock-more-btn"
         ref={more}
         title="More: repeat, direction, fill, what starts it"
@@ -1013,10 +1017,10 @@ function Header(props: { open: MotionOpen; view: MotionView; steps: number }) {
       </button>
       <span class="mdock-sp" />
       <div class="mdock-tools">
-        <button type="button" class="text-btn mdock-rate" title="Speed while looking" onClick={() => send({ type: "rate", rate: nextRate() })}>
+        <button type="button" class="text-btn mdock-rate" hidden={bare()} title="Speed while looking" onClick={() => send({ type: "rate", rate: nextRate() })}>
           {rateText()}
         </button>
-        <button type="button" class="icon-btn" aria-pressed={props.view.loop} title="Repeat while looking" aria-label="Repeat while looking" onClick={() => send({ type: "loop", on: !props.view.loop })}>
+        <button type="button" class="icon-btn" hidden={bare()} aria-pressed={props.view.loop} title="Repeat while looking" aria-label="Repeat while looking" onClick={() => send({ type: "loop", on: !props.view.loop })}>
           <MIcon name="loop" />
         </button>
         <button
@@ -1056,7 +1060,7 @@ function Header(props: { open: MotionOpen; view: MotionView; steps: number }) {
         </button>
       </div>
       {/* (Last: on two rows they are the second, and Tab goes there last; see .mdock-hd.) */}
-      <div class="mdock-timing">
+      <div class="mdock-timing" hidden={bare()}>
         <label class="mdock-tf">
           <TName long="Duration" short="Dur." />
           <Field
@@ -1520,6 +1524,36 @@ function Score(props: { open: MotionOpen }) {
   )
 }
 
+/** What a script moves frame by frame: what was seen of it, in place of a timeline. */
+function Seen(props: { open: MotionOpen }) {
+  const seen = () => props.open.seen
+  return (
+    <div class="mdock-seen">
+      <p>A script writes this element’s inline style on every frame. No CSS rule or animation holds it, so it cannot be changed here: say in the note what it should do.</p>
+      <dl>
+        <For each={seen()?.props ?? []}>
+          {(p) => (
+            <div>
+              <dt>{p.prop}</dt>
+              <dd>{p.range}</dd>
+            </div>
+          )}
+        </For>
+      </dl>
+      <p class="mdock-seen-ft" role="status">
+        <span>
+          {!seen()?.over
+            ? seen()?.watching ? "Watching it…" : "Not watched yet"
+            : `${seen()!.props.length ? "" : "None of its properties changed. "}Watched for ${secs(Math.round(seen()!.over / 100) * 100)}${seen()!.cycle ? `; one round takes about ${secs(seen()!.cycle!)}` : seen()!.props.length ? "; not seen to repeat" : ""}${seen()!.watching ? " (still watching)" : ""}`}
+        </span>
+        <button type="button" class="text-btn" disabled={!!seen()?.watching} title="Watch it again for a while (space)" onClick={() => send({ type: "play" })}>
+          Watch again
+        </button>
+      </p>
+    </div>
+  )
+}
+
 /** The selected keyframe: where it is, its value, its easing (to the next one). */
 function KeyEditor(props: { k: NonNullable<MotionOpen["key"]>; at: number; readOnly: boolean; easings: string[] }) {
   const pop = usePop()
@@ -1620,6 +1654,8 @@ function KeyEditor(props: { k: NonNullable<MotionOpen["key"]>; at: number; readO
 function CssText(props: { open: MotionOpen }) {
   const [local, setLocal] = createSignal<string | null>(null)
   const [focused, setFocused] = createSignal(false)
+  // A script's animation is written out as its call, which is read, not typed.
+  const ro = () => props.open.readOnly || props.open.kind !== "css"
   // (As a Field: removed with the caret in it, it hears a blur, and has nothing left to say.)
   let gone = false
   onCleanup(() => (gone = true))
@@ -1633,7 +1669,7 @@ function CssText(props: { open: MotionOpen }) {
         class="mono thin-scroll"
         spellcheck={false}
         autocomplete="off"
-        readOnly={!!props.open.readOnly}
+        readOnly={ro()}
         aria-label="The keyframes as code"
         value={local() ?? props.open.css}
         onFocus={(e) => {
@@ -1647,7 +1683,7 @@ function CssText(props: { open: MotionOpen }) {
         onBlur={(e) => {
           if (gone) return
           setFocused(false)
-          if (!props.open.readOnly) send({ type: "css", text: e.currentTarget.value, done: true })
+          if (!ro()) send({ type: "css", text: e.currentTarget.value, done: true })
           setTimeout(() => !focused() && setLocal(null), HOLD_MS)
         }}
         onKeyDown={(e) => {
