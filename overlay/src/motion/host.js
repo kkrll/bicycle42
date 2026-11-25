@@ -35,7 +35,7 @@ import { setMode } from "../mode.js";
 import { kick } from "../render.js";
 import { apply, clamp, COUNT, DIRECTION, EASINGS, FILL, frames, HOW, M, name, openDirty, openKf, openUse, pathOf, PROPS, r1, RATE_TEXT, RATES, readOnly } from "./model.js";
 import { animOf, knownNames, newAnimation, position, reveal, running, seek, selectEl, setState, toggle, useKf, waiting } from "./open.js";
-import { addKey, addLane, commit, cssText, detach, discard, keyInfo, laneOrder, moveKey, removeKey, removeLane, rowNow, rows, segEase, setCss, setKey, setName, setTiming, sharedBy, timing, travel } from "./edit.js";
+import { addKey, addLane, commit, cssText, detach, discard, keyInfo, laneOrder, moveKey, playTogether, removeKey, removeLane, rowNow, rows, score, segEase, setCss, setKey, setName, setTiming, sharedBy, timing, travel } from "./edit.js";
 import { submit } from "./send.js";
 import { draw, flash, sentStatus } from "./draw.js";
 import { go, restage } from "./stage.js";
@@ -133,6 +133,7 @@ function openView() {
       return { prop: p, keys, eases };
     }),
     key: ki && { at: ki.at, prop: ki.prop, value: ki.value === null || ki.value === undefined ? null : String(ki.value), ease: ki.ease, dflt: ki.dflt, last: ki.last, props: Object.keys(ki.f.vals).length },
+    score: score().map(({ id, text, name, delay, duration, on }) => ({ id, text, name, delay, duration, on })),
     css: cssText(),
     cssError: M.cssWhy,
     dirty: openDirty(),
@@ -260,6 +261,9 @@ const ACTS = {
     M.stageBg = a.value;
     restage();
     draw();
+  },
+  together() {
+    if (playTogether()) draw();
   },
   state(a) {
     if (!M.open || M.open.kind !== "transition") return;

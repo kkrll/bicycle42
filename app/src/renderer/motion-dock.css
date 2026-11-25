@@ -790,8 +790,93 @@
   margin-left: auto;
 }
 
+/* what moves together: a bar an element, on one line of time */
+.mdock-score {
+  position: relative;
+  z-index: 3;
+  margin-top: 8px;
+  padding: 4px 0 6px;
+  border-top: 1px solid var(--rule);
+  background: var(--background);
+}
+
+.mdock-score-hd .mdock-lab {
+  gap: 4px;
+  padding-left: 6px;
+  color: var(--foreground);
+}
+
+.mdock-score-hd b {
+  font-weight: 500;
+}
+
+.mdock-score-ax {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+  color: var(--muted);
+  font: 400 11px/1 var(--font-mono);
+  cursor: default;
+}
+
+.mdock .mdock-score-row {
+  width: 100%;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mdock-score-row .mdock-lab > span {
+  font-family: var(--font-sans);
+}
+
+.mdock-score-row .mdock-trk {
+  align-self: stretch;
+}
+
+.mdock-score-row i {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: calc(100% * var(--a));
+  width: max(4px, calc(100% * (var(--b) - var(--a))));
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--foreground) 12%, transparent);
+  font-style: normal;
+}
+
+.mdock-score-row:hover i {
+  background: color-mix(in srgb, var(--foreground) 20%, transparent);
+}
+
+.mdock-score-row.on i {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.mdock-score-row.on .mdock-lab {
+  color: var(--foreground);
+}
+
+.mdock-score-row i b {
+  padding: 0 6px;
+  color: var(--muted);
+  font: 400 11px/1 var(--font-mono);
+  white-space: nowrap;
+}
+
 /* the delay: beside Play, filling while it is waited out */
-.mdock-wait {
+.mdock .mdock-lab > .mdock-wait {
+  flex: none;
   margin-left: auto;
   padding: 3px 6px;
   border-radius: 4px;

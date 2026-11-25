@@ -723,3 +723,30 @@ test("hosted: a transition's states are found in the page's rules (a class a scr
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("hosted: what moves beside the open animation is its score, each with its delay; together starts them all again; a script's animation is written out as its call", async () => {
+  const { page, f, errors, v } = await open();
+  // the three cards come in one after another: 300, 390 and 480ms late
+  const cards = v.rows.findIndex((r) => r.text === "card-in");
+  await act(page, { type: "row", id: v.rows[cards + 2].id });
+  let o = (await view(page, "v.open && v.open.name === 'card-in'")).open;
+  assert.deepEqual(o.score.map((s) => [s.name, s.delay, s.duration, s.on]), [["card-in", 300, 500, false], ["card-in", 390, 500, true], ["card-in", 480, 500, false]]);
+  assert.deepEqual(o.score.map((s) => s.id), v.rows.slice(cards + 1, cards + 4).map((r) => r.id));
+  // its delay changed here is its bar's
+  await act(page, { type: "timing", what: "delay", value: "900", done: true });
+  o = (await view(page, "v.open.timing.delay === 900")).open;
+  assert.deepEqual(o.score.map((s) => s.delay), [300, 900, 480]);
+  // together: all three run again from the start
+  await frames(f, 2);
+  await act(page, { type: "together" });
+  await f.waitForFunction(() => [...document.querySelectorAll(".card")].every((c) => c.getAnimations().some((a) => a.animationName === "card-in" && a.playState === "running" && a.currentTime < 400)));
+  // the spinner moves alone in its parent
+  await act(page, { type: "row", id: rowId(v, "spin") });
+  assert.deepEqual((await view(page, "v.open && v.open.name === 'spin'")).open.score, []);
+  // a script's animation, as code
+  await act(page, { type: "row", id: rowId(v, "bob") });
+  o = (await view(page, "v.open && v.open.kind === 'script'")).open;
+  assert.match(o.css, /element\.animate\(\[\n  \{ offset: 0, translate: "0px" \},\n  \{ offset: 1, translate: "0px -3px" \}\n\], \{ duration: 800, easing: "ease-in-out", iterations: Infinity, direction: "alternate" \}\)$/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

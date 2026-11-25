@@ -91,7 +91,12 @@ export type MotionOpen = {
   /** In the order they were first drawn: a lane keeps its place while keyframes are dragged. */
   lanes: MotionLane[]
   key: MotionKey | null
-  /** The keyframes as text (a transition: its rule). */
+  /** What moves with it: the keyframe animations of the elements beside it (it among them,
+   *  `on`), each with its row's `id`, when it starts and how long it lasts, in ms. Empty when it
+   *  moves alone. */
+  score: Array<{ id: string; text: string; name: string; delay: number; duration: number; on: boolean }>
+  /** The keyframes as text (a transition: its rule; a script's animation: the call that would
+   *  make it, written out from the animation as it runs). */
   css: string
   /** Why the text last typed is not keyframes; "" when it is. */
   cssError: string
@@ -174,6 +179,8 @@ export type MotionAct =
   /** Behind the isolated element, a light backdrop or a dark one in place of the page's own
    *  (until it is no longer isolated). */
   | { type: "backdrop"; value: "light" | "dark" }
+  /** Everything in `score` starts again, each after its own delay. */
+  | { type: "together" }
   /** A transition looked at in another of its `states`. */
   | { type: "state"; value: string }
   /** The next thing that moves (1) or the one before (-1), opened; round at the ends. */

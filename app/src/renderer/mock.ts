@@ -1473,7 +1473,7 @@ async function stressCode(emit: (e: ChatEvent) => void, session: string) {
 // The harness's motion page with the heading's "rise" open, its opacity keyframe at 100% selected
 // and the playhead stopped at 42%. A few acts change it, enough to click through the dock.
 
-const RISE = { duration: 700, delay: 0, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", count: "1", direction: "normal", fill: "both" }
+const RISE = { duration: 700, delay: 120, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", count: "1", direction: "normal", fill: "both" }
 const MOTION: MotionView = {
   on: true,
   rows: [
@@ -1510,11 +1510,16 @@ const MOTION: MotionView = {
     T: 900,
     frames: [0, 60, 100],
     lanes: [
-      { prop: "opacity", keys: [{ at: 0, value: "0" }, { at: 60, value: "1" }], eases: [""] },
+      { prop: "opacity", keys: [{ at: 0, value: "0" }, { at: 60, value: "1" }, { at: 100, value: "1", implied: true }], eases: ["", ""] },
       { prop: "transform", keys: [{ at: 0, value: "translateY(18px)" }, { at: 100, value: "none" }], eases: [""] },
     ],
     key: { at: 60, prop: "opacity", value: "1", ease: "", dflt: RISE.easing, last: false, props: 1 },
     css: "@keyframes rise {\n  0% { opacity: 0; transform: translateY(18px); }\n  60% { opacity: 1; }\n  100% { transform: none; }\n}",
+    score: [
+      { id: "a", text: "Ship calmer interfaces", name: "rise", delay: 0, duration: 900, on: true },
+      { id: "b", text: "A review layer for…", name: "rise", delay: 120, duration: 700, on: false },
+      { id: "c", text: "Start free trial", name: "pulse", delay: 400, duration: 2400, on: false },
+    ],
     cssError: "",
     dirty: true,
   },

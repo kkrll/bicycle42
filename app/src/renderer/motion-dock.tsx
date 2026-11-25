@@ -927,7 +927,7 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
           Keyframes
         </button>
         <button type="button" role="radio" class="device" aria-checked={props.view.view === "css"} onClick={() => send({ type: "view", view: "css" })}>
-          CSS
+          Code
         </button>
       </div>
       <button
@@ -1320,6 +1320,9 @@ function Timeline(props: {
           )}
         </For>
       </div>
+      <Show when={props.open.score.length}>
+        <Score open={props.open} />
+      </Show>
       <Show when={!ro()}>
         <div class="mdock-addp">
           <Field
@@ -1347,6 +1350,43 @@ function Timeline(props: {
         </Show>
       </div>
     </>
+  )
+}
+
+/** What moves with the open animation: one bar an element, on one line of time from when they
+ *  start, each as late as its delay and as long as it lasts. A bar opens its element; Play starts
+ *  them all again. */
+function Score(props: { open: MotionOpen }) {
+  const total = () => Math.max(1, ...props.open.score.map((s) => Math.max(0, s.delay) + s.duration))
+  return (
+    <div class="mdock-score">
+      <div class="mdock-lrow mdock-score-hd">
+        <div class="mdock-lab">
+          <button type="button" class="icon-btn" title="Play them all again, each after its delay" aria-label="Play them together" onClick={() => send({ type: "together" })}>
+            <MIcon name="play" />
+          </button>
+          <b>Together</b>
+        </div>
+        <div class="mdock-trk mdock-score-ax">
+          <span>0s</span>
+          <span>{secs(total())}</span>
+        </div>
+      </div>
+      <For each={props.open.score}>
+        {(s) => (
+          <button type="button" class="mdock-lrow mdock-score-row" classList={{ on: s.on }} title={`${s.name} on ${s.text}: starts after ${s.delay}ms, lasts ${s.duration}ms`} onClick={() => !s.on && send({ type: "row", id: s.id })}>
+            <span class="mdock-lab">
+              <span>{s.text}</span>
+            </span>
+            <span class="mdock-trk">
+              <i style={{ "--a": Math.max(0, s.delay) / total(), "--b": (Math.max(0, s.delay) + s.duration) / total() }}>
+                <b>{s.name}</b>
+              </i>
+            </span>
+          </button>
+        )}
+      </For>
+    </div>
   )
 }
 
@@ -1464,7 +1504,7 @@ function CssText(props: { open: MotionOpen }) {
         spellcheck={false}
         autocomplete="off"
         readOnly={!!props.open.readOnly}
-        aria-label="The keyframes as CSS"
+        aria-label="The keyframes as code"
         value={local() ?? props.open.css}
         onFocus={(e) => {
           setFocused(true)

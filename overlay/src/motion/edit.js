@@ -1,7 +1,8 @@
 // Motion mode, editing: undo, keyframes shared or made the element's own, a keyframe or a lane
 // added, moved or removed, the timing, the keyframes as text; and the list's rows, as data.
 
-import { editSel } from "../page.js";
+import { adopt, BOOST, editSel } from "../page.js";
+import { kick } from "../render.js";
 import { treeVersion } from "../mount.js";
 import { draftChanged } from "../draft.js";
 import { apply, DIRECTION, FILL, frames, HOW, kfDirty, M, MAX_KF, mq, name, openKf, openUse, parseKf, pathOf, playsDirty, r1, readList, scan, serialize, splitTop, trCss, trDirty, useDirty } from "./model.js";
@@ -298,10 +299,65 @@ function setTransition(what, v, done) {
 export function cssText() {
   const k = openKf();
   if (k) return serialize(k.name, k.frames);
-  if (M.ro && M.open.kind === "script") return serialize(M.open.name, M.ro.frames);
+  if (M.ro && M.open.kind === "script") return animateText();
   if (M.ro && M.open.kind === "transition") return `${editSel(M.sel)} {\n  transition: ${trCss(M.ro.items).replace(/, /g, ",\n    ")};\n}`;
   return "";
 }
+/** A script's animation as the call that would make it: rebuilt from the animation as it runs,
+ *  not the page's source (which nothing in the page leads back to), and it says so. */
+function animateText() {
+  const camel = (p) => (p.startsWith("--") ? JSON.stringify(p) : p === "float" ? "cssFloat" : p.replace(/-([a-z])/g, (_, c) => c.toUpperCase()));
+  const t = M.ro.timing, q = (v) => JSON.stringify(String(v));
+  const kf = M.ro.frames.map((f) => `  { ${[`offset: ${r1(f.at) / 100}`, ...Object.entries(f.vals).map(([p, v]) => `${camel(p)}: ${q(v)}`), ...(f.ease ? [`easing: ${q(f.ease)}`] : [])].join(", ")} }`);
+  const opts = [`duration: ${Math.round(+t.duration || 0)}`];
+  if (t.delay) opts.push(`delay: ${Math.round(t.delay)}`);
+  if (t.easing && t.easing !== "linear") opts.push(`easing: ${q(t.easing)}`);
+  if (String(t.count) !== "1") opts.push(`iterations: ${t.count === "infinite" ? "Infinity" : t.count}`);
+  if (t.direction !== "normal") opts.push(`direction: ${q(t.direction)}`);
+  if (t.fill !== "none") opts.push(`fill: ${q(t.fill)}`);
+  return `// A script's animation, written out from the animation as it runs.\n// The page's own code may say it another way (a library, a helper).\nelement.animate([\n${kf.join(",\n")}\n], { ${opts.join(", ")} })`;
+}
+
+// ── what moves together ──────────────────────────────────────────────────────────────────
+/** The open animation among its neighbours: every keyframe animation of the elements in the
+ *  open element's parent (a row of cards that come in one after another; a line that draws and
+ *  the head that appears when it has), each with when it starts and how long it lasts, as edited
+ *  here. Empty when it moves alone. */
+export function score() {
+  const o = M.open, home = M.sel && M.sel.parentElement;
+  if (!o || o.kind !== "css" || !home) return [];
+  const out = [];
+  for (const r of rows()) {
+    if (r.group || r.kind !== "css" || r.els.length !== 1 || !r.path || !home.contains(r.els[0])) continue;
+    // (As the list read it from the page, or as changed here: nothing of the page is read for a view.)
+    const u = M.use.get(`${r.path}|${r.name}`), e = u ? u.timing : r;
+    if (e.duration === null || out.some((x) => x.id === r.id)) continue;
+    out.push({ id: r.id, path: r.path, text: name(r.els[0], true), name: r.name, delay: Math.round(+e.delay || 0), duration: Math.round(+e.duration || 0), on: rowNow(r).on });
+    if (out.length === 12) break;
+  }
+  return out.length > 1 ? out : [];
+}
+/** They all start again, together: each after its own delay, as on the page when it loads. */
+export function playTogether() {
+  const sc = score();
+  if (!sc.length || !M.sel) return false;
+  const off = new CSSStyleSheet();
+  try {
+    off.replaceSync(`${[...new Set(sc.map((x) => `${x.path}${BOOST}${BOOST}`))].join(", ")} { animation: none !important; }`);
+    adopt(off, true);
+    getComputedStyle(M.sel).animationName;
+  } catch {}
+  adopt(off, false);
+  getComputedStyle(M.sel).animationName;
+  M.held = null;
+  for (const x of sc) {
+    const el = mq(x.path);
+    for (const a of el ? el.getAnimations() : []) if (/** @type {any} */ (a).animationName) a.playbackRate = M.rate;
+  }
+  kick();
+  return true;
+}
+
 export function setCss(text) {
   const k = openKf();
   if (!k) return "";
@@ -388,7 +444,7 @@ export function rows() {
   /** How the page's CSS has one element play one animation, as far as a row says it. */
   const played = (el, nm) => {
     const e = readList(el).find((x) => x.name === nm);
-    return { path: pathOf(el), duration: e ? e.duration : null };
+    return { path: pathOf(el), duration: e ? e.duration : null, delay: e ? e.delay : 0 };
   };
   if (found.anims.length) out.push({ group: "Animations" });
   for (const a of found.anims) {
