@@ -471,7 +471,7 @@ async function main() {
   await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
   check("Edit in the top bar opens the window's inspector, and the page has none of its own", (await until(inspector)) === true && (await until(async () => (await modeShown()) === "edit")) === true && state().review.mode === "edit" && !(await pageInspector()) && state().review.docks.includes("canvas"))
   check("…and the page makes no room for one", (await js(`getComputedStyle(document.documentElement).paddingBottom`)) === "0px")
-  check("…and draws no bar of its own over the page: the inspector's footer has it", (await until(() => js(`!${shadow}.querySelector('.bar').checkVisibility() && !${shadow}.querySelector('.corner').checkVisibility()`))) === true && (await ui(`document.querySelector('.cd-foot .cd-count')?.textContent`)) === "No edits")
+  check("…and draws no bar of its own over the page: the inspector's footer has it", (await until(() => js(`!${shadow}.querySelector('.bar').checkVisibility() && !${shadow}.querySelector('.corner').checkVisibility()`))) === true && (await ui(`document.querySelector('.cd-head .cd-count')?.textContent`)) === "No edits")
   wc.sendInputEvent({ type: "keyDown", keyCode: "P", modifiers: [mod] })
   check("mod+P on the page goes back to Annotate, and the top bar follows", (await until(async () => !(await inspector()) && (await modeShown()) === "notes")) === true)
   // mod+R and F5 reload the page while the window has the keyboard too (the chat box, the inspector).
@@ -881,10 +881,10 @@ async function main() {
   // icons sit on whole pixels (their bars' rules take no room from them).
   const cdLines = (await ui(`(() => {
     const words = (e) => { const r = document.createRange(); r.selectNodeContents(e); return r.getClientRects()[0].left }
-    const off = (bar) => [...document.querySelectorAll(bar + " svg")].filter((s) => s.checkVisibility()).map((s) => +(s.getBoundingClientRect().top - document.querySelector(bar).getBoundingClientRect().top).toFixed(2))
+    const off = (bar) => !document.querySelector(bar) ? [] : [...document.querySelectorAll(bar + " svg")].filter((s) => s.checkVisibility()).map((s) => +(s.getBoundingClientRect().top - document.querySelector(bar).getBoundingClientRect().top).toFixed(2))
     return { title: words(document.querySelector(".cd-title")), count: words(document.querySelector(".cd-count")), icons: [...off(".cd-head"), ...off(".cd-foot")] }
   })()`)) as { title: number; count: number; icons: number[] }
-  check("the inspector's edit count starts on its title's line, and its bars' icons on whole pixels", Math.abs(cdLines.title - cdLines.count) < 0.5 && cdLines.icons.length > 2 && cdLines.icons.every((y) => Number.isInteger(y)), JSON.stringify(cdLines))
+  check("the inspector's edit count is in its header, right of its title, and its bars' icons on whole pixels", cdLines.count > cdLines.title && cdLines.icons.length > 2 && cdLines.icons.every((y) => Number.isInteger(y)), JSON.stringify(cdLines))
   check("the inspector's header says what the element is and none of its words, nor does its title", !/Pro|small teams/.test(await headerAll()), await headerAll())
   // (the page's own outline follows the window's choice: the one before it in the tree, then back)
   const cardRow = await selRow()
@@ -934,7 +934,7 @@ async function main() {
     canvas?.images.map((i) => i.length).join(", "),
   )
   await until(() => notes()[3]?.status === "working")
-  check("the edits are back on the page once the pictures are taken, and the inspector's footer says it was sent", (await until(() => js(`getComputedStyle(document.querySelector(${JSON.stringify(CARD)})).paddingLeft === "32px"`))) === true && (await until(() => ui(`/^Sent · preview stays until note 4/.test(document.querySelector('.cd-foot .cd-msg')?.textContent ?? "")`))) === true && (await ui(`document.querySelector('.cd-foot .cd-count').textContent`)) === "No edits")
+  check("the edits are back on the page once the pictures are taken, and the inspector's footer says it was sent", (await until(() => js(`getComputedStyle(document.querySelector(${JSON.stringify(CARD)})).paddingLeft === "32px"`))) === true && (await until(() => ui(`/^Sent · preview stays until note 4/.test(document.querySelector('.cd-foot .cd-msg')?.textContent ?? "")`))) === true && (await ui(`document.querySelector('.cd-head .cd-count').textContent`)) === "No edits")
   const row = notes()[3]
   check("the list names it by its edits and lists them in words", row?.text === NAME && row.edits?.join() === 'Styled "Card · Pro For small teams": padding: 16px → 32px.', JSON.stringify(row))
   check(
@@ -2041,12 +2041,12 @@ async function main() {
   await until(async () => (await selRow()) >= 0)
   await ui(`document.querySelector('.cd-css').focus()`)
   await windowDbg.sendCommand("Input.insertText", { text: "gap: 4px;" })
-  await until(() => ui(`document.querySelector('.cd-foot .cd-count').textContent === "1 edit" && !document.querySelector('.cd-send').disabled`))
+  await until(() => ui(`document.querySelector('.cd-head .cd-count').textContent === "1 edit" && !document.querySelector('.cd-send').disabled`))
   // The count opens the list of the unsent edits, inside the inspector's box; a row's × takes
   // that edit out (an undo step: the footer's undo brings it back).
   const gapped = () => js(`[...document.querySelectorAll("#plans *")].filter((e) => getComputedStyle(e).columnGap === "4px").length`) as Promise<number>
   const editRows = () => ui(`[...document.querySelectorAll('.cd-edits .cd-erow')].map((r) => r.querySelector('.cd-ego').textContent)`) as Promise<string[]>
-  await ui(`document.querySelector('.cd-note').focus()`) // (leaving the styles box makes the typing a step)
+  await ui(`document.querySelector('.composer textarea').focus()`) // (leaving the styles box makes the typing a step)
   await ui(`document.querySelector('.cd-count').click()`)
   const listed = await until(async () => (await editRows()).length === 1)
   check(
@@ -2062,18 +2062,18 @@ async function main() {
   await until(async () => (await editRows()).length === 1)
   await clickAt(`document.querySelector(${JSON.stringify(CARD)})`)
   check("…and a press on the page shuts it", (await until(() => ui(`!document.querySelector('.cd-edits')`))) === true)
-  // The note's field and Send say the same in Edit as in Motion: whose note, and its number.
-  const footWords = (await ui(`document.querySelector('.cd-note').placeholder + " | " + document.querySelector('.cd-send').title`)) as string
-  const nextN = (state().review.notes.at(-1)?.n ?? 0) + 1
-  check("Edit's note field is a note for the agent, and Send says the note it becomes", footWords.startsWith("Note for the agent (optional) | Send this edit to the agent as note " + nextN + " ("), footWords)
-  await ui(`document.querySelector('.cd-note').focus()`)
+  // The batch is sent from the panel's message box: it stands on the box as a tab, the words typed
+  // there are its note, and the inspector has no note field or Send of its own meanwhile.
+  const footWords = (await ui(`[...document.querySelectorAll('.composer-pending .pending-label')].map((e) => e.textContent).join(",") + " | " + !!document.querySelector('.cd-note, .cd-send')`)) as string
+  check("Edit's unsent batch is a tab on the message box, and the inspector keeps no note field or Send beside it", footWords === "1 edit | false", footWords)
+  await ui(`document.querySelector('.composer textarea').focus()`)
   await windowDbg.sendCommand("Input.insertText", { text: "tighter please" })
   const footNotes = state().review.notes.length
-  await ui(`document.querySelector('.cd-send').click()`)
+  await ui(`document.querySelector('.composer .send').click()`)
   const footSent = await until(() => state().review.notes.length === footNotes + 1, 4000)
   const footNote = state().review.notes.at(-1)
-  check("the inspector's footer Send makes the note, with the words typed in its field", footSent === true && footNote?.text === "tighter please" && footNote.edits?.[0]?.startsWith("Styled") === true, `${state().review.notes.length - footNotes} new: ${JSON.stringify(footNote)}`)
-  check("…and the footer is empty again, and says it was sent", (await until(() => ui(`document.querySelector('.cd-foot .cd-count').textContent === "No edits" && /^Sent/.test(document.querySelector('.cd-foot .cd-msg')?.textContent ?? "")`))) === true)
+  check("the message box's Send makes the note, with the words typed in it", footSent === true && footNote?.text === "tighter please" && footNote.edits?.[0]?.startsWith("Styled") === true, `${state().review.notes.length - footNotes} new: ${JSON.stringify(footNote)}`)
+  check("…and the footer is empty again, and says it was sent", (await until(() => ui(`document.querySelector('.cd-head .cd-count').textContent === "No edits" && /^Sent/.test(document.querySelector('.cd-foot .cd-msg')?.textContent ?? "")`))) === true)
   await ui(`document.querySelector('.mode[data-mode="edit"]').click()`)
   await until(() => state().review.mode === "edit")
   await ui(`document.querySelector('[data-device="desktop"]').click()`)
@@ -2410,15 +2410,11 @@ async function main() {
   // Send, in the window: the note is the reviewer's though no key or click of theirs was in the
   // page (main lets a note through only when one was, or when the window's own dock sent it).
   const before = state().review.notes.length
-  const motionWords = (await ui(`document.querySelector(".mdock-note")?.placeholder + " | " + document.querySelector(".mdock-go").title`)) as string
-  check(
-    "…Motion's note field and Send say the same as Edit's",
-    motionWords.startsWith(`Note for the agent (optional) | Send this animation to the agent as note ${(state().review.notes.at(-1)?.n ?? 0) + 1} (`),
-    motionWords,
-  )
-  await ui(`document.querySelector(".mdock-go").click()`)
+  const motionWords = (await ui(`[...document.querySelectorAll('.composer-pending .pending-label')].map((e) => e.textContent).join(",") + " | " + !!document.querySelector('.mdock-note, .mdock-go')`)) as string
+  check("…Motion's changed animation is a tab on the message box as Edit's batch is, and its dock keeps no note field or Send", motionWords === "1 animation | false", motionWords)
+  await ui(`document.querySelector('.composer .send').click()`)
   const sentIt = await until(() => state().review.notes.length === before + 1, 3000)
-  check("Send in the window's dock makes the note", sentIt === true && /rise/.test(state().review.notes.at(-1)?.text ?? ""), `${state().review.notes.length - before} new: ${state().review.notes.at(-1)?.text}`)
+  check("Send in the message box makes the animation's note", sentIt === true && /rise/.test(state().review.notes.at(-1)?.text ?? ""), `${state().review.notes.length - before} new: ${state().review.notes.at(-1)?.text}`)
   // The page is beside the window's dock, not under it: its view ends where the dock begins, and
   // the page is given no room of its own for a dock (the overlay draws none).
   const mdockTop = (await ui(`document.querySelector('.dock[data-dock="motion"]').getBoundingClientRect().top`)) as number

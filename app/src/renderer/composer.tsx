@@ -793,7 +793,7 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
                 class="icon-btn send"
                 title={busy() ? `Send when it's free (${keys("enter")})${state.can?.steer ? ` · ${keys("mod", "enter")} interrupts now` : ""}` : `Send (${keys("enter")})`}
                 aria-label="Send"
-                disabled={!text().trim() || !!blocked()}
+                disabled={(!text().trim() && !pendingSources().length) || !!blocked()}
                 onClick={() => {
                   send(false)
                   field.focus()
