@@ -646,3 +646,23 @@ test("hosted: keyframes a rule plays in a state are not unused; a scroll-driven 
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("hosted: elements that change the same way are one row of the list, named by the rule that says so, with the elements under it", async () => {
+  const { page, errors, v } = await open({ before: `
+    const s = document.createElement("style");
+    s.textContent = ".card h3, .card p { transition: color 200ms linear; } .card:hover h3 { color: red; }";
+    document.head.appendChild(s);
+  ` });
+  const i = v.rows.findIndex((r) => r.text === ".card h3, .card p");
+  assert.ok(i > 0, v.rows.map((r) => r.group || r.text).join(" | "));
+  assert.equal(v.rows[i].aside, "6 elements · color");
+  assert.equal(v.rows[i].duration, 200);
+  assert.deepEqual(v.rows.slice(i + 1, i + 7).map((r) => [r.kind, r.sub]), Array(6).fill(["transition", true]));
+  assert.equal(v.rows[i + 6].last, true);
+  // the row of the rule opens its first element; the row of that element is the one that is on
+  await act(page, { type: "row", id: v.rows[i].id });
+  const w = await view(page, "v.open && v.open.kind === 'transition'");
+  assert.deepEqual(w.rows.filter((r) => r.on).map((r) => r.id), [v.rows[i + 1].id]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

@@ -371,10 +371,30 @@ export function rows() {
       });
   }
   if (found.transitions.length) out.push({ group: "Transitions" });
+  // Elements that change the same way (the same properties, as long, as eased, as late) are one
+  // row, named by the rule that says so, with its elements under it: a page whose every link
+  // has `transition: color` is one line, not a line a link.
+  const same = new Map();
   for (const el of found.transitions) {
-    const cs = getComputedStyle(el);
-    out.push({ kind: "transition", els: [el], path: pathOf(el), text: name(el, true), aside: cs.transitionProperty,
-      duration: Math.max(...splitTop(cs.transitionDuration).map((d) => parseFloat(d) * 1000)), open: () => openTransition(el) });
+    const cs = getComputedStyle(el), is = `${cs.transitionProperty}|${cs.transitionDuration}|${cs.transitionTimingFunction}|${cs.transitionDelay}`;
+    const g = same.get(is) || same.set(is, { els: [], props: cs.transitionProperty, duration: Math.max(...splitTop(cs.transitionDuration).map((d) => parseFloat(d) * 1000)) }).get(is);
+    g.els.push(el);
+  }
+  for (const g of same.values()) {
+    const one = (el, more) => ({ kind: "transition", els: [el], path: pathOf(el), text: name(el, true), duration: g.duration, open: () => openTransition(el), ...more });
+    if (g.els.length === 1) {
+      out.push(one(g.els[0], { aside: g.props }));
+      continue;
+    }
+    let by = "";
+    for (const sel of found.trRules) {
+      try {
+        if (g.els[0].matches(sel)) by = sel;
+      } catch {}
+    }
+    by = by.replace(/\s+/g, " ");
+    out.push({ kind: "transition", els: g.els, path: "", text: by ? (by.length > 44 ? `${by.slice(0, 43)}…` : by) : g.props, aside: `${g.els.length} elements · ${g.props}`, duration: g.duration, open: () => openTransition(g.els[0]) });
+    g.els.forEach((el, j) => out.push(one(el, { sub: true, last: j === g.els.length - 1, aside: "" })));
   }
   if (found.scripts.length || M.suspects.size) out.push({ group: "Scripts" });
   for (const a of found.scripts)
@@ -412,7 +432,7 @@ export function rowNow(r) {
     now.on = mine && (r.sub ? o.rs === r.path : r.els.length === 1);
     now.dirty = r.sub ? own : kfDirty(M.kf.get(r.name)) || own;
     if (u) now.duration = u.timing.duration;
-  } else if (r.kind === "transition") now.on = !!o && o.kind === "transition" && o.rs === r.path;
+  } else if (r.kind === "transition") now.on = !!o && o.kind === "transition" && !!r.path && o.rs === r.path;
   else if (r.kind === "script") {
     now.on = !!o && o.kind === "script" && M.held === r.anim;
     now.running = r.anim.playState === "running";

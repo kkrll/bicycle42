@@ -40,7 +40,7 @@ export const r1 = (n) => Math.round(n * 10) / 10;
 export const ms = (n) => `${Math.round(n)}ms`;
 /** What a scan finds on a page nothing moves on (and what is known of any page while motion mode
  *  is off: nothing). */
-const nothing = () => ({ anims: [], unused: [], idle: [], transitions: [], scripts: [], rules: new Map(), partial: false });
+const nothing = () => ({ anims: [], unused: [], idle: [], transitions: [], trRules: [], scripts: [], rules: new Map(), partial: false });
 export const M = {
   on: false,
   sel: null, selRs: "", hover: null,
@@ -300,6 +300,7 @@ export function scan() {
   if (!M.on) return forget();
   const rules = new Map(); // name → the @keyframes rule that wins (the last one)
   const says = []; // [selector, declarations] of the rules that speak of an animation or set a custom property
+  const trRules = []; // the selectors of the rules that declare a transition, in the page's order
   const walk = (list) => {
     for (const r of list) {
       if (r instanceof CSSKeyframesRule) rules.set(r.name, r);
@@ -307,6 +308,7 @@ export function scan() {
         if (r.selectorText && r.style) {
           const t = r.style.cssText;
           if (t.includes("animation") || t.includes("--")) says.push([r.selectorText, t]);
+          if (t.includes("transition")) trRules.push(r.selectorText);
         }
         if (r.cssRules && r.cssRules.length) walk(r.cssRules);
       }
@@ -349,6 +351,7 @@ export function scan() {
     // (A page looked at in part: what was not seen to play is one list, as no more is known of it.)
     ...idleOrUnused([...rules.keys()].filter((n) => !anims.has(n)), partial ? [] : says),
     transitions,
+    trRules,
     scripts: live.filter((a) => !(a instanceof CSSAnimation) && !(a instanceof CSSTransition) && a.effect && a.effect.target && a.effect.target.getRootNode() !== root),
   };
 }

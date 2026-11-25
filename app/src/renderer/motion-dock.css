@@ -203,6 +203,16 @@
   font-weight: 600;
 }
 
+.mdock-row[hidden] {
+  display: none;
+}
+
+.mdock-row > .icon:last-child {
+  flex: none;
+  margin: 0 -4px 0 2px;
+  color: var(--muted);
+}
+
 .mdock-row.off {
   opacity: 0.55;
 }

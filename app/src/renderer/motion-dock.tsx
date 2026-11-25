@@ -18,7 +18,7 @@
 // be hidden.
 import "./motion-dock.css"
 import { For, Show, createContext, createEffect, createMemo, createRoot, createSignal, getOwner, onCleanup, onMount, untrack, useContext, type JSX, type Owner } from "solid-js"
-import type { MotionAct, MotionKind, MotionLane, MotionOpen, MotionView } from "../../../overlay/protocol-motion"
+import type { MotionAct, MotionKind, MotionLane, MotionOpen, MotionRow, MotionView } from "../../../overlay/protocol-motion"
 import { Icon } from "./icons"
 import { NOTE_OPTIONAL, dockAct, dockPing, dockViews, keys, mac, nextNoteNumber } from "./store"
 
@@ -644,6 +644,42 @@ export function MotionDock() {
   }
 
   const rowsHover = (id: string | null) => send({ type: "hover", id })
+  // ── the list's long groups ──
+  // A row with many elements under it (a rule every link of the page has) is drawn shut: one
+  // line, until it is pressed or one of its elements is what is open.
+  const FOLD = 5
+  const [unfolded, setUnfolded] = createSignal<ReadonlySet<string>>(new Set())
+  const folds = createMemo(() => {
+    const heads = new Map<string, { n: number; on: boolean }>(), under = new Map<string, string>()
+    let head: string | null = null
+    for (const r of v()?.rows ?? []) {
+      if ("group" in r) head = null
+      else if (!r.sub) heads.set((head = r.id), { n: 0, on: false })
+      else if (head) {
+        const h = heads.get(head)!
+        h.n++
+        h.on ||= r.on
+        under.set(r.id, head)
+      }
+    }
+    return { heads, under }
+  })
+  /** A head's row: "shut", "open", or null when it has too few elements to fold. */
+  const fold = (id: string): "shut" | "open" | null => {
+    const h = folds().heads.get(id)
+    return !h || h.n <= FOLD ? null : h.on || unfolded().has(id) ? "open" : "shut"
+  }
+  const hiddenRow = (id: string) => {
+    const head = folds().under.get(id)
+    return !!head && fold(head) === "shut"
+  }
+  const pressRow = (r: Extract<MotionRow, { id: string }>) => {
+    if (r.off) return
+    const f = fold(r.id)
+    if (f) setUnfolded((s) => new Set(f === "open" ? [...s].filter((x) => x !== r.id) : [...s, r.id]))
+    // (Shutting a group whose element is open only folds it away: what is open stays.)
+    if (f !== "open") send({ type: "row", id: r.id })
+  }
   /** How many things there are to step through (as the overlay's "go" counts them: each element
    *  that moves, not the row of a name several play, not what cannot be opened). */
   const steps = () => {
@@ -678,14 +714,16 @@ export function MotionDock() {
                     <button
                       type="button"
                       class="mdock-row"
-                      classList={{ on: r.on, sub: r.sub, last: r.last, off: r.off, run: r.running }}
+                      classList={{ on: r.on, sub: r.sub, last: r.last, off: r.off, run: r.running, shut: fold(r.id) === "shut" }}
+                      hidden={r.sub && hiddenRow(r.id)}
+                      aria-expanded={fold(r.id) ? fold(r.id) === "open" : undefined}
                       data-kind={r.kind}
                       data-row={r.id}
                       role="listitem"
                       aria-disabled={r.off}
                       title={r.sub ? "" : `${r.kind === "unused" && r.aside ? `Keyframes that play on ${r.aside}, which nothing is now` : r.kind === "unused" && v()!.partial ? "Keyframes nothing was seen to play" : KIND_TITLE[r.kind]}${r.running ? ", playing" : ""}`}
                       onPointerEnter={() => rowsHover(r.id)}
-                      onClick={() => !r.off && send({ type: "row", id: r.id })}
+                      onClick={() => pressRow(r)}
                     >
                       <Show when={!r.sub}>
                         <KindIcon kind={r.kind} />
@@ -697,6 +735,9 @@ export function MotionDock() {
                       </Show>
                       <Show when={r.duration !== null}>
                         <span class="mdock-du">{r.duration}</span>
+                      </Show>
+                      <Show when={fold(r.id)}>
+                        <Icon name={fold(r.id) === "open" ? "up" : "down"} />
                       </Show>
                     </button>
                   )
