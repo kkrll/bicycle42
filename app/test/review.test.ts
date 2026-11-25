@@ -996,6 +996,11 @@ test("a motion note is checked field by field: names, one-line values, keyframes
   // the kinds that are only talked about keep their one line, and nothing else
   assert.deepEqual(pageMotion({ kind: "transition", name: "transition", selector: "button.primary", label: "Button · Start", current: "transition: background-color 200ms ease", shared: 3 }),
     { kind: "transition", name: "transition", selector: "button.primary", label: "Button · Start", current: "transition: background-color 200ms ease" })
+  // a transition's state, and who says what switches it: the reviewer, or a recording
+  const tr = { kind: "transition", name: "transition", selector: "button", label: "Button", current: "transition: opacity 1s", state: ".open: opacity 1 → 0" }
+  assert.equal(pageMotion({ ...tr, stateBy: "named" })!.stateBy, "named")
+  assert.equal(pageMotion({ ...tr, stateBy: "someone" })!.stateBy, undefined)
+  assert.equal(pageMotion({ ...tr, state: undefined, stateBy: "named" })!.stateBy, undefined)
   // not an identifier, no element, an unknown kind: not a motion
   assert.equal(pageMotion({ ...MOTION, name: "rise; } body { display: none" }), undefined)
   assert.equal(pageMotion({ ...MOTION, selector: "" }), undefined)

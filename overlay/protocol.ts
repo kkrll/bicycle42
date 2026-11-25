@@ -148,6 +148,9 @@ export type Motion = {
    *  with what changes then ("hover: color rgb(…) → rgb(…)"). */
   next?: string
   state?: string
+  /** transition: the reviewer named what switches it (no rule of the page need say so), or it was
+   *  recorded while they used the page. */
+  stateBy?: "named" | "recorded"
 }
 
 /** A note, as the overlay sends it. */

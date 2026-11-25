@@ -10,7 +10,7 @@ import { animOf, applyScript, layout, openCss, openScript, openTransition, seek,
 import { draw, drawList, flash } from "./draw.js";
 
 // ── undo ─────────────────────────────────────────────────────────────────────────────────
-export const snapshot = () => JSON.stringify({ kf: [...M.kf], use: [...M.use], tr: [...M.tr], sc: M.open && M.open.kind === "script" && M.ro ? M.ro.timing : null, open: M.open && M.open.kind === "css" ? M.open : null });
+export const snapshot = () => JSON.stringify({ kf: [...M.kf], use: [...M.use], tr: [...M.tr], trig: [...M.trig], sc: M.open && M.open.kind === "script" && M.ro ? M.ro.timing : null, open: M.open && M.open.kind === "css" ? M.open : null });
 export function commit() {
   const now = snapshot();
   if (now !== M.snap) {
@@ -32,6 +32,7 @@ export function travel(from, to) {
   M.kf = new Map(s.kf);
   M.use = new Map(s.use);
   M.tr = new Map(s.tr || []);
+  M.trig = new Map(s.trig || []);
   syncTransition();
   if (M.open && M.open.kind === "script" && M.ro && M.ro.orig) {
     M.ro.timing = s.sc || JSON.parse(M.ro.orig);

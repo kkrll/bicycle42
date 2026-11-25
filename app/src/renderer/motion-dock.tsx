@@ -1198,26 +1198,34 @@ function Timeline(props: {
           </div>
           <div class="mdock-trk mdock-gnote">
             <Show when={tr()}>
-              <Show when={props.open.states.length} fallback={<span class="mdock-shared" title="No rule of the page’s CSS says what changes this element: a script does it. Do it on the page to see it, and say in the note what it should do.">No state found in the CSS</span>}>
+              <Show when={props.open.states.length} fallback={<span class="mdock-shared" title="No rule of the page’s CSS says what changes this element: a script does it. Add what triggers it, or say in the note what it should do.">No state found in the CSS</span>}>
                 <span class="mdock-shared">On</span>
                 <div class="mdock-chips mdock-states" role="radiogroup" aria-label="The state it is looked at in">
                   <For each={props.open.states}>
                     {(s) => (
-                      <button
-                        type="button"
-                        role="radio"
-                        class="mdock-chip mono"
-                        aria-checked={s === props.open.state}
-                        aria-pressed={s === props.open.state}
-                        title={`What ${s} changes: press Play to switch it on and off`}
-                        onClick={() => send({ type: "state", value: s })}
-                      >
-                        {s}
-                      </button>
+                      <span class="mdock-state">
+                        <button
+                          type="button"
+                          role="radio"
+                          class="mdock-chip mono"
+                          aria-checked={s === props.open.state}
+                          aria-pressed={s === props.open.state}
+                          title={props.open.triggers.includes(s) ? `The trigger you named: press Play to switch ${s} on and off` : `What ${s} changes: press Play to switch it on and off`}
+                          onClick={() => send({ type: "state", value: s })}
+                        >
+                          {s}
+                        </button>
+                        <Show when={props.open.triggers.includes(s)}>
+                          <button type="button" class="icon-btn small" title="Remove this trigger" aria-label={`Remove the trigger ${s}`} onClick={() => send({ type: "untrigger", value: s })}>
+                            <Icon name="close" />
+                          </button>
+                        </Show>
+                      </span>
                     )}
                   </For>
                 </div>
               </Show>
+              <AddTrigger open={props.open} />
             </Show>
             <Show when={props.open.shared > 1}>
               <span
@@ -1349,6 +1357,64 @@ function Timeline(props: {
         </Show>
       </div>
     </>
+  )
+}
+
+/** What switches a transition, as the reviewer says it: a class, an attribute or a state, on the
+ *  element or on one of its parents. The overlay has the last word on what one is (parseTrigger in
+ *  trigger.js); here what is plainly none is not sent. */
+const TRIGGER = /^(\.[^\s.[\]#>+~,"'(){}]+|\[[^\s=\]"']+(=[^\]]*)?\]|:[a-z-]+)$/i
+function AddTrigger(props: { open: MotionOpen }) {
+  const pop = usePop()
+  let at!: HTMLButtonElement
+  return (
+    <button
+      type="button"
+      class="text-btn mdock-addt"
+      ref={at}
+      title="Say what triggers it: a class a script adds, an attribute it sets, a state"
+      onClick={() => pop.toggle({ anchor: at, kind: "more", body: () => <TriggerSheet open={props.open} close={pop.close} /> })}
+    >
+      <Icon name="plus" />
+      Trigger
+    </button>
+  )
+}
+function TriggerSheet(props: { open: MotionOpen; close: () => void }) {
+  const [text, setText] = createSignal(""), [on, setOn] = createSignal("")
+  let box!: HTMLDivElement
+  const ok = () => TRIGGER.test(text().trim())
+  const add = (v = text()) => {
+    if (!TRIGGER.test(v.trim())) return
+    send({ type: "trigger", text: v.trim(), on: on() })
+    props.close()
+  }
+  // (Once it is placed: until then it is hidden, and takes no focus.)
+  onMount(() => requestAnimationFrame(() => box.querySelector("input")?.focus()))
+  return (
+    <div class="mdock-more mdock-trig" ref={box}>
+      <div class="mdock-tchips">
+        <span>Triggered by</span>
+        <div class="mdock-trigf">
+          <Field attr="trig" class="mono" value={text()} placeholder=".open  [data-state=open]  :hover" label="Class, attribute or state" clears onInput={setText} onDone={add} onEsc={props.close} />
+          <button type="button" class="btn" disabled={!ok()} onClick={() => add()}>
+            Add
+          </button>
+        </div>
+      </div>
+      <div class="mdock-tchips">
+        <span>On</span>
+        <div class="mdock-chips" role="radiogroup" aria-label="The element the trigger is on">
+          <For each={[{ path: "", text: "This element", aside: "" }, ...props.open.above]}>
+            {(p) => (
+              <button type="button" role="radio" class="mdock-chip" aria-checked={on() === p.path} aria-pressed={on() === p.path} title={p.aside ? `${p.text} (${p.aside})` : p.text} onClick={() => setOn(p.path)}>
+                {p.aside || p.text}
+              </button>
+            )}
+          </For>
+        </div>
+      </div>
+    </div>
   )
 }
 

@@ -8,6 +8,7 @@ import { draw, flash } from "./draw.js";
 import { kick } from "../render.js";
 import { statesOf, styleRules } from "./states.js";
 import { restage } from "./stage.js";
+import { above, drop, isOn, keep, namedStates, parseTrigger, put, wears } from "./trigger.js";
 
 // ── opening one ──────────────────────────────────────────────────────────────────────────
 function baseFor(rs, el) {
@@ -130,11 +131,51 @@ export function openTransition(el) {
   const page = props.map((p, i) => ({ prop: p, duration: Math.round(parseFloat(at(dur, i)) * 1000) || 0, delay: Math.round(parseFloat(at(del, i)) * 1000) || 0, easing: at(ease, i) })).filter((x) => x.duration > 0);
   const items = mine ? mine.items : page;
   const moves = (p) => items.some((x) => x.prop === "all" || x.prop === p || p.startsWith(`${x.prop}-`));
-  const states = statesOf(el, moves, styleRules());
-  M.ro = { items, orig: mine ? mine.orig : JSON.stringify(page), states, state: null, vals: null, frames: [], laneEase: {}, total: 1, on: false };
-  setState((states.find((s) => s.label === "hover") || states[0] || { label: "" }).label, el);
+  if (M.ro && M.ro.on) {
+    // (What is on the page of the one that was open goes before this one is read.)
+    M.ro.on = false;
+    apply();
+  }
+  M.ro = { items, orig: mine ? mine.orig : JSON.stringify(page), moves, above: above(el), states: [], trigIs: "", state: null, vals: null, frames: [], laneEase: {}, total: 1, on: false };
+  readStates(el, rs);
+  setState(firstState(), el);
   show({ kind: "transition", rs, name: "transition" });
 }
+/** The states of the open transition: those the page's rules say, and those the reviewer named (a
+ *  named one is in the place of one found that is called the same). */
+function readStates(el, rs) {
+  const ro = M.ro, rules = styleRules(), named = namedStates(el, rs, ro.moves, rules);
+  ro.states = [...statesOf(el, ro.moves, rules).filter((s) => !named.some((n) => n.label === s.label)), ...named];
+  ro.trigIs = JSON.stringify(M.trig.get(rs) || []);
+}
+/** The state looked at first: the one that is, else hover, else the first. */
+const firstState = (want = "") => (M.ro.states.find((s) => s.label === want) || M.ro.states.find((s) => s.label === "hover") || M.ro.states[0] || { label: "" }).label;
+/** What the reviewer says switches the open transition, typed (`.open`, `[data-state=open]`,
+ *  `:hover`), on the element or the parent at `on`: a state of it, looked at at once. */
+export function addTrigger(text, on) {
+  const o = M.open, el = openEl();
+  if (!o || o.kind !== "transition" || !M.ro || !el) return false;
+  const t = parseTrigger(text);
+  if (typeof t === "string") return flash(t);
+  const at = on ? mq(on) : el;
+  if (!at || (on && (at === el || !at.contains(el)))) return flash("That parent is not on the page any more");
+  const label = keep(o.rs, { ...t, on: on || "", by: "named" });
+  if (!label) return flash("Six triggers at most: take one away first");
+  readStates(el, o.rs);
+  setState(label, el);
+  commit();
+  if (still()) flash(`${label} changes nothing here: Play shows nothing, but the note will name it`);
+  return true;
+}
+export function removeTrigger(label) {
+  const o = M.open, el = openEl(), was = M.ro && M.ro.state ? M.ro.state.label : "";
+  if (!o || o.kind !== "transition" || !M.ro || !el || !drop(o.rs, label)) return;
+  readStates(el, o.rs);
+  setState(firstState(was), el);
+  commit();
+}
+/** The open state's two ends are the same. */
+const still = () => !!M.ro && !!M.ro.vals && laid().every((x) => M.ro.vals.from[x.prop] === M.ro.vals.to[x.prop]);
 /** The state the open transition is looked at in: both ends of each property are read, now and
  *  with the state's declarations applied at once. */
 export function setState(label, el = openEl()) {
@@ -146,29 +187,58 @@ export function setState(label, el = openEl()) {
     apply();
   }
   ro.state = state;
-  const list = laid();
-  const read = () => Object.fromEntries(list.map((x) => [x.prop, getComputedStyle(el).getPropertyValue(x.prop)]));
-  const from = read();
-  let to = from;
+  // (A trigger says nothing of its properties: which of all there are change is seen once it is on.)
+  const t = state && state.trigger, at = t && wears(t) ? mq(t.on || rs) : null, look = at && ro.items.some((x) => x.prop === "all") ? everything : null;
+  const read = () => (look ? look(el) : Object.fromEntries(laid().map((x) => [x.prop, getComputedStyle(el).getPropertyValue(x.prop)])));
+  let from = null, to = null;
   if (state) {
     const probe = new CSSStyleSheet();
+    // What a trigger changes is not only the element: nothing anywhere moves for being looked at.
+    const hold = at ? `*${BOOST}, *${BOOST}::before, *${BOOST}::after { transition: none !important; }` : `${rs}${BOOST}${BOOST} { transition: none !important; }`;
+    let undo = null;
     try {
-      probe.replaceSync(`${rs}${BOOST}${BOOST} { ${state.css}; transition: none !important; }`);
+      probe.replaceSync(hold);
       adopt(probe, true);
+      from = read(); // (with the transition off: where it is, not where it is on its way from)
+      if (at) {
+        state.off = isOn(t, at); // (on now: the state is without it)
+        undo = put(t, at);
+      } else probe.replaceSync(`${rs}${BOOST}${BOOST} { ${state.css}; transition: none !important; }`);
       to = read();
       // Back as it was with the transition still off, and only then is it allowed again: taken
       // away in one go, the element would run its transition back from the state it never was in.
-      probe.replaceSync(`${rs}${BOOST}${BOOST} { transition: none !important; }`);
+    } catch {}
+    if (undo) undo();
+    try {
+      probe.replaceSync(hold);
       getComputedStyle(el).opacity;
+      if (at) document.getAnimations(); // (the whole page's styles, worked out while nothing may move)
     } catch {}
     adopt(probe, false);
     getComputedStyle(el).opacity;
   }
+  from = from || read();
+  to = to || from;
+  if (look) state.props = differs(from, to);
   ro.vals = { from, to };
   layout();
 }
+/** Every property of the element, as it is. */
+function everything(el) {
+  const cs = getComputedStyle(el), out = {};
+  for (let i = 0; i < cs.length; i++) out[cs[i]] = cs.getPropertyValue(cs[i]);
+  return out;
+}
+// Said twice (a logical name for the same side), worked out from another, or not moved between values.
+const ECHO = /^(--|-webkit-|block-size|inline-size|(min|max)-(block|inline)-size|inset-|(margin|padding|border)-(block|inline)|border-(start|end)-|overflow-(block|inline)|perspective-origin|transform-origin|transition|animation|display$|content-visibility)/;
+/** The properties that are not the same in both, without those that only follow the colour. */
+function differs(from, to) {
+  const all = Object.keys(from).filter((p) => from[p] !== to[p] && !ECHO.test(p));
+  const ink = all.includes("color");
+  return all.filter((p) => !(ink && p !== "color" && /color$/.test(p) && from[p] === from.color && to[p] === to.color)).slice(0, 12);
+}
 /** The properties the open transition has a lane for: `all` is those its state sets. */
-function laid() {
+export function laid() {
   const ro = M.ro;
   const set = ro.state ? ro.state.props.filter((p) => !p.startsWith("--")) : [];
   return ro.state ? ro.items.flatMap((x) => (x.prop === "all" ? set.map((p) => ({ ...x, prop: p })) : [x])) : ro.items;
@@ -196,7 +266,13 @@ export function syncTransition() {
   if (!o || o.kind !== "transition" || !ro) return;
   const mine = M.tr.get(o.rs);
   ro.items = mine ? mine.items : JSON.parse(ro.orig);
-  layout();
+  const el = openEl();
+  if (!el || JSON.stringify(M.trig.get(o.rs) || []) === ro.trigIs) return layout();
+  // A trigger came back or went: it is looked at again, or what was looked at before it.
+  const was = ro.states.map((s) => s.label);
+  readStates(el, o.rs);
+  const back = ro.states.find((s) => s.trigger && !was.includes(s.label));
+  setState(firstState(back ? back.label : ro.state ? ro.state.label : ""), el);
 }
 export function setSel(el) {
   // A script's animation changed here and left unsent plays as the page's script made it again.
@@ -311,13 +387,14 @@ export function seek(p) {
 /** A transition: switch its state on or off, and the page runs it. */
 function flip() {
   if (!M.ro) return;
-  if (!M.ro.state) return flash("Nothing in the page’s CSS says what changes this: do it on the page, and say in the note what it should do");
+  if (!M.ro.state) return flash("Nothing in the page’s CSS says what changes this: add what triggers it, or say in the note what it should do");
   M.ro.on = !M.ro.on;
   apply();
   const el = openEl();
   if (!el) return;
   getComputedStyle(el).opacity;
-  for (const a of el.getAnimations()) if (a instanceof CSSTransition) a.playbackRate = M.rate;
+  // (A trigger moves more than the element: all of it at the speed chosen.)
+  for (const a of M.worn ? M.worn.at.getAnimations({ subtree: true }) : el.getAnimations()) if (a instanceof CSSTransition) a.playbackRate = M.rate;
   kick();
 }
 export function position() {
@@ -352,5 +429,11 @@ export function letGo() {
     a.playbackRate = 1;
     a.play();
   }
-  if (M.ro && M.ro.on) M.ro.on = false;
+  if (!M.ro || !M.ro.on) return;
+  // The state goes off, a trigger with it, and what runs back for it is at its end at once: the
+  // page is used, or its screenshot taken, as it was.
+  const before = new Set(document.getAnimations());
+  M.ro.on = false;
+  apply();
+  for (const x of document.getAnimations()) if (x instanceof CSSTransition && !before.has(x)) x.finish();
 }

@@ -787,3 +787,166 @@ test("hosted: a script's animation is slowed in the animation itself, undone, pu
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+/** The motion page with a transition no rule of it explains: the button row fades with a property
+ *  a class on the body sets, and (`more`) whatever else the test writes. */
+const dimming = (more = "") => open({ before: `
+  const s = document.createElement("style");
+  s.textContent = ".cta { opacity: var(--o, 1); transition: opacity 300ms linear; } body.dim { --o: 0.3; } ${more}";
+  document.head.appendChild(s);
+` });
+const transitionRow = (v, aside) => v.rows.find((r) => r.kind === "transition" && r.aside === aside).id;
+
+test("hosted: a trigger the reviewer names (a class on a parent) is a state: it is worn while it is played, and taken off whatever ends it; undone, redone, removed, sent", async () => {
+  const { page, f, errors, v } = await dimming();
+  const dim = () => f.evaluate(() => document.body.classList.contains("dim"));
+  await act(page, { type: "row", id: transitionRow(v, "opacity") });
+  let o = (await view(page, "v.open && v.open.kind === 'transition'")).open;
+  assert.deepEqual([o.states, o.state, o.triggers], [[], null, []]);
+  // the parents it may be on, nearest first, then the body and the root
+  assert.deepEqual(o.above.map((a) => a.aside), ["section.hero", "body", "html"]);
+  // what is no trigger says so, and is none
+  for (const [text, why] of [["open", /A trigger is/], ["[onclick=x]", /not a state/], [":nth-child(2)", /A trigger is/], [":hoover", /not a state known/]]) {
+    await act(page, { type: "trigger", text, on: "" });
+    await view(page, `${why}.test(v.msg)`);
+  }
+  await act(page, { type: "trigger", text: ".dim", on: "body" });
+  o = (await view(page, "v.open.state !== null")).open;
+  assert.deepEqual([o.states, o.state, o.triggers], [[".dim on body"], ".dim on body", [".dim on body"]]);
+  assert.deepEqual(o.lanes.find((l) => l.prop === "opacity").keys.map((k) => k.value), ["1", "0.3"]);
+  // looked at only: the body has no class (and no empty class attribute) left, and nothing moves
+  assert.equal(await f.evaluate(() => document.body.hasAttribute("class")), false);
+  assert.equal(await f.evaluate(() => document.querySelector(".cta").getAnimations().length), 0);
+  // played: the page's own class, for real; played again, off
+  await act(page, { type: "play" });
+  await f.waitForFunction(() => document.body.classList.contains("dim") && +getComputedStyle(document.querySelector(".cta")).opacity < 0.31);
+  await act(page, { type: "play" });
+  await f.waitForFunction(() => !document.body.classList.contains("dim") && +getComputedStyle(document.querySelector(".cta")).opacity > 0.99);
+  // undo takes the trigger away (and off), redo brings it back
+  await act(page, { type: "play" });
+  await act(page, { type: "undo" });
+  o = (await view(page, "v.open.states.length === 0")).open;
+  assert.equal(o.state, null);
+  assert.equal(await dim(), false);
+  await act(page, { type: "redo" });
+  await view(page, "v.open.state === '.dim on body'");
+  // another thing opened, the mode switched, review off: it is taken off
+  await act(page, { type: "play" });
+  assert.equal(await dim(), true);
+  await act(page, { type: "row", id: rowId(v, "spin") });
+  await view(page, "v.open.name === 'spin'");
+  assert.equal(await dim(), false);
+  await act(page, { type: "row", id: transitionRow(v, "opacity") });
+  await view(page, "v.open.state === '.dim on body'"); // (it is kept with the element)
+  await act(page, { type: "play" });
+  assert.equal(await dim(), true);
+  await f.evaluate(() => window.__b42.receive({ type: "enabled", enabled: false }));
+  assert.deepEqual(await f.evaluate(() => [document.body.classList.contains("dim"), getComputedStyle(document.querySelector(".cta")).opacity]), [false, "1"]);
+  await f.evaluate(() => window.__b42.receive({ type: "enabled", enabled: true }));
+  await act(page, { type: "play" });
+  assert.equal(await dim(), true);
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "notes" }));
+  assert.equal(await dim(), false);
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "motion" }));
+  await view(page, "v.on && v.open && v.open.state === '.dim on body'");
+  // sent while it is on: the screenshot is of the page as it is, at rest; the note says whose the trigger is
+  await act(page, { type: "timing", what: "duration", value: "500", done: true });
+  await act(page, { type: "play" });
+  await f.waitForFunction(() => +getComputedStyle(document.querySelector(".cta")).opacity < 0.9);
+  await act(page, { type: "send", background: false });
+  assert.deepEqual(await f.evaluate(() => [document.body.classList.contains("dim"), getComputedStyle(document.querySelector(".cta")).opacity]), [false, "1"]);
+  await page.waitForFunction(() => window.__harness.notes.length === 1);
+  const note = await page.evaluate(() => window.__harness.notes[0]);
+  assert.equal(note.motion.state, ".dim on body: opacity 1 → 0.3");
+  assert.equal(note.motion.stateBy, "named");
+  assert.match(note.prompt, /\.dim on body: opacity 1 → 0\.3"\. The reviewer named this trigger themselves/);
+  // removed
+  await act(page, { type: "untrigger", value: ".dim on body" });
+  await view(page, "v.open.states.length === 0");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted: a named attribute, with what transition: all then changes; a class that is on already is taken off; a named :hover is the rules' own; one that changes nothing says so", async () => {
+  const { page, f, errors, v } = await open({ before: `
+    const s = document.createElement("style");
+    s.textContent = ".hero { transition: all 200ms ease; --x: 0px; translate: var(--x); } .hero[data-state=open] { --x: 40px; } .wide { --p: 30px; } .hero { padding-left: var(--p, 0px); }"
+      + " nav { transition: opacity 100ms linear; } nav:hover { opacity: 0.5; }";
+    document.head.appendChild(s);
+    document.querySelector(".hero").classList.add("wide");
+  ` });
+  await act(page, { type: "row", id: transitionRow(v, "all") });
+  await view(page, "v.open && v.open.kind === 'transition'");
+  await act(page, { type: "trigger", text: "[data-state='open']", on: "" });
+  let o = (await view(page, "v.open.state === '[data-state=open]'")).open;
+  assert.deepEqual(o.lanes.map((l) => [l.prop, ...l.keys.map((k) => k.value)]), [["translate", "0px", "40px"]]);
+  await act(page, { type: "play" });
+  assert.equal(await f.evaluate(() => document.querySelector(".hero").getAttribute("data-state")), "open");
+  // another trigger chosen while it is on: the first is taken off, and its ends are read at rest
+  await act(page, { type: "trigger", text: ".wide", on: "" });
+  o = (await view(page, "v.open.state === '.wide'")).open;
+  assert.equal(await f.evaluate(() => document.querySelector(".hero").hasAttribute("data-state")), false);
+  assert.deepEqual(o.lanes.map((l) => [l.prop, ...l.keys.map((k) => k.value)]).find((l) => l[0] === "padding-left"), ["padding-left", "30px", "0px"]);
+  assert.ok(!o.lanes.some((l) => l.prop === "translate"));
+  await act(page, { type: "play" });
+  assert.equal(await f.evaluate(() => document.querySelector(".hero").className), "hero");
+  await act(page, { type: "play" });
+  assert.equal(await f.evaluate(() => document.querySelector(".hero").className), "hero wide");
+  // the states found are beside it: hover, found, and :hover, named
+  await act(page, { type: "row", id: transitionRow(v, "opacity") });
+  o = (await view(page, "v.open && v.open.states.includes('hover')")).open;
+  assert.deepEqual(o.triggers, []);
+  await act(page, { type: "trigger", text: ":hover", on: "" });
+  o = (await view(page, "v.open.state === ':hover'")).open;
+  assert.deepEqual([o.states, o.triggers], [["hover", ":hover"], [":hover"]]);
+  assert.deepEqual(o.lanes.find((l) => l.prop === "opacity").keys.map((k) => k.value), ["1", "0.5"]);
+  await act(page, { type: "play" });
+  await f.waitForFunction(() => +getComputedStyle(document.querySelector("nav")).opacity < 0.51);
+  // no rule says anything of it: it is named all the same
+  await act(page, { type: "trigger", text: ".nowhere", on: "" });
+  const w = await view(page, "v.open.state === '.nowhere' && v.msg !== ''");
+  assert.match(w.msg, /\.nowhere changes nothing here/);
+  await act(page, { type: "note", text: "fade on this" });
+  await act(page, { type: "send", background: false });
+  await page.waitForFunction(() => window.__harness.notes.length === 1);
+  const m = await page.evaluate(() => window.__harness.notes[0].motion);
+  assert.deepEqual([m.state, m.stateBy], [".nowhere: nothing changes on the page yet", "named"]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted: named triggers are kept across a reload, and building a view reads no computed style", async () => {
+  const { page, f, errors, v } = await dimming();
+  await act(page, { type: "row", id: transitionRow(v, "opacity") });
+  await act(page, { type: "trigger", text: ".dim", on: "body" });
+  await view(page, "v.open && v.open.state === '.dim on body'");
+  await frames(f, 3);
+  await f.evaluate(() => {
+    const real = window.getComputedStyle;
+    window.__styles = 0;
+    window.getComputedStyle = function (...a) {
+      window.__styles++;
+      return real.apply(this, a);
+    };
+  });
+  for (const text of ["f", "fa"]) {
+    await act(page, { type: "note", text });
+    await view(page, `v.note === ${JSON.stringify(text)}`);
+  }
+  assert.equal(await f.evaluate(() => window.__styles), 0);
+  // (a transition the page has from its own file, so that it is there after a reload)
+  const ghost = transitionRow(v, "background-color");
+  await act(page, { type: "row", id: ghost });
+  await act(page, { type: "trigger", text: "[aria-pressed=true]", on: "" });
+  await view(page, "v.open && v.open.state === '[aria-pressed=true]'");
+  await page.waitForFunction(() => window.__harness.draft?.motion?.trig?.length === 2 && window.__harness.draft.motion.note === "fa");
+  await page.evaluate(() => (window.__harness.panel.length = 0));
+  await page.evaluate(() => document.getElementById("page").contentWindow.location.reload());
+  await pageFrame(page);
+  const w = await view(page, "v.on && v.note === 'fa' && v.rows.some((r) => r.aside === 'background-color')", 5000);
+  await act(page, { type: "row", id: transitionRow(w, "background-color") });
+  const o = (await view(page, "v.open && v.open.kind === 'transition'")).open;
+  assert.deepEqual([o.states, o.triggers], [["hover", "[aria-pressed=true]"], ["[aria-pressed=true]"]]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

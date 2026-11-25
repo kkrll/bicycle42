@@ -1,5 +1,6 @@
 import { adopt, BOOST, plainLabel, SKIP, unique } from "../page.js";
 import { hostEl, root } from "../mount.js";
+import { wear } from "./trigger.js";
 
 // ── motion mode ─────────────────────────────────────────────────────────────────────────────
 // The reviewer looks at what moves on the page and changes it: an animation's keyframes, and
@@ -46,6 +47,8 @@ export const M = {
   sel: null, selRs: "", hover: null,
   kf: new Map(), // name → { name, frames: [{ at, ease, vals: { prop: value } }], orig, isNew }
   tr: new Map(), // an element's transition as changed here: selector → { rs, items: [{ prop, duration, delay, easing }], orig: the page's items, as JSON }
+  trig: new Map(), // what switches an element's transition, as the reviewer named it: selector → [{ label, on, kind, name, value?, alt?, by }] (trigger.js)
+  worn: null, // the trigger that is on the page while its state is played: { t, at, undo }
   use: new Map(), // "selector|name" → { rs, name, timing, orig, plays: { how, words }, base, index, isNew, from? }
   open: null, // what is open: { kind: "css" | "script" | "transition", rs, name }
   ro: null, // for the two kinds that are only read: { frames, timing?, laneEase?, state?, total?, on?, items? }
@@ -251,6 +254,7 @@ function rulesText() {
   return out.join("\n");
 }
 export function apply() {
+  wear();
   const text = rulesText();
   if (!M.sheet) {
     if (!text) return;

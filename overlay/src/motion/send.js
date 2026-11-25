@@ -6,9 +6,10 @@ import { adopt, BOOST, describe, editSel, plainLabel, vp } from "../page.js";
 import { draftChanged } from "../draft.js";
 import { dispatch } from "../sent.js";
 import { anyDirty, apply, entryCss, kfDirty, M, MAX_KF, mq, ms, openDirty, openKf, openUse, playsDirty, readList, scan, serialize, trCss, trDirty, useDirty } from "./model.js";
-import { letGo, openCss, openTransition, setSel, show } from "./open.js";
+import { laid, letGo, openCss, openTransition, setSel, show } from "./open.js";
 import { sharedBy, snapshot, timing } from "./edit.js";
 import { draw, drawFoot, flash } from "./draw.js";
+import { triggerWords, usable } from "./trigger.js";
 
 // ── sending ──────────────────────────────────────────────────────────────────────────────
 /** How a script's animation plays, in one line. */
@@ -28,7 +29,12 @@ function payload() {
       const mine = M.tr.get(o.rs), st = M.ro.state, v = M.ro.vals;
       if (trDirty(mine)) out.next = `transition: ${trCss(mine.items)}`.slice(0, 400);
       // What switches it, and what changes then: the agent finds the rule by it.
-      if (st && v) out.state = `${st.label}: ${Object.keys(v.from).filter((p) => v.from[p] !== v.to[p]).map((p) => `${p} ${v.from[p]} → ${v.to[p]}`).join("; ")}`.replace(/\s+/g, " ").slice(0, 400);
+      // (What a named one changes may be nothing yet, or be many properties: those that move.)
+      if (st && v) {
+        const t = st.trigger, moved = laid().map((x) => x.prop).filter((p) => v.from[p] !== v.to[p]).map((p) => `${p} ${v.from[p]} → ${v.to[p]}`);
+        out.state = `${t ? triggerWords(t, st.off) : st.label}: ${moved.join("; ") || "nothing changes on the page yet"}`.replace(/\s+/g, " ").slice(0, 400);
+        if (t) out.stateBy = t.by;
+      }
     }
     return out;
   }
@@ -156,6 +162,7 @@ export function refuse(id, say) {
   M.kf = new Map(s.kf);
   M.use = new Map(s.use);
   M.tr = new Map(s.tr || []);
+  M.trig = new Map(s.trig || []);
   M.snap = u.snap;
   M.past = u.past;
   M.future = u.future;
@@ -224,9 +231,9 @@ export function draft() {
   const kf = [...M.kf].filter(([, k]) => kfDirty(k));
   const use = [...M.use].filter(([, u]) => useDirty(u) || playsDirty(u));
   const tr = [...M.tr].filter(([, t]) => trDirty(t));
-  const words = M.note;
-  if (!kf.length && !use.length && !tr.length && !words) return null;
-  return { kf, use, ...(tr.length ? { tr } : {}), ...(words ? { note: words } : {}) };
+  const words = M.note, trig = [...M.trig];
+  if (!kf.length && !use.length && !tr.length && !trig.length && !words) return null;
+  return { kf, use, ...(tr.length ? { tr } : {}), ...(trig.length ? { trig } : {}), ...(words ? { note: words } : {}) };
 }
 export function restore(d) {
   if (!d || typeof d !== "object" || anyDirty()) return;
@@ -236,6 +243,7 @@ export function restore(d) {
     M.kf = new Map(kf);
     M.use = new Map(use);
     M.tr = new Map((Array.isArray(d.tr) ? d.tr : []).filter((e) => Array.isArray(e) && typeof e[0] === "string" && e[1] && Array.isArray(e[1].items) && typeof e[1].orig === "string"));
+    M.trig = new Map((Array.isArray(d.trig) ? d.trig : []).filter((e) => Array.isArray(e) && typeof e[0] === "string" && Array.isArray(e[1])).map(([rs, list]) => [rs, list.filter(usable)]).filter((e) => e[1].length));
     if (typeof d.note === "string" && !M.note) M.note = d.note;
     M.snap = snapshot();
     apply();

@@ -292,6 +292,7 @@ export function pageMotion(raw: unknown): Motion | undefined {
     const next = line(raw.next, MAX_ANIMATION), state = kind === "transition" ? line(raw.state, MAX_ANIMATION) : undefined
     if (next) out.next = next
     if (state) out.state = state
+    if (state && (raw.stateBy === "named" || raw.stateBy === "recorded")) out.stateBy = raw.stateBy
     return out
   }
   if (index(raw.shared) && raw.shared >= 1) out.shared = raw.shared

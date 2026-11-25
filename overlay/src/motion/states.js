@@ -8,7 +8,7 @@
 
 import { splitTop } from "./model.js";
 
-const STATE = /:(hover|focus-visible|focus-within|focus|active|checked|disabled|target|open|popover-open)(?![\w-])/;
+export const STATE = /:(hover|focus-visible|focus-within|focus|active|checked|disabled|target|open|popover-open)(?![\w-])/;
 // A selector in pieces: a class, an id, an attribute, a pseudo (with what is in its brackets),
 // what joins two elements, a tag.
 const PIECE = /\.(?:\\.|[\w-])+|#(?:\\.|[\w-])+|\[[^\]]*\]|::?[\w-]+(?:\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\))?|\s*[>+~]\s*|\s+|(?:\\.|[\w-])+|\*|&/g;

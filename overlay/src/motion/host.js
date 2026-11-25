@@ -34,7 +34,7 @@ import { draftChanged } from "../draft.js";
 import { setMode } from "../mode.js";
 import { kick } from "../render.js";
 import { apply, clamp, COUNT, DIRECTION, EASINGS, FILL, frames, HOW, M, name, openDirty, openKf, openUse, pathOf, PROPS, r1, RATE_TEXT, RATES, readOnly } from "./model.js";
-import { animOf, knownNames, newAnimation, position, reveal, running, seek, selectEl, setState, toggle, useKf, waiting } from "./open.js";
+import { addTrigger, animOf, knownNames, newAnimation, position, removeTrigger, reveal, running, seek, selectEl, setState, toggle, useKf, waiting } from "./open.js";
 import { addKey, addLane, commit, cssText, detach, discard, keyInfo, laneOrder, moveKey, playTogether, removeKey, removeLane, rowNow, rows, score, segEase, setCss, setKey, setName, setTiming, sharedBy, timing, travel } from "./edit.js";
 import { submit } from "./send.js";
 import { draw, flash, sentStatus } from "./draw.js";
@@ -116,6 +116,8 @@ function openView() {
     timed: true,
     states: o.kind === "transition" ? M.ro.states.map((s) => s.label) : [],
     state: o.kind === "transition" && M.ro.state ? M.ro.state.label : null,
+    triggers: o.kind === "transition" ? M.ro.states.filter((s) => s.trigger).map((s) => s.label) : [],
+    above: o.kind === "transition" ? M.ro.above : [],
     renamable: !!(k && k.isNew),
     removable: !!(u && u.isNew),
     shared: sharedBy(),
@@ -270,6 +272,10 @@ const ACTS = {
     setState(str(a.value));
     draw();
   },
+  trigger(a) {
+    if (!addTrigger(str(a.text), str(a.on))) draw();
+  },
+  untrigger: (a) => removeTrigger(str(a.value)),
   go: (a) => go(+a.by < 0 ? -1 : 1),
   undo: () => travel(M.past, M.future),
   redo: () => travel(M.future, M.past),

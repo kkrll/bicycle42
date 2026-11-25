@@ -73,6 +73,11 @@ export type MotionOpen = {
    *  what changes it. */
   states: string[]
   state: string | null
+  /** Those of `states` that are triggers the reviewer named: they can be taken away. */
+  triggers: string[]
+  /** Where else than on the element a trigger may be: a few of its parents, nearest first, then
+   *  the body and the root (its words, and the element as the code has it: "section.hero"). */
+  above: Array<{ path: string; text: string; aside: string }>
   /** Keyframes made here: their name may be changed (the page's own keep theirs, the code uses it). */
   renamable: boolean
   /** A new animation on the element: "Remove" takes it off again. */
@@ -183,6 +188,11 @@ export type MotionAct =
   | { type: "together" }
   /** A transition looked at in another of its `states`. */
   | { type: "state"; value: string }
+  /** What switches a transition, as the reviewer names it: ".open", "[data-state=open]" or ":hover",
+   *  on the element (`on` empty) or on one of the parents in `above` (its path). It is one of the
+   *  states then; taken away by what it is called there. */
+  | { type: "trigger"; text: string; on: string }
+  | { type: "untrigger"; value: string }
   /** The next thing that moves (1) or the one before (-1), opened; round at the ends. */
   | { type: "go"; by: 1 | -1 }
   | { type: "undo" }

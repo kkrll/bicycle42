@@ -207,10 +207,48 @@
   display: none;
 }
 
-.mdock-states {
+.mdock-chips.mdock-states {
   flex-wrap: nowrap;
   min-width: 0;
+  max-width: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.mdock-state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+
+.mdock-addt {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.mdock-trig {
+  width: 320px;
+  max-width: 100%;
+}
+
+.mdock-trigf {
+  display: flex;
+  gap: 8px;
+}
+
+.mdock-trigf .mdock-fld {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface);
+}
+
+/* (The elements the trigger may be on: their words are the page's, and may be long.) */
+.mdock-trig .mdock-chip {
+  max-width: 100%;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mdock-row[hidden] {
