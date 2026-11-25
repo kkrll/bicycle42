@@ -61,7 +61,8 @@ export const M = {
   // while motion mode is on (forget).
   scan: nothing(),
   suspects: new Set(), // elements whose inline style changes many times a second (while they are in the page)
-  list: null, listTree: -1, // the list's rows as read from the page, kept until it is looked at again or elements came or went (edit.js: rows)
+  nearDue: 0, // what is in view is to be measured again: 1 once nothing is open, 2 as soon as it is not the stage (near.js)
+  list: null, found: [], listTree: -1, // the list's rows as read from the page, kept until it is looked at again or elements came or went, and the same in the page's order (edit.js: rows)
   sheet: null, // the unsent edits, as rules
   // [{ id, sheet, seen, n, undo: [{ x, index, entry }] }]: applied until the pin is done. seen:
   // its pin has been listed; n: the pin's number, null until it has one; undo: the element's
@@ -273,6 +274,7 @@ export function forget() {
   M.scan = nothing();
   M.suspects.clear();
   M.list = null;
+  M.found = [];
 }
 /** Keyframes no element plays now, in two: those a rule of the page plays (`idle`, with the
  *  rule's selector: on hover, in a state, on a ::before, on an element not in the page yet), and
@@ -350,6 +352,7 @@ export function scan() {
     }
   const running = new Set(live.filter((a) => a.playState === "running" && a.animationName).map((a) => a.animationName));
   M.list = null; // the list is of the page as it was looked at before
+  M.nearDue = M.nearDue || 1;
   M.scan = {
     rules,
     partial,

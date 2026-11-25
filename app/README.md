@@ -989,7 +989,10 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   of all its properties at once; what moves beside the open animation is drawn "Together", a bar an element on one line of time
   (a bar dragged is that element's delay, opened or not: its row has the dot, and it is sent when it is opened),
   with a Play that starts them all again; a script's animation is written out as its animate() call under "Code" (the second tab,
-  which was "CSS"), and how it plays may be changed in the animation itself. In the list, elements that change the same way are one
+  which was "CSS"), and how it plays may be changed in the animation itself. The list starts with what is in view (`overlay/src/motion/near.js`), whatever its kind (its icon says which), and the
+  rest follows under its groups ("Animations elsewhere"); a page all in view is one list. It is put in order once the reviewer's
+  scroll is over, never per frame or while the stage ("Only this") is on, and a scroll that opening a row made, or an edit, does
+  not reorder it until what is open is closed. In it, elements that change the same way are one
   row named by the rule that says so, drawn shut when it has more than five elements under it, and keyframes a rule plays in a state
   are "Not playing now", not "Unused". The playhead's flag is its time ("0.38s"),
   with no second number beside Play. A list that is not the whole page's (the overlay looked at a part of a very

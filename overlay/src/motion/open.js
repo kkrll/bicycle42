@@ -8,6 +8,7 @@ import { draw, flash } from "./draw.js";
 import { kick } from "../render.js";
 import { statesOf, styleRules } from "./states.js";
 import { restage } from "./stage.js";
+import { revealing } from "./near.js";
 
 // ── opening one ──────────────────────────────────────────────────────────────────────────
 function baseFor(rs, el) {
@@ -234,7 +235,7 @@ export function selectEl(el) {
 export function reveal(el) {
   if (!el || !el.isConnected) return;
   const r = el.getBoundingClientRect();
-  if (r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > window.innerWidth) el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+  if (r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > window.innerWidth) revealing(), el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
   M.findUntil = performance.now() + 1400;
   kick();
 }

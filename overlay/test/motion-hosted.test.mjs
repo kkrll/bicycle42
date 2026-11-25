@@ -881,3 +881,66 @@ test("hosted: a bar of the score dragged is that element's delay, though another
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("hosted: the list starts with what is in view, the rest after it as elsewhere; scrolled, it is put in order once the scroll is over, and not on the stage", async () => {
+  const { page, f, errors, v } = await open({ before: `
+    document.querySelector(".cards").style.marginTop = "3000px";
+    document.querySelector("nav").after(Object.assign(document.createElement("p"), { className: "far", textContent: "Far", style: "animation: rise 700ms both; position: absolute; top: 1500px" }));
+  ` });
+  const said = (w) => w.rows.map((r) => (r.group ? `#${r.group}` : r.sub ? `>${r.text}` : r.text));
+  const kinds = (w, from, to) => said(w).slice(said(w).indexOf(from) + 1, to ? said(w).indexOf(to) : undefined);
+  // what moves in the view, of every kind; a "rise" far down (the first of the page's) stays with its name, after the two in view
+  assert.equal(said(v)[0], "#In view", said(v).join(" "));
+  assert.deepEqual(kinds(v, "#In view", "#Animations elsewhere"), ["spin", "rise", ">Ship calmer interfaces", ">Acme helps small teams revi…", ">Far", "pulse", "Start free trial", "Book a demo"]);
+  assert.deepEqual(v.rows.filter((r) => r.sub).map((r) => r.last).slice(0, 3), [false, false, true]);
+  assert.deepEqual(kinds(v, "#Animations elsewhere", "#Scripts elsewhere").filter((x) => x[0] !== ">"), ["card-in"]);
+  assert.ok(!said(v).some((x) => /Transitions/.test(x)), said(v).join(" "));
+  assert.deepEqual(kinds(v, "#Unused"), ["wiggle"]);
+  const ids = v.rows.map((r) => r.id).filter(Boolean).sort();
+  // scrolled to the cards: the list is in order once the scroll is over, not while it goes on
+  let n = await views(page);
+  await f.evaluate(async () => {
+    for (let i = 0; i < 12; i++) {
+      scrollTo(0, 260 * (i + 1));
+      await new Promise((r) => setTimeout(r, 30));
+    }
+    scrollTo(0, 1e6);
+  });
+  const during = await page.evaluate((k) => window.__harness.panel.filter((m) => m.panel === "motion" && m.view).slice(k).filter((m) => !m.part || m.part.rows).map((m) => m.view.rows.map((r) => r.group || r.text)), n);
+  let w = await view(page, "v.rows[1].text !== 'spin'");
+  assert.ok(during.every((r) => r[1] === "spin"), JSON.stringify(during));
+  assert.deepEqual(kinds(w, "#In view", "#Animations elsewhere").filter((x) => x[0] !== ">").slice(0, 2), ["card-in", "bob"], said(w).join(" "));
+  assert.ok(kinds(w, "#Animations elsewhere").includes("spin"), said(w).join(" "));
+  assert.deepEqual(w.rows.map((r) => r.id).filter(Boolean).filter((x) => !/^frames/.test(x)).sort(), ids.filter((x) => !/^frames/.test(x)), "the same rows, with the same ids");
+  // a row opened brings the page to it: that scroll is the list's own, and it stays as it is
+  await act(page, { type: "row", id: rowId(w, "spin") });
+  await view(page, "v.open && v.open.name === 'spin'");
+  await f.waitForFunction(() => scrollY < 50);
+  await page.waitForTimeout(500);
+  w = await view(page);
+  assert.equal(said(w)[1], "card-in", said(w).join(" "));
+  // an edit (the page looked at again) keeps it too; what is open closed, it is put in order
+  await act(page, { type: "timing", what: "duration", value: "800", done: true });
+  w = await view(page, "v.open.timing.duration === 800 && v.undo");
+  assert.equal(said(w)[1], "card-in");
+  // on the stage nothing is put in order, wherever the page is
+  await act(page, { type: "isolate", on: true });
+  await view(page, "v.isolate");
+  await f.evaluate(() => scrollTo(0, 1500));
+  await page.waitForTimeout(400);
+  assert.equal(said(await view(page))[1], "card-in");
+  await f.evaluate(() => scrollTo(0, 0));
+  await act(page, { type: "isolate", on: false });
+  w = await view(page, "!v.isolate && v.rows[1].text === 'spin'");
+  // all of it in view (or none): one list, under its own groups
+  await act(page, { type: "back" });
+  await f.evaluate(() => {
+    document.querySelector(".cards").style.marginTop = "";
+    document.querySelector(".far").remove();
+    dispatchEvent(new Event("resize"));
+  });
+  w = await view(page, "v.rows[0].group === 'Animations'");
+  assert.ok(said(w).includes("#Transitions") && !said(w).some((x) => /elsewhere/.test(x)), said(w).join(" "));
+  assert.deepEqual(errors, []);
+  await page.close();
+});

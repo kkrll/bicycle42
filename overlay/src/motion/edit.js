@@ -8,6 +8,7 @@ import { draftChanged } from "../draft.js";
 import { apply, DIRECTION, FILL, frames, HOW, kfDirty, M, MAX_KF, mq, name, openKf, openUse, parseKf, pathOf, playsDirty, r1, readList, scan, serialize, splitTop, trCss, trDirty, useDirty } from "./model.js";
 import { animOf, applyScript, layout, openCss, openScript, openTransition, seek, syncTransition, useKf, useOf } from "./open.js";
 import { draw, drawList, flash } from "./draw.js";
+import { near, nearAgain, nearDue } from "./near.js";
 
 // ── undo ─────────────────────────────────────────────────────────────────────────────────
 export const snapshot = () => JSON.stringify({ kf: [...M.kf], use: [...M.use], tr: [...M.tr], sc: M.open && M.open.kind === "script" && M.ro ? M.ro.timing : null, open: M.open && M.open.kind === "css" ? M.open : null });
@@ -341,7 +342,8 @@ export function score() {
   const o = M.open, home = M.sel && M.sel.parentElement;
   if (!o || o.kind !== "css" || !home) return [];
   const out = [];
-  for (const r of rows()) {
+  rows(); // (read again if the page changed; and its order, not the list's, which starts with what is in view)
+  for (const r of M.found) {
     if (r.group || r.kind !== "css" || r.els.length !== 1 || !r.path || !home.contains(r.els[0])) continue;
     // (As the list read it from the page, or as changed here: nothing of the page is read for a view.)
     const u = M.use.get(`${r.path}|${r.name}`), e = u ? u.timing : r;
@@ -456,7 +458,8 @@ export function setName(v, done) {
 // their paths and words, the duration the page's CSS gives) costs a look at every sibling for a
 // path and a computed style for a duration, for each row; so it is read once per look at the
 // page and kept (M.list: scan() drops it, and so does an element a script moves coming or
-// going, and any element coming into the page or leaving it). What the reviewer's own state says of a row (`rowNow`: it is open, it has unsent
+// going, and any element coming into the page or leaving it). Its order is worked out apart
+// (inViewFirst), from the rows as read (M.found). What the reviewer's own state says of a row (`rowNow`: it is open, it has unsent
 // edits, its duration as edited) is worked out from M alone, for every view. A view for a
 // keystroke or a step of a drag then reads nothing of the page for its list.
 /** The rows as read from the page, each with an `id` that names the same thing in the next
@@ -465,9 +468,15 @@ export function setName(v, done) {
 export function rows() {
   // (An element put into the page or taken out of it moves the paths of those after it, and a
   // path is what an element's edits are kept under: the list is read again then.)
-  if (M.list && M.listTree === treeVersion) return M.list;
+  const kept = M.list && M.listTree === treeVersion;
+  if (kept && !nearDue()) return M.list;
+  if (!kept) M.found = listOf(M.scan);
+  return (M.list = inViewFirst(M.found));
+}
+/** The rows of what a look at the page found, in the page's order. */
+function listOf(found) {
   M.listTree = treeVersion;
-  const found = M.scan, out = /** @type {any[]} */ ([]);
+  const out = /** @type {any[]} */ ([]);
   /** How the page's CSS has one element play one animation, as far as a row says it. */
   const played = (el, nm) => {
     const e = readList(el).find((x) => x.name === nm);
@@ -530,7 +539,42 @@ export function rows() {
     seen.set(id, n + 1);
     r.id = n ? `${id}#${n}` : id;
   }
-  return (M.list = out);
+  return out;
+}
+/** The list, what is in view first: under "In view" whatever moves there (its icon says what kind
+ *  it is), then the rest under its groups, which say they are elsewhere. Keyframes several
+ *  elements play, and elements that change the same way, stay together: in view when one of them
+ *  is, those first. A page all in view, or not at all, is one list. What no element plays is of
+ *  no place. */
+function inViewFirst(list) {
+  nearAgain();
+  const all = [], here = [], there = [];
+  let group = null, under = null, elsewhere = false;
+  for (let i = 0; i < list.length; i++) {
+    const r = list[i];
+    if (r.group) {
+      all.push((group = r));
+      continue;
+    }
+    let unit = [r];
+    while (list[i + 1] && list[i + 1].sub) unit.push(list[++i]);
+    const is = r.els.some(near);
+    if (unit.length > 1) {
+      const subs = unit.slice(1), first = [...subs.filter((x) => near(x.els[0])), ...subs.filter((x) => !near(x.els[0]))];
+      first.forEach((x, j) => (x.last = j === first.length - 1));
+      r.open = first[0].open; // pressed, the row of them all opens the first
+      unit = [r, ...first];
+    }
+    all.push(...unit);
+    if (is) {
+      here.push(...unit);
+      continue;
+    }
+    if (group !== under) there.push((under = group) && r.els.length ? { group: `${group.group} elsewhere` } : group);
+    if (r.els.length) elsewhere = true;
+    there.push(...unit);
+  }
+  return here.length && elsewhere ? [{ group: "In view" }, ...here, ...there] : all;
 }
 /** What the reviewer's state says of a row of the list now: it is what is open (`on`), it has
  *  unsent edits (`dirty`), how long it lasts (as edited here, else as the page has it), there is

@@ -13,6 +13,7 @@ import { tagEl } from "./input.js";
 import { modeOn, setMode } from "../mode.js";
 import { kick } from "../render.js";
 import { restage } from "./stage.js";
+import { watchNear } from "./near.js";
 
 // ── mode ─────────────────────────────────────────────────────────────────────────────────
 /** Motion mode's own part of switching it on or off. The switch is setMode (mode.js): it
@@ -27,6 +28,7 @@ export function setOn(on) {
     Notes.hideSent();
     S.hover = null;
     watchSuspects(true);
+    watchNear(true);
     scan();
     M.snap = snapshot();
     if (el && el.isConnected) selectEl(el);
@@ -40,6 +42,7 @@ export function setOn(on) {
     M.hover = null;
     M.rowEls = null;
     watchSuspects(false);
+    watchNear(false);
     M.on = false;
     forget();
     apply();
