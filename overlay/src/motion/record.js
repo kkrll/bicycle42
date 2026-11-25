@@ -20,6 +20,11 @@ import { stateful } from "./trigger.js";
 const JUST = 250;
 /** Runs kept, and the changes before one (a page that writes a class every frame makes many). */
 const MAX_RUNS = 40, MAX_NEAR = 40;
+/** How long before a transition what the reviewer did may have been (ms): a scroll's handler is
+ *  often held back a frame or two, and a press is answered when it is let go. */
+const DID = 500;
+/** What the reviewer does that a script may answer, as the note calls it. */
+const DOES = { scroll: "scroll", pointerdown: "press", keydown: "key" };
 
 export const recording = () => !!M.rec;
 
@@ -35,7 +40,7 @@ export function record(on) {
     M.isolate = false;
     restage();
   }
-  const rec = { rs: o.rs, el, changes: /** @type {any[]} */ ([]), from: was ? performance.now() + 60 : 0, runs: /** @type {any[]} */ ([]), off: () => {} };
+  const rec = { rs: o.rs, el, changes: /** @type {any[]} */ ([]), from: was ? performance.now() + 60 : 0, runs: /** @type {any[]} */ ([]), did: /** @type {any[]} */ ([]), off: () => {} };
   const obs = new MutationObserver((list) => {
     const at = performance.now();
     for (const m of list) note(rec, m, at);
@@ -53,10 +58,18 @@ export function record(on) {
     rec.runs.push({ at, prop: e.propertyName, kf, near: rec.changes.filter((c) => c.at >= at - JUST).slice(-MAX_NEAR).reverse() });
   };
   window.addEventListener("transitionrun", ran, true);
+  // What was done just before it ran: the class that changes says how, this says when.
+  const did = (e) => {
+    const last = rec.did[rec.did.length - 1], what = DOES[e.type], at = performance.now();
+    if (last && last.what === what) last.at = at; // (a scroll is many events)
+    else if (rec.did.push({ what, at, from: at }) > 20) rec.did.shift();
+  };
+  for (const type of Object.keys(DOES)) window.addEventListener(type, did, { capture: true, passive: true });
   document.documentElement.toggleAttribute("data-b42-using", true);
   rec.off = () => {
     obs.disconnect();
     window.removeEventListener("transitionrun", ran, true);
+    for (const type of Object.keys(DOES)) window.removeEventListener(type, did, { capture: true });
     document.documentElement.toggleAttribute("data-b42-using", false);
   };
   M.rec = rec;
@@ -93,14 +106,17 @@ function stop() {
   let unsaid = false;
   // (The last first: where its values ended is where the page is now.)
   for (const runs of grouped(rec.runs).reverse().slice(0, 6)) {
-    const label = addRecorded(runs[0].near, runs);
+    // (The last thing done before it: a press that scrolled the page is the press.)
+    const at = runs[0].at, by = rec.did.filter((d) => d.from <= at && d.at >= at - DID).pop();
+    const label = addRecorded(runs[0].near, runs, by ? by.what : "");
     if (label) found.add(label);
     else unsaid = true;
   }
   if (!found.size) draw();
   else {
     commit();
-    flash(`Recorded ${[...found].join(", ")}`);
+    const after = (M.trig.get(rec.rs) || []).filter((t) => found.has(t.label) && t.after).map((t) => t.after);
+    flash(`Recorded ${[...found].join(", ")}${after.length ? `, set on ${[...new Set(after)].join(" and ")}` : ""}`);
   }
   if (unsaid && !found.size) flash("It ran, but no class, attribute or style of it or its parents started it: the pointer or the keyboard may have. Add it as a trigger");
 }

@@ -10,7 +10,7 @@ import { applyScript, forgetSteps, laid, letGo, openCss, openTransition, readScr
 import { keysText, sharedBy, snapshot, timing } from "./edit.js";
 import { draw, drawFoot, flash } from "./draw.js";
 import { seenNow } from "./frames.js";
-import { triggerWords, usable } from "./trigger.js";
+import { AFTER, triggerWords, usable } from "./trigger.js";
 
 // ── sending ──────────────────────────────────────────────────────────────────────────────
 /** How a script's animation plays, in one line. */
@@ -50,6 +50,7 @@ function payload() {
         const moved = laid().map((x) => x.prop).filter((p) => v.from[p] !== end(p)).map((p) => `${p} ${v.from[p]} → ${end(p)}`);
         out.state = `${t ? triggerWords(t, st.off) : st.label}: ${moved.join("; ") || "nothing changes on the page yet"}`.replace(/\s+/g, " ").slice(0, 400);
         if (t) out.stateBy = t.by;
+        if (t && AFTER.includes(t.after)) out.stateAfter = t.after;
       }
     }
     return out;

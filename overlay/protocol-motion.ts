@@ -84,6 +84,8 @@ export type MotionOpen = {
   state: string | null
   /** Those of `states` that are triggers the reviewer named or recorded: they can be taken away. */
   triggers: string[]
+  /** Of the recorded ones, what the reviewer did just before each changed. */
+  after?: Record<string, "scroll" | "press" | "key">
   /** Where else than on the element a trigger may be: a few of its parents, nearest first, then
    *  the body and the root (its words, and the element as the code has it: "section.hero"). */
   above: Array<{ path: string; text: string; aside: string }>

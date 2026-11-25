@@ -1613,3 +1613,31 @@ test("hosted: what a state changes a property to is changed: a rule where the pa
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("hosted: a trigger recorded after a scroll says so: in its chip's view, in the message and in the note", async () => {
+  const { page, f, errors } = await open({ before: `
+    const s = document.createElement("style");
+    s.textContent = "nav { transition: opacity 140ms linear; } nav.stuck { opacity: 0.5; } body { min-height: 3000px; }";
+    document.head.appendChild(s);
+    addEventListener("scroll", () => document.querySelector("nav").classList.toggle("stuck", scrollY > 50));
+  ` });
+  const rows = (await view(page)).rows;
+  await act(page, { type: "row", id: rows.find((r) => r.kind === "transition" && r.duration === 140).id });
+  await view(page, "v.open && v.open.kind === 'transition' && v.open.timing.duration === 140");
+  await act(page, { type: "record", on: true });
+  await view(page, "v.open.recording");
+  await f.evaluate(() => scrollTo(0, 400));
+  await f.waitForFunction(() => Math.abs(+getComputedStyle(document.querySelector("nav")).opacity - 0.5) < 0.001 && !document.querySelector("nav").getAnimations().length);
+  await act(page, { type: "record", on: false });
+  const w = await view(page, "!v.open.recording && v.open.state !== null");
+  assert.deepEqual([w.open.states, w.open.after], [[".stuck"], { ".stuck": "scroll" }]);
+  await view(page, "/Recorded .stuck, set on scroll/.test(v.msg)");
+  await act(page, { type: "timing", what: "duration", value: "400", done: true });
+  await act(page, { type: "send", background: false });
+  await page.waitForFunction(() => window.__harness.notes.length === 1);
+  const note = await page.evaluate(() => window.__harness.notes[0]);
+  assert.deepEqual([note.motion.stateBy, note.motion.stateAfter], ["recorded", "scroll"]);
+  assert.match(note.prompt, /a script makes the change, right after they scrolled the page/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

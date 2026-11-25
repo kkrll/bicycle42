@@ -312,6 +312,7 @@ export function pageMotion(raw: unknown): Motion | undefined {
     if (next) out.next = next
     if (state) out.state = state
     if (state && (raw.stateBy === "named" || raw.stateBy === "recorded")) out.stateBy = raw.stateBy
+    if (out.stateBy === "recorded" && (raw.stateAfter === "scroll" || raw.stateAfter === "press" || raw.stateAfter === "key")) out.stateAfter = raw.stateAfter
     if (kind === "transition") {
       const values: NonNullable<Motion["values"]> = []
       for (const c of Array.isArray(raw.values) ? raw.values.slice(0, 20) : []) {

@@ -339,7 +339,8 @@ const onState = (m) => {
   if (!m.state) return "";
   const s = `It runs on this state of the element, which changes: ${quote(m.state, 400)}.`;
   if (m.stateBy === "named") return `${s} The reviewer named this trigger themselves: make it run on that, if the code does not yet.`;
-  if (m.stateBy === "recorded") return `${s} This trigger was recorded while the reviewer used the page: a script makes the change.`;
+  const did = { scroll: "they scrolled the page", press: "they pressed something", key: "they pressed a key" }[m.stateAfter];
+  if (m.stateBy === "recorded") return `${s} This trigger was recorded while the reviewer used the page: a script makes the change${did ? `, right after ${did} (look for the handler of that)` : ""}.`;
   return s;
 };
 

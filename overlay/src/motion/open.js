@@ -219,7 +219,7 @@ export function removeTrigger(label) {
 /** What a recording found to have started the open transition: the first of these changes that,
  *  tried, changes what ran; else those made to one element together (a class taken off and another
  *  put on). What it is called as a state, or "". */
-export function addRecorded(changes, runs) {
+export function addRecorded(changes, runs, after = "") {
   const o = M.open, el = openEl(), props = [...new Set(runs.map((r) => r.prop))];
   if (!el) return "";
   const read = () => props.map((p) => getComputedStyle(el).getPropertyValue(p)).join("|");
@@ -246,7 +246,7 @@ export function addRecorded(changes, runs) {
     for (const r of runs) if (r.kf && r.kf.length > 1) vals[r.prop] = [String(r.kf[0][camel(r.prop)]), String(r.kf[r.kf.length - 1][camel(r.prop)])];
     if (Object.keys(vals).length) t = { kind: "style", name: "style", on: "", vals };
   }
-  const label = t ? keep(o.rs, { ...t, by: "recorded" }) : "";
+  const label = t ? keep(o.rs, { ...t, by: "recorded", ...(after ? { after } : {}) }) : "";
   if (!label) return "";
   readStates(el, o.rs);
   setState(label, el);

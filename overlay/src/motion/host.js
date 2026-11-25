@@ -40,6 +40,7 @@ import { submit } from "./send.js";
 import { draw, flash, sentStatus } from "./draw.js";
 import { go, restage } from "./stage.js";
 import { record } from "./record.js";
+import { AFTER } from "./trigger.js";
 
 // ── the view ─────────────────────────────────────────────────────────────────────────────
 const ROW = ["id", "kind", "text", "aside", "duration", "on", "sub", "last", "off", "running", "dirty"];
@@ -118,6 +119,7 @@ function openView() {
     states: o.kind === "transition" ? M.ro.states.map((s) => s.label) : [],
     state: o.kind === "transition" && M.ro.state ? M.ro.state.label : null,
     triggers: o.kind === "transition" ? M.ro.states.filter((s) => s.trigger).map((s) => s.label) : [],
+    after: o.kind === "transition" ? Object.fromEntries(M.ro.states.filter((s) => s.trigger && AFTER.includes(s.trigger.after)).map((s) => [s.label, s.trigger.after])) : {},
     above: o.kind === "transition" ? M.ro.above : [],
     recording: !!M.rec,
     renamable: !!(k && k.isNew),

@@ -64,6 +64,8 @@ export function above(el) {
   }
   return out;
 }
+/** What the reviewer did just before a recorded trigger changed (record.js). */
+export const AFTER = ["scroll", "press", "key"];
 /** Where the trigger is, as the note says it: so that the agent finds the element. */
 export const triggerWords = (t, off) => {
   const at = t.on ? mq(t.on) : null;

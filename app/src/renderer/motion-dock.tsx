@@ -1310,6 +1310,9 @@ function Timeline(props: {
                           onClick={() => send({ type: "state", value: s })}
                         >
                           {s}
+                          <Show when={props.open.after?.[s]}>
+                            <span class="mdock-after"> · on {props.open.after![s]}</span>
+                          </Show>
                         </button>
                         <Show when={props.open.triggers.includes(s)}>
                           <button type="button" class="icon-btn small" title="Remove this trigger" aria-label={`Remove the trigger ${s}`} onClick={() => send({ type: "untrigger", value: s })}>
