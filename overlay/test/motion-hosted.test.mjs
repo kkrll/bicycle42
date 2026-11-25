@@ -557,3 +557,23 @@ test("hosted: Only this puts the element alone in the middle, a small one enlarg
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("hosted: Only this shows an element the page has faded out with its parent, and says so; off, it is faded again", async () => {
+  const { page, f, errors, v } = await open({ before: `document.querySelector(".sync").style.opacity = "0"` });
+  const sync = () => f.evaluate(() => getComputedStyle(document.querySelector(".sync")).opacity);
+  await act(page, { type: "row", id: rowId(v, "spin") });
+  await view(page, "v.open && v.open.name === 'spin'");
+  await act(page, { type: "isolate", on: true });
+  assert.match((await view(page, "v.isolate && v.msg !== ''")).msg, /hidden \(a parent at opacity 0\): shown here/);
+  assert.equal(await sync(), "1");
+  // the view resized: staged again, and what was shown stays shown (read again it is not faded: our doing)
+  await page.setViewportSize({ width: 1300, height: 900 });
+  await frames(f, 4);
+  assert.equal(await sync(), "1");
+  assert.equal(await f.evaluate(() => new DOMMatrix(getComputedStyle(document.body).transform).a), 4);
+  await act(page, { type: "isolate", on: false });
+  await view(page, "!v.isolate");
+  assert.equal(await sync(), "0");
+  assert.deepEqual(errors, []);
+  await page.close();
+});

@@ -9,12 +9,15 @@
 //    a small one is enlarged, a larger one than the view made smaller;
 //  - what is behind it: the colour of what it lies on, whose own drawing is hidden with the rest
 //    (white words on a dark section would be white on the page's white);
-//  - no scrolling, which would take it out of the middle.
+//  - no scrolling, which would take it out of the middle;
+//  - what it is in, shown: a parent the page has faded out (an invitation that goes once it is
+//    taken up, a closed menu) would leave the stage empty, and the dock says that it was.
 // A body with a transform is what its `position: fixed` elements are placed in, so the box is
 // measured with a transform that moves nothing already on, and only then is the real one written.
 
 import { BOOST } from "../page.js";
-import { apply, clamp, M, mq } from "./model.js";
+import { apply, clamp, M, mq, pathOf } from "./model.js";
+import { flash } from "./draw.js";
 import { animOf, reveal } from "./open.js";
 import { rowNow, rows } from "./edit.js";
 
@@ -54,6 +57,16 @@ function behind(el) {
   }
   return "";
 }
+/** The parents the page has faded out, as one rule that shows them. One shown here before stays
+ *  shown while the stage is on: read again it is no longer faded, and that is our doing. */
+let shown = new Set(), told = "";
+function faded(el) {
+  const now = new Set();
+  for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement)
+    if (shown.has(p) || +getComputedStyle(p).opacity <= 0.1) now.add(p);
+  shown = now;
+  return now.size ? `${[...now].map((p) => `${pathOf(p)}${BOOST}`).join(", ")} { opacity: 1 !important; }\n` : "";
+}
 const rules = (transform, bg) =>
   `:root${BOOST} { overflow: hidden !important;${bg ? ` background: ${bg} !important;` : ""} }\n` +
   `body${BOOST} { transform: ${transform} !important; transform-origin: 0 0 !important; transition: none !important;${bg ? ` background: ${bg} !important;` : ""} }`;
@@ -81,10 +94,14 @@ export function restage() {
   listen(!!el);
   if (!el || !document.body) {
     M.stageCss = "";
+    shown = new Set();
+    told = "";
     return apply();
   }
-  const bg = behind(el);
-  M.stageCss = rules("translate(0px)", bg);
+  const bg = behind(el), show = faded(el);
+  if (show && told !== M.selRs) flash("The page has this hidden (a parent at opacity 0): shown here");
+  told = M.selRs;
+  M.stageCss = show + rules("translate(0px)", bg);
   apply();
   const r = bounds(el), b = document.body.getBoundingClientRect();
   const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
@@ -95,7 +112,7 @@ export function restage() {
     // A point p of the body (from its corner b) is drawn at b + s·(p − b) + t: t puts the middle
     // of the box in the middle of the view.
     const tx = Math.round(vw / 2 - b.left - s * (r.x + r.w / 2 - b.left)), ty = Math.round(vh / 2 - b.top - s * (r.y + r.h / 2 - b.top));
-    M.stageCss = rules(`translate(${tx}px, ${ty}px) scale(${s})`, bg);
+    M.stageCss = show + rules(`translate(${tx}px, ${ty}px) scale(${s})`, bg);
   }
   apply();
 }
