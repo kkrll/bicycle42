@@ -1210,7 +1210,7 @@ function Timeline(props: {
                           class="mdock-chip mono"
                           aria-checked={s === props.open.state}
                           aria-pressed={s === props.open.state}
-                          title={props.open.triggers.includes(s) ? `The trigger you named: press Play to switch ${s} on and off` : `What ${s} changes: press Play to switch it on and off`}
+                          title={props.open.triggers.includes(s) ? `The trigger you named or recorded: press Play to switch ${s} on and off` : `What ${s} changes: press Play to switch it on and off`}
                           onClick={() => send({ type: "state", value: s })}
                         >
                           {s}
@@ -1226,6 +1226,15 @@ function Timeline(props: {
                 </div>
               </Show>
               <AddTrigger open={props.open} />
+              <button
+                type="button"
+                class="mdock-chip mdock-rec"
+                aria-pressed={props.open.recording}
+                title={props.open.recording ? "Stop: what started the transition becomes a trigger" : "Record what triggers it: use the page as it is, then stop"}
+                onClick={() => send({ type: "record", on: !props.open.recording })}
+              >
+                {props.open.recording ? "Stop recording" : "Record"}
+              </button>
             </Show>
             <Show when={props.open.shared > 1}>
               <span

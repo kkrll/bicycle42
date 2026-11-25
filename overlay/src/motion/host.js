@@ -39,6 +39,7 @@ import { addKey, addLane, commit, cssText, detach, discard, keyInfo, laneOrder, 
 import { submit } from "./send.js";
 import { draw, flash, sentStatus } from "./draw.js";
 import { go, restage } from "./stage.js";
+import { record } from "./record.js";
 
 // ── the view ─────────────────────────────────────────────────────────────────────────────
 const ROW = ["id", "kind", "text", "aside", "duration", "on", "sub", "last", "off", "running", "dirty"];
@@ -118,6 +119,7 @@ function openView() {
     state: o.kind === "transition" && M.ro.state ? M.ro.state.label : null,
     triggers: o.kind === "transition" ? M.ro.states.filter((s) => s.trigger).map((s) => s.label) : [],
     above: o.kind === "transition" ? M.ro.above : [],
+    recording: !!M.rec,
     renamable: !!(k && k.isNew),
     removable: !!(u && u.isNew),
     shared: sharedBy(),
@@ -275,6 +277,7 @@ const ACTS = {
   trigger(a) {
     if (!addTrigger(str(a.text), str(a.on))) draw();
   },
+  record: (a) => record(!!a.on),
   untrigger: (a) => removeTrigger(str(a.value)),
   go: (a) => go(+a.by < 0 ? -1 : 1),
   undo: () => travel(M.past, M.future),

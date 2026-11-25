@@ -101,7 +101,7 @@ export function onPointerCancel(e) {
 }
 
 export function blockIfActive(e) {
-  if (!S.enabled || isOurs(e)) return;
+  if (!S.enabled || isOurs(e) || Motion.recording()) return;
   // While text is edited in place, the mouse works inside it (caret, selection); the page's own
   // handlers still see nothing, and a click still does nothing (no link is followed).
   if (Canvas.inEdit(e) && /^(mousedown|mouseup|selectstart|dblclick)$/.test(e.type)) e.stopImmediatePropagation();

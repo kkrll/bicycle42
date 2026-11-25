@@ -44,11 +44,14 @@ export function parseTrigger(text) {
 const OTHER = { true: "false", false: "true", open: "closed", closed: "open", on: "off", off: "on", active: "inactive", inactive: "active", checked: "unchecked", unchecked: "checked" };
 
 /** The trigger in words, without where it is. */
-const said = (t) => (t.kind === "class" ? `.${t.name}` : t.kind === "state" ? `:${t.name}` : t.kind === "style" ? "style" : t.value ? `[${t.name}=${t.value}]` : `[${t.name}]`);
+const said = (t) => [t, ...(t.and || [])].map(one).join(" ");
+const one = (t) => (t.kind === "class" ? `.${t.name}` : t.kind === "state" ? `:${t.name}` : t.kind === "style" ? "style" : t.value ? `[${t.name}=${t.value}]` : `[${t.name}]`);
 const short = (s) => (s.length > 40 ? `${s.slice(0, 39)}…` : s);
 /** An element as the code has it: "section.hero". */
-const tagOf = (el) => {
-  const c = (el.getAttribute("class") || "").trim().split(/\s+/)[0];
+const tagOf = (el, t = null) => {
+  if (el === document.body || el === document.documentElement) return el.localName;
+  // (Not by the class that is the trigger: that one comes and goes.)
+  const c = (el.getAttribute("class") || "").trim().split(/\s+/).find((x) => !t || ![t, ...(t.and || [])].some((y) => y.name === x));
   return short(`${el.localName}${el.id ? `#${el.id}` : c ? `.${c}` : ""}`);
 };
 /** The elements a trigger may be on instead of the open one, nearest first: a few of its parents,
@@ -64,7 +67,7 @@ export function above(el) {
 /** Where the trigger is, as the note says it: so that the agent finds the element. */
 export const triggerWords = (t, off) => {
   const at = t.on ? mq(t.on) : null;
-  return `${said(t)}${t.on ? ` on ${at ? editSel(at) : "a parent"}` : ""}${off ? " taken off" : ""}`;
+  return `${t.kind === "style" ? "a style a script writes" : said(t)}${t.on ? ` on ${at ? editSel(at) : "a parent"}` : ""}${off ? " taken off" : ""}`;
 };
 
 // ── the states made of them ──────────────────────────────────────────────────────────────
@@ -78,6 +81,11 @@ export function namedStates(el, rs, moves, rules) {
     if (t.kind === "state") {
       const at = t.on ? mq(t.on) : el;
       if (at) Object.assign(st, inState(el, at, t.name, moves, rules));
+    } else if (t.kind === "style") {
+      // Of the two values recorded, those it does not have now (over what the script wrote by hand).
+      const cs = getComputedStyle(el), ps = Object.keys(t.vals), i = ps.every((p) => cs.getPropertyValue(p) === t.vals[p][0]) ? 1 : 0;
+      st.css = ps.map((p) => `${p}: ${t.vals[p][i]} !important;`).join(" ");
+      st.props = ps;
     }
     out.push(st);
   }
@@ -113,6 +121,10 @@ function inState(el, at, word, moves, rules) {
 export const wears = (t) => !!t && (t.kind === "class" || t.kind === "attr");
 /** Puts the trigger on `at` (or takes it off, when it is on already); gives back what undoes it. */
 export function put(t, at) {
+  if (t.and) {
+    const undo = [{ ...t, and: undefined }, ...t.and].map((x) => put(x, at));
+    return () => undo.reverse().forEach((f) => f());
+  }
   if (t.kind === "class") {
     const was = at.getAttribute("class"), had = at.classList.contains(t.name);
     at.classList.toggle(t.name, !had);
@@ -145,14 +157,16 @@ export function wear() {
 }
 
 // ── naming one ───────────────────────────────────────────────────────────────────────────
+const idOf = (t) => `${[t, ...(t.and || [])].map((x) => x.name).sort().join("|")}|${Object.keys(t.vals || {}).sort().join("|")}`;
 /** A trigger put into the element's list: what it is called there. One that is there already is
  *  that one; "" when there are too many. */
 export function keep(rs, t) {
   const list = M.trig.get(rs) || [];
-  const same = list.find((x) => x.on === t.on && x.kind === t.kind && x.name === t.name && (x.value === t.value || (x.by === "recorded" && t.by === "recorded")));
+  // (Recorded going one way and coming back is one trigger.)
+  const same = list.find((x) => x.on === t.on && x.kind === t.kind && idOf(x) === idOf(t) && (x.value === t.value || (x.by === "recorded" && t.by === "recorded")));
   if (same) return same.label;
   if (list.length >= MAX_TRIGGERS) return "";
-  const at = t.on ? mq(t.on) : null, base = `${short(said(t))}${t.on ? ` on ${at ? tagOf(at) : "a parent"}` : ""}`;
+  const at = t.on ? mq(t.on) : null, base = `${short(said(t))}${t.on ? ` on ${at ? tagOf(at, t) : "a parent"}` : ""}`;
   let label = base;
   for (let n = 2; list.some((x) => x.label === label); n++) label = `${base} ${n}`;
   M.trig.set(rs, [...list, { ...t, label }]);
@@ -166,5 +180,7 @@ export function drop(rs, label) {
   return true;
 }
 /** From the draft the host kept: one that can be used as it is. */
-export const usable = (t) => !!t && typeof t === "object" && typeof t.label === "string" && typeof t.name === "string" && typeof t.on === "string"
-  && (t.kind === "class" ? !!t.name && !/\s/.test(t.name) : t.kind === "attr" ? stateful(t.name) && typeof t.value === "string" : t.kind === "state" && STATE.test(`:${t.name}`));
+export const usable = (t) => !!t && typeof t === "object" && typeof t.label === "string" && typeof t.on === "string" && sound(t)
+  && (t.and === undefined || (Array.isArray(t.and) && t.and.every((x) => !!x && wears(x) && sound(x))));
+const sound = (t) => typeof t.name === "string" && (t.kind === "style" ? !!t.vals && Object.entries(t.vals).every(([p, v]) => Array.isArray(v) && v.length === 2 && v.every((x) => typeof x === "string" && CSS.supports(p, x)))
+  : t.kind === "class" ? !!t.name && !/\s/.test(t.name) : t.kind === "attr" ? stateful(t.name) && typeof t.value === "string" : t.kind === "state" && STATE.test(`:${t.name}`));

@@ -950,3 +950,122 @@ test("hosted: named triggers are kept across a reload, and building a view reads
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("hosted: recording, the page is used as it is, and the class a script changed to start the transition becomes a trigger; stopped, the page's pointer is kept from it again", async () => {
+  const { page, f, errors, v } = await open({ before: `
+    const s = document.createElement("style");
+    s.textContent = ".cta { opacity: var(--o, 1); transition: opacity 120ms linear; } body.dim { --o: 0.3; } nav { transition: color 100ms linear; } .o0 { opacity: 0.2; } .o1 { opacity: 1; } .hero p { animation: none; transition: opacity 110ms linear; }";
+    document.head.appendChild(s);
+    window.clicks = 0;
+    document.querySelector(".ghost").addEventListener("click", () => {
+      window.clicks++;
+      document.querySelector(".ghost").setAttribute("aria-expanded", String(document.body.classList.toggle("dim"))); // (a change beside it that starts nothing)
+    });
+    const p = document.querySelector(".hero p");
+    p.className = "o1";
+    document.querySelector("nav").addEventListener("click", () => p.classList.contains("o1") ? p.classList.replace("o1", "o0") : p.classList.replace("o0", "o1"));
+    document.querySelector(".card p").style.transition = "opacity 130ms linear";
+    document.querySelector(".card h3").addEventListener("click", () => document.querySelector(".card p").style.opacity = "0.4");
+    document.addEventListener("keydown", (e) => e.key === "Escape" && (window.escaped = true));
+  ` });
+  const rows = (await view(page)).rows;
+  const open_ = async (aside, ms) => {
+    await act(page, { type: "row", id: rows.find((r) => r.kind === "transition" && r.aside === aside && r.duration === ms).id });
+    return (await view(page, `v.open && v.open.kind === 'transition' && v.open.timing.duration === ${ms}`)).open;
+  };
+  const settled = (sel, n) => f.waitForFunction(([s, o]) => Math.abs(+getComputedStyle(document.querySelector(s)).opacity - o) < 0.001 && !document.querySelector(s).getAnimations().length, [sel, n]);
+  assert.equal((await open_("opacity", 120)).recording, false);
+  // not recording, a click is a selection
+  await f.click(".cards .badge", { force: true });
+  assert.equal(await f.evaluate(() => window.clicks), 0);
+  await open_("opacity", 120);
+  await act(page, { type: "record", on: true });
+  await view(page, "v.open.recording");
+  await f.click(".ghost");
+  await settled(".cta", 0.3);
+  assert.equal(await f.evaluate(() => window.clicks), 1);
+  await page.keyboard.press("Escape");
+  assert.equal(await f.evaluate(() => window.escaped), true);
+  assert.equal((await view(page)).open.recording, true);
+  // (Play waits for the recording to end.)
+  await act(page, { type: "play" });
+  await view(page, "/Recording/.test(v.msg)");
+  await act(page, { type: "record", on: false });
+  let w = await view(page, "!v.open.recording && v.open.state !== null");
+  assert.deepEqual([w.open.states, w.open.triggers, w.open.state], [[".dim on body"], [".dim on body"], ".dim on body"]);
+  await view(page, "/Recorded .dim on body/.test(v.msg)");
+  // the class is on now: the state is without it, and the page is as the reviewer left it
+  assert.deepEqual(w.open.lanes[0].keys.map((k) => k.value), ["0.3", "1"]);
+  assert.equal(await f.evaluate(() => document.body.className), "dim");
+  await act(page, { type: "play" });
+  await settled(".cta", 1);
+  await act(page, { type: "play" });
+  await settled(".cta", 0.3);
+  // stopped, the page's pointer and cursor are the review's again
+  await f.click(".ghost", { force: true });
+  assert.equal(await f.evaluate(() => window.clicks), 1);
+  assert.equal(await f.evaluate(() => document.documentElement.hasAttribute("data-b42-using")), false);
+  // recorded again, the other way: the trigger it is already
+  await open_("opacity", 120);
+  await act(page, { type: "record", on: true });
+  await view(page, "v.open.recording");
+  await f.click(".ghost");
+  await settled(".cta", 1);
+  await act(page, { type: "record", on: false });
+  w = await view(page, "!v.open.recording && /Recorded/.test(v.msg)");
+  assert.deepEqual(w.open.states, [".dim on body"]);
+  assert.deepEqual(w.open.lanes[0].keys.map((k) => k.value), ["1", "0.3"]);
+  await act(page, { type: "timing", what: "duration", value: "400", done: true });
+  await act(page, { type: "send", background: false });
+  await page.waitForFunction(() => window.__harness.notes.length === 1);
+  const note = await page.evaluate(() => window.__harness.notes[0]);
+  assert.deepEqual([note.motion.state, note.motion.stateBy], [".dim on body: opacity 1 → 0.3", "recorded"]);
+  assert.match(note.prompt, /recorded while the reviewer used the page/);
+  await f.waitForFunction(() => !window.__b42.busy());
+  // a class swapped for another: neither alone changes anything, the two together do
+  await open_("opacity", 110);
+  await act(page, { type: "record", on: true });
+  await view(page, "v.open.recording");
+  await f.click("nav", { position: { x: 5, y: 5 } });
+  await settled(".hero p", 0.2);
+  await f.click("nav", { position: { x: 5, y: 5 } });
+  await settled(".hero p", 1);
+  await act(page, { type: "record", on: false });
+  w = await view(page, "!v.open.recording && v.open.state !== null");
+  assert.equal(w.open.states.length, 1);
+  assert.match(w.open.state, /^\.o[01] \.o[01]$/);
+  assert.deepEqual(w.open.lanes[0].keys.map((k) => k.value), ["1", "0.2"]);
+  await act(page, { type: "play" });
+  await settled(".hero p", 0.2);
+  assert.equal(await f.evaluate(() => document.querySelector(".hero p").className), "o0");
+  await act(page, { type: "undo" });
+  await view(page, "v.open.states.length === 0");
+  assert.equal(await f.evaluate(() => document.querySelector(".hero p").className), "o1");
+  // a style a script writes by hand: played as the two values it went between
+  await open_("opacity", 130);
+  await act(page, { type: "record", on: true });
+  await view(page, "v.open.recording");
+  await f.click(".card h3");
+  await settled(".card p", 0.4);
+  await act(page, { type: "record", on: false });
+  w = await view(page, "!v.open.recording && v.open.state !== null");
+  assert.equal(w.open.state, "style");
+  assert.deepEqual(w.open.lanes[0].keys.map((k) => k.value), ["0.4", "1"]);
+  await act(page, { type: "play" });
+  await settled(".card p", 1);
+  await act(page, { type: "play" });
+  await settled(".card p", 0.4);
+  // nothing ran: it says so; the mode left while it records, it is over
+  await act(page, { type: "record", on: true });
+  await view(page, "v.open.recording");
+  await act(page, { type: "record", on: false });
+  await view(page, "/did not run/.test(v.msg)");
+  await act(page, { type: "record", on: true });
+  await view(page, "v.open.recording");
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "notes" }));
+  assert.equal(await f.evaluate(() => document.documentElement.hasAttribute("data-b42-using")), false);
+  await f.evaluate(() => window.__b42.receive({ type: "mode", mode: "motion" }));
+  await view(page, "v.on && v.open && !v.open.recording");
+  assert.deepEqual(errors, []);
+  await page.close();
+});

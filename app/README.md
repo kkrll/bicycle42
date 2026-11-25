@@ -984,7 +984,8 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   what it goes from and to; the delay is a chip beside Play that fills while it is waited out; a transition has its states as chips
   (found in the page's rules: hover, active, a class or attribute, a parent's), and beside them the triggers the reviewer names
   (`.open`, `[data-state=open]`, `:hover`, on the element or a parent: a class or an attribute is really on the page while the state
-  is played, and only then; `overlay/src/motion/trigger.js`) and its duration, delay and easing may be changed,
+  is played, and only then; `overlay/src/motion/trigger.js`) or records (while "Record" is on the pointer and the keys are the
+  page's, and what changed just before the transition ran is tried to find which change started it; `record.js`), and its duration, delay and easing may be changed,
   of all its properties at once; what moves beside the open animation is drawn "Together", a bar an element on one line of time,
   with a Play that starts them all again; a script's animation is written out as its animate() call under "Code" (the second tab,
   which was "CSS"), and how it plays may be changed in the animation itself. In the list, elements that change the same way are one

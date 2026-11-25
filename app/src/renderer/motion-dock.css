@@ -228,6 +228,10 @@
   gap: 4px;
 }
 
+.mdock-rec {
+  flex: none;
+}
+
 .mdock-trig {
   width: 320px;
   max-width: 100%;

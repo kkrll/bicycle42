@@ -1503,6 +1503,7 @@ const MOTION: MotionView = {
     state: null,
     triggers: [],
     above: [],
+    recording: false,
     renamable: false,
     removable: false,
     shared: 2,
@@ -1642,6 +1643,7 @@ function motionAct(a: PanelAct, out: (m: PanelMessage) => void): void {
   else if (act.type === "backdrop") MOTION.backdrop = act.value
   else if (act.type === "row" && act.id.startsWith("transition")) MOTION.open = structuredClone(TRANSITION)
   else if (act.type === "state") o.state = act.value
+  else if (act.type === "record") o.recording = act.on
   else if (act.type === "trigger") (o.states.push(act.text), o.triggers.push(act.text), (o.state = act.text))
   else if (act.type === "untrigger") (o.states = o.states.filter((s) => s !== act.value), o.triggers = o.triggers.filter((s) => s !== act.value), (o.state = o.states[0] ?? null))
   else if (act.type === "play") MOTION.clock.playing = !MOTION.clock.playing

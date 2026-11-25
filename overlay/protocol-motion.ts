@@ -73,11 +73,13 @@ export type MotionOpen = {
    *  what changes it. */
   states: string[]
   state: string | null
-  /** Those of `states` that are triggers the reviewer named: they can be taken away. */
+  /** Those of `states` that are triggers the reviewer named or recorded: they can be taken away. */
   triggers: string[]
   /** Where else than on the element a trigger may be: a few of its parents, nearest first, then
    *  the body and the root (its words, and the element as the code has it: "section.hero"). */
   above: Array<{ path: string; text: string; aside: string }>
+  /** What starts the transition is being recorded: the page is used as it is meanwhile. */
+  recording: boolean
   /** Keyframes made here: their name may be changed (the page's own keep theirs, the code uses it). */
   renamable: boolean
   /** A new animation on the element: "Remove" takes it off again. */
@@ -193,6 +195,9 @@ export type MotionAct =
    *  states then; taken away by what it is called there. */
   | { type: "trigger"; text: string; on: string }
   | { type: "untrigger"; value: string }
+  /** Recording what starts the transition: on, the pointer and the keys are the page's, and changes
+   *  of classes, attributes and styles are noted; off, what started it is a trigger. */
+  | { type: "record"; on: boolean }
   /** The next thing that moves (1) or the one before (-1), opened; round at the ends. */
   | { type: "go"; by: 1 | -1 }
   | { type: "undo" }

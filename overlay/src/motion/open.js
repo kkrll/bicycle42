@@ -9,6 +9,7 @@ import { kick } from "../render.js";
 import { statesOf, styleRules } from "./states.js";
 import { restage } from "./stage.js";
 import { above, drop, isOn, keep, namedStates, parseTrigger, put, wears } from "./trigger.js";
+import { forgetRecording } from "./record.js";
 
 // ── opening one ──────────────────────────────────────────────────────────────────────────
 function baseFor(rs, el) {
@@ -18,6 +19,7 @@ function baseFor(rs, el) {
 export function show(open) {
   // What was stopped at a frame to be looked at goes on from there: nothing stays frozen behind.
   const was = M.open && M.open.kind !== "transition" ? animOf() : null;
+  if (M.rec && !(open && open.kind === "transition" && open.rs === M.rec.rs)) forgetRecording();
   if (was && was.playState === "paused" && !(open && M.open.kind === open.kind && M.open.rs === open.rs && M.open.name === open.name)) {
     was.playbackRate = 1;
     was.play();
@@ -174,6 +176,42 @@ export function removeTrigger(label) {
   setState(firstState(was), el);
   commit();
 }
+/** What a recording found to have started the open transition: the first of these changes that,
+ *  tried, changes what ran; else those made to one element together (a class taken off and another
+ *  put on). What it is called as a state, or "". */
+export function addRecorded(changes, runs) {
+  const o = M.open, el = openEl(), props = [...new Set(runs.map((r) => r.prop))];
+  if (!el) return "";
+  const read = () => props.map((p) => getComputedStyle(el).getPropertyValue(p)).join("|");
+  const does = (t) => {
+    const { from, to } = ends(el, { trigger: t, css: "" }, read);
+    return from !== to;
+  };
+  const plain = ({ at: _, ...t }) => t;
+  const worn = ["class", "attr"].flatMap((k) => changes.filter((c) => c.kind === k)).map(plain), seen = new Set(), tries = [];
+  for (const t of worn) {
+    const id = `${t.on}|${t.kind}|${t.name}`;
+    if (seen.has(id)) continue; // (a nearer one of it is there)
+    seen.add(id);
+    tries.push(t);
+  }
+  let t = tries.slice(0, 8).find(does);
+  for (const on of t ? [] : new Set(tries.map((x) => x.on))) {
+    const [first, ...and] = tries.filter((x) => x.on === on).slice(0, 6);
+    if (and.length && does({ ...first, and })) t = { ...first, and };
+    if (t) break;
+  }
+  if (!t && changes.some((c) => c.kind === "style")) {
+    const vals = {}, camel = (p) => (p.startsWith("--") ? p : p.replace(/-([a-z])/g, (_, c) => c.toUpperCase()));
+    for (const r of runs) if (r.kf && r.kf.length > 1) vals[r.prop] = [String(r.kf[0][camel(r.prop)]), String(r.kf[r.kf.length - 1][camel(r.prop)])];
+    if (Object.keys(vals).length) t = { kind: "style", name: "style", on: "", vals };
+  }
+  const label = t ? keep(o.rs, { ...t, by: "recorded" }) : "";
+  if (!label) return "";
+  readStates(el, o.rs);
+  setState(label, el);
+  return label;
+}
 /** The open state's two ends are the same. */
 const still = () => !!M.ro && !!M.ro.vals && laid().every((x) => M.ro.vals.from[x.prop] === M.ro.vals.to[x.prop]);
 /** The state the open transition is looked at in: both ends of each property are read, now and
@@ -190,38 +228,41 @@ export function setState(label, el = openEl()) {
   // (A trigger says nothing of its properties: which of all there are change is seen once it is on.)
   const t = state && state.trigger, at = t && wears(t) ? mq(t.on || rs) : null, look = at && ro.items.some((x) => x.prop === "all") ? everything : null;
   const read = () => (look ? look(el) : Object.fromEntries(laid().map((x) => [x.prop, getComputedStyle(el).getPropertyValue(x.prop)])));
-  let from = null, to = null;
-  if (state) {
-    const probe = new CSSStyleSheet();
-    // What a trigger changes is not only the element: nothing anywhere moves for being looked at.
-    const hold = at ? `*${BOOST}, *${BOOST}::before, *${BOOST}::after { transition: none !important; }` : `${rs}${BOOST}${BOOST} { transition: none !important; }`;
-    let undo = null;
-    try {
-      probe.replaceSync(hold);
-      adopt(probe, true);
-      from = read(); // (with the transition off: where it is, not where it is on its way from)
-      if (at) {
-        state.off = isOn(t, at); // (on now: the state is without it)
-        undo = put(t, at);
-      } else probe.replaceSync(`${rs}${BOOST}${BOOST} { ${state.css}; transition: none !important; }`);
-      to = read();
-      // Back as it was with the transition still off, and only then is it allowed again: taken
-      // away in one go, the element would run its transition back from the state it never was in.
-    } catch {}
-    if (undo) undo();
-    try {
-      probe.replaceSync(hold);
-      getComputedStyle(el).opacity;
-      if (at) document.getAnimations(); // (the whole page's styles, worked out while nothing may move)
-    } catch {}
-    adopt(probe, false);
-    getComputedStyle(el).opacity;
+  if (at) state.off = isOn(t, at); // (on now: the state is without it)
+  if (state) ro.vals = ends(el, state, read);
+  else {
+    const now = read();
+    ro.vals = { from: now, to: now };
   }
-  from = from || read();
-  to = to || from;
-  if (look) state.props = differs(from, to);
-  ro.vals = { from, to };
+  if (look) state.props = differs(ro.vals.from, ro.vals.to);
   layout();
+}
+/** What `read` says of `el` now, and in the state. Nothing is left of it, and nothing moves for it. */
+function ends(el, state, read) {
+  const t = state.trigger, rs = pathOf(el), at = wears(t) ? mq(t.on || rs) : null, probe = new CSSStyleSheet();
+  // (What a trigger changes is not only the element: nothing anywhere may move.)
+  const hold = at ? `*${BOOST}, *${BOOST}::before, *${BOOST}::after { transition: none !important; }` : `${rs}${BOOST}${BOOST} { transition: none !important; }`;
+  let from = null, to = null, undo = null;
+  try {
+    probe.replaceSync(hold);
+    adopt(probe, true);
+    from = read(); // (with the transition off: where it is, not where it is on its way from)
+    if (at) undo = put(t, at);
+    else probe.replaceSync(`${rs}${BOOST}${BOOST} { ${state.css}; transition: none !important; }`);
+    to = read();
+    // Back as it was with the transition still off, and only then is it allowed again: taken
+    // away in one go, the element would run its transition back from the state it never was in.
+  } catch {}
+  if (undo) undo();
+  try {
+    probe.replaceSync(hold);
+    getComputedStyle(el).opacity;
+    if (at) document.getAnimations(); // (the whole page's styles, worked out while nothing may move)
+  } catch {}
+  adopt(probe, false);
+  getComputedStyle(el).opacity;
+  from = from ?? read();
+  return { from, to: to ?? from };
 }
 /** Every property of the element, as it is. */
 function everything(el) {
@@ -313,7 +354,7 @@ export function reveal(el) {
 /** The element what is open is on. That is the selection, while it is in the page and its path
  *  is the open one's: then the page is not searched for it. Playing asks this several times a
  *  frame, and a search by a path of nth-of-type steps reads every sibling on the way down. */
-function openEl() {
+export function openEl() {
   const o = M.open;
   if (!o) return null;
   return M.sel && M.sel.isConnected && M.selRs === o.rs ? M.sel : mq(o.rs);
@@ -387,6 +428,7 @@ export function seek(p) {
 /** A transition: switch its state on or off, and the page runs it. */
 function flip() {
   if (!M.ro) return;
+  if (M.rec) return flash("Recording: do it on the page, then Stop");
   if (!M.ro.state) return flash("Nothing in the page’s CSS says what changes this: add what triggers it, or say in the note what it should do");
   M.ro.on = !M.ro.on;
   apply();
@@ -424,6 +466,7 @@ export function waiting() {
 /** What was paused to be looked at plays again, and nothing is switched on for it: leaving
  *  motion mode leaves the page moving as it does (with the unsent edits). */
 export function letGo() {
+  forgetRecording();
   const a = M.open && M.open.kind !== "transition" ? animOf() : null;
   if (a && a.playState === "paused") {
     a.playbackRate = 1;

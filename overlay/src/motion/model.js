@@ -48,6 +48,7 @@ export const M = {
   kf: new Map(), // name → { name, frames: [{ at, ease, vals: { prop: value } }], orig, isNew }
   tr: new Map(), // an element's transition as changed here: selector → { rs, items: [{ prop, duration, delay, easing }], orig: the page's items, as JSON }
   trig: new Map(), // what switches an element's transition, as the reviewer named it: selector → [{ label, on, kind, name, value?, alt?, by }] (trigger.js)
+  rec: null, // a recording of what starts the open transition, while it is on (record.js)
   worn: null, // the trigger that is on the page while its state is played: { t, at, undo }
   use: new Map(), // "selector|name" → { rs, name, timing, orig, plays: { how, words }, base, index, isNew, from? }
   open: null, // what is open: { kind: "css" | "script" | "transition", rs, name }
