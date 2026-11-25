@@ -981,9 +981,13 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   back as the page has it, or remove a new animation), named as the inspector's footer names it;
   undo stays an icon, as everywhere in the window. What the dock draws beyond one element's keyframes (all of it the overlay's, in
   the view): a property the keyframes do not start or end has the element's own value as a hollow, implied key; a lane says in words
-  what it goes from and to; the delay is a chip beside Play that fills while it is waited out; a transition has its states as chips
+  what it goes from and to; the delay is the hatched start of the line of time, as wide as it is long on the keyframes' scale, and the playhead goes through it
+  (a chip beside Play says it too and fills meanwhile); it is dragged by its band or its end's edge, or by the keyframes' heading
+  (the whole block), to 10 ms, with mod to the ms, the edge under the pointer though the line grows, and goes as the Delay field's
+  value does, one undo step a drag (a transition's properties keep how much later they are than the first); a transition has its states as chips
   (found in the page's rules: hover, active, a class or attribute, a parent's) and its duration, delay and easing may be changed,
-  of all its properties at once; what moves beside the open animation is drawn "Together", a bar an element on one line of time,
+  of all its properties at once; what moves beside the open animation is drawn "Together", a bar an element on one line of time
+  (a bar dragged is that element's delay, opened or not: its row has the dot, and it is sent when it is opened),
   with a Play that starts them all again; a script's animation is written out as its animate() call under "Code" (the second tab,
   which was "CSS"), and how it plays may be changed in the animation itself. In the list, elements that change the same way are one
   row named by the rule that says so, drawn shut when it has more than five elements under it, and keyframes a rule plays in a state

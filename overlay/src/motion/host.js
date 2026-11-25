@@ -35,7 +35,7 @@ import { setMode } from "../mode.js";
 import { kick } from "../render.js";
 import { apply, clamp, COUNT, DIRECTION, EASINGS, FILL, frames, HOW, M, name, openDirty, openKf, openUse, pathOf, PROPS, r1, RATE_TEXT, RATES, readOnly } from "./model.js";
 import { animOf, knownNames, newAnimation, position, reveal, running, seek, selectEl, setState, toggle, useKf, waiting } from "./open.js";
-import { addKey, addLane, commit, cssText, detach, discard, keyInfo, laneOrder, moveKey, playTogether, removeKey, removeLane, rowNow, rows, score, segEase, setCss, setKey, setName, setTiming, sharedBy, timing, travel } from "./edit.js";
+import { addKey, addLane, commit, cssText, detach, discard, keyInfo, laneOrder, moveKey, playTogether, removeKey, removeLane, rowNow, rows, score, segEase, setCss, setKey, setName, setStagger, setTiming, sharedBy, timing, travel } from "./edit.js";
 import { submit } from "./send.js";
 import { draw, flash, sentStatus } from "./draw.js";
 import { go, restage } from "./stage.js";
@@ -261,6 +261,9 @@ const ACTS = {
     M.stageBg = a.value;
     restage();
     draw();
+  },
+  stagger(a) {
+    if (setStagger(str(a.id), str(a.value), !!a.done)) draw();
   },
   together() {
     if (playTogether()) draw();

@@ -84,7 +84,8 @@ export type MotionOpen = {
   timing: MotionTiming
   /** What starts it, one of `choices.starts`; null when that is not this dock's to say. */
   starts: string | null
-  /** The timeline's length in ms (the duration; a transition's longest stretch). At least 1. */
+  /** The timeline's length in ms: the duration, which the delay comes before; a transition's
+   *  longest stretch, its delay in it (its `lanes` start that late). At least 1. */
   T: number
   /** Where the whole keyframes are, in %: the marks under the ruler. */
   frames: number[]
@@ -107,6 +108,7 @@ export type MotionOpen = {
 /** The playhead: where the open animation is (0…1 along its keyframes; null when the page has no
  *  frame of it to show), whether it plays, for a transition whether its state is switched on, and
  *  while it waits out its delay how far through it is (`wait`, 0…1; null when it does not wait).
+ *  A transition's `pos` is along the whole of it, its wait too (as its `T` is).
  *  The overlay sends a whole view whenever this changes, at most once a frame while it plays. */
 export type MotionClock = { pos: number | null; playing: boolean; on: boolean; wait: number | null }
 
@@ -179,6 +181,9 @@ export type MotionAct =
   /** Behind the isolated element, a light backdrop or a dark one in place of the page's own
    *  (until it is no longer isolated). */
   | { type: "backdrop"; value: "light" | "dark" }
+  /** The delay (ms) of one animation of `score`, as its bar is dragged (done: false) and let go
+   *  (done: true, one undo step). The others' are theirs. */
+  | { type: "stagger"; id: string; value: number; done: boolean }
   /** Everything in `score` starts again, each after its own delay. */
   | { type: "together" }
   /** A transition looked at in another of its `states`. */

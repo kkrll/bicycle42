@@ -11,8 +11,9 @@
 // on the page:
 //  - a field being typed in shows what is typed, not what the view says, until it is left and the
 //    view has caught up (Field);
-//  - a keyframe being dragged and the playhead being scrubbed are drawn where the pointer is, and
-//    the view takes over again once it agrees or soon after they are let go (`drag`, `scrub`).
+//  - a keyframe being dragged, a delay being dragged and the playhead being scrubbed are drawn
+//    where the pointer is, and the view takes over again once it agrees or soon after they are let
+//    go (`drag`, `late`, `scrub`).
 // Popovers (the "more" sheet, the easings, a field's list) stay inside the dock's own box: the
 // page is a native view that paints over the window wherever it sits, so anything over it would
 // be hidden.
@@ -356,11 +357,21 @@ const easingOk = (v: string) => CSS.supports("animation-timing-function", v.trim
  *  then. Drawn from these until the view agrees (or the moment after it is let go is over). */
 type Drag = { prop: string | null; from: number; to: number; lanes: MotionLane[]; frames: number[]; done: boolean }
 
+/** A delay (ms) being dragged: drawn until the view agrees, or the moment after it is let go is
+ *  over. */
+type Late = { to: number; done: boolean }
+/** The delay a drag has come to, from where its edge would be: to 10 ms, or to 1 (`free`). */
+const lateAt = (ms: number, free: boolean) => {
+  const n = free ? 1 : 10
+  return Math.min(600000, Math.round(ms / n) * n)
+}
+
 export function MotionDock() {
   let root!: HTMLDivElement
   let tl: HTMLDivElement | undefined
   const [pop, setShown] = createSignal<(Opened & { drawn: JSX.Element }) | null>(null)
   const [drag, setDrag] = createSignal<Drag | null>(null)
+  const [late, setLate] = createSignal<Late | null>(null)
   const [scrub, setScrub] = createSignal<{ p: number; on: boolean } | null>(null)
   const [noteFocused, setNoteFocused] = createSignal(false)
   const [noteLocal, setNoteLocal] = createSignal<string | null>(null)
@@ -401,7 +412,26 @@ export function MotionDock() {
     const s = scrub(), p = v()?.clock.pos ?? null
     return s && (s.on || p === null || Math.abs(p - s.p) > 0.002) ? s.p : p
   }
+  // The line of time: the delay (`lead`), then what plays. `off` is where the keyframes' span
+  // starts on it and `T` how long that is: a transition's span has its delay in it already (its
+  // lanes start that late), so it only moves as far as a drag has moved the delay.
+  const delay = () => late()?.to ?? open()?.timing.delay ?? 0
+  const axis = createMemo(() => {
+    const o = open(), T = o?.T ?? 1, lead = Math.max(0, delay())
+    const off = o?.kind === "transition" ? lead - Math.max(0, o.timing.delay) : lead
+    return { lead, off, T, total: Math.max(1, off + T) }
+  })
+  /** Where the playhead is on it, in ms; null when there is no frame to show. */
+  const playhead = () => {
+    const a = axis(), w = v()?.clock.wait ?? null, p = pos()
+    if (w !== null && !scrub()) return w * a.lead
+    return p === null ? null : Math.max(0, a.off + p * a.T)
+  }
   // The view caught up with the hand: it is drawn again.
+  createEffect(() => {
+    const l = late()
+    if (l?.done && open()?.timing.delay === l.to) setLate(null)
+  })
   createEffect(() => {
     const d = drag(), o = open()
     if (!d || !d.done || !o) return
@@ -472,11 +502,14 @@ export function MotionDock() {
   // Press a keyframe (the page shows that frame), drag it, press twice on a lane to add one, drag
   // the ruler or an empty lane to scrub: as in the overlay's own dock (tlDown in input.js).
   let last: { t: number; x: number; y: number } | null = null
-  let gesture: "drag" | "scrub" | null = null
+  // The delay's band (or its edge, or the keyframes' heading: the whole block) dragged is the delay.
+  let gesture: "drag" | "scrub" | "late" | null = null
   const span = () => tl?.querySelector<HTMLElement>(".mdock-kspan") ?? tl?.querySelector<HTMLElement>("[data-ruler]") ?? null
   const atOf = (e: PointerEvent, free: boolean, s: HTMLElement) => {
     const r = s.getBoundingClientRect(), pad = s.classList.contains("mdock-kspan") ? 0 : 16
-    const at = Math.min(100, Math.max(0, ((e.clientX - r.left - pad) / Math.max(1, r.width - 2 * pad)) * 100))
+    // (A span with no lane in it is the ruler, which the delay is on too.)
+    const a = axis(), x = (e.clientX - r.left - pad) / Math.max(1, r.width - 2 * pad)
+    const at = Math.min(100, Math.max(0, (pad ? (x * a.total - a.off) / a.T : x) * 100))
     return free ? Math.round(at * 10) / 10 : Math.round(at / 5) * 5
   }
   /** The lanes with the dragged keyframe at `to`; null when one is there already (as the overlay
@@ -493,10 +526,29 @@ export function MotionDock() {
     return { lanes, frames: [...new Set(lanes.flatMap((l) => l.keys.map((k) => k.at)))].sort((a, b) => a - b) }
   }
   let base: Drag | null = null
+  /** A delay taken hold of: where the pointer was, the delay then, where the block began on the
+   *  line of time (0…1), what comes after the delay (ms) and the line's width (px). */
+  let held: { x: number; from: number; f: number; rest: number; w: number } | null = null
+  /** The delay for the pointer: the block's edge follows it. The line of time is as long as the
+   *  delay and what plays, so it grows as the block is dragged along it: the edge is at f of it
+   *  when the delay is rest · f / (1 − f). Never under 0, or under what it was when that is less. */
+  const lateTo = (e: PointerEvent, h: NonNullable<typeof held>) => {
+    const f = Math.min(0.9, Math.max(0, h.f + (e.clientX - h.x) / h.w))
+    return lateAt(Math.min(0, h.from) + (h.rest * f) / (1 - f), isMod(e))
+  }
   const tlDown = (e: PointerEvent) => {
     const o = open()
     if (e.button || !o || (e.target as HTMLElement).closest("input, button, textarea")) return
     const t = e.target as HTMLElement
+    if (o.timed && t.closest(".mdock-lead, .mdock-gnote")) {
+      const r = tl!.querySelector("[data-ruler]")!.getBoundingClientRect(), a = axis()
+      last = null
+      held = { x: e.clientX, from: delay(), f: a.lead / a.total, rest: a.total - a.lead, w: Math.max(1, r.width - 32) }
+      gesture = "late"
+      tl!.setPointerCapture(e.pointerId)
+      e.preventDefault()
+      return tl!.focus({ preventScroll: true })
+    }
     const grip = t.closest<HTMLElement>(".mdock-key"), seg = t.closest<HTMLElement>("[data-seg]"), trk = t.closest<HTMLElement>(".mdock-kspan, [data-ruler]")
     const now = performance.now(), l = last
     const twice = !!l && now - l.t < 350 && Math.abs(e.clientX - l.x) < 5 && Math.abs(e.clientY - l.y) < 5
@@ -530,6 +582,14 @@ export function MotionDock() {
   }
   const tlMove = (e: PointerEvent) => {
     const s = span()
+    if (gesture === "late" && held) {
+      // (Pressed and not moved, it stays what it is, rounded or not.)
+      if (!late() && Math.abs(e.clientX - held.x) < 3) return
+      const to = lateTo(e, held)
+      if (to === delay()) return
+      setLate({ to, done: false })
+      return send({ type: "timing", what: "delay", value: String(to), done: false })
+    }
     if (!gesture || !s) return
     if (gesture === "scrub") {
       const p = atOf(e, true, s) / 100
@@ -552,6 +612,13 @@ export function MotionDock() {
     if (g === "scrub") {
       setScrub((s) => (s ? { ...s, on: false } : s))
       setTimeout(() => !gesture && setScrub((s) => (s && !s.on ? null : s)), HOLD_MS)
+    } else if (g === "late") {
+      const l = late()
+      held = null
+      if (!l) return
+      send({ type: "timing", what: "delay", value: String(l.to), done: true })
+      setLate({ ...l, done: true })
+      setTimeout(() => setLate((x) => (x && x.done ? null : x)), HOLD_MS)
     } else if (g === "drag") {
       send({ type: "drop" })
       const d = drag()
@@ -765,7 +832,8 @@ export function MotionDock() {
                 fallback={
                   <div
                     class="mdock-tl thin-scroll"
-                    classList={{ ro: ro() }}
+                    classList={{ ro: ro(), timed: !!open()?.timed, late: late()?.done === false }}
+                    style={{ "--lead": axis().lead / axis().total, "--k0": axis().off / axis().total, "--kw": axis().T / axis().total }}
                     ref={tl}
                     tabIndex={0}
                     aria-label="Timeline"
@@ -782,7 +850,9 @@ export function MotionDock() {
                           lanes={lanes()}
                           frames={wholeFrames()}
                           sel={selKey()}
-                          pos={pos()}
+                          total={axis().total}
+                          delay={delay()}
+                          head={playhead()}
                           playing={v()!.clock.playing}
                           wait={v()!.clock.wait}
                           flipped={v()!.clock.on}
@@ -1123,16 +1193,19 @@ function Timeline(props: {
   lanes: MotionLane[]
   frames: number[]
   sel: { at: number; prop: string | null } | null
-  pos: number | null
+  /** The line of time's length, the delay it begins with (as dragged) and where the playhead is
+   *  on it, in ms. */
+  total: number
+  delay: number
+  head: number | null
   playing: boolean
   wait: number | null
   flipped: boolean
   props: string[]
   onLane: () => void
 }) {
-  const T = () => props.open.T
   const ticks = createMemo(() => {
-    const t = T(), major = MAJOR.find((m) => t / m <= 7) ?? 5000, minor = major / 5, out: Array<{ at: number; big: boolean; n: number }> = []
+    const t = props.total, major = MAJOR.find((m) => t / m <= 7) ?? 5000, minor = major / 5, out: Array<{ at: number; big: boolean; n: number }> = []
     for (let n = 0; n <= t + 0.5; n += minor) out.push({ at: n / t, big: Math.round(n / minor) % 5 === 0, n })
     return out
   })
@@ -1153,14 +1226,14 @@ function Timeline(props: {
           >
             <MIcon name={props.playing ? "pause" : "play"} />
           </button>
-          <Show when={!tr() && props.open.timing.delay > 0}>
+          <Show when={!tr() && props.delay > 0}>
             <span
               class="mdock-wait"
               classList={{ on: props.wait !== null }}
               style={{ "--w": props.wait ?? 0 }}
-              title={`It waits ${props.open.timing.delay}ms before it starts (its delay); the timeline is what follows`}
+              title={`It waits ${props.delay}ms before it starts (its delay): the hatched start of the timeline`}
             >
-              {secs(props.open.timing.delay)} wait
+              {secs(props.delay)} wait
             </span>
           </Show>
         </div>
@@ -1181,6 +1254,13 @@ function Timeline(props: {
       </div>
       <div class="mdock-lanes">
         <i class="mdock-band" />
+        <Show when={props.lanes.length}>
+          <i
+            class="mdock-lead"
+            classList={{ none: props.delay <= 0 }}
+            title={props.open.timed ? `Delay ${props.delay}ms: drag to start it earlier or later (${keys("mod")}: to the ms)` : `Delay ${props.delay}ms`}
+          />
+        </Show>
         <div class="mdock-lrow mdock-ghead">
           <div class="mdock-lab">
             <KindIcon kind={tr() ? "transition" : props.open.kind === "script" ? "script" : "css"} />
@@ -1196,7 +1276,7 @@ function Timeline(props: {
               />
             </Show>
           </div>
-          <div class="mdock-trk mdock-gnote">
+          <div class="mdock-trk mdock-gnote" title={props.open.timed ? `Drag to start it earlier or later: its delay, ${props.delay}ms` : undefined}>
             <Show when={tr()}>
               <Show when={props.open.states.length} fallback={<span class="mdock-shared" title="No rule of the page’s CSS says what changes this element: a script does it. Do it on the page to see it, and say in the note what it should do.">No state found in the CSS</span>}>
                 <span class="mdock-shared">On</span>
@@ -1342,9 +1422,9 @@ function Timeline(props: {
         </div>
       </Show>
       <div class="mdock-phl">
-        <Show when={props.pos !== null}>
-          <div class="mdock-flag" style={{ "--x": props.pos! }} data-ms={Math.round(props.pos! * T())}>
-            <b>{secs(Math.round(props.pos! * T()))}</b>
+        <Show when={props.head !== null}>
+          <div class="mdock-flag" style={{ "--x": props.head! / props.total }} data-ms={Math.round(props.head!)}>
+            <b>{secs(Math.round(props.head!))}</b>
           </div>
         </Show>
       </div>
@@ -1353,10 +1433,48 @@ function Timeline(props: {
 }
 
 /** What moves with the open animation: one bar an element, on one line of time from when they
- *  start, each as late as its delay and as long as it lasts. A bar opens its element; Play starts
- *  them all again. */
+ *  start, each as late as its delay and as long as it lasts. A bar opens its element, and dragged
+ *  it is that element's delay; Play starts them all again. */
 function Score(props: { open: MotionOpen }) {
-  const total = () => Math.max(1, ...props.open.score.map((s) => Math.max(0, s.delay) + s.duration))
+  // A bar dragged along its line: its delay, drawn from the hand until the view agrees (`late`).
+  // The line keeps its length meanwhile, so the bar stays under the pointer; it grows only when
+  // the bar is taken past its end.
+  type Bar = Late & { id: string; line: number }
+  const [late, setLate] = createSignal<Bar | null>(null)
+  let held: { id: string; x: number; from: number; line: number; w: number } | null = null
+  /** Let go after a drag: the click that comes with it opens nothing. */
+  let dragged = false
+  createEffect(() => {
+    const l = late()
+    if (l?.done && (props.open.score.find((s) => s.id === l.id)?.delay ?? l.to) === l.to) setLate(null)
+  })
+  const lateOf = (s: MotionOpen["score"][number]) => (late()?.id === s.id ? late()!.to : s.delay)
+  const total = () => Math.max(1, late()?.line ?? 0, ...props.open.score.map((s) => Math.max(0, lateOf(s)) + s.duration))
+  const down = (e: PointerEvent & { currentTarget: HTMLElement }, s: MotionOpen["score"][number]) => {
+    dragged = false
+    if (e.button) return
+    const w = e.currentTarget.parentElement!.getBoundingClientRect().width
+    held = { id: s.id, x: e.clientX, from: lateOf(s), line: total(), w: Math.max(1, w) }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const move = (e: PointerEvent) => {
+    const h = held
+    if (!h || (!dragged && Math.abs(e.clientX - h.x) < 3)) return
+    dragged = true
+    const to = lateAt(Math.max(Math.min(0, h.from), h.from + ((e.clientX - h.x) / h.w) * h.line), isMod(e))
+    if (late()?.id === h.id ? late()!.to === to : to === h.from) return
+    setLate({ id: h.id, to, line: h.line, done: false })
+    send({ type: "stagger", id: h.id, value: to, done: false })
+  }
+  const up = () => {
+    const l = late()
+    if (!held) return
+    held = null
+    if (!l || l.done) return
+    send({ type: "stagger", id: l.id, value: l.to, done: true })
+    setLate({ ...l, done: true })
+    setTimeout(() => setLate((x) => (x && x.done ? null : x)), HOLD_MS)
+  }
   return (
     <div class="mdock-score">
       <div class="mdock-lrow mdock-score-hd">
@@ -1373,13 +1491,26 @@ function Score(props: { open: MotionOpen }) {
       </div>
       <For each={props.open.score}>
         {(s) => (
-          <button type="button" class="mdock-lrow mdock-score-row" classList={{ on: s.on }} title={`${s.name} on ${s.text}: starts after ${s.delay}ms, lasts ${s.duration}ms`} onClick={() => !s.on && send({ type: "row", id: s.id })}>
+          <button
+            type="button"
+            class="mdock-lrow mdock-score-row"
+            classList={{ on: s.on, late: late()?.id === s.id && !late()!.done }}
+            title={`${s.name} on ${s.text}: starts after ${lateOf(s)}ms, lasts ${s.duration}ms; drag its bar to start it earlier or later`}
+            onClick={() => !s.on && !dragged && send({ type: "row", id: s.id })}
+          >
             <span class="mdock-lab">
               <span>{s.text}</span>
             </span>
             <span class="mdock-trk">
-              <i style={{ "--a": Math.max(0, s.delay) / total(), "--b": (Math.max(0, s.delay) + s.duration) / total() }}>
-                <b>{s.name}</b>
+              <i
+                style={{ "--a": Math.max(0, lateOf(s)) / total(), "--b": (Math.max(0, lateOf(s)) + s.duration) / total() }}
+                onPointerDown={(e) => down(e, s)}
+                onPointerMove={move}
+                onPointerUp={up}
+                onPointerCancel={up}
+                onLostPointerCapture={up}
+              >
+                <b>{late()?.id === s.id ? `${lateOf(s)}ms` : s.name}</b>
               </i>
             </span>
           </button>

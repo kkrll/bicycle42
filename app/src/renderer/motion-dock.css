@@ -590,6 +590,13 @@
   translate: calc(2px - 100%) 0;
 }
 
+/* (A narrow track, whose line of time has its delay on it too: every other time is said.) */
+@container mdock-main (max-width: 360px) {
+  .mdock-tick:nth-of-type(10n + 6) b {
+    display: none;
+  }
+}
+
 .mdock-key {
   position: absolute;
   left: calc(var(--pad) + (100% - 2 * var(--pad)) * var(--at));
@@ -606,8 +613,10 @@
   position: absolute;
 }
 
+/* (The ruler's: on the whole line of time, of which the keyframes are the part after the delay.) */
 .mdock-key.wk {
   top: 44px;
+  left: calc(var(--pad) + (100% - 2 * var(--pad)) * (var(--k0, 0) + var(--kw, 1) * var(--at)));
   width: 16px;
   height: 16px;
   margin: -8px 0 0 -8px;
@@ -671,6 +680,15 @@
   font-weight: 500;
 }
 
+.mdock-tl.timed .mdock-gnote {
+  cursor: grab;
+}
+
+.mdock-tl.late,
+.mdock-tl.late * {
+  cursor: grabbing !important;
+}
+
 .mdock-gnote {
   display: flex;
   align-items: center;
@@ -712,8 +730,59 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 16px;
-  right: 16px;
+  left: calc(16px + (100% - 32px) * var(--k0, 0));
+  width: calc((100% - 32px) * var(--kw, 1));
+}
+
+/* the delay: the start of the line of time, waited out before the keyframes. Hatched, as wide as
+   it is long on the same scale, and drawn 10px early as the bars are, so it ends where they begin.
+   Its edge is the pill at its end; with no delay that is all of it, in the block's margin. */
+.mdock-lead {
+  position: absolute;
+  top: 44px;
+  bottom: 12px;
+  right: calc(26px + (100% - var(--lab) - 32px) * (1 - var(--lead, 0)));
+  z-index: 1;
+  width: max(8px, (100% - var(--lab) - 32px) * var(--lead, 0));
+  border-radius: 7px 0 0 7px;
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--foreground) 16%, transparent) 0 1px, transparent 1px 6px);
+}
+
+.mdock-lead.none {
+  background: none;
+}
+
+.mdock-tl.timed .mdock-lead {
+  cursor: ew-resize;
+}
+
+.mdock-tl:not(.timed) .mdock-lead {
+  pointer-events: none;
+}
+
+.mdock-tl.timed .mdock-lead::after {
+  content: "";
+  position: absolute;
+  top: calc(50% - 8px);
+  right: 2px;
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--background-03);
+}
+
+.mdock-tl.timed .mdock-lead.none::after {
+  opacity: 0;
+}
+
+.mdock-tl.timed .mdock-lanes:hover .mdock-lead.none::after {
+  opacity: 1;
+}
+
+.mdock-tl.timed .mdock-lead:hover::after,
+.mdock-tl.timed .mdock-lanes:has(.mdock-gnote:hover) .mdock-lead::after,
+.mdock-tl.late .mdock-lead::after {
+  background: var(--accent);
 }
 
 /* a bar: one stretch between two keyframes. Its outer ends reach past the lane's first and
@@ -852,6 +921,16 @@
   border-radius: 5px;
   background: color-mix(in srgb, var(--foreground) 12%, transparent);
   font-style: normal;
+}
+
+/* (A bar is dragged along its line: its delay.) */
+.mdock-score-row i {
+  cursor: grab;
+  touch-action: none;
+}
+
+.mdock-score-row.late i {
+  cursor: grabbing;
 }
 
 .mdock-score-row:hover i {
@@ -1339,6 +1418,10 @@
 
   .mdock-ghead {
     height: 32px;
+  }
+
+  .mdock-lead {
+    top: 40px;
   }
 
   /* (The ruler: its whole keyframes a little higher, under the ticks.) */

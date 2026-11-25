@@ -787,3 +787,97 @@ test("hosted: a script's animation is slowed in the animation itself, undone, pu
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("hosted: a delay dragged is a delay typed: every step on the page, one undo step; a transition's properties keep how much later they are; paused in its wait, the clock says where", async () => {
+  const { page, f, errors, v } = await open({ before: `
+    const s = document.createElement("style");
+    s.textContent = ".hero { transition: opacity 300ms ease 50ms, translate 400ms ease 120ms; } .hero.away { opacity: 0.2; translate: 0 40px; }";
+    document.head.appendChild(s);
+  ` });
+  const delay = (sel) => f.evaluate((x) => getComputedStyle(document.querySelector(x)).animationDelay, sel);
+  // the paragraph's rise, 120ms late
+  await act(page, { type: "row", id: v.rows[v.rows.findIndex((r) => r.text === "rise") + 2].id });
+  const o = (await view(page, "v.open && v.open.name === 'rise'")).open;
+  assert.equal(o.timing.delay, 120);
+  assert.equal(o.T, 700);
+  for (const value of ["200", "310", "400"]) {
+    await act(page, { type: "timing", what: "delay", value, done: false });
+    await view(page, `v.open.timing.delay === ${value}`);
+    assert.equal(await delay(".hero p"), `${+value / 1000}s`);
+  }
+  await act(page, { type: "timing", what: "delay", value: "400", done: true });
+  let w = await view(page, "v.undo && v.open.dirty");
+  assert.equal(w.open.T, 700, "the timeline is the duration's; the delay comes before it");
+  await act(page, { type: "undo" });
+  w = await view(page, "v.open.timing.delay === 120 && !v.open.dirty");
+  assert.equal(w.undo, false, "the whole drag is one step");
+  assert.equal(await delay(".hero p"), "0.12s");
+  // paused while it waits: the playhead has a place, in the wait
+  await act(page, { type: "timing", what: "delay", value: "2000", done: true });
+  await view(page, "v.open.timing.delay === 2000");
+  await f.evaluate(() => {
+    const a = document.querySelector(".hero p").getAnimations()[0];
+    a.currentTime = 500;
+    a.pause();
+  });
+  w = await view(page, "v.clock.wait !== null && !v.clock.playing");
+  assert.ok(Math.abs(w.clock.wait - 0.25) < 0.01, String(w.clock.wait));
+  await act(page, { type: "discard" });
+  // a transition: its delay is the earliest property's, and the others stay as much later
+  await act(page, { type: "row", id: v.rows.find((r) => r.kind === "transition" && r.aside === "opacity, translate").id });
+  w = await view(page, "v.open && v.open.kind === 'transition'");
+  assert.deepEqual([w.open.timing.delay, w.open.T], [50, 520]);
+  await act(page, { type: "timing", what: "delay", value: "100", done: false });
+  await act(page, { type: "timing", what: "delay", value: "200", done: true });
+  w = await view(page, "v.open.timing.delay === 200");
+  assert.equal(w.open.T, 670);
+  assert.match(await adopted(f), /transition: opacity 300ms( ease)? 200ms, translate 400ms( ease)? 270ms/);
+  await act(page, { type: "discard" });
+  await view(page, "v.open.timing.delay === 50 && !v.open.dirty");
+  // a script's
+  await act(page, { type: "row", id: rowId(v, "bob") });
+  await view(page, "v.open && v.open.kind === 'script'");
+  await act(page, { type: "timing", what: "delay", value: "150", done: true });
+  await view(page, "v.open.timing.delay === 150 && v.open.dirty");
+  assert.equal(await f.evaluate(() => document.querySelector(".badge").getAnimations().find((a) => a.id === "bob").effect.getTiming().delay), 150);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted: a bar of the score dragged is that element's delay, though another is open: its row is unsent, one undo step, and opened it is sent as changed", async () => {
+  const { page, f, errors, v } = await open();
+  const delays = () => f.evaluate(() => [...document.querySelectorAll(".card")].map((c) => getComputedStyle(c).animationDelay).join());
+  const cards = v.rows.findIndex((r) => r.text === "card-in");
+  const third = v.rows[cards + 3].id;
+  await act(page, { type: "row", id: v.rows[cards + 2].id });
+  await view(page, "v.open && v.open.name === 'card-in' && v.open.score.length === 3");
+  await act(page, { type: "stagger", id: third, value: 550, done: false });
+  await view(page, "v.open.score[2].delay === 550");
+  await act(page, { type: "stagger", id: third, value: 700, done: false });
+  await act(page, { type: "stagger", id: third, value: 700, done: true });
+  let w = await view(page, "v.open.score[2].delay === 700 && v.undo");
+  assert.equal(await delays(), "0.3s,0.39s,0.7s");
+  assert.equal(w.open.dirty, false, "what is open is as it was");
+  assert.deepEqual(w.rows.filter((r) => r.dirty).map((r) => r.id), [third]);
+  // the open one's own bar is its Delay
+  await act(page, { type: "stagger", id: v.rows[cards + 2].id, value: 500, done: true });
+  w = await view(page, "v.open.timing.delay === 500 && v.open.dirty");
+  await act(page, { type: "undo" });
+  await view(page, "v.open.timing.delay === 390 && v.open.score[2].delay === 700");
+  await act(page, { type: "undo" });
+  w = await view(page, "v.open.score[2].delay === 480");
+  assert.equal(w.undo, false);
+  assert.equal(await delays(), "0.3s,0.39s,0.48s");
+  // what is not one of them changes nothing
+  await act(page, { type: "stagger", id: rowId(v, "spin"), value: 999, done: true });
+  await act(page, { type: "redo" });
+  await view(page, "v.open.score[2].delay === 700");
+  // opened, it is sent with what it was and is
+  await act(page, { type: "row", id: third });
+  await view(page, "v.open.timing.delay === 700 && v.open.dirty");
+  await act(page, { type: "send", background: false });
+  await page.waitForFunction(() => window.__harness.notes.length === 1);
+  assert.deepEqual((await page.evaluate(() => window.__harness.notes[0])).motion.changes, [{ prop: "delay", from: "480ms", to: "700ms" }]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

@@ -1505,7 +1505,7 @@ const MOTION: MotionView = {
     removable: false,
     shared: 2,
     from: null,
-    timing: { ...RISE, duration: 900 },
+    timing: { ...RISE, duration: 900, delay: 240 },
     starts: "asnow",
     T: 900,
     frames: [0, 60, 100],
@@ -1516,8 +1516,8 @@ const MOTION: MotionView = {
     key: { at: 60, prop: "opacity", value: "1", ease: "", dflt: RISE.easing, last: false, props: 1 },
     css: "@keyframes rise {\n  0% { opacity: 0; transform: translateY(18px); }\n  60% { opacity: 1; }\n  100% { transform: none; }\n}",
     score: [
-      { id: "a", text: "Ship calmer interfaces", name: "rise", delay: 0, duration: 900, on: true },
-      { id: "b", text: "A review layer for…", name: "rise", delay: 120, duration: 700, on: false },
+      { id: "a", text: "Ship calmer interfaces", name: "rise", delay: 240, duration: 900, on: true },
+      { id: "b", text: "A review layer for…", name: "rise", delay: 360, duration: 700, on: false },
       { id: "c", text: "Start free trial", name: "pulse", delay: 400, duration: 2400, on: false },
     ],
     cssError: "",
@@ -1611,7 +1611,7 @@ function motionAct(a: PanelAct, out: (m: PanelMessage) => void): void {
   else if (act.type === "play") MOTION.clock.playing = !MOTION.clock.playing
   else if (act.type === "seek") MOTION.clock.pos = act.p
   else if (act.type === "note") MOTION.note = act.text
-  else if (act.type === "timing" && act.done && act.what !== "how") (o.timing as Record<string, unknown>)[act.what] = act.what === "duration" || act.what === "delay" ? Number(act.value) : act.value
+  else if (act.type === "timing" && act.what !== "how") (o.timing as Record<string, unknown>)[act.what] = act.what === "duration" || act.what === "delay" ? Number(act.value) : act.value
   else if (act.type === "select") {
     const lane = act.key && o.lanes.find((l) => l.prop === act.key!.prop)
     const k = act.key && lane?.keys.find((x) => x.at === act.key!.at)

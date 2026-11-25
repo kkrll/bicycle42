@@ -6,7 +6,7 @@ import { kick } from "../render.js";
 import { treeVersion } from "../mount.js";
 import { draftChanged } from "../draft.js";
 import { apply, DIRECTION, FILL, frames, HOW, kfDirty, M, MAX_KF, mq, name, openKf, openUse, parseKf, pathOf, playsDirty, r1, readList, scan, serialize, splitTop, trCss, trDirty, useDirty } from "./model.js";
-import { animOf, applyScript, layout, openCss, openScript, openTransition, seek, syncTransition, useKf } from "./open.js";
+import { animOf, applyScript, layout, openCss, openScript, openTransition, seek, syncTransition, useKf, useOf } from "./open.js";
 import { draw, drawList, flash } from "./draw.js";
 
 // ── undo ─────────────────────────────────────────────────────────────────────────────────
@@ -298,7 +298,9 @@ function setTransition(what, v, done) {
   } else ok = what === "easing" && CSS.supports("transition-timing-function", val);
   if (!ok || !ro) return false;
   const mine = M.tr.get(rs) || M.tr.set(rs, { rs, items: JSON.parse(JSON.stringify(ro.items)), orig: ro.orig }).get(rs);
-  for (const x of mine.items) x[what] = val;
+  // (Its delay is the earliest property's: the others keep how much later they are.)
+  const first = Math.min(...mine.items.map((x) => x.delay));
+  for (const x of mine.items) x[what] = what === "delay" ? x.delay + val - first : val;
   ro.items = mine.items;
   if (!trDirty(mine)) M.tr.delete(rs);
   layout();
@@ -348,6 +350,19 @@ export function score() {
     if (out.length === 12) break;
   }
   return out.length > 1 ? out : [];
+}
+/** One of them starts later or earlier (its bar dragged): its delay, as the Delay field changes
+ *  the open one's, of an animation that need not be open. */
+export function setStagger(id, v, done) {
+  const x = score().find((s) => s.id === id), el = x && mq(x.path);
+  if (!el) return false;
+  if (x.on) return setTiming("delay", v, done);
+  const u = M.use.get(`${x.path}|${x.name}`) || useOf(el, x.name), val = Number(v);
+  if (!u || !Number.isFinite(val) || Math.abs(val) > 600000) return false;
+  u.timing.delay = val;
+  apply();
+  if (done) commit();
+  return true;
 }
 /** They all start again, together: each after its own delay, as on the page when it loads. */
 export function playTogether() {

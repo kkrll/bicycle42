@@ -51,14 +51,20 @@ export function openCss(el, nm) {
     const fr = rule ? parseKf(rule.cssText).frames || [] : fromApi(live.effect.getKeyframes());
     M.kf.set(nm, { name: nm, frames: fr, orig: serialize(nm, fr), isNew: false });
   }
-  const k = `${rs}|${nm}`;
+  if (!useOf(el, nm)) return attach(el, nm);
+  show({ kind: "css", rs, name: nm });
+}
+/** How an element plays an animation it has, as kept to be changed: read from the page the first
+ *  time. null when it does not play it. */
+export function useOf(el, nm) {
+  const rs = pathOf(el), k = `${rs}|${nm}`;
   if (!M.use.has(k)) {
     const base = baseFor(rs, el), index = base.findIndex((e) => e.name === nm);
-    if (index < 0) return attach(el, nm);
+    if (index < 0) return null;
     const { name: _, ...timing } = base[index];
     M.use.set(k, { rs, name: nm, timing, orig: { ...timing }, plays: { how: "asnow", words: "" }, base, index, isNew: false });
   }
-  show({ kind: "css", rs, name: nm });
+  return M.use.get(k);
 }
 /** Keyframes the element does not play yet: a new animation, or ones the page declares and nothing plays. */
 function attach(el, nm, timing = { duration: 400, delay: 0, easing: "ease-out", count: "1", direction: "normal", fill: "both" }) {
@@ -334,13 +340,13 @@ export function position() {
   const p = a.effect.getComputedTiming().progress;
   return p === null ? null : p;
 }
-/** How far through its delay what is open is (0…1), while it waits to start; null when it does
- *  not wait. */
+/** How far through its delay what is open is (0…1), while it waits to start (or is paused in its
+ *  wait); null when it does not wait. */
 export function waiting() {
   const o = M.open;
   if (!o || o.kind === "transition") return null;
   const a = animOf();
-  if (!a || !a.effect || scrolled(a) || a.playState !== "running") return null;
+  if (!a || !a.effect || scrolled(a) || (a.playState !== "running" && a.playState !== "paused")) return null;
   const t = a.effect.getComputedTiming(), at = +a.currentTime;
   return t.delay > 0 && at >= 0 && at < t.delay ? at / t.delay : null;
 }

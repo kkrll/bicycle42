@@ -2271,6 +2271,68 @@ async function main() {
   // Undo, from the dock's own button: the page's keyframes again.
   await ui(`document.querySelector('.mdock-hd [aria-label="Undo"]').click()`)
   check("undo in the window's dock takes the drag back on the page", (await until(async () => !/@keyframes rise/.test(await sheets()))) === true)
+  // The delay (120ms) is the hatched start of the timeline, as wide as it is long on the line of
+  // time (1020ms with the 900ms that play); the keyframes come after it. Dragged, its edge stays
+  // under the pointer, the page waits that long, and it is one undo step.
+  const delayed = () => js(`getComputedStyle(document.querySelector(".hero p")).animationDelay`) as Promise<string>
+  const leadBox = () => ui(`(() => { const l = document.querySelector(".mdock-lead").getBoundingClientRect(), t = document.querySelector("[data-ruler]").getBoundingClientRect(), s = document.querySelector(".mdock-kspan").getBoundingClientRect(), g = document.querySelector('.mdock-kspan[data-lane="opacity"] .mdock-key[data-at="0"]').getBoundingClientRect(); return { line: t.width - 32, w: l.width, right: l.right, y: Math.round(l.bottom - 6), span: s.left - t.left - 16, key: g.x + g.width / 2 } })()`) as Promise<{ line: number; w: number; right: number; y: number; span: number; key: number }>
+  await until(() => ui(`!document.querySelector(".mdock-kb")`))
+  const lead0 = await leadBox()
+  check(
+    "the delay is drawn at the timeline's start, as wide as it is long, and the keyframes after it",
+    Math.abs(lead0.w / lead0.line - 120 / 1020) < 0.01 && Math.abs(lead0.span - lead0.w) < 1 && Math.abs(lead0.key - 10 - lead0.right) < 1.5,
+    JSON.stringify(lead0),
+  )
+  const lmouse = (type: "mouseDown" | "mouseMove" | "mouseUp", x: number, y: number) => win.webContents.sendInputEvent({ type, x: Math.round(x), y: Math.round(y), button: "left", clickCount: 1 })
+  const dragBy = async (x: number, y: number, dx: number) => {
+    lmouse("mouseMove", x, y)
+    lmouse("mouseDown", x, y)
+    for (let i = 1; i <= 6; i++) {
+      lmouse("mouseMove", x + (dx * i) / 6, y)
+      await sleep(16)
+    }
+  }
+  await dragBy(lead0.right - 4, lead0.y, 90)
+  await until(async () => (await leadBox()).right - lead0.right > 86, 1000)
+  const held = await leadBox()
+  lmouse("mouseUp", lead0.right - 4 + 90, lead0.y)
+  const dField = () => ui(`document.querySelector("[data-tdelay]").value`) as Promise<string>
+  const late = await until(async () => ((await ui(`!document.querySelector(".mdock-tl.late")`)) && (await delayed()) !== "0.12s" && `${Number(await dField()) / 1000}s` === (await delayed()) ? delayed() : null), 3000)
+  check(
+    "dragged, the delay's edge is under the pointer; let go, the page waits that long, to 10ms, and the Delay field says it",
+    Math.abs(held.right - lead0.right - 90) < 4 && typeof late === "string" && Number(await dField()) > 120 && Number(await dField()) % 10 === 0,
+    `edge moved ${held.right - lead0.right}; page ${await delayed()}, field ${await dField()}`,
+  )
+  await ui(`document.querySelector('.mdock-hd [aria-label="Undo"]').click()`)
+  check("…and undo takes the whole drag back", (await until(async () => (await delayed()) === "0.12s" && (await dField()) === "120", 3000)) === true, `${await delayed()} ${await dField()}`)
+  // The keyframes' heading is the block's: dragged left past the start, the delay is 0 and no less.
+  const head = (await ui(`(() => { const r = document.querySelector(".mdock-gnote").getBoundingClientRect(); return { x: r.right - 30, y: r.top + r.height / 2 } })()`)) as { x: number; y: number }
+  await dragBy(head.x, head.y, -250)
+  lmouse("mouseUp", head.x - 250, head.y)
+  check("the whole block dragged by its heading: to a delay of 0, and no less", (await until(async () => (await delayed()) === "0s" && (await dField()) === "0", 3000)) === true, `${await delayed()} ${await dField()}`)
+  await ui(`document.querySelector('.mdock-hd [aria-label="Undo"]').click()`)
+  await until(async () => (await delayed()) === "0.12s")
+  // Together: the heading's bar (no delay) dragged along the line is its delay, though the
+  // paragraph is what is open; and the drag is not a press of the row.
+  // (A dock with room for it.)
+  await ui(`(() => { for (let i = 0; i < 6; i++) document.querySelector(".dock-divider").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true })) })()`)
+  await until(() => ui(`document.querySelector(".mdock-score")?.getBoundingClientRect().height > 0`), 3000)
+  const bar = (await ui(`(() => { const s = document.querySelector(".mdock-score"); s.scrollIntoView({ block: "end" }); const i = s.querySelector(".mdock-score-row i"), r = i.getBoundingClientRect(); return { x: r.x + 20, y: r.y + r.height / 2, line: i.parentElement.getBoundingClientRect().width, shown: r.width > 0 } })()`)) as { x: number; y: number; line: number; shown: boolean }
+  await dragBy(bar.x, bar.y, 100)
+  lmouse("mouseUp", bar.x + 100, bar.y)
+  const heads = () => js(`getComputedStyle(document.querySelector(".hero h2")).animationDelay`) as Promise<string>
+  const staggered = await until(async () => parseFloat(await heads()) > 0, 3000)
+  await sleep(100)
+  check(
+    "a bar of Together dragged is that element's delay, and what is open stays open",
+    bar.shown && staggered === true && (await delayed()) === "0.12s" && (await dField()) === "120",
+    `${JSON.stringify(bar)} heading ${await heads()}, paragraph ${await delayed()}, field ${await dField()}`,
+  )
+  await ui(`document.querySelector('.mdock-hd [aria-label="Undo"]').click()`)
+  check("…and undone", (await until(async () => (await heads()) === "0s", 3000)) === true, await heads())
+  await ui(`document.querySelector(".mdock-tl").scrollTo(0, 0)`)
+  await ui(`document.querySelector(".dock-divider").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`)
+  await until(() => ui(`document.querySelector(".mdock").getBoundingClientRect().height < 400`), 3000)
   // A popover goes with what opened it. The selected keyframe's easings are open when the
   // keyframe is deleted: the list reads that keyframe, and the dock must outlive it.
   const werrors: string[] = []
@@ -2337,10 +2399,10 @@ async function main() {
   check("the way from the window's dock to the overlay and back is measured", rtt.split(",").filter(Boolean).length === 5, `ping, ms: ${rtt}; act to view, ms: ${trips}`)
   // Keys while the dock has the keyboard: → steps the page's animation, space plays it.
   const at = () => ui(`document.querySelector(".mdock-flag")?.dataset.ms ?? ""`) as Promise<string>
-  await until(async () => (await at()) === "450")
+  await until(async () => (await at()) === "570") // half of 900ms, after the delay of 120ms
   await ui(`document.querySelector(".mdock-tl").focus()`)
   win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Right" })
-  const stepped = await until(async () => (await at()) === "459")
+  const stepped = await until(async () => (await at()) === "579")
   win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Space" })
   win.webContents.sendInputEvent({ type: "char", keyCode: " " })
   const plays = await until(() => js(`document.querySelector(".hero p").getAnimations().some((a) => a.playState === "running" || a.playState === "finished")`), 3000)
