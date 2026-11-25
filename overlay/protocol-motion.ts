@@ -58,9 +58,16 @@ export type MotionLane = { prop: string; keys: Array<{ at: number; value: string
  *  for the animation's (`dflt`); the last keyframe has none (`last`). `at` in % of the keyframes. */
 export type MotionKey = { at: number; prop: string | null; value: string | null; ease: string; dflt: string; last: boolean; props: number }
 
-/** What is open: one animation, as one element plays it. */
+/** What was seen of an element a script moves frame by frame: the inline properties that
+ *  changed, each with what it was seen to be ("translateX(0…40px)": the numbers that changed,
+ *  from the least to the most), how long one round of it takes (ms; null when it was not seen to
+ *  come round), and how long it was watched (ms). `watching`: it still is. */
+export type MotionSeen = { props: Array<{ prop: string; range: string }>; cycle: number | null; over: number; watching: boolean }
+
+/** What is open: one animation, as one element plays it; or ("frames") an element a script moves
+ *  frame by frame, which has no keyframes and no timing, only what was `seen` of it. */
 export type MotionOpen = {
-  kind: "css" | "script" | "transition"
+  kind: "css" | "script" | "transition" | "frames"
   /** The keyframes' name (a script's animation id; "transition"). */
   name: string
   /** A script's animation or a transition: its keyframes are looked at, not edited. */
@@ -95,6 +102,8 @@ export type MotionOpen = {
    *  `on`), each with its row's `id`, when it starts and how long it lasts, in ms. Empty when it
    *  moves alone. */
   score: Array<{ id: string; text: string; name: string; delay: number; duration: number; on: boolean }>
+  /** frames: what was seen of it; null for the others. */
+  seen: MotionSeen | null
   /** The keyframes as text (a transition: its rule; a script's animation: the call that would
    *  make it, written out from the animation as it runs). */
   css: string
@@ -189,7 +198,7 @@ export type MotionAct =
   | { type: "redo" }
   /** The open animation as the page has it (a new one: taken off the element). */
   | { type: "discard" }
-  /** Play or pause (a transition: switch its state). */
+  /** Play or pause (a transition: switch its state; frame by frame: watch it again). */
   | { type: "play" }
   /** Stop at `p` (0…1 along the keyframes); or move from where it is by `by`. */
   | { type: "seek"; p: number }

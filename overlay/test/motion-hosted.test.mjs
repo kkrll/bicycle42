@@ -787,3 +787,83 @@ test("hosted: a script's animation is slowed in the animation itself, undone, pu
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("hosted: what a script moves frame by frame opens: it is watched while it is open, said in words, and sent with what was seen", async () => {
+  const { page, f, errors } = await open({ before: `(() => {
+    const el = document.createElement("div");
+    el.className = "orbit";
+    el.textContent = "Orbit";
+    document.body.append(el);
+    (function step(t) {
+      el.style.transform = "translate3d(" + 20 * Math.sin(t / 100) + "px, 3px, 0px)";
+      el.style.setProperty("--turn", String(Math.floor(t / 50) % 4));
+      requestAnimationFrame(step);
+    })(0);
+  })()` });
+  let v = await view(page, "v.rows.filter((r) => r.kind === 'frames').length === 2", 5000);
+  const orbit = v.rows.find((r) => r.kind === "frames" && r.text === "Orbit");
+  assert.equal(orbit.off, false);
+  // Each time the element's inline style is read, and each computed style, is counted.
+  await f.evaluate(() => {
+    const el = document.querySelector(".orbit"), style = el.style, real = window.getComputedStyle;
+    window.__reads = window.__styles = 0;
+    const get = CSSStyleDeclaration.prototype.getPropertyValue;
+    CSSStyleDeclaration.prototype.getPropertyValue = function (p) {
+      if (this === style) window.__reads++;
+      return get.call(this, p);
+    };
+    window.getComputedStyle = function (...a) {
+      window.__styles++;
+      return real.apply(this, a);
+    };
+  });
+  await act(page, { type: "row", id: orbit.id });
+  v = await view(page, "v.open && v.open.kind === 'frames'");
+  assert.equal(v.open.readOnly, true);
+  assert.deepEqual(v.open.lanes, []);
+  assert.equal(v.open.seen.watching, true);
+  assert.equal(v.rows.find((r) => r.id === orbit.id).on, true);
+  // Watched for a second and as long as it takes: what changes, from where to where, and its round.
+  await f.evaluate(() => (window.__styles = 0));
+  await act(page, { type: "note", text: "slower" });
+  v = await view(page, "v.open && v.open.seen.cycle !== null && !v.open.seen.watching", 11000);
+  assert.equal(await f.evaluate(() => window.__styles), 0, "watching it and typing read no computed style");
+  const seen = Object.fromEntries(v.open.seen.props.map((p) => [p.prop, p.range]));
+  assert.deepEqual(Object.keys(seen).sort(), ["--turn", "transform"]);
+  const m = /^translate3d\((-?[\d.]+)…([\d.]+)px, 3px, 0px\)$/.exec(seen.transform);
+  assert.ok(m && +m[1] < -18 && +m[2] > 18, seen.transform);
+  assert.equal(seen["--turn"], "0…3");
+  assert.ok(v.open.seen.cycle >= 590 && v.open.seen.cycle <= 670, `a round of 628ms was read as ${v.open.seen.cycle}`);
+  assert.ok(v.open.seen.over >= 1000);
+  // It is over: nothing more is read. Asked again, and left in the middle of it: nothing either.
+  const reads = () => f.evaluate(() => window.__reads);
+  let n = await reads();
+  await frames(f, 6);
+  assert.equal(await reads(), n);
+  await act(page, { type: "play" });
+  await view(page, "v.open.seen.watching && v.open.seen.over === 0");
+  await frames(f, 6);
+  assert.ok((await reads()) > n);
+  await act(page, { type: "row", id: rowId(v, "spin") });
+  await view(page, "v.open && v.open.name === 'spin'");
+  assert.equal((await view(page)).open.seen, null);
+  await frames(f, 2);
+  n = await reads();
+  await frames(f, 6);
+  assert.equal(await reads(), n);
+  // Sent: the words, and what was seen. The agent is told what to look for.
+  await act(page, { type: "row", id: orbit.id });
+  await view(page, "v.open && v.open.kind === 'frames' && v.open.seen.cycle !== null", 11000);
+  await act(page, { type: "send", background: false });
+  await page.waitForFunction(() => window.__harness.notes.length === 1);
+  const note = await page.evaluate(() => window.__harness.notes[0]);
+  assert.equal(note.text, "slower");
+  assert.equal(note.motion.kind, "frames");
+  assert.deepEqual(note.motion.seen.map((s) => s.prop).sort(), ["--turn", "transform"]);
+  assert.ok(note.motion.cycle > 0 && note.motion.over >= 1000);
+  assert.match(note.prompt, /a script writes this element's inline style every frame. No CSS rule, keyframes or animation object holds it, so the code to change is in a script/);
+  assert.match(note.prompt, /  transform translate3d\(-[\d.]+…[\d.]+px, 3px, 0px\)/);
+  assert.match(note.prompt, /One round of it takes about \d+ms\./);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

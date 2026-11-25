@@ -8,6 +8,7 @@ import { draw, flash } from "./draw.js";
 import { kick } from "../render.js";
 import { statesOf, styleRules } from "./states.js";
 import { restage } from "./stage.js";
+import { openFrames, watch } from "./frames.js";
 
 // ── opening one ──────────────────────────────────────────────────────────────────────────
 function baseFor(rs, el) {
@@ -218,6 +219,7 @@ export function selectEl(el) {
   if (names.length) openCss(el, names[0].name);
   else if (script) openScript(script);
   else if (M.scan.transitions.includes(el)) openTransition(el);
+  else if (M.suspects.has(el)) openFrames(el);
   else {
     setSel(el);
     show(null);
@@ -273,6 +275,7 @@ export const scrolled = (a) => !!a && !!a.timeline && typeof DocumentTimeline !=
 const backward = (t) => t.direction === "reverse" || t.direction === "alternate-reverse";
 export function play() {
   if (M.open && M.open.kind === "transition") return flip();
+  if (M.open && M.open.kind === "frames") return watch(); // there is nothing to play: it is looked at again
   const a = animOf() || revive();
   if (!a) return;
   a.playbackRate = M.rate;

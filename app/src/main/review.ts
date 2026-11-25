@@ -271,10 +271,11 @@ export function pageEdits(raw: unknown): Edit[] {
 }
 
 // Motion. Names are CSS identifiers; values are one line; keyframes are text the prompt fences.
-const MOTION_KINDS: readonly Motion["kind"][] = ["keyframes", "transition", "script"]
+const MOTION_KINDS: readonly Motion["kind"][] = ["keyframes", "transition", "script", "frames"]
 const MOTION_PROPS: readonly NonNullable<Motion["changes"]>[number]["prop"][] = ["duration", "delay", "easing", "count", "direction", "fill"]
 const MOTION_STARTS: readonly NonNullable<Motion["starts"]>[] = ["load", "view", "hover", "click", "appear", "scroll"]
 const IDENT = /^-?[a-zA-Z_][a-zA-Z0-9_-]{0,63}$/
+const SEEN_PROP = /^-{0,2}[a-zA-Z_][a-zA-Z0-9_-]{0,63}$/
 const MAX_KEYFRAMES = 4000
 const MAX_ANIMATION = 400
 /** A motion note's animation, checked field by field. Undefined when it is not one the prompt can
@@ -286,6 +287,15 @@ export function pageMotion(raw: unknown): Motion | undefined {
   const selector = line(raw.selector, MAX_NAME)
   if (!name || !selector) return
   const out: Motion = { kind, name, selector, label: line(raw.label, MAX_NAME) ?? "" }
+  if (kind === "frames") {
+    const seen = (Array.isArray(raw.seen) ? raw.seen.slice(0, 12) : []).flatMap((s) => {
+      const prop = isObj(s) && typeof s.prop === "string" && SEEN_PROP.test(s.prop) ? s.prop : undefined, range = isObj(s) ? line(s.range, MAX_ANIMATION) : undefined
+      return prop && range ? [{ prop, range }] : []
+    })
+    if (seen.length) out.seen = seen
+    for (const k of ["over", "cycle"] as const) if (index(raw[k]) && raw[k] > 0) out[k] = raw[k]
+    return out
+  }
   if (kind !== "keyframes") {
     const current = line(raw.current, MAX_ANIMATION)
     if (current) out.current = current

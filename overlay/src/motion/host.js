@@ -134,6 +134,7 @@ function openView() {
     }),
     key: ki && { at: ki.at, prop: ki.prop, value: ki.value === null || ki.value === undefined ? null : String(ki.value), ease: ki.ease, dflt: ki.dflt, last: ki.last, props: Object.keys(ki.f.vals).length },
     score: score().map(({ id, text, name, delay, duration, on }) => ({ id, text, name, delay, duration, on })),
+    seen: o.kind === "frames" ? M.ro.seen : null,
     css: cssText(),
     cssError: M.cssWhy,
     dirty: openDirty(),

@@ -8,6 +8,7 @@ import { draftChanged } from "../draft.js";
 import { apply, DIRECTION, FILL, frames, HOW, kfDirty, M, MAX_KF, mq, name, openKf, openUse, parseKf, pathOf, playsDirty, r1, readList, scan, serialize, splitTop, trCss, trDirty, useDirty } from "./model.js";
 import { animOf, applyScript, layout, openCss, openScript, openTransition, seek, syncTransition, useKf } from "./open.js";
 import { draw, drawList, flash } from "./draw.js";
+import { openFrames } from "./frames.js";
 
 // ── undo ─────────────────────────────────────────────────────────────────────────────────
 export const snapshot = () => JSON.stringify({ kf: [...M.kf], use: [...M.use], tr: [...M.tr], sc: M.open && M.open.kind === "script" && M.ro ? M.ro.timing : null, open: M.open && M.open.kind === "css" ? M.open : null });
@@ -252,6 +253,7 @@ export function timing() {
   if (!o) return null;
   if (o.kind === "css") return openUse().timing;
   if (o.kind === "script") return M.ro.timing;
+  if (o.kind === "frames") return { duration: (M.ro.seen && M.ro.seen.cycle) || 0, delay: 0, easing: "linear", count: "1", direction: "normal", fill: "none" };
   // A transition's is its properties': the longest, the earliest, the first's easing.
   const it = M.ro.items;
   return { duration: it.length ? Math.max(...it.map((x) => x.duration)) : 0, delay: it.length ? Math.min(...it.map((x) => x.delay)) : 0, easing: it.length ? it[0].easing : "ease", count: "1", direction: "normal", fill: "none" };
@@ -499,7 +501,7 @@ export function rows() {
     out.push({ kind: "script", anim: a, els: [a.effect.target], path: pathOf(a.effect.target), text: a.id || "animate()", aside: name(a.effect.target, true),
       duration: +a.effect.getTiming().duration || 0, open: () => openScript(a) });
   for (const el of M.suspects)
-    if (el.isConnected) out.push({ kind: "frames", els: [el], path: pathOf(el), text: name(el, true), aside: "per frame", duration: null, open: () => {} });
+    if (el.isConnected) out.push({ kind: "frames", els: [el], path: pathOf(el), text: name(el, true), aside: "per frame", duration: null, open: () => openFrames(el) });
   // Keyframes a rule of the page plays, though no element does now: in a state, on a ::before.
   if (found.idle.length) out.push({ group: "Not playing now" });
   for (const x of found.idle) out.push({ kind: "unused", els: [], path: "", text: x.name, aside: x.on.length > 60 ? `${x.on.slice(0, 59)}…` : x.on, duration: null, open: () => useKf(x.name) });
@@ -539,7 +541,9 @@ export function rowNow(r) {
   else if (r.kind === "script") {
     now.on = !!o && o.kind === "script" && M.held === r.anim;
     now.running = r.anim.playState === "running";
-  } else if (r.kind === "frames") now.off = now.running = true;
-  else if (r.kind === "unused") now.off = !M.sel;
+  } else if (r.kind === "frames") {
+    now.on = !!o && o.kind === "frames" && M.sel === r.els[0];
+    now.running = true;
+  } else if (r.kind === "unused") now.off = !M.sel;
   return now;
 }

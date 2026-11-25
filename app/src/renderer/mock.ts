@@ -1488,7 +1488,7 @@ const MOTION: MotionView = {
     { id: "transition||button.ghost|Book a demo", kind: "transition", text: "Book a demo", aside: "background-color, translate", duration: 180, on: false, sub: false, last: false, off: false, running: false, dirty: false },
     { group: "Scripts" },
     { id: "script||.badge|bob", kind: "script", text: "bob", aside: "New", duration: 1200, on: false, sub: false, last: false, off: false, running: true, dirty: false },
-    { id: "frames||.meter > i|.meter i", kind: "frames", text: ".meter i", aside: "per frame", duration: null, on: false, sub: false, last: false, off: true, running: true, dirty: false },
+    { id: "frames||.meter > i|.meter i", kind: "frames", text: ".meter i", aside: "per frame", duration: null, on: false, sub: false, last: false, off: false, running: true, dirty: false },
     { group: "Unused" },
     { id: "unused|||wiggle", kind: "unused", text: "wiggle", aside: "", duration: null, on: false, sub: false, last: false, off: true, running: false, dirty: false },
   ],
@@ -1521,6 +1521,7 @@ const MOTION: MotionView = {
       { id: "c", text: "Start free trial", name: "pulse", delay: 400, duration: 2400, on: false },
     ],
     cssError: "",
+    seen: null,
     dirty: true,
   },
   names: [],
@@ -1616,6 +1617,11 @@ function motionAct(a: PanelAct, out: (m: PanelMessage) => void): void {
     const lane = act.key && o.lanes.find((l) => l.prop === act.key!.prop)
     const k = act.key && lane?.keys.find((x) => x.at === act.key!.at)
     o.key = act.key && k ? { at: k.at, prop: lane!.prop, value: k.value, ease: "", dflt: o.timing.easing, last: k.at >= 100, props: 1 } : null
+  } else if (act.type === "row" && act.id.startsWith("frames|")) {
+    // (What a script moves frame by frame, opened: what was seen of it.)
+    for (const r of MOTION.rows) if ("id" in r) r.on = r.id === act.id
+    MOTION.sel = "Block · .meter i"
+    Object.assign(o, { kind: "frames", name: "per frame", readOnly: true, timed: false, shared: 1, lanes: [], frames: [], score: [], key: null, css: "", dirty: false, T: 1, starts: null, timing: { duration: 4400, delay: 0, easing: "linear", count: "1", direction: "normal", fill: "none" }, seen: { props: [{ prop: "width", range: "0…100%" }, { prop: "transform", range: "translate3d(0…40px, 3px, 0px)" }], cycle: 4400, over: 9000, watching: false } })
   } else if (act.type !== "resend") return
   out({ panel: "motion", view: structuredClone(MOTION) })
 }

@@ -47,8 +47,8 @@ export const M = {
   kf: new Map(), // name → { name, frames: [{ at, ease, vals: { prop: value } }], orig, isNew }
   tr: new Map(), // an element's transition as changed here: selector → { rs, items: [{ prop, duration, delay, easing }], orig: the page's items, as JSON }
   use: new Map(), // "selector|name" → { rs, name, timing, orig, plays: { how, words }, base, index, isNew, from? }
-  open: null, // what is open: { kind: "css" | "script" | "transition", rs, name }
-  ro: null, // for the two kinds that are only read: { frames, timing?, laneEase?, state?, total?, on?, items? }
+  open: null, // what is open: { kind: "css" | "script" | "transition" | "frames", rs, name }
+  ro: null, // for the kinds that are not rules: { frames, timing?, laneEase?, state?, total?, on?, items?, seen? }
   key: null, // the selected keyframe: { at, prop } (prop null: the whole keyframe)
   lanes: [], // the properties, in the order their lanes were first drawn
   isolate: false, rate: 1, loop: false, loopAt: 0, pos: 0,

@@ -987,7 +987,10 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   with a Play that starts them all again; a script's animation is written out as its animate() call under "Code" (the second tab,
   which was "CSS"), and how it plays may be changed in the animation itself. In the list, elements that change the same way are one
   row named by the rule that says so, drawn shut when it has more than five elements under it, and keyframes a rule plays in a state
-  are "Not playing now", not "Unused". The playhead's flag is its time ("0.38s"),
+  are "Not playing now", not "Unused". An element whose inline style a script writes every frame ("per frame") opens too: in place of a
+  timeline the dock says what was seen of it (`overlay/src/motion/frames.js`: its inline style is watched on the page's frames for a
+  second, and up to ten until it is seen to come round; only while it is open, and no computed style is read), and the note that goes
+  with it carries that, as nothing in the page holds how it moves. The playhead's flag is its time ("0.38s"),
   with no second number beside Play. A list that is not the whole page's (the overlay looked at a part of a very
   large page: `partial`) says so in a line under it. A field that comes with a view (a new animation's name, a new lane's or
   keyframe's value) gets the caret once the view has drawn it. Typing, a keyframe dragged and the

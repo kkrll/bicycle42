@@ -9,6 +9,7 @@ import { anyDirty, apply, entryCss, kfDirty, M, MAX_KF, mq, ms, openDirty, openK
 import { letGo, openCss, openTransition, setSel, show } from "./open.js";
 import { sharedBy, snapshot, timing } from "./edit.js";
 import { draw, drawFoot, flash } from "./draw.js";
+import { seenNow } from "./frames.js";
 
 // ── sending ──────────────────────────────────────────────────────────────────────────────
 /** How a script's animation plays, in one line. */
@@ -17,6 +18,11 @@ const said = (t) => `animate(): ${ms(t.duration)} ${t.easing}${t.delay ? ` ${ms(
 function payload() {
   const o = M.open, el = mq(o.rs);
   const who = { selector: editSel(el), label: plainLabel(el) };
+  if (o.kind === "frames") {
+    // Nothing of the page says how it moves: what was seen of it does.
+    const { props = [], cycle = null, over = 0 } = seenNow() || {};
+    return { kind: "frames", name: "inline-style", ...who, seen: props, over, ...(cycle ? { cycle } : {}) };
+  }
   if (o.kind !== "css") {
     const t = timing();
     const current = o.kind === "transition"
