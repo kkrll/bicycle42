@@ -5,8 +5,8 @@ import { S } from "../state.js";
 import { adopt, BOOST, describe, editSel, plainLabel, vp } from "../page.js";
 import { draftChanged } from "../draft.js";
 import { dispatch } from "../sent.js";
-import { anyDirty, apply, entryCss, kfDirty, M, MAX_KF, mq, ms, openDirty, openKf, openUse, playsDirty, readList, scan, serialize, useDirty } from "./model.js";
-import { letGo, openCss, setSel, show } from "./open.js";
+import { anyDirty, apply, entryCss, kfDirty, M, MAX_KF, mq, ms, openDirty, openKf, openUse, playsDirty, readList, scan, serialize, trCss, trDirty, useDirty } from "./model.js";
+import { letGo, openCss, openTransition, setSel, show } from "./open.js";
 import { sharedBy, snapshot, timing } from "./edit.js";
 import { draw, drawFoot, flash } from "./draw.js";
 
@@ -18,9 +18,16 @@ function payload() {
   if (o.kind !== "css") {
     const t = timing();
     const current = o.kind === "transition"
-      ? `transition: ${M.ro.items.map((x) => `${x.prop} ${ms(x.duration)} ${x.easing}${x.delay ? ` ${ms(x.delay)}` : ""}`).join(", ")}${M.ro.state ? ` (on ${M.ro.state.pseudo})` : ""}`
+      ? `transition: ${trCss(JSON.parse(M.ro.orig))}`
       : `animate(): ${ms(t.duration)} ${t.easing}${t.delay ? ` ${ms(t.delay)}` : ""}${t.count !== "1" ? `, ${t.count === "infinite" ? "forever" : `${t.count} times`}` : ""}${t.direction !== "normal" ? `, ${t.direction}` : ""}`;
-    return { kind: o.kind, name: o.kind === "transition" ? "transition" : o.name.slice(0, 64), ...who, current: current.slice(0, 400) };
+    const out = /** @type {any} */ ({ kind: o.kind, name: o.kind === "transition" ? "transition" : o.name.slice(0, 64), ...who, current: current.slice(0, 400) });
+    if (o.kind === "transition") {
+      const mine = M.tr.get(o.rs), st = M.ro.state, v = M.ro.vals;
+      if (trDirty(mine)) out.next = `transition: ${trCss(mine.items)}`.slice(0, 400);
+      // What switches it, and what changes then: the agent finds the rule by it.
+      if (st && v) out.state = `${st.label}: ${Object.keys(v.from).filter((p) => v.from[p] !== v.to[p]).map((p) => `${p} ${v.from[p]} → ${v.to[p]}`).join("; ")}`.replace(/\s+/g, " ").slice(0, 400);
+    }
+    return out;
   }
   const u = openUse(), k = openKf();
   const out = /** @type {any} */ ({ kind: "keyframes", name: k.name, ...who, shared: sharedBy() });
@@ -62,6 +69,7 @@ export function submit(background) {
   // is no longer unsent.
   M.unsent = { id: note.id, snap: M.snap, past: M.past, future: M.future, words: M.note, open: o, sel: M.sel };
   if (o.kind === "css") moveToSent(note.id);
+  else if (o.kind === "transition" && trDirty(M.tr.get(o.rs))) moveTransitionToSent(note.id, el);
   M.note = ""; // the line under the timeline says it was sent
   S.quiet = note.id; // no "Sent" chip over the page: the dock's line says it
   S.sel = [el]; // its outline, in the screenshot
@@ -109,6 +117,22 @@ function moveToSent(id) {
   else show(null);
   draftChanged();
 }
+/** A changed transition's rule goes into a sheet of its own, as a changed animation's does. */
+function moveTransitionToSent(id, el) {
+  const t = M.tr.get(M.open.rs), sheet = new CSSStyleSheet();
+  try {
+    sheet.replaceSync(`${t.rs}${BOOST} { transition: ${trCss(t.items)}; }`);
+  } catch {}
+  adopt(sheet, true);
+  M.sent.push({ id, sheet, seen: false, n: null, undo: [] });
+  M.tr.delete(t.rs);
+  M.past = [];
+  M.future = [];
+  apply();
+  M.snap = snapshot();
+  openTransition(el); // as the page has it now
+  draftChanged();
+}
 /** The host did not take the note: the animation is unsent again, with its undo steps and words.
  *  Another note's id (an older one, or a canvas note) changes nothing here. */
 export function refuse(id, say) {
@@ -120,6 +144,7 @@ export function refuse(id, say) {
   const s = JSON.parse(u.snap);
   M.kf = new Map(s.kf);
   M.use = new Map(s.use);
+  M.tr = new Map(s.tr || []);
   M.snap = u.snap;
   M.past = u.past;
   M.future = u.future;
@@ -130,6 +155,7 @@ export function refuse(id, say) {
   M.open = u.open;
   M.held = null;
   setSel(u.sel && u.sel.isConnected ? u.sel : mq(u.open.rs));
+  if (u.open.kind === "transition" && M.sel) openTransition(M.sel); // with what was changed, which is unsent again
   draw();
   draftChanged();
   flash(say);
@@ -176,7 +202,8 @@ export function dropFinished() {
     if (o && o.kind === "css" && el && !M.use.has(`${o.rs}|${o.name}`) && readList(el).some((e) => e.name === o.name)) {
       M.kf.delete(o.name);
       openCss(el, o.name);
-    } else draw();
+    } else if (o && o.kind === "transition" && el && !M.tr.has(o.rs)) openTransition(el);
+    else draw();
   }
 }
 
@@ -185,9 +212,10 @@ export function dropFinished() {
 export function draft() {
   const kf = [...M.kf].filter(([, k]) => kfDirty(k));
   const use = [...M.use].filter(([, u]) => useDirty(u) || playsDirty(u));
+  const tr = [...M.tr].filter(([, t]) => trDirty(t));
   const words = M.note;
-  if (!kf.length && !use.length && !words) return null;
-  return { kf, use, ...(words ? { note: words } : {}) };
+  if (!kf.length && !use.length && !tr.length && !words) return null;
+  return { kf, use, ...(tr.length ? { tr } : {}), ...(words ? { note: words } : {}) };
 }
 export function restore(d) {
   if (!d || typeof d !== "object" || anyDirty()) return;
@@ -196,6 +224,7 @@ export function restore(d) {
     const use = (Array.isArray(d.use) ? d.use : []).filter((e) => Array.isArray(e) && typeof e[0] === "string" && e[1] && e[1].timing && Array.isArray(e[1].base));
     M.kf = new Map(kf);
     M.use = new Map(use);
+    M.tr = new Map((Array.isArray(d.tr) ? d.tr : []).filter((e) => Array.isArray(e) && typeof e[0] === "string" && e[1] && Array.isArray(e[1].items) && typeof e[1].orig === "string"));
     if (typeof d.note === "string" && !M.note) M.note = d.note;
     M.snap = snapshot();
     apply();

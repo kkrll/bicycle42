@@ -34,7 +34,7 @@ import { draftChanged } from "../draft.js";
 import { setMode } from "../mode.js";
 import { kick } from "../render.js";
 import { apply, clamp, COUNT, DIRECTION, EASINGS, FILL, frames, HOW, M, name, openDirty, openKf, openUse, pathOf, PROPS, r1, RATE_TEXT, RATES, readOnly } from "./model.js";
-import { animOf, knownNames, newAnimation, position, reveal, running, seek, selectEl, toggle, useKf, waiting } from "./open.js";
+import { animOf, knownNames, newAnimation, position, reveal, running, seek, selectEl, setState, toggle, useKf, waiting } from "./open.js";
 import { addKey, addLane, commit, cssText, detach, discard, keyInfo, laneOrder, moveKey, removeKey, removeLane, rowNow, rows, segEase, setCss, setKey, setName, setTiming, sharedBy, timing, travel } from "./edit.js";
 import { submit } from "./send.js";
 import { draw, flash, sentStatus } from "./draw.js";
@@ -108,11 +108,14 @@ function openView() {
   const o = M.open;
   if (!o) return null;
   const t = timing(), k = openKf(), u = openUse(), fr = frames(), ki = keyInfo(), unsaid = k ? implied() : {};
-  const T = Math.max(1, +t.duration || 0);
+  const T = o.kind === "transition" ? M.ro.total : Math.max(1, +t.duration || 0);
   return {
     kind: o.kind,
     name: o.kind === "transition" ? "transition" : o.name,
     readOnly: readOnly(),
+    timed: o.kind !== "script",
+    states: o.kind === "transition" ? M.ro.states.map((s) => s.label) : [],
+    state: o.kind === "transition" && M.ro.state ? M.ro.state.label : null,
     renamable: !!(k && k.isNew),
     removable: !!(u && u.isNew),
     shared: sharedBy(),
@@ -256,6 +259,11 @@ const ACTS = {
     if (!M.isolate || !M.sel || (a.value !== "light" && a.value !== "dark")) return;
     M.stageBg = a.value;
     restage();
+    draw();
+  },
+  state(a) {
+    if (!M.open || M.open.kind !== "transition") return;
+    setState(str(a.value));
     draw();
   },
   go: (a) => go(+a.by < 0 ? -1 : 1),

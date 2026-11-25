@@ -45,6 +45,7 @@ export const M = {
   on: false,
   sel: null, selRs: "", hover: null,
   kf: new Map(), // name → { name, frames: [{ at, ease, vals: { prop: value } }], orig, isNew }
+  tr: new Map(), // an element's transition as changed here: selector → { rs, items: [{ prop, duration, delay, easing }], orig: the page's items, as JSON }
   use: new Map(), // "selector|name" → { rs, name, timing, orig, plays: { how, words }, base, index, isNew, from? }
   open: null, // what is open: { kind: "css" | "script" | "transition", rs, name }
   ro: null, // for the two kinds that are only read: { frames, timing?, laneEase?, state?, total?, on?, items? }
@@ -211,15 +212,18 @@ export function readList(el) {
 }
 export const kfDirty = (k) => !!k && (k.isNew || serialize(k.name, k.frames) !== k.orig);
 export const useDirty = (u) => !!u && (u.isNew || !!u.from || JSON.stringify(u.timing) !== JSON.stringify(u.orig));
+export const trDirty = (t) => !!t && JSON.stringify(t.items) !== t.orig;
+export const trCss = (items) => items.map((x) => `${x.prop} ${ms(x.duration)} ${x.easing}${x.delay ? ` ${ms(x.delay)}` : ""}`).join(", ");
 export const playsDirty = (u) => !!u && (u.plays.how !== "asnow" || !!u.plays.words.trim());
 export const openKf = () => (M.open && M.open.kind === "css" ? M.kf.get(M.open.name) : null);
 export const openUse = () => (M.open && M.open.kind === "css" ? M.use.get(`${M.open.rs}|${M.open.name}`) : null);
 export const frames = () => (openKf() ? openKf().frames : M.ro ? M.ro.frames : []);
 export const readOnly = () => !!M.open && M.open.kind !== "css";
 /** Anything unsent: an edit, or how it starts. */
-export const anyDirty = () => [...M.kf.values()].some(kfDirty) || [...M.use.values()].some((u) => useDirty(u) || playsDirty(u));
+export const anyDirty = () => [...M.kf.values()].some(kfDirty) || [...M.use.values()].some((u) => useDirty(u) || playsDirty(u)) || [...M.tr.values()].some(trDirty);
 /** The open animation has something to send. */
 export const openDirty = () => {
+  if (M.open && M.open.kind === "transition") return trDirty(M.tr.get(M.open.rs));
   const u = openUse();
   return !!u && (useDirty(u) || playsDirty(u) || kfDirty(openKf()));
 };
@@ -240,6 +244,7 @@ function rulesText() {
     for (const u of list) entries[u.index] = { name: u.name, ...u.timing };
     out.push(`${rs}${BOOST} { animation: ${entries.filter(Boolean).map(entryCss).join(", ")}; }`);
   }
+  for (const t of M.tr.values()) if (trDirty(t)) out.push(`${t.rs}${BOOST} { transition: ${trCss(t.items)}; }`);
   if (M.on && M.ro && M.ro.on && M.ro.state) out.push(`${M.open.rs}${BOOST} { ${M.ro.state.css} }`);
   if (M.on && M.isolate && M.selRs) out.push(`body *:not(${M.selRs}, ${M.selRs} *) { visibility: hidden !important; }`, `${M.selRs} { visibility: visible !important; }`, M.stageCss);
   return out.join("\n");

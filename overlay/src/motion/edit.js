@@ -4,12 +4,12 @@
 import { editSel } from "../page.js";
 import { treeVersion } from "../mount.js";
 import { draftChanged } from "../draft.js";
-import { apply, DIRECTION, FILL, frames, HOW, kfDirty, M, MAX_KF, mq, ms, name, openKf, openUse, parseKf, pathOf, playsDirty, r1, readList, scan, serialize, splitTop, useDirty } from "./model.js";
-import { animOf, openCss, openScript, openTransition, seek, useKf } from "./open.js";
+import { apply, DIRECTION, FILL, frames, HOW, kfDirty, M, MAX_KF, mq, name, openKf, openUse, parseKf, pathOf, playsDirty, r1, readList, scan, serialize, splitTop, trCss, trDirty, useDirty } from "./model.js";
+import { animOf, layout, openCss, openScript, openTransition, seek, syncTransition, useKf } from "./open.js";
 import { draw, drawList, flash } from "./draw.js";
 
 // ── undo ─────────────────────────────────────────────────────────────────────────────────
-export const snapshot = () => JSON.stringify({ kf: [...M.kf], use: [...M.use], open: M.open && M.open.kind === "css" ? M.open : null });
+export const snapshot = () => JSON.stringify({ kf: [...M.kf], use: [...M.use], tr: [...M.tr], open: M.open && M.open.kind === "css" ? M.open : null });
 export function commit() {
   const now = snapshot();
   if (now !== M.snap) {
@@ -30,6 +30,8 @@ export function travel(from, to) {
   const s = JSON.parse(M.snap);
   M.kf = new Map(s.kf);
   M.use = new Map(s.use);
+  M.tr = new Map(s.tr || []);
+  syncTransition();
   const keep = M.open && M.open.kind !== "css" ? M.open : s.open;
   M.open = keep && (keep.kind !== "css" || M.use.has(`${keep.rs}|${keep.name}`)) ? keep : null;
   M.key = null;
@@ -40,6 +42,11 @@ export function travel(from, to) {
 }
 /** The open animation as the page has it (or as it was last sent): its edits go. */
 export function discard() {
+  if (M.open && M.open.kind === "transition") {
+    M.tr.delete(M.open.rs);
+    syncTransition();
+    return commit();
+  }
   let u = openUse(), k = openKf();
   if (!u) return;
   if (u.from) {
@@ -235,10 +242,13 @@ export function timing() {
   if (!o) return null;
   if (o.kind === "css") return openUse().timing;
   if (o.kind === "script") return M.ro.timing;
-  return { duration: M.ro.total, delay: 0, easing: M.ro.items.length ? M.ro.items[0].easing : "ease", count: "1", direction: "normal", fill: "none" };
+  // A transition's is its properties': the longest, the earliest, the first's easing.
+  const it = M.ro.items;
+  return { duration: it.length ? Math.max(...it.map((x) => x.duration)) : 0, delay: it.length ? Math.min(...it.map((x) => x.delay)) : 0, easing: it.length ? it[0].easing : "ease", count: "1", direction: "normal", fill: "none" };
 }
 /** One field of the timing, or of what starts it ("how"). False when the value is not one. */
 export function setTiming(what, v, done) {
+  if (M.open && M.open.kind === "transition") return setTransition(what, v, done);
   const u = openUse();
   if (!u) return false;
   if (what === "how") {
@@ -264,12 +274,32 @@ export function setTiming(what, v, done) {
   return true;
 }
 
+/** A transition's duration, delay or easing: of all its properties at once (one that differs
+ *  from the others is said in the note). */
+function setTransition(what, v, done) {
+  const ro = M.ro, rs = M.open.rs;
+  let val = /** @type {any} */ (String(v).trim()), ok;
+  if (what === "duration" || what === "delay") {
+    ok = val !== "" && Number.isFinite(Number(val)) && Math.abs(Number(val)) <= 600000 && (what === "delay" || Number(val) >= 0);
+    val = Number(val);
+  } else ok = what === "easing" && CSS.supports("transition-timing-function", val);
+  if (!ok || !ro) return false;
+  const mine = M.tr.get(rs) || M.tr.set(rs, { rs, items: JSON.parse(JSON.stringify(ro.items)), orig: ro.orig }).get(rs);
+  for (const x of mine.items) x[what] = val;
+  ro.items = mine.items;
+  if (!trDirty(mine)) M.tr.delete(rs);
+  layout();
+  apply();
+  if (done) commit();
+  return true;
+}
+
 // ── the text ─────────────────────────────────────────────────────────────────────────────
 export function cssText() {
   const k = openKf();
   if (k) return serialize(k.name, k.frames);
   if (M.ro && M.open.kind === "script") return serialize(M.open.name, M.ro.frames);
-  if (M.ro && M.open.kind === "transition") return `${editSel(M.sel)} {\n  transition: ${M.ro.items.map((x) => `${x.prop} ${ms(x.duration)} ${x.easing}${x.delay ? ` ${ms(x.delay)}` : ""}`).join(",\n    ")};\n}`;
+  if (M.ro && M.open.kind === "transition") return `${editSel(M.sel)} {\n  transition: ${trCss(M.ro.items).replace(/, /g, ",\n    ")};\n}`;
   return "";
 }
 export function setCss(text) {
@@ -432,7 +462,12 @@ export function rowNow(r) {
     now.on = mine && (r.sub ? o.rs === r.path : r.els.length === 1);
     now.dirty = r.sub ? own : kfDirty(M.kf.get(r.name)) || own;
     if (u) now.duration = u.timing.duration;
-  } else if (r.kind === "transition") now.on = !!o && o.kind === "transition" && !!r.path && o.rs === r.path;
+  } else if (r.kind === "transition") {
+    now.on = !!o && o.kind === "transition" && !!r.path && o.rs === r.path;
+    const t = r.path ? M.tr.get(r.path) : null;
+    now.dirty = r.path ? trDirty(t) : r.els.some((el) => trDirty(M.tr.get(pathOf(el))));
+    if (t && trDirty(t)) now.duration = Math.max(...t.items.map((x) => x.duration));
+  }
   else if (r.kind === "script") {
     now.on = !!o && o.kind === "script" && M.held === r.anim;
     now.running = r.anim.playState === "running";

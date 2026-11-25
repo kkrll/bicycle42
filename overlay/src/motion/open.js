@@ -6,6 +6,7 @@ import { apply, clamp, fromApi, M, mq, parseKf, pathOf, r1, readList, scan, seri
 import { commit, nameProblem, snapshot } from "./edit.js";
 import { draw, flash } from "./draw.js";
 import { kick } from "../render.js";
+import { statesOf, styleRules } from "./states.js";
 import { restage } from "./stage.js";
 
 // ── opening one ──────────────────────────────────────────────────────────────────────────
@@ -104,37 +105,37 @@ export function openScript(a) {
   M.held = a;
 }
 /** A transition has no keyframes: two values per property and the state that switches them,
- *  found in the page's own rules (`.primary:hover`). Playing it applies that rule. */
+ *  found in the page's own rules (states.js). Playing it applies that state's declarations. How
+ *  long, how late and how eased is the element's own, and may be changed (M.tr). */
 export function openTransition(el) {
   const rs = pathOf(el), cs = getComputedStyle(el);
   setSel(el);
   const col = (p) => splitTop(cs.getPropertyValue(p));
   const props = col("transition-property"), dur = col("transition-duration"), del = col("transition-delay"), ease = col("transition-timing-function");
   const at = (list, i) => list[i % list.length];
-  let state = /** @type {any} */ (null);
-  const walk = (list) => {
-    for (const r of list) {
-      if (r.cssRules && r.cssRules.length && !r.selectorText) walk(r.cssRules);
-      if (!r.selectorText) continue;
-      for (const s of splitTop(r.selectorText)) {
-        const m = /:(hover|focus-visible|focus-within|focus|active)\b/.exec(s);
-        if (!m) continue;
-        try {
-          if (el.matches(s.replace(m[0], ""))) state = { pseudo: m[0], css: r.style.cssText, props: [...r.style] };
-        } catch {}
-      }
-    }
-  };
-  for (const s of document.styleSheets) {
-    try {
-      walk(s.cssRules);
-    } catch {}
+  // (Changed here and not sent: what was changed is what it is, and the page's is kept beside it.)
+  const mine = M.tr.get(rs);
+  const page = props.map((p, i) => ({ prop: p, duration: Math.round(parseFloat(at(dur, i)) * 1000) || 0, delay: Math.round(parseFloat(at(del, i)) * 1000) || 0, easing: at(ease, i) })).filter((x) => x.duration > 0);
+  const items = mine ? mine.items : page;
+  const moves = (p) => items.some((x) => x.prop === "all" || x.prop === p || p.startsWith(`${x.prop}-`));
+  const states = statesOf(el, moves, styleRules());
+  M.ro = { items, orig: mine ? mine.orig : JSON.stringify(page), states, state: null, vals: null, frames: [], laneEase: {}, total: 1, on: false };
+  setState((states.find((s) => s.label === "hover") || states[0] || { label: "" }).label, el);
+  show({ kind: "transition", rs, name: "transition" });
+}
+/** The state the open transition is looked at in: both ends of each property are read, now and
+ *  with the state's declarations applied at once. */
+export function setState(label, el = openEl()) {
+  const ro = M.ro;
+  if (!ro || !ro.states || !el) return;
+  const rs = pathOf(el), state = ro.states.find((s) => s.label === label) || null;
+  if (ro.on) {
+    ro.on = false;
+    apply();
   }
-  let items = props.map((p, i) => ({ prop: p, duration: parseFloat(at(dur, i)) * 1000, delay: parseFloat(at(del, i)) * 1000, easing: at(ease, i) })).filter((x) => x.duration > 0);
-  if (state) items = items.flatMap((x) => (x.prop === "all" ? state.props.map((p) => ({ ...x, prop: p })) : [x]));
-  const total = Math.max(1, ...items.map((x) => x.delay + x.duration));
-  // Both ends of each property: read now, and with the state's declarations applied at once.
-  const read = () => Object.fromEntries(items.map((x) => [x.prop, getComputedStyle(el).getPropertyValue(x.prop)]));
+  ro.state = state;
+  const list = laid();
+  const read = () => Object.fromEntries(list.map((x) => [x.prop, getComputedStyle(el).getPropertyValue(x.prop)]));
   const from = read();
   let to = from;
   if (state) {
@@ -143,19 +144,47 @@ export function openTransition(el) {
       probe.replaceSync(`${rs}${BOOST}${BOOST} { ${state.css}; transition: none !important; }`);
       adopt(probe, true);
       to = read();
+      // Back as it was with the transition still off, and only then is it allowed again: taken
+      // away in one go, the element would run its transition back from the state it never was in.
+      probe.replaceSync(`${rs}${BOOST}${BOOST} { transition: none !important; }`);
+      getComputedStyle(el).opacity;
     } catch {}
     adopt(probe, false);
-    getComputedStyle(el).opacity; // settled before the transition is allowed again
+    getComputedStyle(el).opacity;
   }
+  ro.vals = { from, to };
+  layout();
+}
+/** The properties the open transition has a lane for: `all` is those its state sets. */
+function laid() {
+  const ro = M.ro;
+  const set = ro.state ? ro.state.props.filter((p) => !p.startsWith("--")) : [];
+  return ro.state ? ro.items.flatMap((x) => (x.prop === "all" ? set.map((p) => ({ ...x, prop: p })) : [x])) : ro.items;
+}
+/** The open transition's lanes, from how long and how late each property is. */
+export function layout() {
+  const ro = M.ro;
+  if (!ro || !ro.vals) return;
+  const list = laid(), { from, to } = ro.vals;
+  const total = Math.max(1, ...list.map((x) => x.delay + x.duration));
   const fr = new Map(), laneEase = {};
   const put = (o, p, v) => ((fr.get(o) || fr.set(o, { at: o, ease: "", vals: {} }).get(o)).vals[p] = v);
-  for (const x of items) {
-    put(r1((x.delay / total) * 100), x.prop, from[x.prop]);
-    put(r1(((x.delay + x.duration) / total) * 100), x.prop, to[x.prop]);
+  for (const x of list) {
+    put(r1(clamp(x.delay / total, 0, 1) * 100), x.prop, from[x.prop] ?? "");
+    put(r1(clamp((x.delay + x.duration) / total, 0, 1) * 100), x.prop, to[x.prop] ?? "");
     laneEase[x.prop] = x.easing;
   }
-  M.ro = { frames: [...fr.values()].sort((a, b) => a.at - b.at), laneEase, state, total, on: false, items };
-  show({ kind: "transition", rs, name: "transition" });
+  ro.frames = [...fr.values()].sort((a, b) => a.at - b.at);
+  ro.laneEase = laneEase;
+  ro.total = total;
+}
+/** After undo or redo: the open transition is what M.tr says now, or the page's again. */
+export function syncTransition() {
+  const o = M.open, ro = M.ro;
+  if (!o || o.kind !== "transition" || !ro) return;
+  const mine = M.tr.get(o.rs);
+  ro.items = mine ? mine.items : JSON.parse(ro.orig);
+  layout();
 }
 export function setSel(el) {
   M.sel = el;

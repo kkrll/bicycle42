@@ -932,6 +932,7 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
       </div>
       <button
         type="button"
+        hidden={props.open.kind !== "css"}
         class="icon-btn mdock-more-btn"
         ref={more}
         title="More: repeat, direction, fill, what starts it"
@@ -994,7 +995,7 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
             attr="tduration"
             label="Duration"
             value={String(t().duration)}
-            disabled={ro()}
+            disabled={!props.open.timed}
             inputmode="numeric"
             ok={numberOk(0)}
             onInput={(x) => send({ type: "timing", what: "duration", value: x, done: false })}
@@ -1009,7 +1010,7 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
             attr="tdelay"
             label="Delay"
             value={String(t().delay)}
-            disabled={ro()}
+            disabled={!props.open.timed}
             inputmode="numeric"
             ok={numberOk(-600000)}
             onInput={(x) => send({ type: "timing", what: "delay", value: x, done: false })}
@@ -1024,7 +1025,7 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
             attr="teasing"
             label="Easing"
             value={t().easing}
-            disabled={ro()}
+            disabled={!props.open.timed}
             ok={easingOk}
             list={() => props.view.choices.easings}
             curves
@@ -1197,6 +1198,28 @@ function Timeline(props: {
             </Show>
           </div>
           <div class="mdock-trk mdock-gnote">
+            <Show when={tr()}>
+              <Show when={props.open.states.length} fallback={<span class="mdock-shared" title="No rule of the page’s CSS says what changes this element: a script does it. Do it on the page to see it, and say in the note what it should do.">No state found in the CSS</span>}>
+                <span class="mdock-shared">On</span>
+                <div class="mdock-chips mdock-states" role="radiogroup" aria-label="The state it is looked at in">
+                  <For each={props.open.states}>
+                    {(s) => (
+                      <button
+                        type="button"
+                        role="radio"
+                        class="mdock-chip mono"
+                        aria-checked={s === props.open.state}
+                        aria-pressed={s === props.open.state}
+                        title={`What ${s} changes: press Play to switch it on and off`}
+                        onClick={() => send({ type: "state", value: s })}
+                      >
+                        {s}
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </Show>
             <Show when={props.open.shared > 1}>
               <span
                 class="mdock-shared"
@@ -1276,17 +1299,20 @@ function Timeline(props: {
                     }}
                   </For>
                   <For each={lane.keys}>
-                    {(k) =>
-                      k.implied ? (
+                    {(k) => (
+                      // (A view is put into the one object the last was: a key may become implied
+                      // where it is, so which of the two is drawn is asked each time.)
+                      <Show
+                        when={k.implied}
+                        fallback={<i class="mdock-key gr" classList={{ on: on(k.at, lane.prop) }} style={{ "--at": k.at / 100 }} data-at={k.at} data-prop={lane.prop} title={k.value} />}
+                      >
                         <i
                           class="mdock-ghost"
                           style={{ "--at": k.at / 100 }}
                           title={`${k.value}: the element’s own value. The keyframes do not say where ${lane.prop} ${k.at ? "ends" : "starts"}; press twice here to make it a keyframe`}
                         />
-                      ) : (
-                        <i class="mdock-key gr" classList={{ on: on(k.at, lane.prop) }} style={{ "--at": k.at / 100 }} data-at={k.at} data-prop={lane.prop} title={k.value} />
-                      )
-                    }
+                      </Show>
+                    )}
                   </For>
                 </div>
               </div>

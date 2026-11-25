@@ -63,8 +63,16 @@ export type MotionOpen = {
   kind: "css" | "script" | "transition"
   /** The keyframes' name (a script's animation id; "transition"). */
   name: string
-  /** A script's animation or a transition: looked at, talked about, not edited. */
+  /** A script's animation or a transition: its keyframes are looked at, not edited. */
   readOnly: boolean
+  /** Its duration, delay and easing may be changed (a transition's too: of all its properties
+   *  at once). */
+  timed: boolean
+  /** A transition: the states the page's CSS says change it ("hover", "active", ".open",
+   *  "[data-open]", "hover on a parent"), and the one it is looked at in; none when no rule says
+   *  what changes it. */
+  states: string[]
+  state: string | null
   /** Keyframes made here: their name may be changed (the page's own keep theirs, the code uses it). */
   renamable: boolean
   /** A new animation on the element: "Remove" takes it off again. */
@@ -166,6 +174,8 @@ export type MotionAct =
   /** Behind the isolated element, a light backdrop or a dark one in place of the page's own
    *  (until it is no longer isolated). */
   | { type: "backdrop"; value: "light" | "dark" }
+  /** A transition looked at in another of its `states`. */
+  | { type: "state"; value: string }
   /** The next thing that moves (1) or the one before (-1), opened; round at the ends. */
   | { type: "go"; by: 1 | -1 }
   | { type: "undo" }

@@ -203,6 +203,16 @@
   font-weight: 600;
 }
 
+.mdock .mdock-more-btn[hidden] {
+  display: none;
+}
+
+.mdock-states {
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .mdock-row[hidden] {
   display: none;
 }

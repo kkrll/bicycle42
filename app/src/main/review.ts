@@ -289,6 +289,11 @@ export function pageMotion(raw: unknown): Motion | undefined {
   if (kind !== "keyframes") {
     const current = line(raw.current, MAX_ANIMATION)
     if (current) out.current = current
+    if (kind === "transition") {
+      const next = line(raw.next, MAX_ANIMATION), state = line(raw.state, MAX_ANIMATION)
+      if (next) out.next = next
+      if (state) out.state = state
+    }
     return out
   }
   if (index(raw.shared) && raw.shared >= 1) out.shared = raw.shared

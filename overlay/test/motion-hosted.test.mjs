@@ -666,3 +666,60 @@ test("hosted: elements that change the same way are one row of the list, named b
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("hosted: a transition's states are found in the page's rules (a class a script adds, hover, a rule inside another), and its timing is changed, sent and undone", async () => {
+  const { page, f, errors, v } = await open({ before: `
+    const s = document.createElement("style");
+    s.textContent = ".hero { transition: opacity 300ms ease 50ms, translate 300ms ease 50ms; } .hero.away { opacity: 0.2; translate: 0 40px; }"
+      + " .cta { transition: scale 200ms linear; &:hover { @media (min-width: 1px) { scale: 1.1; } } &:active { scale: 0.9; } }";
+    document.head.appendChild(s);
+  ` });
+  // a class the page's script would add: both ends are read, though nothing switches it here
+  await act(page, { type: "row", id: v.rows.find((r) => r.kind === "transition" && r.aside === "opacity, translate").id });
+  let o = (await view(page, "v.open && v.open.kind === 'transition'")).open;
+  assert.deepEqual(o.states, [".away"]);
+  assert.equal(o.state, ".away");
+  assert.equal(o.readOnly, true);
+  assert.equal(o.timed, true);
+  assert.deepEqual(o.timing, { duration: 300, delay: 50, easing: "ease", count: "1", direction: "normal", fill: "none" });
+  assert.equal(o.T, 350);
+  const op = o.lanes.find((l) => l.prop === "opacity");
+  assert.deepEqual(op.keys.map((k) => k.value), ["1", "0.2"]);
+  // Play switches the state on: the page goes there
+  await act(page, { type: "play" });
+  await f.waitForFunction(() => +getComputedStyle(document.querySelector(".hero")).opacity < 0.25);
+  await act(page, { type: "play" });
+  // slower, for every property: the page's rule is written over, the row says it is changed, undo takes it back
+  await act(page, { type: "timing", what: "duration", value: "900", done: true });
+  let w = await view(page, "v.open.timing.duration === 900 && v.open.dirty");
+  assert.equal(w.open.T, 950);
+  assert.equal(w.undo, true);
+  assert.match(await adopted(f), /transition: opacity 900ms( ease)? 50ms, translate 900ms( ease)? 50ms/);
+  assert.match(w.open.css, /opacity 900ms ease 50ms/);
+  await act(page, { type: "undo" });
+  w = await view(page, "v.open.timing.duration === 300 && !v.open.dirty");
+  assert.doesNotMatch(await adopted(f), /transition:/);
+  await act(page, { type: "redo" });
+  await view(page, "v.open.timing.duration === 900");
+  // sent: the note says what it was, what it is, and what switches it; the rule stays as a preview
+  await act(page, { type: "send", background: false });
+  await page.waitForFunction(() => window.__harness.notes.length === 1);
+  const note = await page.evaluate(() => window.__harness.notes[0]);
+  assert.equal(note.motion.kind, "transition");
+  assert.match(note.prompt, /Transition edit on .*Make it real in the code[\s\S]*transition: opacity 900ms ease 50ms, translate 900ms ease 50ms;[\s\S]*It was: transition: opacity 300ms/);
+  assert.equal(note.motion.current, "transition: opacity 300ms ease 50ms, translate 300ms ease 50ms");
+  assert.equal(note.motion.next, "transition: opacity 900ms ease 50ms, translate 900ms ease 50ms");
+  assert.match(note.motion.state, /^\.away: opacity 1 → 0\.2; translate /);
+  w = await view(page, "v.open && !v.open.dirty && v.open.timing.duration === 900");
+  assert.match(await adopted(f), /transition: opacity 900ms/);
+  // hover and active, each in a rule written inside the element's own: two states, hover first
+  await act(page, { type: "row", id: v.rows.find((r) => r.kind === "transition" && r.aside === "scale").id });
+  o = (await view(page, "v.open && v.open.states.length === 2")).open;
+  assert.deepEqual(o.states, ["hover", "active"]);
+  assert.deepEqual(o.lanes.find((l) => l.prop === "scale").keys.map((k) => k.value), ["none", "1.1"]);
+  await act(page, { type: "state", value: "active" });
+  o = (await view(page, "v.open.state === 'active'")).open;
+  assert.deepEqual(o.lanes.find((l) => l.prop === "scale").keys.map((k) => k.value), ["none", "0.9"]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
