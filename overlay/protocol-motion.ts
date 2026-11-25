@@ -55,15 +55,17 @@ export type MotionLane = { prop: string; keys: Array<{ at: number; value: string
 
 /** The selected keyframe: one property's (`prop`), or the whole keyframe (`prop` null, then
  *  `value` is null and `props` says how many properties it sets). `ease` is its own easing, ""
- *  for the animation's (`dflt`); the last keyframe has none (`last`). `at` in % of the keyframes. */
-export type MotionKey = { at: number; prop: string | null; value: string | null; ease: string; dflt: string; last: boolean; props: number }
+ *  for the animation's (`dflt`); the last keyframe has none (`last`). `at` in % of the keyframes.
+ *  `editable`: its value may be changed (a transition's: where its state's lane ends). */
+export type MotionKey = { at: number; prop: string | null; value: string | null; ease: string; dflt: string; last: boolean; editable: boolean; props: number }
 
 /** What is open: one animation, as one element plays it. */
 export type MotionOpen = {
   kind: "css" | "script" | "transition"
   /** The keyframes' name (a script's animation id; "transition"). */
   name: string
-  /** A script's animation or a transition: its keyframes are looked at, not edited. */
+  /** A script's animation or a transition: its keyframes are looked at, not edited (but
+   *  a transition's state, `editable` in MotionKey). */
   readOnly: boolean
   /** Its duration, delay and easing may be changed (a transition's too: of all its properties
    *  at once). */

@@ -6,7 +6,7 @@
 // the state. Nothing is switched on to find one, and what a script does without a rule (a style
 // written by hand) is not found.
 
-import { splitTop } from "./model.js";
+import { M, splitTop } from "./model.js";
 
 export const STATE = /:(hover|focus-visible|focus-within|focus|active|checked|disabled|target|open|popover-open)(?![\w-])/;
 // A selector in pieces: a class, an id, an attribute, a pseudo (with what is in its brackets),
@@ -42,12 +42,14 @@ export function styleRules() {
       walk(s.cssRules, "");
     } catch {} // another origin's stylesheet
   }
+  for (const b of M.sent) walk(b.sheet.cssRules, ""); // (what was sent is what the page has now)
   return out;
 }
 
-/** The states of `el` that change something `moves` says it animates: [{ label, css, props }],
+/** The states of `el` that change something `moves` says it animates: [{ label, css, props, sel }],
  *  those of the pointer and the keyboard first, then attributes, then classes. `css` is the
- *  declarations of every rule of that state, `props` the properties they set. */
+ *  declarations of every rule of that state, `props` the properties they set, `sel` the rules' own
+ *  selectors. */
 export function statesOf(el, moves, rules) {
   const found = new Map();
   for (const [sel, style] of rules) {
@@ -77,12 +79,13 @@ export function statesOf(el, moves, rules) {
         const above = ps.slice(i + 1).some(joins) || (kind === 0 && /[\s>+~]/.test(t.replace(/^:[\w-]+\(|\)$/g, "").trim()));
         const word = kind === 0 ? STATE.exec(t)[1] : t.length > 32 ? `${t.slice(0, 31)}…` : t;
         const label = `${word}${above ? " on a parent" : ""}`;
-        const st = found.get(label) || found.set(label, { label, kind, css: "", props: [] }).get(label);
+        const st = found.get(label) || found.set(label, { label, kind, css: "", props: [], sels: [] }).get(label);
+        if (!st.sels.includes(one)) st.sels.push(one);
         st.css += `${style.cssText} `;
         for (let j = 0; j < style.length; j++) if (!st.props.includes(style[j])) st.props.push(style[j]);
         break; // one piece taken out of a selector is enough to call it a state
       }
     }
   }
-  return [...found.values()].sort((a, b) => a.kind - b.kind).slice(0, MAX_STATES).map(({ label, css, props }) => ({ label, css: css.trim(), props }));
+  return [...found.values()].sort((a, b) => a.kind - b.kind).slice(0, MAX_STATES).map(({ label, css, props, sels }) => ({ label, css: css.trim(), props, sel: sels.join(", ") }));
 }

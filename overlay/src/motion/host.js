@@ -136,7 +136,7 @@ function openView() {
       if (own.length && own[own.length - 1].at < 100 && to !== undefined) (keys.push({ at: 100, value: to, implied: true }), eases.push(segEase(own[own.length - 1].at, p)));
       return { prop: p, keys, eases };
     }),
-    key: ki && { at: ki.at, prop: ki.prop, value: ki.value === null || ki.value === undefined ? null : String(ki.value), ease: ki.ease, dflt: ki.dflt, last: ki.last, props: Object.keys(ki.f.vals).length },
+    key: ki && { at: ki.at, prop: ki.prop, value: ki.value === null || ki.value === undefined ? null : String(ki.value), ease: ki.ease, dflt: ki.dflt, last: ki.last, editable: ki.editable, props: Object.keys(ki.f.vals).length },
     score: score().map(({ id, text, name, delay, duration, on }) => ({ id, text, name, delay, duration, on })),
     css: cssText(),
     cssError: M.cssWhy,

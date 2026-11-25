@@ -1516,7 +1516,7 @@ const MOTION: MotionView = {
       { prop: "opacity", keys: [{ at: 0, value: "0" }, { at: 60, value: "1" }, { at: 100, value: "1", implied: true }], eases: ["", ""] },
       { prop: "transform", keys: [{ at: 0, value: "translateY(18px)" }, { at: 100, value: "none" }], eases: [""] },
     ],
-    key: { at: 60, prop: "opacity", value: "1", ease: "", dflt: RISE.easing, last: false, props: 1 },
+    key: { at: 60, prop: "opacity", value: "1", ease: "", dflt: RISE.easing, last: false, editable: true, props: 1 },
     css: "@keyframes rise {\n  0% { opacity: 0; transform: translateY(18px); }\n  60% { opacity: 1; }\n  100% { transform: none; }\n}",
     score: [
       { id: "a", text: "Ship calmer interfaces", name: "rise", delay: 0, duration: 900, on: true },
@@ -1653,7 +1653,7 @@ function motionAct(a: PanelAct, out: (m: PanelMessage) => void): void {
   else if (act.type === "select") {
     const lane = act.key && o.lanes.find((l) => l.prop === act.key!.prop)
     const k = act.key && lane?.keys.find((x) => x.at === act.key!.at)
-    o.key = act.key && k ? { at: k.at, prop: lane!.prop, value: k.value, ease: "", dflt: o.timing.easing, last: k.at >= 100, props: 1 } : null
+    o.key = act.key && k ? { at: k.at, prop: lane!.prop, value: k.value, ease: "", dflt: o.timing.easing, last: k.at >= 100, editable: o.kind !== "transition" || k.at >= 100, props: 1 } : null
   } else if (act.type !== "resend") return
   out({ panel: "motion", view: structuredClone(MOTION) })
 }

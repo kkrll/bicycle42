@@ -2,13 +2,13 @@
 // object for it, played, paused and stopped at a frame.
 
 import { adopt, BOOST } from "../page.js";
-import { apply, clamp, fromApi, M, mq, parseKf, pathOf, r1, readList, scan, serialize, splitTop } from "./model.js";
+import { apply, clamp, fromApi, M, mq, parseKf, pathOf, r1, readList, scan, serialize, splitTop, svOf } from "./model.js";
 import { commit, nameProblem, snapshot } from "./edit.js";
 import { draw, flash } from "./draw.js";
 import { kick } from "../render.js";
 import { statesOf, styleRules } from "./states.js";
 import { restage } from "./stage.js";
-import { above, drop, isOn, keep, namedStates, parseTrigger, put, wears } from "./trigger.js";
+import { above, drop, isOn, keep, namedStates, parseTrigger, put, selOf, wears } from "./trigger.js";
 import { forgetRecording } from "./record.js";
 
 // ── opening one ──────────────────────────────────────────────────────────────────────────
@@ -138,7 +138,7 @@ export function openTransition(el) {
     M.ro.on = false;
     apply();
   }
-  M.ro = { items, orig: mine ? mine.orig : JSON.stringify(page), moves, above: above(el), states: [], trigIs: "", state: null, vals: null, frames: [], laneEase: {}, total: 1, on: false };
+  M.ro = { items, orig: mine ? mine.orig : JSON.stringify(page), moves, above: above(el), states: [], trigIs: "", svIs: "", state: null, vals: null, frames: [], laneEase: {}, total: 1, on: false };
   readStates(el, rs);
   setState(firstState(), el);
   show({ kind: "transition", rs, name: "transition" });
@@ -172,6 +172,7 @@ export function addTrigger(text, on) {
 export function removeTrigger(label) {
   const o = M.open, el = openEl(), was = M.ro && M.ro.state ? M.ro.state.label : "";
   if (!o || o.kind !== "transition" || !M.ro || !el || !drop(o.rs, label)) return;
+  M.sv.delete(`${o.rs}|${label}`);
   readStates(el, o.rs);
   setState(firstState(was), el);
   commit();
@@ -229,12 +230,14 @@ export function setState(label, el = openEl()) {
   const t = state && state.trigger, at = t && wears(t) ? mq(t.on || rs) : null, look = at && ro.items.some((x) => x.prop === "all") ? everything : null;
   const read = () => (look ? look(el) : Object.fromEntries(laid().map((x) => [x.prop, getComputedStyle(el).getPropertyValue(x.prop)])));
   if (at) state.off = isOn(t, at); // (on now: the state is without it)
+  if (t) state.sel = selOf(t, rs);
   if (state) ro.vals = ends(el, state, read);
   else {
     const now = read();
     ro.vals = { from: now, to: now };
   }
   if (look) state.props = differs(ro.vals.from, ro.vals.to);
+  ro.svIs = JSON.stringify(svOf(rs));
   layout();
 }
 /** What `read` says of `el` now, and in the state. Nothing is left of it, and nothing moves for it. */
@@ -288,13 +291,13 @@ export function laid() {
 export function layout() {
   const ro = M.ro;
   if (!ro || !ro.vals) return;
-  const list = laid(), { from, to } = ro.vals;
+  const list = laid(), { from, to } = ro.vals, mine = ro.state && M.sv.get(`${M.open ? M.open.rs : ""}|${ro.state.label}`);
   const total = Math.max(1, ...list.map((x) => x.delay + x.duration));
   const fr = new Map(), laneEase = {};
   const put = (o, p, v) => ((fr.get(o) || fr.set(o, { at: o, ease: "", vals: {} }).get(o)).vals[p] = v);
   for (const x of list) {
     put(r1(clamp(x.delay / total, 0, 1) * 100), x.prop, from[x.prop] ?? "");
-    put(r1(clamp((x.delay + x.duration) / total, 0, 1) * 100), x.prop, to[x.prop] ?? "");
+    put(r1(clamp((x.delay + x.duration) / total, 0, 1) * 100), x.prop, (mine && mine.vals[x.prop] ? mine.vals[x.prop].to : to[x.prop]) ?? "");
     laneEase[x.prop] = x.easing;
   }
   ro.frames = [...fr.values()].sort((a, b) => a.at - b.at);
@@ -308,7 +311,13 @@ export function syncTransition() {
   const mine = M.tr.get(o.rs);
   ro.items = mine ? mine.items : JSON.parse(ro.orig);
   const el = openEl();
-  if (!el || JSON.stringify(M.trig.get(o.rs) || []) === ro.trigIs) return layout();
+  if (!el) return layout();
+  if (JSON.stringify(M.trig.get(o.rs) || []) === ro.trigIs) {
+    if (!ro.state || JSON.stringify(svOf(o.rs)) === ro.svIs) return layout();
+    // (A value of the state may be another: the page's end is read again without the one that was.)
+    apply();
+    return setState(ro.state.label, el);
+  }
   // A trigger came back or went: it is looked at again, or what was looked at before it.
   const was = ro.states.map((s) => s.label);
   readStates(el, o.rs);

@@ -117,6 +117,21 @@ function inState(el, at, word, moves, rules) {
   }
   return { css: css.trim(), props };
 }
+/** The trigger as a selector of the element at `rs`, for what the state is changed to: with it on,
+ *  or (it is on already) without it. "" for a style a script writes: nothing says when it is there. */
+export function selOf(t, rs) {
+  if (t.kind === "style") return "";
+  const at = mq(t.on || rs), not = (s, off) => (off ? `:not(${s})` : s);
+  const attr = (x, v) => `[${x.name}=${JSON.stringify(v)}]`;
+  const part = (x) => {
+    const on = !!at && isOn(x, at);
+    if (x.kind === "class") return not(`.${CSS.escape(x.name)}`, on);
+    if (x.kind === "state") return `:${x.name}`;
+    return on ? (x.alt === null || x.alt === undefined ? not(`[${x.name}]`, true) : attr(x, x.alt)) : attr(x, x.value);
+  };
+  const is = [t, ...(t.and || [])].map(part).join("");
+  return t.on ? `${rs}:is(${t.on}${is} *)` : `${rs}${is}`;
+}
 /** It is put on the page, not applied as a rule. */
 export const wears = (t) => !!t && (t.kind === "class" || t.kind === "attr");
 /** Puts the trigger on `at` (or takes it off, when it is on already); gives back what undoes it. */

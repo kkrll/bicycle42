@@ -151,6 +151,8 @@ export type Motion = {
   /** transition: the reviewer named what switches it (no rule of the page need say so), or it was
    *  recorded while they used the page. */
   stateBy?: "named" | "recorded"
+  /** transition: what its states change, changed: the state in words, and the value before and after. */
+  values?: Array<{ state: string; prop: string; from: string; to: string }>
 }
 
 /** A note, as the overlay sends it. */

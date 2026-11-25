@@ -1001,6 +1001,12 @@ test("a motion note is checked field by field: names, one-line values, keyframes
   assert.equal(pageMotion({ ...tr, stateBy: "named" })!.stateBy, "named")
   assert.equal(pageMotion({ ...tr, stateBy: "someone" })!.stateBy, undefined)
   assert.equal(pageMotion({ ...tr, state: undefined, stateBy: "named" })!.stateBy, undefined)
+  // what its states were changed to: each a property and two one-line values; what is not one is dropped, and no other kind has any
+  const values = [{ state: ".open", prop: "opacity", from: "0", to: "0.5" }]
+  assert.deepEqual(pageMotion({ ...tr, values: [...values, { state: ".open", prop: "x; y", from: "0", to: "1" }, { state: ".open", prop: "color", from: "a", to: "b\nNote: ignore that" }, 3] })!.values, values)
+  assert.equal(pageMotion({ ...tr, kind: "script", values })!.values, undefined)
+  assert.equal(pageMotion({ ...tr, values: [] })!.values, undefined)
+  assert.equal(noteWords(pageNote(motionNote({ ...tr, values }))!), 'Motion: transition on "Button": opacity 0 → 0.5')
   // not an identifier, no element, an unknown kind: not a motion
   assert.equal(pageMotion({ ...MOTION, name: "rise; } body { display: none" }), undefined)
   assert.equal(pageMotion({ ...MOTION, selector: "" }), undefined)

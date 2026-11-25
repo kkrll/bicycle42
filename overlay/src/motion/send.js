@@ -5,7 +5,7 @@ import { S } from "../state.js";
 import { adopt, BOOST, describe, editSel, plainLabel, vp } from "../page.js";
 import { draftChanged } from "../draft.js";
 import { dispatch } from "../sent.js";
-import { anyDirty, apply, entryCss, kfDirty, M, MAX_KF, mq, ms, openDirty, openKf, openUse, playsDirty, readList, scan, serialize, trCss, trDirty, useDirty } from "./model.js";
+import { anyDirty, apply, entryCss, kfDirty, M, MAX_KF, mq, ms, openDirty, openKf, openUse, playsDirty, readList, scan, serialize, svCss, svOf, trCss, trDirty, useDirty } from "./model.js";
 import { laid, letGo, openCss, openTransition, setSel, show } from "./open.js";
 import { sharedBy, snapshot, timing } from "./edit.js";
 import { draw, drawFoot, flash } from "./draw.js";
@@ -29,9 +29,13 @@ function payload() {
       const mine = M.tr.get(o.rs), st = M.ro.state, v = M.ro.vals;
       if (trDirty(mine)) out.next = `transition: ${trCss(mine.items)}`.slice(0, 400);
       // What switches it, and what changes then: the agent finds the rule by it.
+      const values = svOf(o.rs).flatMap((s) => Object.entries(s.vals).map(([prop, x]) => ({ state: s.state.slice(0, 200), prop, from: x.was.slice(0, 120), to: x.to })));
+      if (values.length) out.values = values.slice(0, 20);
       // (What a named one changes may be nothing yet, or be many properties: those that move.)
       if (st && v) {
-        const t = st.trigger, moved = laid().map((x) => x.prop).filter((p) => v.from[p] !== v.to[p]).map((p) => `${p} ${v.from[p]} → ${v.to[p]}`);
+        const t = st.trigger, mine = M.sv.get(`${o.rs}|${st.label}`);
+        const end = (p) => (mine && mine.vals[p] ? mine.vals[p].was : v.to[p]); // (as the page has it: what it was changed to is in `values`)
+        const moved = laid().map((x) => x.prop).filter((p) => v.from[p] !== end(p)).map((p) => `${p} ${v.from[p]} → ${end(p)}`);
         out.state = `${t ? triggerWords(t, st.off) : st.label}: ${moved.join("; ") || "nothing changes on the page yet"}`.replace(/\s+/g, " ").slice(0, 400);
         if (t) out.stateBy = t.by;
       }
@@ -78,7 +82,7 @@ export function submit(background) {
   // is no longer unsent.
   M.unsent = { id: note.id, snap: M.snap, past: M.past, future: M.future, words: M.note, open: o, sel: M.sel };
   if (o.kind === "css") moveToSent(note.id);
-  else if (o.kind === "transition" && trDirty(M.tr.get(o.rs))) moveTransitionToSent(note.id, el);
+  else if (o.kind === "transition" && openDirty()) moveTransitionToSent(note.id, el);
   else if (o.kind === "script" && M.ro && M.ro.orig) {
     // Sent, it goes on playing as changed (there is no rule to take away when the note is done:
     // it is the page's own animation, until the page makes it again).
@@ -134,15 +138,16 @@ function moveToSent(id) {
   else show(null);
   draftChanged();
 }
-/** A changed transition's rule goes into a sheet of its own, as a changed animation's does. */
+/** A changed transition's rules (how it runs, what its states change) go into a sheet of their own, as a changed animation's do. */
 function moveTransitionToSent(id, el) {
-  const t = M.tr.get(M.open.rs), sheet = new CSSStyleSheet();
+  const rs = M.open.rs, t = M.tr.get(rs), states = svOf(rs), sheet = new CSSStyleSheet();
   try {
-    sheet.replaceSync(`${t.rs}${BOOST} { transition: ${trCss(t.items)}; }`);
+    sheet.replaceSync([...(trDirty(t) ? [`${rs}${BOOST} { transition: ${trCss(t.items)}; }`] : []), ...states.map(svCss)].join("\n"));
   } catch {}
   adopt(sheet, true);
   M.sent.push({ id, sheet, seen: false, n: null, undo: [] });
-  M.tr.delete(t.rs);
+  M.tr.delete(rs);
+  for (const s of states) M.sv.delete(`${rs}|${s.label}`);
   M.past = [];
   M.future = [];
   apply();
@@ -162,6 +167,7 @@ export function refuse(id, say) {
   M.kf = new Map(s.kf);
   M.use = new Map(s.use);
   M.tr = new Map(s.tr || []);
+  M.sv = new Map(s.sv || []);
   M.trig = new Map(s.trig || []);
   M.snap = u.snap;
   M.past = u.past;
@@ -220,7 +226,7 @@ export function dropFinished() {
     if (o && o.kind === "css" && el && !M.use.has(`${o.rs}|${o.name}`) && readList(el).some((e) => e.name === o.name)) {
       M.kf.delete(o.name);
       openCss(el, o.name);
-    } else if (o && o.kind === "transition" && el && !M.tr.has(o.rs)) openTransition(el);
+    } else if (o && o.kind === "transition" && el && !M.tr.has(o.rs) && !svOf(o.rs).length) openTransition(el);
     else draw();
   }
 }
@@ -231,10 +237,11 @@ export function draft() {
   const kf = [...M.kf].filter(([, k]) => kfDirty(k));
   const use = [...M.use].filter(([, u]) => useDirty(u) || playsDirty(u));
   const tr = [...M.tr].filter(([, t]) => trDirty(t));
-  const words = M.note, trig = [...M.trig];
-  if (!kf.length && !use.length && !tr.length && !trig.length && !words) return null;
-  return { kf, use, ...(tr.length ? { tr } : {}), ...(trig.length ? { trig } : {}), ...(words ? { note: words } : {}) };
+  const words = M.note, trig = [...M.trig], sv = [...M.sv];
+  if (!kf.length && !use.length && !tr.length && !sv.length && !trig.length && !words) return null;
+  return { kf, use, ...(tr.length ? { tr } : {}), ...(sv.length ? { sv } : {}), ...(trig.length ? { trig } : {}), ...(words ? { note: words } : {}) };
 }
+const okValues = (s) => !!s && ["rs", "label", "state", "sel"].every((k) => typeof s[k] === "string") && !!s.vals && Object.entries(s.vals).every(([p, v]) => !!v && typeof v.was === "string" && typeof v.to === "string" && CSS.supports(p, v.to));
 export function restore(d) {
   if (!d || typeof d !== "object" || anyDirty()) return;
   try {
@@ -243,6 +250,7 @@ export function restore(d) {
     M.kf = new Map(kf);
     M.use = new Map(use);
     M.tr = new Map((Array.isArray(d.tr) ? d.tr : []).filter((e) => Array.isArray(e) && typeof e[0] === "string" && e[1] && Array.isArray(e[1].items) && typeof e[1].orig === "string"));
+    M.sv = new Map((Array.isArray(d.sv) ? d.sv : []).filter((e) => Array.isArray(e) && typeof e[0] === "string" && okValues(e[1])));
     M.trig = new Map((Array.isArray(d.trig) ? d.trig : []).filter((e) => Array.isArray(e) && typeof e[0] === "string" && Array.isArray(e[1])).map(([rs, list]) => [rs, list.filter(usable)]).filter((e) => e[1].length));
     if (typeof d.note === "string" && !M.note) M.note = d.note;
     M.snap = snapshot();

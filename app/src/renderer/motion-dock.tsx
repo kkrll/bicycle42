@@ -1499,7 +1499,7 @@ function KeyEditor(props: { k: NonNullable<MotionOpen["key"]>; at: number; readO
           attr="kval"
           value={props.k.value ?? ""}
           label={`${prop()} at ${props.at}%`}
-          disabled={props.readOnly}
+          disabled={props.readOnly && !props.k.editable}
           ok={(x) => x.trim() !== "" && x.length <= 400 && CSS.supports(prop()!, x.trim())}
           onInput={(x) => send({ type: "key", what: "val", value: x, done: false })}
           onDone={(x) => send({ type: "key", what: "val", value: x, done: true })}

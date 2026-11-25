@@ -293,6 +293,15 @@ export function pageMotion(raw: unknown): Motion | undefined {
     if (next) out.next = next
     if (state) out.state = state
     if (state && (raw.stateBy === "named" || raw.stateBy === "recorded")) out.stateBy = raw.stateBy
+    if (kind === "transition") {
+      const values: NonNullable<Motion["values"]> = []
+      for (const c of Array.isArray(raw.values) ? raw.values.slice(0, 20) : []) {
+        if (!isObj(c)) continue
+        const [when, prop, was, now] = [line(c.state, MAX_NAME), line(c.prop, 41), line(c.from, MAX_VALUE * 2), line(c.to, MAX_VALUE * 2)]
+        if (when && prop && /^-{0,2}[a-z][a-z-]*$/.test(prop) && was !== undefined && now) values.push({ state: when, prop, from: was, to: now })
+      }
+      if (values.length) out.values = values
+    }
     return out
   }
   if (index(raw.shared) && raw.shared >= 1) out.shared = raw.shared
