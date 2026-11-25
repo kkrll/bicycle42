@@ -42,7 +42,6 @@ const MPATHS = {
   undo: "M9 5.25 4.5 9.75l4.5 4.5M4.5 9.75h9.375a4.875 4.875 0 0 1 0 9.75H10.5",
   more: "M5.25 12h.01M12 12h.01M18.75 12h.01",
   solo: "M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M9.5 9.5h5v5h-5z",
-  contrast: "M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18ZM12 3v18M12 7.5l5.6-2M12 12h9M12 16.5l5.6 2",
   link: "M10.5 13.5a3.75 3.75 0 0 0 5.25 0l3-3A3.75 3.75 0 0 0 13.5 5.25l-.75.75M13.5 10.5a3.75 3.75 0 0 0-5.25 0l-3 3a3.75 3.75 0 0 0 5.25 5.25l.75-.75",
 } as const
 
@@ -962,15 +961,14 @@ function Header(props: { open: MotionOpen; view: MotionView; steps: number }) {
           Only this
         </button>
         <Show when={props.view.isolate && props.view.sel}>
-          <button
-            type="button"
-            class="icon-btn"
-            title={props.view.backdrop === "dark" ? "Dark behind it: make it light" : "Light behind it: make it dark"}
-            aria-label={props.view.backdrop === "dark" ? "Light backdrop" : "Dark backdrop"}
-            onClick={() => send({ type: "backdrop", value: props.view.backdrop === "dark" ? "light" : "dark" })}
-          >
-            <MIcon name="contrast" />
-          </button>
+          <div class="devices mdock-seg mdock-bg" role="radiogroup" aria-label="Behind it">
+            <button type="button" role="radio" class="device" aria-checked={props.view.backdrop !== "dark"} title="A light colour behind it" onClick={() => send({ type: "backdrop", value: "light" })}>
+              Light
+            </button>
+            <button type="button" role="radio" class="device" aria-checked={props.view.backdrop === "dark"} title="A dark colour behind it" onClick={() => send({ type: "backdrop", value: "dark" })}>
+              Dark
+            </button>
+          </div>
         </Show>
       </div>
       <div class="mdock-tools">

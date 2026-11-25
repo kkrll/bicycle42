@@ -1413,3 +1413,8 @@
     --mdock-fade: 0px;
   }
 }
+
+/* light or dark behind the element alone: beside the switch that put it there */
+.mdock .mdock-bg {
+  margin-left: 6px;
+}
