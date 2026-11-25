@@ -750,3 +750,40 @@ test("hosted: what moves beside the open animation is its score, each with its d
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("hosted: a script's animation is slowed in the animation itself, undone, put back when left unsent, and sent with what it was and is", async () => {
+  const { page, f, errors, v } = await open();
+  const dur = () => f.evaluate(() => document.querySelector(".badge").getAnimations().find((a) => a.id === "bob").effect.getTiming().duration);
+  await act(page, { type: "row", id: rowId(v, "bob") });
+  let o = (await view(page, "v.open && v.open.kind === 'script'")).open;
+  assert.equal(o.timed, true);
+  assert.equal(o.readOnly, true);
+  await act(page, { type: "timing", what: "duration", value: "1600", done: true });
+  let w = await view(page, "v.open.timing.duration === 1600 && v.open.dirty && v.undo");
+  assert.equal(await dur(), 1600);
+  assert.match(w.open.css, /duration: 1600/);
+  await act(page, { type: "undo" });
+  await view(page, "v.open.timing.duration === 800 && !v.open.dirty");
+  assert.equal(await dur(), 800);
+  // changed and left for something else: the page's script's again
+  await act(page, { type: "timing", what: "duration", value: "1600", done: true });
+  await view(page, "v.open.timing.duration === 1600");
+  await act(page, { type: "row", id: rowId(v, "spin") });
+  await view(page, "v.open && v.open.name === 'spin'");
+  assert.equal(await dur(), 800);
+  // changed and sent
+  await act(page, { type: "row", id: rowId(v, "bob") });
+  await view(page, "v.open && v.open.kind === 'script'");
+  await act(page, { type: "timing", what: "duration", value: "1200", done: true });
+  await view(page, "v.open.dirty");
+  await act(page, { type: "send", background: false });
+  await page.waitForFunction(() => window.__harness.notes.length === 1);
+  const note = await page.evaluate(() => window.__harness.notes[0]);
+  assert.equal(note.motion.current, "animate(): 800ms ease-in-out, forever, alternate");
+  assert.equal(note.motion.next, "animate(): 1200ms ease-in-out, forever, alternate");
+  assert.match(note.prompt, /Edit of the script's animation .*find the script that makes it/s);
+  assert.equal((await view(page, "v.open && !v.open.dirty")).open.timing.duration, 1200);
+  assert.equal(await dur(), 1200);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

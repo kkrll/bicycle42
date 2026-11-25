@@ -113,7 +113,7 @@ function openView() {
     kind: o.kind,
     name: o.kind === "transition" ? "transition" : o.name,
     readOnly: readOnly(),
-    timed: o.kind !== "script",
+    timed: true,
     states: o.kind === "transition" ? M.ro.states.map((s) => s.label) : [],
     state: o.kind === "transition" && M.ro.state ? M.ro.state.label : null,
     renamable: !!(k && k.isNew),

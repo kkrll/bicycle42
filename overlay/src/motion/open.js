@@ -97,10 +97,22 @@ export function useKf(nm) {
   const { name: _, ...timing } = e || { duration: 600, delay: 0, easing: "ease-in-out", count: "1", direction: "normal", fill: "none" };
   attach(M.sel, nm, timing);
 }
+/** How a script's animation plays, as changed here: written into the animation itself (there is
+ *  no rule to write over), and taken out again when it is left unsent. */
+export function applyScript(timing = M.ro && M.ro.timing) {
+  const a = M.held;
+  if (!a || !a.effect || !a.effect.updateTiming || !timing) return;
+  try {
+    a.effect.updateTiming({ duration: +timing.duration || 0, delay: +timing.delay || 0, easing: timing.easing, iterations: timing.count === "infinite" ? Infinity : +timing.count || 0, direction: timing.direction, fill: timing.fill });
+  } catch {}
+}
+export const scriptDirty = () => !!M.open && M.open.kind === "script" && !!M.ro && !!M.ro.orig && JSON.stringify(M.ro.timing) !== M.ro.orig;
 export function openScript(a) {
-  const el = a.effect.target, t = a.effect.getTiming();
+  const el = a.effect.target;
   setSel(el);
-  M.ro = { frames: fromApi(a.effect.getKeyframes()), timing: { duration: +t.duration || 0, delay: t.delay, easing: t.easing, count: t.iterations === Infinity ? "infinite" : String(t.iterations), direction: t.direction, fill: t.fill === "auto" ? "none" : t.fill } };
+  const t = a.effect.getTiming();
+  M.ro = { orig: "", frames: fromApi(a.effect.getKeyframes()), timing: { duration: +t.duration || 0, delay: t.delay, easing: t.easing, count: t.iterations === Infinity ? "infinite" : String(t.iterations), direction: t.direction, fill: t.fill === "auto" ? "none" : t.fill } };
+  M.ro.orig = JSON.stringify(M.ro.timing);
   show({ kind: "script", rs: pathOf(el), name: a.id || "animate()" });
   M.held = a;
 }
@@ -187,6 +199,11 @@ export function syncTransition() {
   layout();
 }
 export function setSel(el) {
+  // A script's animation changed here and left unsent plays as the page's script made it again.
+  if (scriptDirty()) {
+    M.ro.timing = JSON.parse(M.ro.orig);
+    applyScript();
+  }
   M.sel = el;
   M.selRs = el ? pathOf(el) : "";
 }

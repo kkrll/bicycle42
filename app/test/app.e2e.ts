@@ -2241,7 +2241,7 @@ async function main() {
   await until(() => ui(`document.querySelector(".mdock-main").getBoundingClientRect().width < 1100`), 3000)
   check(
     "Tab goes through the Motion dock's header in the order it is seen, in two rows and in one",
-    twoRows.keys === twoRows.seen && oneRow.keys === oneRow.seen && twoRows.keys.split(", ").length >= 9 && /Easing$/.test(twoRows.keys) && /CSS, Duration/.test(oneRow.keys),
+    twoRows.keys === twoRows.seen && oneRow.keys === oneRow.seen && twoRows.keys.split(", ").length >= 9 && /Easing$/.test(twoRows.keys) && /Code, (The one before, The next one, )?Duration/.test(oneRow.keys),
     `two rows: ${twoRows.keys}\n  seen: ${twoRows.seen}\none row: ${oneRow.keys}\n  seen: ${oneRow.seen}`,
   )
   check("…a timing field's focus is a 1 px ring on its box with no outline", twoRows.fields.length === 3 && twoRows.fields.every((r) => /^none .*0px 0px 0px 1px$/.test(r)), twoRows.fields.join(" / "))

@@ -144,8 +144,8 @@ export type Motion = {
   starts?: "load" | "view" | "hover" | "click" | "appear" | "scroll"
   /** transition and script: what the page has, in one line. */
   current?: string
-  /** transition: what it was changed to, in one line; and what switches it, with what changes
-   *  then ("hover: color rgb(…) → rgb(…)"). */
+  /** transition and script: what it was changed to, in one line. transition: what switches it,
+   *  with what changes then ("hover: color rgb(…) → rgb(…)"). */
   next?: string
   state?: string
 }

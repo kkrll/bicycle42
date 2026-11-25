@@ -224,6 +224,7 @@ export const anyDirty = () => [...M.kf.values()].some(kfDirty) || [...M.use.valu
 /** The open animation has something to send. */
 export const openDirty = () => {
   if (M.open && M.open.kind === "transition") return trDirty(M.tr.get(M.open.rs));
+  if (M.open && M.open.kind === "script") return !!M.ro && !!M.ro.orig && JSON.stringify(M.ro.timing) !== M.ro.orig;
   const u = openUse();
   return !!u && (useDirty(u) || playsDirty(u) || kfDirty(openKf()));
 };

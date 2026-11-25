@@ -1317,6 +1317,11 @@
 /* A short dock (a short window): the rows around the timeline closer, so it keeps room for the
    tracks being changed. */
 @container mdock (max-height: 400px) {
+  /* (No room for what moves beside it: the tracks being changed come first.) */
+  .mdock-score {
+    display: none;
+  }
+
   .mdock-hd {
     padding-top: 6px;
     padding-bottom: 6px;

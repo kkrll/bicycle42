@@ -755,18 +755,8 @@ export function MotionDock() {
                   <button type="button" class="icon-btn mdock-back" title="Everything that moves" aria-label="Everything that moves" onClick={() => send({ type: "back" })}>
                     <Icon name="back" />
                   </button>
-                  <Show when={open() && steps() > 1}>
-                    <div class="mdock-tools mdock-step">
-                      <button type="button" class="icon-btn" title="The one before (↑)" aria-label="The one before" onClick={() => send({ type: "go", by: -1 })}>
-                        <Icon name="up" />
-                      </button>
-                      <button type="button" class="icon-btn" title="The next one (↓)" aria-label="The next one" onClick={() => send({ type: "go", by: 1 })}>
-                        <Icon name="down" />
-                      </button>
-                    </div>
-                  </Show>
                   <Show when={open()}>
-                    {(o) => <Header open={o()} view={v()!} />}
+                    {(o) => <Header open={o()} view={v()!} steps={steps()} />}
                   </Show>
                 </div>
               </Show>
@@ -910,7 +900,7 @@ function TName(props: { long: string; short?: string }) {
   )
 }
 
-function Header(props: { open: MotionOpen; view: MotionView }) {
+function Header(props: { open: MotionOpen; view: MotionView; steps: number }) {
   const pop = usePop()
   const t = () => props.open.timing
   const ro = () => props.open.readOnly
@@ -930,9 +920,20 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
           Code
         </button>
       </div>
+      {/* (After the two tabs, where it is drawn: Tab goes through the header in the order it is seen.) */}
+      <Show when={props.steps > 1}>
+        <div class="mdock-tools mdock-step">
+          <button type="button" class="icon-btn" title="The one before (↑)" aria-label="The one before" onClick={() => send({ type: "go", by: -1 })}>
+            <Icon name="up" />
+          </button>
+          <button type="button" class="icon-btn" title="The next one (↓)" aria-label="The next one" onClick={() => send({ type: "go", by: 1 })}>
+            <Icon name="down" />
+          </button>
+        </div>
+      </Show>
       <button
         type="button"
-        hidden={props.open.kind !== "css"}
+        hidden={props.open.kind === "transition"}
         class="icon-btn mdock-more-btn"
         ref={more}
         title="More: repeat, direction, fill, what starts it"
@@ -1052,7 +1053,7 @@ function MoreSheet(props: { open: MotionOpen; view: MotionView }) {
               type="button"
               class="mdock-chip"
               aria-pressed={cur === value}
-              disabled={props.open.readOnly}
+              disabled={!props.open.timed}
               title={what2 && what2 !== value ? `${what2} (${value})` : value}
               onClick={() => send({ type: "timing", what, value, done: true })}
             >

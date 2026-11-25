@@ -6,11 +6,11 @@ import { kick } from "../render.js";
 import { treeVersion } from "../mount.js";
 import { draftChanged } from "../draft.js";
 import { apply, DIRECTION, FILL, frames, HOW, kfDirty, M, MAX_KF, mq, name, openKf, openUse, parseKf, pathOf, playsDirty, r1, readList, scan, serialize, splitTop, trCss, trDirty, useDirty } from "./model.js";
-import { animOf, layout, openCss, openScript, openTransition, seek, syncTransition, useKf } from "./open.js";
+import { animOf, applyScript, layout, openCss, openScript, openTransition, seek, syncTransition, useKf } from "./open.js";
 import { draw, drawList, flash } from "./draw.js";
 
 // ── undo ─────────────────────────────────────────────────────────────────────────────────
-export const snapshot = () => JSON.stringify({ kf: [...M.kf], use: [...M.use], tr: [...M.tr], open: M.open && M.open.kind === "css" ? M.open : null });
+export const snapshot = () => JSON.stringify({ kf: [...M.kf], use: [...M.use], tr: [...M.tr], sc: M.open && M.open.kind === "script" && M.ro ? M.ro.timing : null, open: M.open && M.open.kind === "css" ? M.open : null });
 export function commit() {
   const now = snapshot();
   if (now !== M.snap) {
@@ -33,6 +33,10 @@ export function travel(from, to) {
   M.use = new Map(s.use);
   M.tr = new Map(s.tr || []);
   syncTransition();
+  if (M.open && M.open.kind === "script" && M.ro && M.ro.orig) {
+    M.ro.timing = s.sc || JSON.parse(M.ro.orig);
+    applyScript();
+  }
   const keep = M.open && M.open.kind !== "css" ? M.open : s.open;
   M.open = keep && (keep.kind !== "css" || M.use.has(`${keep.rs}|${keep.name}`)) ? keep : null;
   M.key = null;
@@ -46,6 +50,11 @@ export function discard() {
   if (M.open && M.open.kind === "transition") {
     M.tr.delete(M.open.rs);
     syncTransition();
+    return commit();
+  }
+  if (M.open && M.open.kind === "script" && M.ro && M.ro.orig) {
+    M.ro.timing = JSON.parse(M.ro.orig);
+    applyScript();
     return commit();
   }
   let u = openUse(), k = openKf();
@@ -250,9 +259,11 @@ export function timing() {
 /** One field of the timing, or of what starts it ("how"). False when the value is not one. */
 export function setTiming(what, v, done) {
   if (M.open && M.open.kind === "transition") return setTransition(what, v, done);
-  const u = openUse();
+  const sc = M.open && M.open.kind === "script" && M.ro && M.ro.orig ? M.ro : null;
+  const u = sc || openUse();
   if (!u) return false;
   if (what === "how") {
+    if (sc) return false;
     if (!HOW[v]) return false;
     u.plays.how = v;
   } else {
@@ -268,7 +279,8 @@ export function setTiming(what, v, done) {
     if (!ok) return false;
     const paused = (animOf() || {}).playState === "paused";
     u.timing[what] = val;
-    apply();
+    if (sc) applyScript();
+    else apply();
     if (paused) seek(M.pos);
   }
   if (done) commit();
