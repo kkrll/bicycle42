@@ -355,7 +355,7 @@ export function cssText() {
   const k = openKf();
   if (k) return serialize(k.name, k.frames);
   if (M.ro && M.open.kind === "script") return animateText();
-  if (M.ro && M.open.kind === "transition") return `${editSel(M.sel)} {\n  transition: ${trCss(M.ro.items).replace(/, /g, ",\n    ")};\n}`;
+  if (M.ro && M.open.kind === "transition") return `${editSel(M.sel)} {\n  transition: ${M.ro.items.map((x) => trCss([x])).join(",\n    ")};\n}`;
   return "";
 }
 /** A script's keyframes as animate() takes them. */
