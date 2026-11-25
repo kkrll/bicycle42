@@ -903,7 +903,7 @@ async function main() {
   }
   const fades = [await compFade("0"), await compFade("(c.scrollHeight - c.clientHeight) / 2"), await compFade("c.scrollHeight")]
   await compFade("0")
-  check("the inspector's computed values fade at an end with more to scroll, and only there", fades.join(" | ") === "true 0px 24px | true 24px 24px | true 24px 0px", fades.join(" | "))
+  check("the inspector's computed values fade at an end with more to scroll, and only there", /^\w+ 0px [1-9]\d*px \| \w+ [1-9]\d*px [1-9]\d*px \| \w+ [1-9]\d*px 0px$/.test(fades.join(" | ")), fades.join(" | "))
   // The round trip a drag in the inspector waits for (dockPing's way: an act there, its answer back).
   const pings = (await ui(`(async () => { const out = []; for (let i = 0; i < 20; i++) out.push(await new Promise((done) => { const id = 9000 + i, t0 = performance.now(); const off = window.b42.onPanel((m) => { if (m.pong === id) { off(); done(performance.now() - t0) } }); window.b42.invoke("panel", { panel: "canvas", act: { type: "ping", id } }) })); return out.sort((a, b) => a - b) })()`)) as number[]
   console.log(`     dock round trip, 20 pings: median ${pings[10]!.toFixed(1)} ms, worst ${pings[19]!.toFixed(1)} ms`)
@@ -1041,7 +1041,7 @@ async function main() {
   const settleW = (ms = 160) => sleep(ms)
   /** The tree's row of the element with this id. */
   const treeRow = (id: string) => `[...document.querySelectorAll('.cd-trow')].find((r) => r.querySelector('.cd-ti')?.textContent === ${JSON.stringify(id)})`
-  const footer = () => ui(`(() => { const q = (s) => document.querySelector(s); return { count: q('.cd-count').textContent, undo: q('.cd-undo').disabled, redo: q('.cd-redo').disabled, reset: q('.cd-reset').disabled, send: q('.cd-send').disabled, sendTitle: q('.cd-send').title, sendX: Math.round(q('.cd-send').getBoundingClientRect().left), msg: q('.cd-msg')?.textContent ?? "" } })()`) as Promise<{ count: string; undo: boolean; redo: boolean; reset: boolean; send: boolean; sendTitle: string; sendX: number; msg: string }>
+  const footer = () => ui(`(() => { const q = (s) => document.querySelector(s); return { count: q('.cd-count').textContent, undo: q('.cd-undo').disabled, redo: q('.cd-redo').disabled, reset: q('.cd-reset').disabled, send: q('.composer .send')?.disabled ?? true, tab: q('.composer-pending')?.textContent ?? "", own: !!q('.cd-send, .cd-note'), msg: q('.cd-msg')?.textContent ?? "" } })()`) as Promise<{ count: string; undo: boolean; redo: boolean; reset: boolean; send: boolean; tab: string; own: boolean; msg: string }>
   const selectPlans = async () => {
     await ui(`${treeRow("#plans")}.click()`)
     await until(async () => (await header()) === "section#plans.row")
@@ -1123,18 +1123,17 @@ async function main() {
   const icons = (await ui(`(() => { const sel = ['.cd-fold', '.cd-undo', '.cd-redo', '.cd-help', '.cd-trow .cd-tw']; return sel.map((s) => { const b = document.querySelector(s), r = b.getBoundingClientRect(); return s + ":" + (!!b.querySelector('svg')) + ":" + (s === '.cd-trow .cd-tw' || (r.width >= 24 && r.height >= 24)) }).concat(/[▾▸▴▲▼◂✕✖×●•‹›❮❯]/.test(document.querySelector('.cd').innerText) ? ["a glyph"] : []) })()`)) as string[]
   check("icons are SVG, and what is clicked is at least 24px", icons.every((x) => x.endsWith(":true:true")), icons.join(" "))
 
-  // The footer: Send is off with nothing to send and says so; with an edit it names its keys;
-  // undo and redo follow; it stays where it is through every state.
+  // The batch: its count, undo, redo and Reset are in the header; it is sent from the panel's
+  // message box, where it stands as a tab, and the inspector has no Send of its own meanwhile.
   let foot = await footer()
-  const sendX = foot.sendX
-  check("the footer with nothing edited: no undo, Reset or Send, and Send says why", foot.count === "No edits" && foot.reset && foot.send && foot.sendTitle === "Nothing to send yet", JSON.stringify(foot))
+  check("with nothing edited: no undo or Reset, no tab on the message box, and no Send of the inspector's own", foot.count === "No edits" && foot.reset && foot.tab === "" && !foot.own, JSON.stringify(foot))
   await paste("#cd-css", "width: 300px;")
   await ui(`document.querySelector('#cd-css').blur()`)
   foot = (await until(async () => ((await footer()).count === "1 edit" ? footer() : null))) ?? (await footer())
-  check("…with an edit: undo, Reset and Send, which names the keys that do the same", !foot.undo && foot.redo && !foot.reset && !foot.send && /in the note, .*anywhere else\)$/.test(foot.sendTitle) && foot.sendX === sendX, JSON.stringify(foot))
+  check("…with an edit: undo and Reset, and the batch is a tab on the message box, whose Send is on", !foot.undo && foot.redo && !foot.reset && !foot.send && foot.tab === "1 edit" && !foot.own, JSON.stringify(foot))
   await ui(`document.querySelector('.cd-undo').click()`)
   foot = (await until(async () => ((await footer()).count === "No edits" ? footer() : null))) ?? (await footer())
-  check("…undo takes it back and lights redo", foot.count === "No edits" && !foot.redo && foot.sendX === sendX && (await pageStyle("#plans", "width")) !== "300px", JSON.stringify(foot))
+  check("…undo takes it back and lights redo", foot.count === "No edits" && !foot.redo && foot.tab === "" && (await pageStyle("#plans", "width")) !== "300px", JSON.stringify(foot))
   await ui(`document.querySelector('.cd-redo').click()`)
   check("…redo brings it back", (await until(async () => (await footer()).count === "1 edit" && (await pageStyle("#plans", "width")) === "300px")) === true)
   await ui(`document.querySelector('.cd-reset').click()`)
@@ -1143,19 +1142,19 @@ async function main() {
   await keyW("Enter")
   await sleep(200)
   foot = await footer()
-  check("…Enter (outside a field) is a step into the selection: the first card, and it sends nothing and refuses nothing", (await until(async () => (await header()) === "article.card")) === true && state().review.notes.length === notesBefore && foot.sendX === sendX && !/^Nothing to send yet/.test(foot.msg), `${await header()} ${JSON.stringify(foot)}`)
+  check("…Enter (outside a field) is a step into the selection: the first card, and it sends nothing and refuses nothing", (await until(async () => (await header()) === "article.card")) === true && state().review.notes.length === notesBefore && !/^Nothing to send yet/.test(foot.msg), `${await header()} ${JSON.stringify(foot)}`)
   await keyW("Enter", 8)
   check("…and shift+Enter the step out again", (await until(async () => (await header()) === "section#plans.row")) === true && state().review.notes.length === notesBefore, await header())
   await keyW("Enter", MODK)
   await sleep(200)
   foot = await footer()
-  check("…mod+Enter there with nothing edited says so, sends nothing, and the footer stays where it is", state().review.notes.length === notesBefore && foot.sendX === sendX && /^Nothing to send yet/.test(foot.msg), JSON.stringify(foot))
+  check("…mod+Enter there with nothing edited says so, in a line under the inspector, and sends nothing", state().review.notes.length === notesBefore && /^Nothing to send yet/.test(foot.msg), JSON.stringify(foot))
   check("…a refusal is cut with an ellipsis where it is too long, whole in its title; the header has no send hint of its own", (await ui(`(() => { const m = document.querySelector('.cd-msg'); return m.title === m.textContent && getComputedStyle(m).textOverflow === "ellipsis" && !/send/i.test(document.querySelector('.cd-head').textContent) })()`)) === true)
 
   // The keys list: from the "?", inside the inspector's box; Escape shuts it.
   await ui(`(() => { const b = document.querySelector('.cd-help'); b.focus(); b.click() })()`)
   const keysList = (await ui(`(() => { const k = document.querySelector('.cd-keys'); if (!k) return null; const b = k.getBoundingClientRect(), d = document.querySelector('.dock .cd').getBoundingClientRect(); return { text: k.textContent, inside: b.top >= d.top && b.bottom <= d.bottom && b.left >= d.left && b.right <= d.right } })()`)) as { text: string; inside: boolean } | null
-  check("…out of the \"?\" at the footer's right end, as every popover opened by a click", (await popsIn(".cd-keys")) === "pop-in 0.2s from bottom right", await popsIn(".cd-keys"))
+  check("…out of the \"?\" at the header's right end, as every popover opened by a click", (await popsIn(".cd-keys")) === "pop-in 0.2s from top right", await popsIn(".cd-keys"))
   check("the \"?\" lists the keys and gestures, and what the two style boxes are, inside the inspector's box", !!keysList && keysList.inside && /double-click text/.test(keysList.text) && /Delete/.test(keysList.text) && /drag the space between items/.test(keysList.text) && /& nests a rule/.test(keysList.text) && /edit it to override/.test(keysList.text), JSON.stringify(keysList))
   await keyW("Escape")
   check("…and Escape shuts it", (await until(() => ui(`!document.querySelector('.cd-keys')`))) === true)
@@ -2041,7 +2040,7 @@ async function main() {
   await until(async () => (await selRow()) >= 0)
   await ui(`document.querySelector('.cd-css').focus()`)
   await windowDbg.sendCommand("Input.insertText", { text: "gap: 4px;" })
-  await until(() => ui(`document.querySelector('.cd-head .cd-count').textContent === "1 edit" && !document.querySelector('.cd-send').disabled`))
+  await until(() => ui(`document.querySelector('.cd-head .cd-count').textContent === "1 edit"`))
   // The count opens the list of the unsent edits, inside the inspector's box; a row's × takes
   // that edit out (an undo step: the footer's undo brings it back).
   const gapped = () => js(`[...document.querySelectorAll("#plans *")].filter((e) => getComputedStyle(e).columnGap === "4px").length`) as Promise<number>

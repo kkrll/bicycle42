@@ -1018,7 +1018,13 @@
   grid-template-areas: "note send";
 }
 
+/* Both lists open under the header now, out of the count and the "?" at its right. */
 .cd-edits {
   left: auto;
   right: 8px;
+  transform-origin: top right;
+}
+
+.cd-keys {
+  transform-origin: top right;
 }
