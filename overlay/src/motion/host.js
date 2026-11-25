@@ -34,11 +34,12 @@ import { draftChanged } from "../draft.js";
 import { setMode } from "../mode.js";
 import { kick } from "../render.js";
 import { apply, clamp, COUNT, DIRECTION, EASINGS, editKf, FILL, frames, HOW, M, name, openDirty, openKf, openUse, pathOf, PROPS, r1, RATE_TEXT, RATES, readOnly } from "./model.js";
-import { animOf, applyScript, knownNames, newAnimation, position, reveal, running, seek, selectEl, setState, toggle, useKf, waiting } from "./open.js";
+import { addTrigger, animOf, applyScript, knownNames, newAnimation, position, removeTrigger, reveal, running, seek, selectEl, setState, toggle, useKf, waiting } from "./open.js";
 import { addKey, addLane, commit, cssText, detach, discard, keyInfo, laneOrder, moveKey, playTogether, removeKey, removeLane, rowNow, rows, score, segEase, setCss, setKey, setName, setStagger, setTiming, sharedBy, timing, travel } from "./edit.js";
 import { submit } from "./send.js";
 import { draw, flash, sentStatus } from "./draw.js";
 import { go, restage } from "./stage.js";
+import { record } from "./record.js";
 
 // ── the view ─────────────────────────────────────────────────────────────────────────────
 const ROW = ["id", "kind", "text", "aside", "duration", "on", "sub", "last", "off", "running", "dirty"];
@@ -116,6 +117,9 @@ function openView() {
     timed: true,
     states: o.kind === "transition" ? M.ro.states.map((s) => s.label) : [],
     state: o.kind === "transition" && M.ro.state ? M.ro.state.label : null,
+    triggers: o.kind === "transition" ? M.ro.states.filter((s) => s.trigger).map((s) => s.label) : [],
+    above: o.kind === "transition" ? M.ro.above : [],
+    recording: !!M.rec,
     renamable: !!(k && k.isNew),
     removable: !!(u && u.isNew),
     shared: sharedBy(),
@@ -132,7 +136,7 @@ function openView() {
       if (own.length && own[own.length - 1].at < 100 && to !== undefined) (keys.push({ at: 100, value: to, implied: true }), eases.push(segEase(own[own.length - 1].at, p)));
       return { prop: p, keys, eases };
     }),
-    key: ki && { at: ki.at, prop: ki.prop, value: ki.value === null || ki.value === undefined ? null : String(ki.value), ease: ki.ease, dflt: ki.dflt, last: ki.last, props: Object.keys(ki.f.vals).length },
+    key: ki && { at: ki.at, prop: ki.prop, value: ki.value === null || ki.value === undefined ? null : String(ki.value), ease: ki.ease, dflt: ki.dflt, last: ki.last, editable: ki.editable, props: Object.keys(ki.f.vals).length },
     score: score().map(({ id, text, name, delay, duration, on }) => ({ id, text, name, delay, duration, on })),
     seen: o.kind === "frames" ? M.ro.seen : null,
     css: cssText(),
@@ -274,6 +278,11 @@ const ACTS = {
     setState(str(a.value));
     draw();
   },
+  trigger(a) {
+    if (!addTrigger(str(a.text), str(a.on))) draw();
+  },
+  record: (a) => record(!!a.on),
+  untrigger: (a) => removeTrigger(str(a.value)),
   go: (a) => go(+a.by < 0 ? -1 : 1),
   undo: () => travel(M.past, M.future),
   redo: () => travel(M.future, M.past),

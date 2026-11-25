@@ -203,6 +203,7 @@ const SHOTS = [
   { name: "phone-motion-dock-narrow", mock: "review", query: "&device=phone&docks=motion&mode=motion", size: [1000, 720], report: TRACKS },
   { name: "dock-more", mock: "review", query: "&docks=motion&mode=motion", run: [click('.mdock-hd [aria-label="More"]')], wait: 400, report: TRACKS },
   // Under a page in a narrow window: what is open, with a way back to the list.
+  { name: "dock-trigger", mock: "review", query: "&docks=motion&mode=motion", run: [`[...document.querySelectorAll(".mdock-row")].find((r) => r.textContent.includes("Book a demo")).click()`, pause(300), click(".mdock-addt")], wait: 500, report: TRACKS },
   { name: "dock-narrow", mock: "review", query: "&docks=motion&mode=motion", size: [1000, 720], report: TRACKS },
   // What a script moves frame by frame, opened: what was seen of it, in place of a timeline.
   { name: "dock-frames", mock: "review", query: "&docks=motion&mode=motion", run: [click("[data-row^=frames]")], wait: 400 },

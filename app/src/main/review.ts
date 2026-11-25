@@ -311,6 +311,16 @@ export function pageMotion(raw: unknown): Motion | undefined {
     const next = line(raw.next, MAX_ANIMATION), state = kind === "transition" ? line(raw.state, MAX_ANIMATION) : undefined
     if (next) out.next = next
     if (state) out.state = state
+    if (state && (raw.stateBy === "named" || raw.stateBy === "recorded")) out.stateBy = raw.stateBy
+    if (kind === "transition") {
+      const values: NonNullable<Motion["values"]> = []
+      for (const c of Array.isArray(raw.values) ? raw.values.slice(0, 20) : []) {
+        if (!isObj(c)) continue
+        const [when, prop, was, now] = [line(c.state, MAX_NAME), line(c.prop, 41), line(c.from, MAX_VALUE * 2), line(c.to, MAX_VALUE * 2)]
+        if (when && prop && /^-{0,2}[a-z][a-z-]*$/.test(prop) && was !== undefined && now) values.push({ state: when, prop, from: was, to: now })
+      }
+      if (values.length) out.values = values
+    }
     const keys = kind === "script" ? pair(raw.keyframes, (v) => typedCss(v, MAX_KEYFRAMES)) : null
     if (keys === undefined) return
     if (keys) out.keyframes = keys

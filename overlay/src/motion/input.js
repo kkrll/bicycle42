@@ -21,7 +21,9 @@ import { root } from "../mount.js";
 export let tagEl = null;
 
 // ── the page's pointer ───────────────────────────────────────────────────────────────────
+// (While a trigger is recorded the page is used as it is: what is pressed and typed is its own.)
 export function pointerDown(e) {
+  if (M.rec) return;
   if (S.pending) return block(e); // the screenshot is being taken: nothing new until it is
   block(e);
   if (e.button !== 0) return;
@@ -33,10 +35,10 @@ export function pointerDown(e) {
 }
 /** A press let go on the page is kept from it, as the press was. */
 export function pointerUp(e) {
-  if (!isOurs(e)) block(e);
+  if (!isOurs(e) && !M.rec) block(e);
 }
 export function pointerMove(e) {
-  if (isOurs(e)) {
+  if (isOurs(e) || M.rec) {
     if (M.hover) {
       M.hover = null;
       kick();
@@ -54,6 +56,7 @@ export function pointerMove(e) {
  *  its own (space plays, ←/→ step, ↑/↓ the one before and the next, Delete, mod+Z, Enter sends,
  *  Esc steps back). */
 export function key(e) {
+  if (M.rec) return;
   if (mod(e) && e.key.toLowerCase() === "z") {
     block(e);
     return e.shiftKey ? travel(M.future, M.past) : travel(M.past, M.future);

@@ -125,7 +125,7 @@ function mount() {
     window.addEventListener(t, (e) => isOurs(e) && e.stopImmediatePropagation(), true);
 
   cursorStyle = document.createElement("style");
-  cursorStyle.textContent = "html[data-b42-review], html[data-b42-review] * { cursor: crosshair !important; }";
+  cursorStyle.textContent = "html[data-b42-review]:not([data-b42-using]), html[data-b42-review]:not([data-b42-using]) * { cursor: crosshair !important; }";
   (document.head || document.documentElement).appendChild(cursorStyle);
 
   const opts = { capture: true, passive: false };

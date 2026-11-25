@@ -1,5 +1,6 @@
 import { adopt, BOOST, plainLabel, SKIP, unique } from "../page.js";
 import { hostEl, root } from "../mount.js";
+import { wear } from "./trigger.js";
 
 // ── motion mode ─────────────────────────────────────────────────────────────────────────────
 // The reviewer looks at what moves on the page and changes it: an animation's keyframes, and
@@ -46,6 +47,10 @@ export const M = {
   sel: null, selRs: "", hover: null,
   kf: new Map(), // name → { name, frames: [{ at, ease, vals: { prop: value } }], orig, isNew }
   tr: new Map(), // an element's transition as changed here: selector → { rs, items: [{ prop, duration, delay, easing }], orig: the page's items, as JSON }
+  sv: new Map(), // what a state of a transition is changed to: "selector|state" → { rs, label, state (in words), sel, vals: { prop: { was, to } } }
+  trig: new Map(), // what switches an element's transition, as the reviewer named it: selector → [{ label, on, kind, name, value?, alt?, by }] (trigger.js)
+  rec: null, // a recording of what starts the open transition, while it is on (record.js)
+  worn: null, // the trigger that is on the page while its state is played: { t, at, undo }
   use: new Map(), // "selector|name" → { rs, name, timing, orig, plays: { how, words }, base, index, isNew, from? }
   open: null, // what is open: { kind: "css" | "script" | "transition" | "frames", rs, name }
   ro: null, // for the kinds that are not rules: { frames, timing?, laneEase?, state?, total?, on?, items?, seen?; a script's: see readScript }
@@ -223,6 +228,10 @@ export function readList(el) {
 export const kfDirty = (k) => !!k && (k.isNew || serialize(k.name, k.frames) !== k.orig);
 export const useDirty = (u) => !!u && (u.isNew || !!u.from || JSON.stringify(u.timing) !== JSON.stringify(u.orig));
 export const trDirty = (t) => !!t && JSON.stringify(t.items) !== t.orig;
+/** The states of the element's transition whose values were changed. */
+export const svOf = (rs) => [...M.sv.values()].filter((s) => s.rs === rs);
+export const svCss = (s) => `${splitTop(s.sel).map((x) => `${x}${BOOST}`).join(", ")} { ${svDecls(s)} }`;
+const svDecls = (s) => Object.entries(s.vals).map(([p, v]) => `${p}: ${v.to};`).join(" ");
 export const trCss = (items) => items.map((x) => `${x.prop} ${ms(x.duration)} ${x.easing}${x.delay ? ` ${ms(x.delay)}` : ""}`).join(", ");
 export const playsDirty = (u) => !!u && (u.plays.how !== "asnow" || !!u.plays.words.trim());
 export const openKf = () => (M.open && M.open.kind === "css" ? M.kf.get(M.open.name) : null);
@@ -238,10 +247,10 @@ export const scriptDirty = () => {
 };
 export const readOnly = () => !!M.open && M.open.kind !== "css" && !openScr();
 /** Anything unsent: an edit, or how it starts. */
-export const anyDirty = () => [...M.kf.values()].some(kfDirty) || [...M.use.values()].some((u) => useDirty(u) || playsDirty(u)) || [...M.tr.values()].some(trDirty);
+export const anyDirty = () => [...M.kf.values()].some(kfDirty) || [...M.use.values()].some((u) => useDirty(u) || playsDirty(u)) || [...M.tr.values()].some(trDirty) || M.sv.size > 0;
 /** The open animation has something to send. */
 export const openDirty = () => {
-  if (M.open && M.open.kind === "transition") return trDirty(M.tr.get(M.open.rs));
+  if (M.open && M.open.kind === "transition") return trDirty(M.tr.get(M.open.rs)) || svOf(M.open.rs).length > 0;
   if (M.open && M.open.kind === "script") return scriptDirty();
   const u = openUse();
   return !!u && (useDirty(u) || playsDirty(u) || kfDirty(openKf()));
@@ -264,11 +273,16 @@ function rulesText() {
     out.push(`${rs}${BOOST} { animation: ${entries.filter(Boolean).map(entryCss).join(", ")}; }`);
   }
   for (const t of M.tr.values()) if (trDirty(t)) out.push(`${t.rs}${BOOST} { transition: ${trCss(t.items)}; }`);
-  if (M.on && M.ro && M.ro.on && M.ro.state) out.push(`${M.open.rs}${BOOST} { ${M.ro.state.css} }`);
+  for (const s of M.sv.values()) out.push(svCss(s));
+  if (M.on && M.ro && M.ro.on && M.ro.state) {
+    const s = M.sv.get(`${M.open.rs}|${M.ro.state.label}`);
+    out.push(`${M.open.rs}${BOOST} { ${M.ro.state.css}${s ? `; ${svDecls(s)}` : ""} }`);
+  }
   if (M.on && M.isolate && M.selRs) out.push(`body *:not(${M.selRs}, ${M.selRs} *) { visibility: hidden !important; }`, `${M.selRs} { visibility: visible !important; }`, M.stageCss);
   return out.join("\n");
 }
 export function apply() {
+  wear();
   const text = rulesText();
   if (!M.sheet) {
     if (!text) return;

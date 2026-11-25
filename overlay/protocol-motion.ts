@@ -55,8 +55,9 @@ export type MotionLane = { prop: string; keys: Array<{ at: number; value: string
 
 /** The selected keyframe: one property's (`prop`), or the whole keyframe (`prop` null, then
  *  `value` is null and `props` says how many properties it sets). `ease` is its own easing, ""
- *  for the animation's (`dflt`); the last keyframe has none (`last`). `at` in % of the keyframes. */
-export type MotionKey = { at: number; prop: string | null; value: string | null; ease: string; dflt: string; last: boolean; props: number }
+ *  for the animation's (`dflt`); the last keyframe has none (`last`). `at` in % of the keyframes.
+ *  `editable`: its value may be changed (a transition's: where its state's lane ends). */
+export type MotionKey = { at: number; prop: string | null; value: string | null; ease: string; dflt: string; last: boolean; editable: boolean; props: number }
 
 /** What was seen of an element a script moves frame by frame: the inline properties that
  *  changed, each with what it was seen to be ("translateX(0…40px)": the numbers that changed,
@@ -70,7 +71,8 @@ export type MotionOpen = {
   kind: "css" | "script" | "transition" | "frames"
   /** The keyframes' name (a script's animation id; "transition"). */
   name: string
-  /** A transition, or what a script moves frame by frame: there are no keyframes to edit. */
+  /** A transition, or what a script moves frame by frame: there are no keyframes to edit (but a
+   *  transition's state, `editable` in MotionKey). */
   readOnly: boolean
   /** Its duration, delay and easing may be changed (a transition's too: of all its properties
    *  at once). */
@@ -80,6 +82,13 @@ export type MotionOpen = {
    *  what changes it. */
   states: string[]
   state: string | null
+  /** Those of `states` that are triggers the reviewer named or recorded: they can be taken away. */
+  triggers: string[]
+  /** Where else than on the element a trigger may be: a few of its parents, nearest first, then
+   *  the body and the root (its words, and the element as the code has it: "section.hero"). */
+  above: Array<{ path: string; text: string; aside: string }>
+  /** What starts the transition is being recorded: the page is used as it is meanwhile. */
+  recording: boolean
   /** Keyframes made here: their name may be changed (the page's own keep theirs, the code uses it). */
   renamable: boolean
   /** A new animation on the element: "Remove" takes it off again. */
@@ -197,6 +206,14 @@ export type MotionAct =
   | { type: "together" }
   /** A transition looked at in another of its `states`. */
   | { type: "state"; value: string }
+  /** What switches a transition, as the reviewer names it: ".open", "[data-state=open]" or ":hover",
+   *  on the element (`on` empty) or on one of the parents in `above` (its path). It is one of the
+   *  states then; taken away by what it is called there. */
+  | { type: "trigger"; text: string; on: string }
+  | { type: "untrigger"; value: string }
+  /** Recording what starts the transition: on, the pointer and the keys are the page's, and changes
+   *  of classes, attributes and styles are noted; off, what started it is a trigger. */
+  | { type: "record"; on: boolean }
   /** The next thing that moves (1) or the one before (-1), opened; round at the ends. */
   | { type: "go"; by: 1 | -1 }
   | { type: "undo" }

@@ -985,7 +985,11 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   (a chip beside Play says it too and fills meanwhile); it is dragged by its band or its end's edge, or by the keyframes' heading
   (the whole block), to 10 ms, with mod to the ms, the edge under the pointer though the line grows, and goes as the Delay field's
   value does, one undo step a drag (a transition's properties keep how much later they are than the first); a transition has its states as chips
-  (found in the page's rules: hover, active, a class or attribute, a parent's) and its duration, delay and easing may be changed,
+  (found in the page's rules: hover, active, a class or attribute, a parent's), and beside them the triggers the reviewer names
+  (`.open`, `[data-state=open]`, `:hover`, on the element or a parent: a class or an attribute is really on the page while the state
+  is played, and only then; `overlay/src/motion/trigger.js`) or records (while "Record" is on the pointer and the keys are the
+  page's, and what changed just before the transition ran is tried to find which change started it; `record.js`), what a state changes a property to may be changed (the
+  last keyframe of its lane: a rule of the state's own selector), and its duration, delay and easing may be changed,
   of all its properties at once; what moves beside the open animation is drawn "Together", a bar an element on one line of time
   (a bar dragged is that element's delay, opened or not: its row has the dot, and it is sent when it is opened),
   with a Play that starts them all again; a script's animation is written out as its animate() call under "Code" (the second tab,

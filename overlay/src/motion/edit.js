@@ -5,14 +5,15 @@ import { adopt, BOOST, editSel } from "../page.js";
 import { kick } from "../render.js";
 import { treeVersion } from "../mount.js";
 import { draftChanged } from "../draft.js";
-import { apiName, apply, DIRECTION, editKf, FILL, frames, HOW, kfDirty, M, MAX_KF, mq, name, openKf, openScr, openUse, parseKf, pathOf, playsDirty, r1, readList, scan, scriptDirty, serialize, splitTop, trCss, trDirty, useDirty } from "./model.js";
+import { apiName, apply, DIRECTION, editKf, FILL, frames, HOW, kfDirty, M, MAX_KF, mq, name, openKf, openScr, openUse, parseKf, pathOf, playsDirty, r1, readList, scan, scriptDirty, serialize, splitTop, svOf, trCss, trDirty, useDirty } from "./model.js";
 import { animOf, applyScript, layout, openCss, openScript, openTransition, resetScript, seek, syncTransition, useKf, useOf } from "./open.js";
 import { draw, drawList, flash } from "./draw.js";
 import { near, nearAgain, nearDue } from "./near.js";
 import { openFrames } from "./frames.js";
+import { triggerWords } from "./trigger.js";
 
 // ── undo ─────────────────────────────────────────────────────────────────────────────────
-export const snapshot = () => JSON.stringify({ kf: [...M.kf], use: [...M.use], tr: [...M.tr], sc: openScr() && (({ id, timing, frames }) => ({ id, timing, frames }))(M.ro), open: M.open && M.open.kind === "css" ? M.open : null });
+export const snapshot = () => JSON.stringify({ kf: [...M.kf], use: [...M.use], tr: [...M.tr], sv: [...M.sv], trig: [...M.trig], sc: openScr() && (({ id, timing, frames }) => ({ id, timing, frames }))(M.ro), open: M.open && M.open.kind === "css" ? M.open : null });
 export function commit() {
   const now = snapshot();
   if (now !== M.snap) {
@@ -35,6 +36,8 @@ export function travel(from, to) {
   M.kf = new Map(s.kf);
   M.use = new Map(s.use);
   M.tr = new Map(s.tr || []);
+  M.sv = new Map(s.sv || []);
+  M.trig = new Map(s.trig || []);
   syncTransition();
   // (A step of another reading of it, or of another animation, says nothing of this one.)
   if (openScr() && s.sc && s.sc.id === M.ro.id) {
@@ -54,6 +57,7 @@ export function travel(from, to) {
 export function discard() {
   if (M.open && M.open.kind === "transition") {
     M.tr.delete(M.open.rs);
+    for (const s of svOf(M.open.rs)) M.sv.delete(`${s.rs}|${s.label}`);
     syncTransition();
     return commit();
   }
@@ -217,10 +221,35 @@ export function keyInfo() {
   const ro = !editKf();
   const t = timing();
   const ease = (M.ro && M.ro.laneEase && selKey.prop ? M.ro.laneEase[selKey.prop] : f.ease) || "";
-  return { f, at: f.at, prop: selKey.prop, value: selKey.prop ? f.vals[selKey.prop] : null, ease, dflt: o.kind === "script" ? "linear" : t ? t.easing : "", last: f.at >= 100 || o.kind === "transition", ro };
+  return { f, at: f.at, prop: selKey.prop, value: selKey.prop ? f.vals[selKey.prop] : null, ease, dflt: o.kind === "script" ? "linear" : t ? t.easing : "", last: f.at >= 100 || o.kind === "transition", ro, editable: !ro || (o.kind === "transition" && endOf(selKey.prop) === f.at) };
+}
+/** Where the lane of a transition's property ends: the state's value, which may be changed. -1 when
+ *  it may not (no state, or one nothing on the page can say). */
+function endOf(prop) {
+  if (!prop || !M.ro || !M.ro.state || !M.ro.state.sel) return -1;
+  const own = frames().filter((f) => prop in f.vals);
+  return own.length > 1 ? own[own.length - 1].at : -1;
+}
+/** What the open state changes a property to, changed: said where the page's rules say the state. */
+function setStateValue(v, done) {
+  const o = M.open, ro = M.ro, selKey = M.key, prop = selKey && selKey.prop;
+  if (!o || !ro || !prop || endOf(prop) !== selKey.at) return false;
+  v = String(v).trim().replace(/\s+/g, " ");
+  if (!v || v.length > 120 || !CSS.supports(prop, v)) return false;
+  const st = ro.state, id = `${o.rs}|${st.label}`, mine = M.sv.get(id);
+  const was = mine && mine.vals[prop] ? mine.vals[prop].was : ro.vals.to[prop];
+  const vals = { ...(mine ? mine.vals : {}), [prop]: { was, to: v } };
+  if (v === was) delete vals[prop];
+  if (Object.keys(vals).length) M.sv.set(id, { rs: o.rs, label: st.label, state: st.trigger ? triggerWords(st.trigger, st.off) : st.label, sel: mine ? mine.sel : st.sel, vals });
+  else M.sv.delete(id);
+  layout();
+  apply();
+  if (done) commit();
+  return true;
 }
 /** One field of the selected keyframe: "val", "ease" or "at". False when the browser says no. */
 export function setKey(what, v, done) {
+  if (M.open && M.open.kind === "transition") return what === "val" && setStateValue(v, done);
   const k = editKf(), selKey = M.key;
   if (!k || !selKey) return false;
   const fr = k.frames.find((x) => x.at === selKey.at);
@@ -606,7 +635,7 @@ export function rowNow(r) {
   } else if (r.kind === "transition") {
     now.on = !!o && o.kind === "transition" && !!r.path && o.rs === r.path;
     const t = r.path ? M.tr.get(r.path) : null;
-    now.dirty = r.path ? trDirty(t) : r.els.some((el) => trDirty(M.tr.get(pathOf(el))));
+    now.dirty = r.path ? trDirty(t) || svOf(r.path).length > 0 : r.els.some((el) => trDirty(M.tr.get(pathOf(el))) || (M.sv.size > 0 && svOf(pathOf(el)).length > 0));
     if (t && trDirty(t)) now.duration = Math.max(...t.items.map((x) => x.duration));
   }
   else if (r.kind === "script") {

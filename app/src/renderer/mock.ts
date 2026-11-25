@@ -1501,6 +1501,9 @@ const MOTION: MotionView = {
     timed: true,
     states: [],
     state: null,
+    triggers: [],
+    above: [],
+    recording: false,
     renamable: false,
     removable: false,
     shared: 2,
@@ -1513,7 +1516,7 @@ const MOTION: MotionView = {
       { prop: "opacity", keys: [{ at: 0, value: "0" }, { at: 60, value: "1" }, { at: 100, value: "1", implied: true }], eases: ["", ""] },
       { prop: "transform", keys: [{ at: 0, value: "translateY(18px)" }, { at: 100, value: "none" }], eases: [""] },
     ],
-    key: { at: 60, prop: "opacity", value: "1", ease: "", dflt: RISE.easing, last: false, props: 1 },
+    key: { at: 60, prop: "opacity", value: "1", ease: "", dflt: RISE.easing, last: false, editable: true, props: 1 },
     css: "@keyframes rise {\n  0% { opacity: 0; transform: translateY(18px); }\n  60% { opacity: 1; }\n  100% { transform: none; }\n}",
     score: [
       { id: "a", text: "Ship calmer interfaces", name: "rise", delay: 240, duration: 900, on: true },
@@ -1545,6 +1548,36 @@ const MOTION: MotionView = {
     fill: [["none", "None", "Before it starts and after it ends, the element looks as it does without it"], ["forwards", "Hold end", "After it ends, it stays on the last keyframe"], ["backwards", "Hold start", "During the delay, it waits on the first keyframe"], ["both", "Hold both", "Waits on the first keyframe, stays on the last"]],
     rates: [[1, "1×"], [0.5, "½×"], [0.25, "¼×"], [0.1, "⅒×"]],
   },
+}
+
+/** The button's transition, opened by its row: two states the page's CSS says, and one named. */
+const TRANSITION: NonNullable<MotionView["open"]> = {
+  ...MOTION.open!,
+  kind: "transition",
+  name: "transition",
+  readOnly: true,
+  states: ["hover", "active", ".open on section.hero"],
+  state: ".open on section.hero",
+  triggers: [".open on section.hero"],
+  above: [
+    { path: "section > div", text: "Start free trial Book a demo", aside: "div.cta" },
+    { path: "section", text: "Ship calmer interfaces", aside: "section.hero" },
+    { path: "body", text: "body", aside: "body" },
+    { path: "html", text: "html", aside: "html" },
+  ],
+  shared: 1,
+  timing: { duration: 180, delay: 0, easing: "ease", count: "1", direction: "normal", fill: "none" },
+  starts: null,
+  T: 180,
+  frames: [0, 100],
+  lanes: [
+    { prop: "background-color", keys: [{ at: 0, value: "rgb(233, 233, 236)" }, { at: 100, value: "rgb(207, 207, 214)" }], eases: ["ease"] }, // kkrll-ignore: the page's colours, as data
+    { prop: "translate", keys: [{ at: 0, value: "none" }, { at: 100, value: "0px 8px" }], eases: ["ease"] },
+  ],
+  key: null,
+  css: "button.ghost {\n  transition: background-color 180ms ease,\n    translate 180ms ease;\n}",
+  score: [],
+  dirty: false,
 }
 
 /** A few of the dock's acts, done to the sample view; the rest change nothing. */
@@ -1609,6 +1642,11 @@ function motionAct(a: PanelAct, out: (m: PanelMessage) => void): void {
   else if (act.type === "loop") MOTION.loop = act.on
   else if (act.type === "isolate") MOTION.isolate = act.on
   else if (act.type === "backdrop") MOTION.backdrop = act.value
+  else if (act.type === "row" && act.id.startsWith("transition")) MOTION.open = structuredClone(TRANSITION)
+  else if (act.type === "state") o.state = act.value
+  else if (act.type === "record") o.recording = act.on
+  else if (act.type === "trigger") (o.states.push(act.text), o.triggers.push(act.text), (o.state = act.text))
+  else if (act.type === "untrigger") (o.states = o.states.filter((s) => s !== act.value), o.triggers = o.triggers.filter((s) => s !== act.value), (o.state = o.states[0] ?? null))
   else if (act.type === "play") MOTION.clock.playing = !MOTION.clock.playing
   else if (act.type === "seek") MOTION.clock.pos = act.p
   else if (act.type === "note") MOTION.note = act.text
@@ -1616,7 +1654,7 @@ function motionAct(a: PanelAct, out: (m: PanelMessage) => void): void {
   else if (act.type === "select") {
     const lane = act.key && o.lanes.find((l) => l.prop === act.key!.prop)
     const k = act.key && lane?.keys.find((x) => x.at === act.key!.at)
-    o.key = act.key && k ? { at: k.at, prop: lane!.prop, value: k.value, ease: "", dflt: o.timing.easing, last: k.at >= 100, props: 1 } : null
+    o.key = act.key && k ? { at: k.at, prop: lane!.prop, value: k.value, ease: "", dflt: o.timing.easing, last: k.at >= 100, editable: o.kind !== "transition" || k.at >= 100, props: 1 } : null
   } else if (act.type === "row" && act.id.startsWith("frames|")) {
     // (What a script moves frame by frame, opened: what was seen of it.)
     for (const r of MOTION.rows) if ("id" in r) r.on = r.id === act.id
