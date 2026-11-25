@@ -3532,6 +3532,70 @@ details[open] > summary > .caret {
   user-select: text;
 }
 
+/* What a view has unsent and this message takes with it (store.ts, offerPending): chips over the
+   words, each taken out with its ×. */
+.composer-pending {
+  display: flex;
+  flex-wrap: wrap-reverse;
+  gap: 2px;
+  max-height: 86px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  /* On the box's top edge, as tabs on a folder: the gap under the tabs is the box's own border. */
+  margin: 0 0 -7px;
+  padding: 0 6px;
+  position: relative;
+  z-index: 1;
+}
+
+/* The box under tabs: its top left corner square, where the first tab stands. */
+.composer-box.tabbed {
+  border-top-left-radius: 0;
+}
+
+.composer-pending {
+  padding-left: 0;
+}
+
+.pending-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--background-05);
+  border-bottom-color: var(--background);
+  border-radius: 6px 6px 0 0;
+  background: var(--background);
+  font-family: var(--font-mono);
+  font-size: var(--text-control);
+}
+
+.pending-chip:has(.pending-x) {
+  padding-right: 0;
+}
+
+.pending-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-swatch {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--c);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+
+.pending-x {
+  color: var(--muted);
+}
+
 .composer-images {
   display: flex;
   flex-wrap: wrap;

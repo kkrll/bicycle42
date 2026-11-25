@@ -19,14 +19,16 @@ export type { Dock, PanelAct, Pane }
 export type PanelMessage = PanelView | PanelPart | { panel: Pane; pong: number }
 
 /** The panes the window draws. A dock the overlay still draws itself is not in the list. */
-export const HOSTED_PANES: readonly Pane[] = ["canvas", "motion", "facts"]
+export const HOSTED_PANES: readonly Pane[] = ["canvas", "motion", "facts", "tokens"]
 
 /** What the page is shown as. "phone": as wide as the chosen phone's screen and at most as tall
  *  (CSS px), laid out as a phone's browser lays it out (the page's viewport tag counts,
  *  scrollbars take no room). In Preview the pointer is a finger (no hover, taps, a coarse
  *  pointer, main/page.ts setTouch); in the other modes it stays a mouse, which the overlay's
- *  gestures are made for. */
-export type Device = "desktop" | "phone"
+ *  gestures are made for. "ds": not the page but its design system, the variables its
+ *  stylesheets declare, drawn by the window where the page was (renderer/ds-space.tsx); the page
+ *  itself is laid out as a desktop's meanwhile, and not shown. */
+export type Device = "desktop" | "phone" | "ds"
 
 /** What is cut out of the top of a phone's screen for its camera: an iPhone's Dynamic Island, an
  *  older iPhone's notch, an Android's punch-hole (in the middle), or nothing (a phone with a

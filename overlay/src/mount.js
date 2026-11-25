@@ -11,6 +11,7 @@ import { hostAct, setHosted } from "./panel.js";
 import { blockIfActive, endPeek, isOurs, LEFT_FOR_US, leftForUs, onKeyDown, onKeyUp, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, OURS_ONLY, oursOnly, setEnabled, setPins } from "./input.js";
 import { active, kick, moved } from "./render.js";
 import { setDevice } from "./device.js";
+import "./tokens/host.js"; // the page's variables, for the host's view of them
 import STYLES from "./styles.css"; // its text: the build loads a stylesheet as a string
 
 // ── mount ───────────────────────────────────────────────────────────────────────────────────

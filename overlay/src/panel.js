@@ -8,7 +8,7 @@ import { send } from "./state.js";
 // and nowhere else: a mode asks (hosted) wherever it would send a view.
 // "facts" (facts/host.js) is a pane of the host's that is no mode's dock: the layer never draws
 // it, and only the host's asking makes it work.
-const PANES = ["canvas", "motion", "facts"];
+const PANES = ["canvas", "motion", "facts", "tokens"];
 const HOSTED = new Set();
 /** A pane's handler for what the host's pane asks: name → fn(act). */
 const ACTS = {};

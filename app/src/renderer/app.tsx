@@ -11,6 +11,7 @@ import { For, Match, Show, Switch, batch, createEffect, createMemo, createSignal
 import { PHONES, phoneOf, type CaptureKind, type Device, type Rect, type ReviewMode, type Shortcut } from "../shared/types"
 import { sizeOf } from "../shared/wire"
 import { DockRegion, PhoneAside, dockShown } from "./dock"
+import { DsSpace } from "./ds-space"
 import { copyText } from "./copy"
 import { CAPTURES, ConnectScreen, ModelScreen, ServerButton, SettingsDialog, SetupSteps, firstRunConnecting } from "./connect"
 import { Icon, Kbd, type IconName } from "./icons"
@@ -32,7 +33,7 @@ import {
   expandNotes,
   setFocusedNote,
   setNotice,
-  state, pageCovered, message, switcherOpen, setSwitcherOpen } from "./store"
+  state, pageCovered, message, switcherOpen, setSwitcherOpen, setPanelUp } from "./store"
 
 const PANEL_MIN = 320
 const PANEL_DEFAULT = 400
@@ -282,10 +283,12 @@ function ModeSwitch(props: { disabled: boolean; stacked: boolean; ref: (el: HTML
   )
 }
 
-/** Desktop | Phone, beside the address: how the page is shown (Device in shared/types.ts). */
+/** Desktop | Phone | Design system, beside the address: how the page is shown, or its variables
+ *  in its place (Device in shared/types.ts). */
 const DEVICES: { device: Device; label: string; icon: IconName; what: () => string }[] = [
   { device: "desktop", label: "Desktop", icon: "desktop", what: () => "The page as on a desktop: as wide as its pane" },
   { device: "phone", label: "Phone", icon: "phone", what: () => `The page as on a phone: ${phoneOf(state.page.phone).width} px wide` },
+  { device: "ds", label: "Design system", icon: "tokens", what: () => "The page's design system: its variables, to see and change" },
 ]
 
 function DeviceSwitch(props: { disabled: boolean }) {
@@ -769,7 +772,9 @@ export function App() {
   }
   const canStart = () => state.connection.status === "online" && !!state.session && !state.startingSite
   // A page that failed to load is replaced by a card saying so, in the same place.
-  const pageHidden = () => setup() || settings() || settingsLeaving() || keysOpen() || !!switcherOpen() || resizing() || state.page.url === "" || loadFailed() || pageCovered()
+  /** Not the page but its design system, where the page was (ds-space.tsx). */
+  const ds = () => state.page.device === "ds" && state.page.url !== "" && !loadFailed()
+  const pageHidden = () => ds() || setup() || settings() || settingsLeaving() || keysOpen() || !!switcherOpen() || resizing() || state.page.url === "" || loadFailed() || pageCovered()
   /** The page is away for a moment: a dialog over the window, or an edge being dragged. */
   const veiled = () => settings() || settingsLeaving() || keysOpen() || !!switcherOpen() || resizing()
 
@@ -949,6 +954,8 @@ export function App() {
   // do without; else the panel and the page, and what the column says of the page waits.
   const crowded = () => phone() && winWidth() < PANEL_MIN + drawn().width + PHONE_SIDES + COLUMN_MIN + 8
   const panelShown = () => panelOpen() && !(crowded() && !!dockShown())
+  // (The docks send from the panel's message box while it is on screen: store.ts, composerUp.)
+  createEffect(() => setPanelUp(panelShown() && !setup()))
   const asideShown = () => phone() && !(crowded() && panelOpen())
   /** From the top bar's note counts: the panel, open on the notes, at the first one that needs
    *  the reviewer (failed, else working). */
@@ -1229,9 +1236,12 @@ export function App() {
         <div
           class="stage"
           ref={stageEl}
-          classList={{ phone: phone(), sized: columnWidth() !== undefined }}
+          classList={{ phone: phone(), "ds-on": ds(), sized: columnWidth() !== undefined }}
           style={{ "--dock-height": `${dockHeight()}px`, "--dock-width": columnWidth() === undefined ? undefined : `${columnWidth()}px` }}
         >
+        <Show when={ds()}>
+          <DsSpace />
+        </Show>
         {/* A phone's page has a column of its own: in the middle of it, with air around, and
             which phone it is above it. (A desktop's page is the stage's own child: the wrapper
             makes no box then.) */}
@@ -1369,7 +1379,7 @@ export function App() {
             }}
           />
         </Show>
-        <Show when={dockShown()} fallback={<Show when={asideShown()}><PhoneAside /></Show>}>
+        <Show when={!ds() && dockShown()} fallback={<Show when={asideShown()}><PhoneAside /></Show>}>
           {(dock) => (
             <>
               <Show when={!phone()}>

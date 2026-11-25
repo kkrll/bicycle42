@@ -985,3 +985,40 @@
 .cd-kv {
   color: var(--muted);
 }
+
+/* The batch in the header (its count, undo, redo, Reset), before the tabs; and the footer with
+   what is left in it (canvas-dock.tsx): the note's line and Send, or a refusal. */
+.cd-batch {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.cd-batch .cd-acts {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.cd-head .cd-reset {
+  height: 24px;
+  padding: 0 8px;
+}
+
+.cd-head .cd-help {
+  width: 24px;
+  height: 24px;
+}
+
+.cd-foot {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "note send";
+}
+
+.cd-edits {
+  left: auto;
+  right: 8px;
+}

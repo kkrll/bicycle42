@@ -547,7 +547,9 @@ export function createCore(host: Host): Core {
   /** The panes the window draws: what the overlay is told after every "state" (onPage). */
   const docks = host.docks ?? HOSTED_PANES
   const isPane = (name: unknown): name is Pane => docks.includes(name as Pane)
-  const device = (): Device => (store.settings().device === "phone" ? "phone" : "desktop")
+  const device = (): Device => (store.settings().device === "phone" ? "phone" : store.settings().device === "ds" ? "ds" : "desktop")
+  /** How the page itself is laid out: under its design system's view, as a desktop's. */
+  const layout = (d: Device): Device => (d === "phone" ? "phone" : "desktop")
   /** The app window's zoom, from disk: a step of ZOOMS, else 1. */
   const zoom = () => {
     const z = store.settings().zoom
@@ -2624,10 +2626,10 @@ export function createCore(host: Host): Core {
     },
 
     setDevice(d) {
-      const to: Device = d === "phone" ? "phone" : "desktop"
+      const to: Device = d === "phone" || d === "ds" ? d : "desktop"
       if (to === device()) return
-      store.update((s) => void (to === "phone" ? (s.device = to) : delete s.device))
-      page?.setDevice(to, phone())
+      store.update((s) => void (to === "desktop" ? delete s.device : (s.device = to)))
+      page?.setDevice(layout(to), phone())
       push()
     },
 

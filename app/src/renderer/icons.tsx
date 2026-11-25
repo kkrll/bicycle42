@@ -11,6 +11,8 @@ const PATHS = {
   panel: "M4 5h16v14H4zM9.5 5v14",
   // The page as a desktop's, and as a phone's: a screen on its stand, a handset with its home line.
   desktop: "M3 5h18v11H3zM8.5 20h7M12 16v4",
+  // The page's design system: three swatches and a round one.
+  tokens: "M4 4h6.5v6.5H4zM13.5 4H20v6.5h-6.5zM4 13.5h6.5V20H4zM16.75 13.5a3.25 3.25 0 1 1 0 6.5 3.25 3.25 0 0 1 0-6.5z",
   phone: "M8 3h8a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM10.5 18h3",
   server: "M4 5h16v6H4zM4 13h16v6H4zM8 8h.01M8 16h.01",
   down: "M6 9l6 6 6-6",

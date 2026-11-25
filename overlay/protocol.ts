@@ -1,6 +1,7 @@
 import type { MotionAct, MotionView } from "./protocol-motion"
 import type { CanvasAct, CanvasView } from "./protocol-canvas"
 import type { FactsAct, FactsView } from "./protocol-facts"
+import type { TokensAct, TokensView } from "./protocol-tokens"
 
 // The protocol between the overlay and its host: every message either side sends, and what a
 // note carries. Types only, nothing runs: the overlay's files name them in JSDoc (its `send`, its
@@ -29,12 +30,13 @@ export type Dock = Exclude<Mode, "notes">
  *  which is no mode's and which the overlay never draws itself. Every pane rides the same two
  *  messages ("docks" says which the host draws, "panel" carries views and acts). The facts are
  *  worked out only between the pane's "view" and "stop" acts; a new document, and one told
- *  "stop", sends the view null: nothing is being worked out. */
-export type Pane = Dock | "facts"
+ *  "stop", sends the view null: nothing is being worked out. "tokens" (the page's variables,
+ *  protocol-tokens.ts) is the same kind of pane: the host's, and read only while it asks. */
+export type Pane = Dock | "facts" | "tokens"
 
 /** What a hosted pane shows, as the overlay last knew it: the whole of it. Its strings are the
  *  page's (a class, a text, a keyframe's name): a host draws them as text, never as markup. */
-export type PanelView = { panel: "motion"; view: MotionView } | { panel: "canvas"; view: CanvasView } | { panel: "facts"; view: FactsView | null }
+export type PanelView = { panel: "motion"; view: MotionView } | { panel: "canvas"; view: CanvasView } | { panel: "facts"; view: FactsView | null } | { panel: "tokens"; view: TokensView | null }
 
 /** The fields of a pane's view that are not what they were in the one before (a playhead's clock,
  *  sixty times a second, without the rest of the dock): each field whole, to put in place of the
@@ -54,6 +56,7 @@ export type PanelAct =
   | { panel: "motion"; act: MotionAct }
   | { panel: "canvas"; act: CanvasAct }
   | { panel: "facts"; act: FactsAct }
+  | { panel: "tokens"; act: TokensAct }
 
 /** What the page's framework calls an element (React, Vue), with its dev source when present. */
 export type Component = { /** "react" or "vue". */ framework?: string; name: string; stack: string[]; source?: string }

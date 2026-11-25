@@ -6,11 +6,13 @@
 //   chat    the open conversation, built here from ChatEvents. A delta touches one string.
 //
 // Everything else in the renderer reads these and calls act().
-import { batch, createSignal } from "solid-js"
+import { batch, createSignal, onCleanup, onMount } from "solid-js"
+import type { PromptFile } from "../shared/types"
 import { createStore, reconcile, unwrap } from "solid-js/store"
 import { PHONE } from "../shared/types"
 import type { AppState, Bridge, ChatEvent, ChatItem, CommandName, Commands, Pane, PanelAct, PanelMessage } from "../shared/types"
 import type { FactsView } from "../../../overlay/protocol-facts"
+import type { TokensView } from "../../../overlay/protocol-tokens"
 
 const EMPTY: AppState = {
   connection: { status: "unconfigured" },
@@ -58,7 +60,7 @@ let parked: Extract<ChatEvent, { type: "reset" }> | undefined
 // view is null when the overlay works nothing out for it (a new page, or after "stop"). A pane
 // has no view before its overlay first speaks, and none while the page's renderer is gone
 // (start, below).
-export const [dockViews, setDockViews] = createStore<{ motion?: object; canvas?: object; facts?: FactsView | null }>({})
+export const [dockViews, setDockViews] = createStore<{ motion?: object; canvas?: object; facts?: FactsView | null; tokens?: TokensView | null }>({})
 
 /** From a hosted dock to the overlay: what the reviewer did there. */
 export const dockAct = (act: PanelAct): void => void b42.invoke("panel", act).catch(() => {})
@@ -102,7 +104,7 @@ export function start(bridge: Bridge): void {
     // A page whose renderer died has no overlay: what it last said of its panes is of a page
     // that is not there, and nothing will say otherwise. No view at all, not null: the overlay
     // of the page loaded again says null itself, which is what the facts pane asks again on.
-    if (next.page.crashed) setDockViews({ motion: undefined, canvas: undefined, facts: undefined })
+    if (next.page.crashed) setDockViews({ motion: undefined, canvas: undefined, facts: undefined, tokens: undefined })
     setState(reconcile(next))
     setReady(true)
     if (openId() === before) return
@@ -324,3 +326,37 @@ export function tallyNotes() {
   }
   return t
 }
+
+// ── unsent work, sent from the message box ──────────────────────────────────────────────────────
+// What a view has changed and not sent (the design system's values and suggestions, Edit's
+// batch, Motion's animation) is sent from the one box messages are typed in (composer.tsx): it
+// shows there as chips, the words typed go with it, and Send sends it. A view offers what it has
+// while it is up (offerPending). While the box is not on screen (the panel shut, or no agent to
+// tell) a dock keeps a note line and a Send of its own: composerUp says which.
+export type PendingItem = {
+  id: string
+  label: string
+  title?: string
+  /** A colour drawn before the label. */
+  swatch?: string
+  /** Its ×: taken out of what is sent (a changed value: put back). */
+  remove?: () => void
+}
+export type PendingSource = {
+  items: () => PendingItem[]
+  /** Send what is unsent with these words (and pictures, when it can carry them). */
+  send: (words: string, background: boolean, pictures: PromptFile[]) => Promise<unknown> | void
+}
+const [sources, setSources] = createSignal<readonly PendingSource[]>([])
+/** The sources with something to send now. */
+export const pendingSources = () => sources().filter((s) => s.items().length > 0)
+/** While the calling component is mounted, what it has unsent is the message box's to send. */
+export function offerPending(source: PendingSource): void {
+  onMount(() => setSources((all) => [...all, source]))
+  onCleanup(() => setSources((all) => all.filter((x) => x !== source)))
+}
+const [panelUp, setPanelUp] = createSignal(false)
+const [composerReady, setComposerReady] = createSignal(false)
+export { setPanelUp, setComposerReady }
+/** The message box is on screen and can send. */
+export const composerUp = () => panelUp() && composerReady()

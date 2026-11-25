@@ -10,7 +10,7 @@ import { labelText, modelLabel, providerName } from "../shared/models"
 import { Icon, type IconName } from "./icons"
 import { SuggestMenu, type MenuItem } from "./menu"
 import { ContextMeter } from "./meter"
-import { act, awayHost, chat, followUp, keys, mac, message, b42, offline, setNotice, state } from "./store"
+import { act, awayHost, chat, followUp, keys, mac, message, b42, offline, pendingSources, setComposerReady, setNotice, state } from "./store"
 
 // ── a line of news under the box ────────────────────────────────────────────────────────────────
 
@@ -461,11 +461,15 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
   /** There is a run to stop: the agent works, and is not paused (offline, at work nowhere). */
   const stoppable = () => busy() && !(offline() && !awayHost())
   /** Something is in the box to send. */
-  const typed = () => !!text().trim() || !!images().length
+  const typed = () => !!text().trim() || !!images().length || pendingSources().length > 0
+  // What a view has unsent goes from here (store.ts, offerPending): the docks hear whether it can.
+  createEffect(() => setComposerReady(!blocked()))
+  onCleanup(() => setComposerReady(false))
   const send = (steer: boolean) => {
     const raw = text()
     const body = raw.trim()
-    if (!body || blocked()) return
+    const unsent = pendingSources()
+    if ((!body && !unsent.length) || blocked()) return
     const lead = raw.length - raw.trimStart().length
     const marks = mentions().map((m) => ({ kind: m.kind, id: m.id, start: m.start - lead, end: m.end - lead, label: m.label }))
     const pictures = images()
@@ -479,6 +483,25 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
         .filter((m) => m.start >= shift)
         .map((m) => ({ kind: m.kind, id: m.id, start: m.start - shift, end: m.end - shift }))
       return { ...(list.length ? { mentions: list } : {}), ...(delivery ? { delivery } : {}) }
+    }
+    // A view's unsent work: it goes with these words as its note, each view's the way it sends
+    // (a design system's values as a message, Edit's and Motion's as their notes). The first takes
+    // the words and the pictures.
+    if (unsent.length && !known) {
+      browsing = -1
+      draft("")
+      setImages([])
+      setError("")
+      props.onSent()
+      unsent.forEach((source, i) => {
+        Promise.resolve()
+          .then(() => source.send(i ? "" : body, false, i ? [] : pictures))
+          .catch((err) => {
+            setError(message(err))
+            if (!i && !text()) draft(raw)
+          })
+      })
+      return
     }
     const saved = mentions()
     browsing = -1
@@ -624,9 +647,28 @@ export function Composer(props: { ref: (el: HTMLTextAreaElement) => void; onSent
       <Show when={error()}>
         <p class="form-error">{error()}</p>
       </Show>
+      <Show when={pendingSources().length}>
+        <div class="composer-pending" aria-label="Goes with this message">
+          <For each={pendingSources().flatMap((src) => src.items())}>
+            {(item) => (
+              <span class="pending-chip" title={item.title ?? item.label}>
+                <Show when={item.swatch}>
+                  <i class="pending-swatch" style={{ "--c": item.swatch }} />
+                </Show>
+                <span class="pending-label">{item.label}</span>
+                <Show when={item.remove}>
+                  <button type="button" class="icon-btn small pending-x" aria-label={`Take out: ${item.label}`} onClick={() => item.remove!()}>
+                    <Icon name="close" />
+                  </button>
+                </Show>
+              </span>
+            )}
+          </For>
+        </div>
+      </Show>
       <div
         class="composer-box"
-        classList={{ dropping: dropping() }}
+        classList={{ dropping: dropping(), tabbed: pendingSources().length > 0 }}
         onDragEnter={dragEnter}
         onDragOver={(e) => hasFiles(e) && e.preventDefault()}
         onDragLeave={dragLeave}

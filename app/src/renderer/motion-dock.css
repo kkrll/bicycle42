@@ -1592,3 +1592,8 @@
 .mdock .mdock-bg {
   margin-left: 6px;
 }
+
+/* The note and Send are the panel's message box's while that is on screen (store.ts, composerUp). */
+.mdock-ft.away {
+  display: none;
+}

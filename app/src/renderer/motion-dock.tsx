@@ -21,7 +21,7 @@ import "./motion-dock.css"
 import { For, Show, createContext, createEffect, createMemo, createRoot, createSignal, getOwner, onCleanup, onMount, untrack, useContext, type JSX, type Owner } from "solid-js"
 import type { MotionAct, MotionKind, MotionLane, MotionOpen, MotionRow, MotionView } from "../../../overlay/protocol-motion"
 import { Icon } from "./icons"
-import { NOTE_OPTIONAL, dockAct, dockPing, dockViews, keys, mac, nextNoteNumber } from "./store"
+import { NOTE_OPTIONAL, composerUp, dockAct, dockPing, dockViews, keys, mac, nextNoteNumber, offerPending } from "./store"
 
 const send = (act: MotionAct) => dockAct({ panel: "motion", act })
 const view = () => dockViews.motion as MotionView | undefined
@@ -702,6 +702,16 @@ export function MotionDock() {
     }
     noteEl?.blur()
   }
+  // A changed animation is sent from the panel's message box while that is on screen, the words
+  // typed there its note (store.ts, offerPending): the dock's own note and Send are for when it
+  // is not.
+  offerPending({
+    items: () => (open()?.dirty ? [{ id: "motion", label: "1 animation", title: "The animation you changed in Motion, not sent yet" }] : []),
+    send: (words, background) => {
+      if (words !== (v()?.note ?? "")) send({ type: "note", text: words })
+      send({ type: "send", background })
+    },
+  })
   const line = () => {
     const x = v()
     if (!x) return { text: "", warn: false }
@@ -874,9 +884,9 @@ export function MotionDock() {
               </Show>
 
               {/* the note and Send, or what the line has to say */}
-              <div class="mdock-ft">
+              <div class="mdock-ft" classList={{ away: composerUp() && !line().text }}>
                 <Show
-                  when={!line().text}
+                  when={!line().text && !composerUp()}
                   fallback={
                     <div class="mdock-msg" classList={{ warn: line().warn }} role="status">
                       {line().text}
@@ -913,6 +923,7 @@ export function MotionDock() {
                     }}
                   />
                 </Show>
+                <Show when={!composerUp()}>
                 <button
                   type="button"
                   class="btn primary mdock-go"
@@ -928,6 +939,7 @@ export function MotionDock() {
                 >
                   Send
                 </button>
+                </Show>
               </div>
             </div>
           </div>

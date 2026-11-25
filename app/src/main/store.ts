@@ -54,7 +54,7 @@ export type Settings = {
   /** The app window's zoom (ZOOMS in shared/types.ts). Absent: 100%. */
   zoom?: number
   /** The page shown as a phone's (Device in shared/types.ts). Absent: as a desktop's. */
-  device?: "phone"
+  device?: "phone" | "ds"
   /** Which phone that is (an id in PHONES). Absent: the usual one. */
   phone?: string
   /** The design tools whose buttons are switched off (Commands.setCapture). Absent: none. */

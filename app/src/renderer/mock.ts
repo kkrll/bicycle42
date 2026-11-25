@@ -39,6 +39,7 @@ import { canvasView } from "./mock-canvas"
 import { setFocusedNote } from "./store"
 import type { MotionView } from "../../../overlay/protocol-motion"
 import type { FactsView } from "../../../overlay/protocol-facts"
+import type { Token, TokensView } from "../../../overlay/protocol-tokens"
 
 const SESSION = "s-main"
 const ORIGIN = "http://localhost:3000"
@@ -902,10 +903,12 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
   // &device=phone and &docks=motion,canvas: the page as a phone's, and docks the window draws.
   // (&phone=iphone-se: which phone.)
   if (params.get("device") === "phone") state.page.device = "phone"
+  // &device=ds: the page's design system in its place (ds-space.tsx).
+  if (params.get("device") === "ds") state.page.device = "ds"
   state.page.phone = phoneOf(params.get("phone")).id
   // (The facts pane beside a phone's page in Preview and Annotate is always the window's, as in
   // HOSTED_PANES; &facts=clear: a page that fits the phone.)
-  state.review.docks = [...(params.get("docks") ?? "").split(",").filter((d): d is "motion" | "canvas" => d === "motion" || d === "canvas"), "facts"]
+  state.review.docks = [...(params.get("docks") ?? "").split(",").filter((d): d is "motion" | "canvas" => d === "motion" || d === "canvas"), "facts", "tokens"]
   if (params.get("mode") === "edit" || params.get("mode") === "motion") state.review.mode = params.get("mode") as "edit" | "motion"
   if (params.get("mode") === "preview") (state.review.enabled = false), (state.review.mode = "preview")
 
@@ -985,6 +988,7 @@ export function install(scenario: string, params: URLSearchParams): Bridge {
     panel(act) {
       motionAct(act as PanelAct, (msg) => panelFns.forEach((fn) => fn(msg)))
       factsAct(act as PanelAct, (msg) => panelFns.forEach((fn) => fn(msg)))
+      tokensAct(act as PanelAct, (msg) => panelFns.forEach((fn) => fn(msg)))
       canvasAct(act as PanelAct, (msg) => panelFns.forEach((fn) => fn(msg)))
     },
     setPageBounds(bounds: Rect | null) {
@@ -1662,4 +1666,68 @@ function motionAct(a: PanelAct, out: (m: PanelMessage) => void): void {
     Object.assign(o, { kind: "frames", name: "per frame", readOnly: true, timed: false, shared: 1, lanes: [], frames: [], score: [], key: null, css: "", dirty: false, T: 1, starts: null, timing: { duration: 4400, delay: 0, easing: "linear", count: "1", direction: "normal", fill: "none" }, seen: { props: [{ prop: "width", range: "0…100%" }, { prop: "transform", range: "translate3d(0…40px, 3px, 0px)" }], cycle: 4400, over: 9000, watching: false } })
   } else if (act.type !== "resend") return
   out({ panel: "motion", view: structuredClone(MOTION) })
+}
+
+// ── the page's design system (ds-space.tsx): a made-up one, with every kind of variable ─────────
+const ramp = (base: string, hue: number, chroma: number, steps: number[]): Token[] =>
+  steps.map((n, i) => {
+    const value = `oklch(${(0.97 - (i / (steps.length - 1)) * 0.8).toFixed(3)} ${(chroma * Math.sin(((i + 1) / (steps.length + 1)) * Math.PI)).toFixed(3)} ${hue})`
+    return { name: `--${base}-${n}`, kind: "colour", value, where: [{ scope: ":root", value }], uses: (i * 7) % 5 }
+  })
+const TONES = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]
+const one = (name: string, kind: Token["kind"], value: string, more: Partial<Token> = {}): Token => ({ name, kind, value, where: [{ scope: ":root", value }], uses: 3, ...more })
+const TOKENS: Token[] = [
+  ...ramp("sand", 70, 0.05, [0, 100, 200, 300, 400]),
+  ...ramp("gray", 260, 0.02, TONES),
+  ...ramp("brand", 145, 0.19, TONES),
+  ...ramp("red", 25, 0.22, TONES),
+  one("--ink", "colour", "oklch(0.25 0.02 260)", { where: [{ scope: ":root", value: "var(--gray-900)" }, { scope: ".dark", value: "var(--gray-50)" }], uses: 41 }),
+  one("--surface", "colour", "#ffffff", { where: [{ scope: ":root", value: "#ffffff" }, { scope: ".dark", value: "var(--gray-950)" }], uses: 28 }),
+  one("--accent", "colour", "oklch(0.62 0.19 145)", { where: [{ scope: ":root", value: "var(--brand-500)" }], uses: 17 }),
+  one("--overlay", "colour", "rgb(0 0 0 / 0.4)", { uses: 2 }),
+  one("--background", "colour", "0 0% 100%", { css: "hsl(0 0% 100%)", where: [{ scope: ":root", value: "0 0% 100%" }, { scope: "@media (prefers-color-scheme: dark) :root", value: "240 10% 3.9%" }], uses: 9 }),
+  one("--ring", "colour", "#b1a79f", { uses: 0 }),
+  one("--paper", "colour", "#fefefe", { uses: 4 }),
+  ...[1, 2, 3, 4, 6, 8, 12, 16].map((n) => one(`--space-${n}`, "size", `${n * 0.25}rem`, { size: n * 4, uses: n })),
+  one("--radius-sm", "size", "4px", { size: 4 }),
+  one("--radius-md", "size", "8px", { size: 8 }),
+  one("--radius-lg", "size", "12px", { size: 12 }),
+  one("--container", "size", "72rem", { size: 1152 }),
+  one("--font-sans", "font", "Inter, system-ui, sans-serif", { uses: 2 }),
+  one("--font-mono", "font", "ui-monospace, Menlo, monospace", { uses: 1 }),
+  one("--shadow-sm", "shadow", "0 1px 2px rgb(0 0 0 / 0.12)"),
+  one("--shadow-lg", "shadow", "0 12px 32px -8px rgb(0 0 0 / 0.3)"),
+  one("--duration-fast", "time", "120ms"),
+  one("--duration-slow", "time", "400ms"),
+  one("--ease-out", "ease", "cubic-bezier(0.16, 1, 0.3, 1)"),
+  one("--leading-tight", "number", "1.2", { size: 1.2 }),
+  one("--btn-bg", "colour", "oklch(0.62 0.19 145)", { where: [{ scope: ".btn", value: "var(--accent)" }], uses: 1, local: true }),
+]
+const tokensSet = new Map<string, string>()
+function tokensView(): TokensView {
+  return {
+    tokens: TOKENS.map((t) => {
+      const set = tokensSet.get(t.name)
+      if (set === undefined) return t
+      const { css: _css, ...rest } = t
+      return { ...rest, value: set, set, was: t.value, ...(t.css ? { css: `hsl(${set})` } : {}) }
+    }),
+    loose: [
+      { kind: "colour", value: "#b1a79f", rules: 14, where: [".card", ".nav a", ".footer"], tokens: ["--ring"] },
+      { kind: "colour", value: "#767584", rules: 6, where: [".hint", ".price small"], tokens: [] },
+      { kind: "space", value: "18px", rules: 5, where: [".hero", ".plan"], tokens: [] },
+      { kind: "radius", value: "8px", rules: 4, where: [".btn", ".input"], tokens: ["--radius-md"] },
+    ],
+    unread: 1,
+    partial: false,
+  }
+}
+function tokensAct(a: PanelAct, out: (m: PanelMessage) => void): void {
+  if (a.panel !== "tokens") return
+  const act = a.act
+  if (act.type === "ping") return out({ panel: "tokens", pong: act.id })
+  if (act.type === "stop") return out({ panel: "tokens", view: null })
+  if (act.type === "set") act.value ? tokensSet.set(act.name, act.value) : tokensSet.delete(act.name)
+  if (act.type === "reset") tokensSet.clear()
+  setTimeout(() => out({ panel: "tokens", view: tokensView() }))
 }

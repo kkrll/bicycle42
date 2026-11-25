@@ -48,7 +48,7 @@ import {
   withVars,
 } from "../../../overlay/src/canvas/suggest-model.js"
 import { Icon, Kbd } from "./icons"
-import { NOTE_OPTIONAL, dockAct, dockViews, keys, mac, nextNoteNumber, recall, remember, state } from "./store"
+import { NOTE_OPTIONAL, composerUp, dockAct, dockViews, keys, mac, nextNoteNumber, offerPending, recall, remember, state } from "./store"
 import "./canvas-dock.css"
 
 /** A tree row's height, px. The overlay is told how many rows show; it sends those and a screenful around. */
@@ -892,6 +892,18 @@ export function CanvasDock() {
       noteEl?.blur()
     }
   }
+  // The batch is sent from the panel's message box while that is on screen, the words typed there
+  // its note (store.ts, offerPending): the footer's own note and Send are for when it is not.
+  offerPending({
+    items: () =>
+      edits()
+        ? [{ id: "edits", label: `${edits()} edit${edits() === 1 ? "" : "s"}`, title: "What you changed in Edit, not sent yet. × removes every edit (undoable)", remove: () => send({ type: "reset" }) }]
+        : [],
+    send: (words, bg) => {
+      if (words !== (batchV()?.note ?? "")) send({ type: "note", text: words })
+      send({ type: "send", ...(bg ? { bg: true } : {}) })
+    },
+  })
   /** In place of the note: a refusal (for a moment), or the state when the note is empty. */
   const line = () => {
     const b = batchV()
@@ -911,12 +923,12 @@ export function CanvasDock() {
   const [helpOpen, setHelpOpen] = createSignal(false)
   let helpBtn: HTMLButtonElement | undefined
   let helpEl: HTMLDivElement | undefined
-  /** Above the footer, no taller than the inspector's box leaves it. (`open`: read for the
+  /** Under the header, no taller than the inspector's box leaves it. (`open`: read for the
    *  list it places, so the place is worked out again when it opens.) */
   const popAt = (open: boolean) => {
     if (!open || !rootEl) return {}
-    const foot = rootEl.querySelector(".cd-foot")?.getBoundingClientRect().height ?? 0
-    return { bottom: `${foot + 4}px`, "max-height": `${Math.max(60, rootEl.getBoundingClientRect().height - foot - 12)}px` }
+    const head = rootEl.querySelector(".cd-head")?.getBoundingClientRect().height ?? 0
+    return { top: `${head + 4}px`, "max-height": `${Math.max(60, rootEl.getBoundingClientRect().height - head - 12)}px` }
   }
 
   // ── the edits list: from the count, inside the inspector's box ──
@@ -994,6 +1006,33 @@ export function CanvasDock() {
         <span class="cd-path" title={sel() ? `${sel()!.label}${sel()!.tag !== sel()!.label ? ` · ${sel()!.tag}` : ""}` : ""}>
           {sel() ? `${sel()!.label}${sel()!.hidden ? " · hidden" : ""}` : "Nothing selected"}
         </span>
+        <span class="cd-batch">
+        <button
+          type="button"
+          class="icon-btn labelled cd-count"
+          ref={countBtn}
+          disabled={!edits()}
+          aria-expanded={!!editList()}
+          title={edits() ? "Show what is in this batch" : "Nothing edited yet"}
+          onClick={() => showEdits(!editList())}
+        >
+          {edits() ? `${edits()} edit${edits() === 1 ? "" : "s"}` : "No edits"}
+          <Show when={edits()}>
+            <Icon name={editList() ? "up" : "down"} />
+          </Show>
+        </button>
+        <span class="cd-acts">
+          <button type="button" class="icon-btn cd-undo" aria-label="Undo" title={`Undo (${keys("mod", "Z")})`} disabled={!batchV()?.undo} onClick={() => send({ type: "undo" })}>
+            <FIcon name="undo" />
+          </button>
+          <button type="button" class="icon-btn cd-redo" aria-label="Redo" title={`Redo (${keys("mod", "shift", "Z")})`} disabled={!batchV()?.redo} onClick={() => send({ type: "redo" })}>
+            <FIcon name="redo" />
+          </button>
+          <button type="button" class="btn cd-reset" title="Remove every unsent edit (undoable)" disabled={!edits()} onClick={() => send({ type: "reset" })}>
+            Reset
+          </button>
+        </span>
+        </span>
         <div
           class="cd-tabs"
           role="tablist"
@@ -1026,6 +1065,20 @@ export function CanvasDock() {
             </Show>
           </button>
         </div>
+        <button
+          type="button"
+          class="icon-btn cd-help"
+          ref={helpBtn}
+          aria-label="Keys and gestures"
+          aria-expanded={helpOpen()}
+          title="Keys and gestures"
+          onClick={() => {
+            if (!helpOpen()) showEdits(false)
+            setHelpOpen(!helpOpen())
+          }}
+        >
+          <FIcon name="help" />
+        </button>
         <button type="button" class="icon-btn small cd-fold" aria-label={folded() ? "Open the inspector" : "Fold the inspector"} title={folded() ? "Open the inspector" : "Fold the inspector"} onClick={fold}>
           <Icon name={folded() ? "up" : "down"} />
         </button>
@@ -1211,32 +1264,11 @@ export function CanvasDock() {
           </div>
         </div>
       </div>
+      {/* The batch's count, undo and Reset are in the header; its note and Send are the panel's
+          message box's while that is on screen. What is left here: the line that says why a send
+          was refused, and the note and Send when there is no message box. */}
+      <Show when={!composerUp() || line()}>
       <footer class="cd-foot" aria-label="This batch">
-        <button
-          type="button"
-          class="icon-btn labelled cd-count"
-          ref={countBtn}
-          disabled={!edits()}
-          aria-expanded={!!editList()}
-          title={edits() ? "Show what is in this batch" : "Nothing edited yet"}
-          onClick={() => showEdits(!editList())}
-        >
-          {edits() ? `${edits()} edit${edits() === 1 ? "" : "s"}` : "No edits"}
-          <Show when={edits()}>
-            <Icon name={editList() ? "down" : "up"} />
-          </Show>
-        </button>
-        <span class="cd-acts">
-          <button type="button" class="icon-btn cd-undo" aria-label="Undo" title={`Undo (${keys("mod", "Z")})`} disabled={!batchV()?.undo} onClick={() => send({ type: "undo" })}>
-            <FIcon name="undo" />
-          </button>
-          <button type="button" class="icon-btn cd-redo" aria-label="Redo" title={`Redo (${keys("mod", "shift", "Z")})`} disabled={!batchV()?.redo} onClick={() => send({ type: "redo" })}>
-            <FIcon name="redo" />
-          </button>
-          <button type="button" class="btn cd-reset" title="Remove every unsent edit (undoable)" disabled={!edits()} onClick={() => send({ type: "reset" })}>
-            Reset
-          </button>
-        </span>
         <span class="cd-note-slot">
           <Show
             when={!line()}
@@ -1246,6 +1278,7 @@ export function CanvasDock() {
               </span>
             }
           >
+            <Show when={!composerUp()}>
             <input
               ref={noteEl}
               class="input cd-note"
@@ -1276,26 +1309,16 @@ export function CanvasDock() {
                 } else if (e.key === "Escape") noteEl!.blur()
               }}
             />
+            </Show>
           </Show>
         </span>
+        <Show when={!composerUp()}>
         <button type="button" class="btn primary cd-send" disabled={!edits()} title={sendTitle()} onClick={(e) => sendBatch(e.altKey)}>
           Send
         </button>
-        <button
-          type="button"
-          class="icon-btn cd-help"
-          ref={helpBtn}
-          aria-label="Keys and gestures"
-          aria-expanded={helpOpen()}
-          title="Keys and gestures"
-          onClick={() => {
-            if (!helpOpen()) showEdits(false)
-            setHelpOpen(!helpOpen())
-          }}
-        >
-          <FIcon name="help" />
-        </button>
+        </Show>
       </footer>
+      </Show>
       <Show when={helpOpen()}>
         <div class="cd-keys thin-scroll" ref={helpEl} role="dialog" aria-label="Keys and gestures" style={popAt(helpOpen())}>
           <For each={KEYS}>
