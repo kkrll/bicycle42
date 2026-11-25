@@ -70,7 +70,7 @@ export type MotionOpen = {
   kind: "css" | "script" | "transition" | "frames"
   /** The keyframes' name (a script's animation id; "transition"). */
   name: string
-  /** A script's animation or a transition: its keyframes are looked at, not edited. */
+  /** A transition, or what a script moves frame by frame: there are no keyframes to edit. */
   readOnly: boolean
   /** Its duration, delay and easing may be changed (a transition's too: of all its properties
    *  at once). */

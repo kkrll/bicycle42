@@ -287,6 +287,15 @@ export function pageMotion(raw: unknown): Motion | undefined {
   const selector = line(raw.selector, MAX_NAME)
   if (!name || !selector) return
   const out: Motion = { kind, name, selector, label: line(raw.label, MAX_NAME) ?? "" }
+  const pair = (x: unknown, check: (v: unknown) => string | undefined) => {
+    if (x === undefined) return null
+    if (!isObj(x)) return undefined
+    const to = check(x.to)
+    if (to === undefined) return undefined
+    if (x.from === undefined) return { to }
+    const from = check(x.from)
+    return from === undefined ? undefined : { to, from }
+  }
   if (kind === "frames") {
     const seen = (Array.isArray(raw.seen) ? raw.seen.slice(0, 12) : []).flatMap((s) => {
       const prop = isObj(s) && typeof s.prop === "string" && SEEN_PROP.test(s.prop) ? s.prop : undefined, range = isObj(s) ? line(s.range, MAX_ANIMATION) : undefined
@@ -302,6 +311,9 @@ export function pageMotion(raw: unknown): Motion | undefined {
     const next = line(raw.next, MAX_ANIMATION), state = kind === "transition" ? line(raw.state, MAX_ANIMATION) : undefined
     if (next) out.next = next
     if (state) out.state = state
+    const keys = kind === "script" ? pair(raw.keyframes, (v) => typedCss(v, MAX_KEYFRAMES)) : null
+    if (keys === undefined) return
+    if (keys) out.keyframes = keys
     return out
   }
   if (index(raw.shared) && raw.shared >= 1) out.shared = raw.shared
@@ -309,15 +321,6 @@ export function pageMotion(raw: unknown): Motion | undefined {
   if (typeof raw.from === "string") {
     if (!IDENT.test(raw.from)) return
     out.from = raw.from
-  }
-  const pair = (x: unknown, check: (v: unknown) => string | undefined) => {
-    if (x === undefined) return null
-    if (!isObj(x)) return undefined
-    const to = check(x.to)
-    if (to === undefined) return undefined
-    if (x.from === undefined) return { to }
-    const from = check(x.from)
-    return from === undefined ? undefined : { to, from }
   }
   const animation = pair(raw.animation, (v) => line(v, MAX_ANIMATION))
   const keyframes = pair(raw.keyframes, (v) => typedCss(v, MAX_KEYFRAMES))

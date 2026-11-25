@@ -1523,6 +1523,8 @@ function KeyEditor(props: { k: NonNullable<MotionOpen["key"]>; at: number; readO
 function CssText(props: { open: MotionOpen }) {
   const [local, setLocal] = createSignal<string | null>(null)
   const [focused, setFocused] = createSignal(false)
+  // A script's animation is written out as its call, which is read, not typed.
+  const ro = () => props.open.readOnly || props.open.kind !== "css"
   // (As a Field: removed with the caret in it, it hears a blur, and has nothing left to say.)
   let gone = false
   onCleanup(() => (gone = true))
@@ -1536,7 +1538,7 @@ function CssText(props: { open: MotionOpen }) {
         class="mono thin-scroll"
         spellcheck={false}
         autocomplete="off"
-        readOnly={!!props.open.readOnly}
+        readOnly={ro()}
         aria-label="The keyframes as code"
         value={local() ?? props.open.css}
         onFocus={(e) => {
@@ -1550,7 +1552,7 @@ function CssText(props: { open: MotionOpen }) {
         onBlur={(e) => {
           if (gone) return
           setFocused(false)
-          if (!props.open.readOnly) send({ type: "css", text: e.currentTarget.value, done: true })
+          if (!ro()) send({ type: "css", text: e.currentTarget.value, done: true })
           setTimeout(() => !focused() && setLocal(null), HOLD_MS)
         }}
         onKeyDown={(e) => {

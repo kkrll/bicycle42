@@ -757,7 +757,7 @@ test("hosted: a script's animation is slowed in the animation itself, undone, pu
   await act(page, { type: "row", id: rowId(v, "bob") });
   let o = (await view(page, "v.open && v.open.kind === 'script'")).open;
   assert.equal(o.timed, true);
-  assert.equal(o.readOnly, true);
+  assert.equal(o.readOnly, false);
   await act(page, { type: "timing", what: "duration", value: "1600", done: true });
   let w = await view(page, "v.open.timing.duration === 1600 && v.open.dirty && v.undo");
   assert.equal(await dur(), 1600);
@@ -864,6 +864,131 @@ test("hosted: what a script moves frame by frame opens: it is watched while it i
   assert.match(note.prompt, /a script writes this element's inline style every frame. No CSS rule, keyframes or animation object holds it, so the code to change is in a script/);
   assert.match(note.prompt, /  transform translate3d\(-[\d.]+…[\d.]+px, 3px, 0px\)/);
   assert.match(note.prompt, /One round of it takes about \d+ms\./);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted: a script's keyframes are changed as a rule's are, in the animation itself: a value, a move, one added, one deleted; undone, put back when left unsent, and sent as they were and are", async () => {
+  const { page, f, errors, v } = await open();
+  /** The badge's keyframes as the browser has them now: [where, translate, easing]. */
+  const keys = () => f.evaluate(() => document.querySelector(".badge").getAnimations().find((a) => a.id === "bob").effect.getKeyframes().map((k) => [k.computedOffset, k.translate, k.easing]));
+  const page0 = await keys();
+  assert.equal(page0.length, 2);
+  await act(page, { type: "row", id: rowId(v, "bob") });
+  let w = await view(page, "v.open && v.open.kind === 'script'");
+  const lane = (x) => x.open.lanes.find((l) => l.prop === "translate").keys;
+  assert.deepEqual(lane(w).map((k) => k.at), [0, 100]);
+  // a keyframe's value, live and then as one undo step
+  await act(page, { type: "select", key: { at: 100, prop: "translate" }, grab: false });
+  w = await view(page, "v.open.key && v.open.key.at === 100");
+  assert.equal(w.open.key.dflt, "linear"); // (between a script's keyframes; the easing of the whole is its own)
+  await act(page, { type: "key", what: "val", value: "0px -9", done: false });
+  await act(page, { type: "key", what: "val", value: "0px -9px", done: false });
+  await view(page, "v.open.css.includes('0px -9px')");
+  assert.deepEqual((await keys())[1].slice(0, 2), [1, "0px -9px"]);
+  await act(page, { type: "key", what: "val", value: "0px -9px", done: true });
+  w = await view(page, "v.undo && v.open.dirty && v.rows.some((r) => r.text === 'bob' && r.dirty)");
+  // its place, dragged and let go
+  await act(page, { type: "select", key: { at: 100, prop: "translate" }, grab: true });
+  await act(page, { type: "drag", to: 80 });
+  await act(page, { type: "drag", to: 60 });
+  await view(page, "v.open.key && v.open.key.at === 60");
+  assert.deepEqual((await keys()).map((k) => k[0]), [0, 0.6]);
+  await act(page, { type: "drop" });
+  // one added where the lane is pressed twice: it takes the value there, so nothing changes yet.
+  // (The animation eases the whole of its run: half way between the two keyframes is not half of
+  // the time.)
+  await act(page, { type: "addKey", prop: "translate", at: 30 });
+  w = await view(page, "v.open.lanes[0].keys.length === 3");
+  const mid = (await keys())[1];
+  assert.equal(mid[0], 0.3);
+  assert.ok(Math.abs(parseFloat(mid[1].split(" ")[1]) + 4.5) < 0.1, `half way to -9px is ${mid[1]}`);
+  assert.ok(Math.abs((await view(page, "v.clock.pos !== null")).clock.pos - 0.3) < 0.005, "the page shows that keyframe");
+  // an easing of its own to the next, and another lane
+  await act(page, { type: "key", what: "ease", value: "ease-in", done: true });
+  await view(page, "v.open.key && v.open.key.ease === 'ease-in'");
+  assert.equal((await keys())[1][2], "ease-in");
+  await act(page, { type: "addLane", prop: "opacity" });
+  await view(page, "v.open.lanes.length === 2");
+  await act(page, { type: "removeLane", prop: "opacity" });
+  await view(page, "v.open.lanes.length === 1");
+  // deleted; and all of it undone, step by step, to what the page's script made, then done again
+  await act(page, { type: "select", key: { at: 30, prop: "translate" } });
+  await act(page, { type: "removeKey" });
+  await view(page, "v.open.lanes[0].keys.length === 2");
+  assert.deepEqual((await keys()).map((k) => k[0]), [0, 0.6]);
+  for (let i = 0; i < 20 && (await view(page)).undo; i++) {
+    const n = await views(page);
+    await act(page, { type: "undo" });
+    await page.waitForFunction((k) => window.__harness.panel.filter((m) => m.panel === "motion" && m.view).length > k, n);
+  }
+  await view(page, "!v.undo && !v.open.dirty");
+  assert.deepEqual(await keys(), page0);
+  await act(page, { type: "redo" });
+  await view(page, "v.open.dirty && v.open.css.includes('0px -9px')");
+  assert.deepEqual((await keys())[1].slice(0, 2), [1, "0px -9px"]);
+  // Reset
+  await act(page, { type: "discard" });
+  await view(page, "!v.open.dirty");
+  assert.deepEqual(await keys(), page0);
+  // changed and left for something else: the page's again, and no undo step of it stays behind
+  await act(page, { type: "select", key: { at: 100, prop: "translate" } });
+  await act(page, { type: "key", what: "val", value: "0px -20px", done: true });
+  await view(page, "v.open.dirty");
+  await act(page, { type: "row", id: rowId(v, "bob") }); // (pressed again, it stays as changed)
+  await frames(f, 3);
+  assert.equal((await view(page)).open.dirty, true);
+  await act(page, { type: "row", id: rowId(v, "spin") });
+  w = await view(page, "v.open && v.open.name === 'spin'");
+  assert.deepEqual(await keys(), page0);
+  assert.deepEqual([w.undo, w.redo], [false, false]);
+  // refused, it comes back unsent; taken, the note has the keyframes as they were and are
+  await act(page, { type: "row", id: rowId(v, "bob") });
+  await view(page, "v.open && v.open.kind === 'script'");
+  await act(page, { type: "select", key: { at: 100, prop: "translate" } });
+  await act(page, { type: "key", what: "val", value: "0px -12px", done: true });
+  await view(page, "v.open.dirty");
+  await page.evaluate(() => (window.__harness.refuse = "the server is offline"));
+  await act(page, { type: "send", background: false });
+  w = await view(page, "/Not sent/.test(v.msg)");
+  assert.deepEqual([w.open.kind, w.open.dirty, w.undo], ["script", true, true]);
+  assert.equal((await keys())[1][1], "0px -12px");
+  await page.evaluate(() => (window.__harness.refuse = ""));
+  await act(page, { type: "send", background: false });
+  await page.waitForFunction(() => window.__harness.notes.length === 1);
+  const note = await page.evaluate(() => window.__harness.notes[0]);
+  assert.equal(note.motion.next, undefined);
+  assert.deepEqual(note.motion.keyframes, { from: '[\n  { offset: 0, translate: "0px" },\n  { offset: 1, translate: "0px -3px" }\n]', to: '[\n  { offset: 0, translate: "0px" },\n  { offset: 1, translate: "0px -12px" }\n]' });
+  assert.match(note.prompt, /Motion: script on ".*": keyframes/);
+  assert.match(note.prompt, /Its keyframes, now:\n```js\n\[\n  \{ offset: 0, translate: "0px" \},\n  \{ offset: 1, translate: "0px -12px" \}\n\]\n```\nThey were:/);
+  assert.equal((await view(page, "v.open && !v.open.dirty")).open.kind, "script");
+  assert.equal((await keys())[1][1], "0px -12px");
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted: a script's keyframes that add to what is under them go on adding, custom properties keep their names, and keyframes not changed are put back exactly", async () => {
+  const { page, f, errors } = await open({ before: `(() => {
+    const el = document.createElement("p");
+    el.textContent = "Drift";
+    document.body.append(el);
+    el.animate([{ translate: "0px", "--Hue": "10" }, { translate: "10px", offset: 1 / 3, composite: "add" }, { translate: "30px", "--Hue": "20" }], { duration: 900, iterations: Infinity, id: "drift" });
+  })()` });
+  const keys = () => f.evaluate(() => [...document.querySelectorAll("p")].find((p) => p.textContent === "Drift").getAnimations()[0].effect.getKeyframes().map((k) => ({ ...k })));
+  const was = await keys();
+  const v = await view(page, "v.rows.some((r) => r.text === 'drift')");
+  await act(page, { type: "row", id: rowId(v, "drift") });
+  await view(page, "v.open && v.open.name === 'drift'");
+  await act(page, { type: "select", key: { at: 100, prop: "translate" } });
+  await act(page, { type: "key", what: "val", value: "40px", done: true });
+  await view(page, "v.open.dirty");
+  let now = await keys();
+  assert.deepEqual(now.map((k) => k.composite), was.map((k) => k.composite));
+  assert.deepEqual(now.map((k) => k["--Hue"]), was.map((k) => k["--Hue"]));
+  assert.equal(now[2].translate, "40px");
+  await act(page, { type: "undo" });
+  await view(page, "!v.open.dirty");
+  assert.deepEqual(await keys(), was); // (a third, not 33.3%)
   assert.deepEqual(errors, []);
   await page.close();
 });
