@@ -1641,3 +1641,43 @@ test("hosted: a trigger recorded after a scroll says so: in its chip's view, in 
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("hosted: an element put into the page before an edited one leaves the edit, its undo and what was sent with their element", async () => {
+  const { page, f, errors } = await open({ before: `
+    const s = document.createElement("style");
+    s.textContent = ".cards .card:nth-of-type(2) { transition: opacity 170ms linear; } .cards .card:nth-of-type(2):hover { opacity: 0.5; }";
+    document.head.appendChild(s);
+    window.__second = document.querySelector(".cards .card:nth-of-type(2)");
+    window.__second.style.transition = "opacity 170ms linear";
+  ` });
+  const rows = (await view(page)).rows;
+  await act(page, { type: "row", id: rows.find((r) => r.kind === "transition" && r.duration === 170).id });
+  await view(page, "v.open && v.open.kind === 'transition' && v.open.timing.duration === 170");
+  await act(page, { type: "timing", what: "duration", value: "500", done: true });
+  await act(page, { type: "timing", what: "duration", value: "900", done: true });
+  await view(page, "v.open.timing.duration === 900 && v.open.dirty");
+  /** Which cards the preview's rules are said of, and which the second card of the start is now. */
+  const said = () => f.evaluate(() => {
+    const cards = [...document.querySelectorAll(".cards .card")], out = [];
+    for (const sheet of document.adoptedStyleSheets) for (const r of sheet.cssRules) if (/transition: opacity/.test(r.cssText)) out.push(cards.findIndex((c) => c.matches(r.selectorText)));
+    return [out, cards.indexOf(window.__second)];
+  });
+  assert.deepEqual(await said(), [[1], 1]);
+  // a card is put in before it: the rule is said of where it is now, not of the card that took its place
+  await f.evaluate(() => document.querySelector(".cards").prepend(document.querySelector(".cards .card").cloneNode(true)));
+  await frames(f, 4);
+  assert.deepEqual(await said(), [[2], 2]);
+  assert.equal((await view(page, "v.open && v.open.dirty")).open.timing.duration, 900);
+  // a step back is the same element's
+  await act(page, { type: "undo" });
+  await view(page, "v.open.timing.duration === 500");
+  assert.deepEqual(await said(), [[2], 2]);
+  // sent, the preview that stays is its own too, when another is put in
+  await act(page, { type: "send", background: false });
+  await page.waitForFunction(() => window.__harness.notes.length === 1);
+  await f.evaluate(() => document.querySelector(".cards").prepend(document.querySelector(".cards .card").cloneNode(true)));
+  await frames(f, 4);
+  assert.deepEqual(await said(), [[3], 3]);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

@@ -1000,7 +1000,7 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   scroll is over, never per frame or while the stage ("Only this") is on, and a scroll that opening a row made, or an edit, does
   not reorder it until what is open is closed. In it, elements that change the same way are one
   row named by the rule that says so, drawn shut when it has more than five elements under it, and keyframes a rule plays in a state
-  are "Not playing now", not "Unused". An element whose inline style a script writes every frame ("per frame") opens too: in place of a
+  are "Not playing now", not "Unused". An edit stays with its element (`overlay/src/motion/follow.js`): when the page puts something in before it, what is kept under its path (unsent edits, triggers, undo, sent previews) is moved to where it is now. An element whose inline style a script writes every frame ("per frame") opens too: in place of a
   timeline the dock says what was seen of it (`overlay/src/motion/frames.js`: its inline style is watched on the page's frames for a
   second, and up to ten until it is seen to come round; only while it is open, and no computed style is read), and the note that goes
   with it carries that, as nothing in the page holds how it moves. The playhead's flag is its time ("0.38s"),

@@ -13,6 +13,7 @@ import { tagEl } from "./input.js";
 import { modeOn, setMode } from "../mode.js";
 import { kick } from "../render.js";
 import { restage } from "./stage.js";
+import { follow, unfollow } from "./follow.js";
 import { watchNear } from "./near.js";
 
 // ── mode ─────────────────────────────────────────────────────────────────────────────────
@@ -44,6 +45,7 @@ export function setOn(on) {
     watchSuspects(false);
     watchNear(false);
     M.on = false;
+    unfollow();
     forget();
     apply();
   }
@@ -141,6 +143,8 @@ export function frame(capturing) {
     hide(tagEl, true);
     return null;
   }
+  // (The page put something in before an edited element: its edits are where it is now.)
+  if (follow()) wantView();
   // repeat, while Loop is on
   const a = M.open && M.open.kind !== "transition" ? animOf() : null;
   if (a && M.loop && a.playState === "finished") {
