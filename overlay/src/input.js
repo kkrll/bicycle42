@@ -193,6 +193,7 @@ export function setEnabled(on) {
     Canvas.letGo();
     setBrush(false);
     Motion.letGo(); // the page is used as it is: nothing stays stopped at a frame
+    Motion.unstage(); // and nothing of it is hidden or moved for "Only this"
   }
   Canvas.syncUi();
   Motion.syncUi();

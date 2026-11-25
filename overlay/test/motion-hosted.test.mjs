@@ -595,6 +595,13 @@ test("hosted: on the stage the backdrop is the page's until a light or dark one 
   await act(page, { type: "backdrop", value: "light" });
   await view(page, "v.backdrop === 'light'");
   assert.equal(await bg(), "rgb(250, 250, 250)");
+  // review off (Preview): the page is whole and where it was, and stays so when review is back
+  await f.evaluate(() => window.__b42.receive({ type: "enabled", enabled: false }));
+  assert.deepEqual(await f.evaluate(() => [getComputedStyle(document.body).backgroundColor, getComputedStyle(document.body).transform, getComputedStyle(document.querySelector(".hero")).visibility]), [own, "none", "visible"]);
+  await f.evaluate(() => window.__b42.receive({ type: "enabled", enabled: true }));
+  await view(page, "v.on && !v.isolate");
+  await act(page, { type: "isolate", on: true });
+  await view(page, "v.isolate");
   // off: the page's own again, and the next time it is the page's until chosen
   await act(page, { type: "isolate", on: false });
   await view(page, "!v.isolate");

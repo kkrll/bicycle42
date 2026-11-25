@@ -161,3 +161,10 @@ export function go(by) {
   list[i < 0 ? (by > 0 ? 0 : n - 1) : (i + (by > 0 ? 1 : -1) + n) % n].open();
   reveal(M.sel);
 }
+
+/** Review is switched off (Preview): the page is used as it is, whole and where it was. */
+export function unstage() {
+  if (!M.isolate) return;
+  M.isolate = false;
+  restage();
+}
