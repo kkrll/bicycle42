@@ -314,7 +314,7 @@
 }
 
 /* the one before, the next: first in the header, beside the way back when there is one */
-.mdock-hd > .mdock-go {
+.mdock-hd > .mdock-step {
   margin: 0 -6px 0 -4px;
 }
 

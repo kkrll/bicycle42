@@ -134,6 +134,7 @@ function body() {
     rate: M.rate,
     loop: M.loop,
     isolate: M.isolate,
+    backdrop: M.stageLook,
     undo: M.past.length > 0,
     redo: M.future.length > 0,
     note: M.note,
@@ -225,6 +226,12 @@ const ACTS = {
   },
   isolate(a) {
     M.isolate = !!a.on && !!M.sel;
+    restage();
+    draw();
+  },
+  backdrop(a) {
+    if (!M.isolate || !M.sel || (a.value !== "light" && a.value !== "dark")) return;
+    M.stageBg = a.value;
     restage();
     draw();
   },

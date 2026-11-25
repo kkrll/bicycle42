@@ -977,7 +977,7 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   its animation's (the placeholder) is cut before that row takes two. Until dragged, the dock under a page is 360,
   or in a short window what leaves the page 300, never under half. The header's controls are words
   where a picture would need its title: "Only this" (show only this element: the rest of the page hidden, and it put in the middle
-  of the page with the whole of its motion in view, a small one enlarged up to 4×, on the colour of what it lies on; the page does not scroll meanwhile), and "Reset" (put
+  of the page with the whole of its motion in view, a small one enlarged up to 4×, on the colour of what it lies on, which a button beside it that is there meanwhile switches to a light backdrop or a dark one; a parent the page has faded out is shown; the page does not scroll and the list's rows outline nothing meanwhile), and "Reset" (put
   back as the page has it, or remove a new animation), named as the inspector's footer names it;
   undo stays an icon, as everywhere in the window. The playhead's flag is its time ("0.38s"),
   with no second number beside Play. A list that is not the whole page's (the overlay looked at a part of a very

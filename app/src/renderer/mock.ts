@@ -1520,6 +1520,7 @@ const MOTION: MotionView = {
   rate: 1,
   loop: false,
   isolate: false,
+  backdrop: "light",
   undo: true,
   redo: false,
   note: "",
@@ -1598,6 +1599,7 @@ function motionAct(a: PanelAct, out: (m: PanelMessage) => void): void {
   else if (act.type === "rate") MOTION.rate = act.rate
   else if (act.type === "loop") MOTION.loop = act.on
   else if (act.type === "isolate") MOTION.isolate = act.on
+  else if (act.type === "backdrop") MOTION.backdrop = act.value
   else if (act.type === "play") MOTION.clock.playing = !MOTION.clock.playing
   else if (act.type === "seek") MOTION.clock.pos = act.p
   else if (act.type === "note") MOTION.note = act.text

@@ -51,6 +51,8 @@ export const M = {
   key: null, // the selected keyframe: { at, prop } (prop null: the whole keyframe)
   lanes: [], // the properties, in the order their lanes were first drawn
   isolate: false, rate: 1, loop: false, loopAt: 0, pos: 0,
+  stageBg: "", // the stage's backdrop as chosen ("light" or "dark"; "": the page's own), and which of the two is shown
+  stageLook: "light",
   stageCss: "", // where the isolated element is put and what is behind it, as rules (stage.js)
   past: [], future: [], snap: "",
   held: null, // the page's Animation object for what is open

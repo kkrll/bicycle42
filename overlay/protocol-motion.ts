@@ -125,6 +125,9 @@ export type MotionView = {
   rate: number
   loop: boolean
   isolate: boolean
+  /** Behind the isolated element: a light colour or a dark one (the page's own, until the
+   *  reviewer chooses). */
+  backdrop: "light" | "dark"
   undo: boolean
   redo: boolean
   /** The words that go with the open animation, as typed so far. */
@@ -156,6 +159,9 @@ export type MotionAct =
   | { type: "rate"; rate: number }
   | { type: "loop"; on: boolean }
   | { type: "isolate"; on: boolean }
+  /** Behind the isolated element, a light backdrop or a dark one in place of the page's own
+   *  (until it is no longer isolated). */
+  | { type: "backdrop"; value: "light" | "dark" }
   /** The next thing that moves (1) or the one before (-1), opened; round at the ends. */
   | { type: "go"; by: 1 | -1 }
   | { type: "undo" }

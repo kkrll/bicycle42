@@ -67,6 +67,33 @@ function faded(el) {
   shown = now;
   return now.size ? `${[...now].map((p) => `${pathOf(p)}${BOOST}`).join(", ")} { opacity: 1 !important; }\n` : "";
 }
+/** The two backdrops the reviewer may choose instead of the page's own: light words drawn on a
+ *  dark section are not seen on the page's light background, nor dark ones on a dark page. */
+const BACKDROP = { light: "#fafafa", dark: "#141414" };
+let ink = null;
+/** Whether a colour (any the page's CSS can say) is a dark one: drawn, and read back. */
+function dark(c) {
+  try {
+    ink = ink || document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+    ink.canvas.width = ink.canvas.height = 1;
+    ink.fillStyle = "#fff";
+    ink.fillRect(0, 0, 1, 1);
+    ink.fillStyle = c;
+    ink.fillRect(0, 0, 1, 1);
+    const [r, g, b] = ink.getImageData(0, 0, 1, 1).data;
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b < 128;
+  } catch {
+    return false;
+  }
+}
+/** The page's own background: the body's colour, else the root's, else the white of no colour. */
+function pageBg() {
+  for (const el of [document.body, document.documentElement]) {
+    const c = getComputedStyle(el).backgroundColor;
+    if (c && !/^rgba\(.*,\s*0\)$/.test(c) && c !== "transparent") return c;
+  }
+  return "#fff";
+}
 const rules = (transform, bg) =>
   `:root${BOOST} { overflow: hidden !important;${bg ? ` background: ${bg} !important;` : ""} }\n` +
   `body${BOOST} { transform: ${transform} !important; transform-origin: 0 0 !important; transition: none !important;${bg ? ` background: ${bg} !important;` : ""} }`;
@@ -94,11 +121,18 @@ export function restage() {
   listen(!!el);
   if (!el || !document.body) {
     M.stageCss = "";
+    M.stageBg = "";
     shown = new Set();
     told = "";
     return apply();
   }
-  const bg = behind(el), show = faded(el);
+  const own = behind(el), bg = M.stageBg ? BACKDROP[M.stageBg] : own, show = faded(el);
+  // (Read before our rules are on: with them the body's colour is the stage's.)
+  if (!M.stageBg) {
+    M.stageCss = "";
+    apply();
+    M.stageLook = dark(own || pageBg()) ? "dark" : "light";
+  } else M.stageLook = M.stageBg;
   if (show && told !== M.selRs) flash("The page has this hidden (a parent at opacity 0): shown here");
   told = M.selRs;
   M.stageCss = show + rules("translate(0px)", bg);

@@ -577,3 +577,30 @@ test("hosted: Only this shows an element the page has faded out with its parent,
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+test("hosted: on the stage the backdrop is the page's until a light or dark one is chosen, and the list's rows outline nothing", async () => {
+  const { page, f, errors, v } = await open();
+  const bg = () => f.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  const own = await bg();
+  await act(page, { type: "row", id: rowId(v, "spin") });
+  await act(page, { type: "isolate", on: true });
+  assert.equal((await view(page, "v.isolate")).backdrop, "light");
+  await act(page, { type: "backdrop", value: "dark" });
+  await view(page, "v.backdrop === 'dark'");
+  assert.equal(await bg(), "rgb(20, 20, 20)");
+  // the pointer over another row: its elements are hidden, and are not outlined
+  await act(page, { type: "hover", id: rowId(v, "rise") });
+  await frames(f, 3);
+  assert.equal(await f.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelectorAll(".box.mrow").length), 0);
+  await act(page, { type: "backdrop", value: "light" });
+  await view(page, "v.backdrop === 'light'");
+  assert.equal(await bg(), "rgb(250, 250, 250)");
+  // off: the page's own again, and the next time it is the page's until chosen
+  await act(page, { type: "isolate", on: false });
+  await view(page, "!v.isolate");
+  assert.equal(await bg(), own);
+  await frames(f, 3);
+  assert.equal(await f.evaluate(() => document.querySelector("b42-review").shadowRoot.querySelectorAll(".box.mrow").length), 2);
+  assert.deepEqual(errors, []);
+  await page.close();
+});

@@ -41,6 +41,7 @@ const MPATHS = {
   loop: "M4.5 11.25V10.5a4.5 4.5 0 0 1 4.5-4.5h10.5M16.5 3l3 3-3 3M19.5 12.75v.75a4.5 4.5 0 0 1-4.5 4.5H4.5M7.5 21l-3-3 3-3",
   undo: "M9 5.25 4.5 9.75l4.5 4.5M4.5 9.75h9.375a4.875 4.875 0 0 1 0 9.75H10.5",
   more: "M5.25 12h.01M12 12h.01M18.75 12h.01",
+  contrast: "M12 3a9 9 0 1 0 0 18a9 9 0 0 0 0-18ZM12 3v18M12 7.5l5.6-2M12 12h9M12 16.5l5.6 2",
   link: "M10.5 13.5a3.75 3.75 0 0 0 5.25 0l3-3A3.75 3.75 0 0 0 13.5 5.25l-.75.75M13.5 10.5a3.75 3.75 0 0 0-5.25 0l-3 3a3.75 3.75 0 0 0 5.25 5.25l.75-.75",
 } as const
 
@@ -713,7 +714,7 @@ export function MotionDock() {
                     <Icon name="back" />
                   </button>
                   <Show when={open() && steps() > 1}>
-                    <div class="mdock-tools mdock-go">
+                    <div class="mdock-tools mdock-step">
                       <button type="button" class="icon-btn" title="The one before (↑)" aria-label="The one before" onClick={() => send({ type: "go", by: -1 })}>
                         <Icon name="up" />
                       </button>
@@ -914,6 +915,17 @@ function Header(props: { open: MotionOpen; view: MotionView }) {
         >
           Only this
         </button>
+        <Show when={props.view.isolate && props.view.sel}>
+          <button
+            type="button"
+            class="icon-btn"
+            title={props.view.backdrop === "dark" ? "Dark behind it: make it light" : "Light behind it: make it dark"}
+            aria-label={props.view.backdrop === "dark" ? "Light backdrop" : "Dark backdrop"}
+            onClick={() => send({ type: "backdrop", value: props.view.backdrop === "dark" ? "light" : "dark" })}
+          >
+            <MIcon name="contrast" />
+          </button>
+        </Show>
       </div>
       <div class="mdock-tools">
         <button type="button" class="icon-btn" disabled={!props.view.undo} title={`Undo (${keys("mod", "Z")})`} aria-label="Undo" onClick={() => send({ type: "undo" })}>

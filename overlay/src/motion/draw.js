@@ -153,7 +153,8 @@ export function frame(capturing) {
   // outlines: the element under the pointer, the list row's elements, the open one
   const out = [];
   if (M.hover && M.hover !== M.sel && M.hover.isConnected) out.push([rectOf(M.hover), "hover"]);
-  for (const el of M.rowEls || []) if (el !== M.sel && el.isConnected) out.push([rectOf(el), "mrow"]);
+  // (On the stage the others are hidden: no outline of what is not there to see.)
+  if (!(M.isolate && M.sel)) for (const el of M.rowEls || []) if (el !== M.sel && el.isConnected) out.push([rectOf(el), "mrow"]);
   const sel = M.sel;
   if (sel && sel.isConnected) {
     const r = rectOf(sel);
