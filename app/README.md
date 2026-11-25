@@ -986,7 +986,7 @@ re-read from a new process against the stream. It spends the agent's tokens; not
   of all its properties at once; what moves beside the open animation is drawn "Together", a bar an element on one line of time,
   with a Play that starts them all again; a script's animation is written out as its animate() call under "Code" (the second tab,
   which was "CSS"), and how it plays and its keyframes
-  may be changed as a rule's are, in the animation itself (`updateTiming`, `setKeyframes`; left unsent it is put back as the browser gave it). In the list, elements that change the same way are one
+  may be changed as a rule's are, in the animation itself (`updateTiming`, `setKeyframes`; left unsent it is put back as the browser gave it, and sent, when its note is done). In the list, elements that change the same way are one
   row named by the rule that says so, drawn shut when it has more than five elements under it, and keyframes a rule plays in a state
   are "Not playing now", not "Unused". An element whose inline style a script writes every frame ("per frame") opens too: in place of a
   timeline the dock says what was seen of it (`overlay/src/motion/frames.js`: its inline style is watched on the page's frames for a

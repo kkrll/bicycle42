@@ -65,7 +65,9 @@ export const M = {
   sheet: null, // the unsent edits, as rules
   // [{ id, sheet, seen, n, undo: [{ x, index, entry }] }]: applied until the pin is done. seen:
   // its pin has been listed; n: the pin's number, null until it has one; undo: the element's
-  // other uses x whose base had this one's entry written in at index, and the entry they had.
+  // other uses x whose base had this one's entry written in at index, and the entry they had. A
+  // script's animation has no sheet (null) but `script`: { a, raw }, the page's Animation object
+  // it was written into and what it was before (readScript in open.js).
   sent: [],
   unsent: null, // what the animation being sent was, until the host takes it
   view: "keys", // the timeline, or the keyframes as text
@@ -340,7 +342,7 @@ export function scan() {
       walk(s.cssRules);
     } catch {} // another origin's stylesheet: its animations are still read, through the API
   }
-  for (const b of M.sent) walk(b.sheet.cssRules); // what was sent is what the page plays now
+  for (const b of M.sent) if (b.sheet) walk(b.sheet.cssRules); // what was sent is what the page plays now
   const anims = new Map(), transitions = []; // anims: name → the elements that play it (a Set, in the order found)
   const plays = (nm, el) => (anims.get(nm) || anims.set(nm, new Set()).get(nm)).add(el);
   const all = document.body ? document.body.getElementsByTagName("*") : [];

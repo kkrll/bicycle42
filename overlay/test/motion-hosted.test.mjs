@@ -888,11 +888,25 @@ test("hosted: a script's keyframes are changed as a rule's are, in the animation
   assert.deepEqual((await keys())[1].slice(0, 2), [1, "0px -9px"]);
   await act(page, { type: "key", what: "val", value: "0px -9px", done: true });
   w = await view(page, "v.undo && v.open.dirty && v.rows.some((r) => r.text === 'bob' && r.dirty)");
-  // its place, dragged and let go
+  // its place, dragged and let go: a step of the drag, or a key of the note, reads no computed style
   await act(page, { type: "select", key: { at: 100, prop: "translate" }, grab: true });
+  await view(page, "v.open.key && v.open.key.at === 100");
+  await frames(f, 3);
+  await f.evaluate(() => {
+    const real = window.getComputedStyle;
+    window.__styles = 0;
+    window.getComputedStyle = function (...a) {
+      window.__styles++;
+      return real.apply(this, a);
+    };
+  });
   await act(page, { type: "drag", to: 80 });
+  await act(page, { type: "note", text: "higher" });
   await act(page, { type: "drag", to: 60 });
-  await view(page, "v.open.key && v.open.key.at === 60");
+  await act(page, { type: "note", text: "" });
+  await view(page, "v.open.key && v.open.key.at === 60 && v.note === ''");
+  await frames(f, 2);
+  assert.equal(await f.evaluate(() => window.__styles), 0);
   assert.deepEqual((await keys()).map((k) => k[0]), [0, 0.6]);
   await act(page, { type: "drop" });
   // one added where the lane is pressed twice: it takes the value there, so nothing changes yet.
@@ -989,6 +1003,81 @@ test("hosted: a script's keyframes that add to what is under them go on adding, 
   await act(page, { type: "undo" });
   await view(page, "!v.open.dirty");
   assert.deepEqual(await keys(), was); // (a third, not 33.3%)
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted: a sent script edit is put back when its note is done: the animation is as the page's script made it, one sent after it stays on top, and what is unsent stays unsent", async () => {
+  const { page, f, errors, v } = await open({ delay: 600 });
+  const bob = () => f.evaluate(() => {
+    const e = document.querySelector(".badge").getAnimations().find((a) => a.id === "bob").effect;
+    return [e.getTiming().duration, e.getKeyframes().at(-1).translate];
+  });
+  const raw = () => f.evaluate(() => {
+    const e = document.querySelector(".badge").getAnimations().find((a) => a.id === "bob").effect;
+    return JSON.stringify([e.getTiming(), e.getKeyframes()]);
+  });
+  const page0 = await raw();
+  const done = (n) => page.waitForFunction((k) => window.__harness.notes[k]?.status === "done", n, { timeout: 8000 });
+  const value = async (x) => {
+    await act(page, { type: "select", key: { at: 100, prop: "translate" } });
+    await act(page, { type: "key", what: "val", value: x, done: true });
+    await view(page, `v.open.dirty && v.open.css.includes(${JSON.stringify(x)})`);
+  };
+  const sendIt = async (n) => {
+    await act(page, { type: "send", background: false });
+    await page.waitForFunction((k) => window.__harness.notes.length === k, n);
+    await view(page, "v.open && !v.open.dirty");
+  };
+  await act(page, { type: "row", id: rowId(v, "bob") });
+  await view(page, "v.open && v.open.kind === 'script'");
+  await act(page, { type: "timing", what: "duration", value: "1600", done: true });
+  await value("0px -9px");
+  await sendIt(1);
+  // sent, it plays as sent, and the line says how long
+  assert.equal((await view(page, "v.status !== ''")).status, "Sent · preview stays until note 1 is done");
+  assert.deepEqual(await bob(), [1600, "0px -9px"]);
+  // done: as the page's script made it, and what is open says so
+  await done(0);
+  const w = await view(page, "v.open && v.open.timing.duration === 800");
+  assert.equal(await raw(), page0);
+  assert.equal(w.open.dirty, false);
+  assert.equal(w.undo, false);
+  assert.match(w.status, /^Note 1 done · preview removed$/);
+  // two notes of it, the first done while the second is not: the second's stays, and goes with it
+  await act(page, { type: "timing", what: "duration", value: "1000", done: true });
+  await view(page, "v.open.dirty");
+  await sendIt(2);
+  await value("0px -6px");
+  await sendIt(3);
+  await done(1);
+  assert.deepEqual(await bob(), [1000, "0px -6px"]);
+  await done(2);
+  await view(page, "v.open && v.open.timing.duration === 800");
+  assert.equal(await raw(), page0);
+  // changed again after it was sent: what was sent goes, what is unsent stays and is undone to the page's
+  await act(page, { type: "timing", what: "duration", value: "1200", done: true });
+  await view(page, "v.open.dirty");
+  await sendIt(4);
+  await value("0px -5px");
+  await done(3);
+  const x = await view(page, "v.open && v.open.timing.duration === 800");
+  assert.equal(x.open.dirty, true);
+  assert.deepEqual(await bob(), [800, "0px -5px"]);
+  await act(page, { type: "discard" });
+  await view(page, "!v.open.dirty");
+  assert.equal(await raw(), page0);
+  // not open any more, and its element gone by then: nothing to put back, and nothing breaks
+  await act(page, { type: "timing", what: "duration", value: "1500", done: true });
+  await view(page, "v.open.dirty");
+  await sendIt(5);
+  await act(page, { type: "row", id: rowId(v, "spin") });
+  await view(page, "v.open && v.open.name === 'spin'");
+  assert.equal((await bob())[0], 1500, "sent, it is not put back when it is left");
+  await f.evaluate(() => document.querySelector(".badge").remove());
+  await done(4);
+  await frames(f, 3);
+  assert.equal((await view(page)).open.name, "spin");
   assert.deepEqual(errors, []);
   await page.close();
 });

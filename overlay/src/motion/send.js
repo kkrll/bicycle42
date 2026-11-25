@@ -6,7 +6,7 @@ import { adopt, BOOST, describe, editSel, plainLabel, vp } from "../page.js";
 import { draftChanged } from "../draft.js";
 import { dispatch } from "../sent.js";
 import { anyDirty, apply, entryCss, kfDirty, kfIs, M, MAX_KF, mq, ms, openDirty, openKf, openScr, openUse, playsDirty, readList, scan, serialize, trCss, trDirty, useDirty } from "./model.js";
-import { applyScript, letGo, openCss, openTransition, readScript, setSel, show } from "./open.js";
+import { applyScript, forgetSteps, letGo, openCss, openTransition, readScript, setSel, show } from "./open.js";
 import { keysText, sharedBy, snapshot, timing } from "./edit.js";
 import { draw, drawFoot, flash } from "./draw.js";
 import { seenNow } from "./frames.js";
@@ -85,14 +85,7 @@ export function submit(background) {
   M.unsent = { id: note.id, snap: M.snap, past: M.past, future: M.future, words: M.note, open: o, sel: M.sel, ro: M.ro, held: M.held };
   if (o.kind === "css") moveToSent(note.id);
   else if (o.kind === "transition" && trDirty(M.tr.get(o.rs))) moveTransitionToSent(note.id, el);
-  else if (o.kind === "script" && openDirty()) {
-    // Sent, it goes on playing as changed (there is no rule to take away when the note is done:
-    // it is the page's own animation, until the page makes it again).
-    M.ro = readScript(M.held);
-    M.past = [];
-    M.future = [];
-    M.snap = snapshot();
-  }
+  else if (o.kind === "script" && openDirty()) moveScriptToSent(note.id);
   M.note = ""; // the line under the timeline says it was sent
   S.quiet = note.id; // no "Sent" chip over the page: the dock's line says it
   S.sel = [el]; // its outline, in the screenshot
@@ -156,6 +149,39 @@ function moveTransitionToSent(id, el) {
   openTransition(el); // as the page has it now
   draftChanged();
 }
+/** A changed script's animation goes on playing as it was sent: there is no rule to take away
+ *  when the note is done, so what the animation was before is kept with the note's id. */
+function moveScriptToSent(id) {
+  M.sent.push({ id, sheet: null, seen: false, n: null, undo: [], script: { a: M.held, raw: M.ro.raw } });
+  M.ro = readScript(M.held); // as it plays now
+  M.past = [];
+  M.future = [];
+  M.snap = snapshot();
+}
+/** A sent script's animation is as it was before that note, if the page still has it. Another
+ *  note sent of it since stays on top of it, and what it was before that one is what it was
+ *  before this one now; so do unsent changes of it, of which only those are kept that were made
+ *  since (how it plays, its keyframes). */
+function putBackScript(b) {
+  const { a, raw } = b.script;
+  const later = M.sent.slice(M.sent.indexOf(b) + 1).find((x) => x.script && x.script.a === a);
+  if (later) return void (later.script.raw = raw);
+  if (!a.effect || !a.effect.target || !a.effect.target.isConnected) return;
+  try {
+    a.effect.updateTiming(raw.timing);
+    a.effect.setKeyframes(raw.frames);
+  } catch {}
+  const was = openScr();
+  if (!was || M.held !== a) return;
+  const now = readScript(a);
+  if (JSON.stringify(was.timing) !== was.orig) now.timing = was.timing;
+  if (kfIs(was.frames) !== was.origKf) now.frames = was.frames;
+  M.ro = now;
+  if (M.key && !now.frames.some((f) => f.at === M.key.at && (M.key.prop === null || M.key.prop in f.vals))) M.key = null;
+  forgetSteps(was.id);
+  M.snap = snapshot();
+  applyScript();
+}
 /** The host did not take the note: the animation is unsent again, with its undo steps and words.
  *  Another note's id (an older one, or a canvas note) changes nothing here. */
 export function refuse(id, say) {
@@ -163,7 +189,10 @@ export function refuse(id, say) {
   if (!u || u.id !== id) return false;
   M.unsent = null;
   const i = M.sent.findIndex((b) => b.id === id);
-  if (i >= 0) dropSent(M.sent.splice(i, 1)[0]);
+  if (i >= 0) {
+    dropSent(M.sent[i]);
+    M.sent.splice(i, 1);
+  }
   const s = JSON.parse(u.snap);
   M.kf = new Map(s.kf);
   M.use = new Map(s.use);
@@ -191,6 +220,7 @@ export function refuse(id, say) {
 }
 /** Its sheet goes, and the element's other uses have the entry back that it wrote over. */
 function dropSent(b) {
+  if (b.script) return putBackScript(b);
   adopt(b.sheet, false);
   for (const { x, index, entry } of b.undo) if (x.base[index]) x.base[index] = entry;
 }
