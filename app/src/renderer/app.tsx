@@ -365,6 +365,16 @@ function TopBar(props: {
   // names go under their icons, so they stay. Back on one line only once the address would
   // still have URL_ROOM with them there (what stacking gave it is measured when it does).
   const [stacked, setStacked] = createSignal(false)
+  // Reload's spinner turns for the first seconds of a load only. A page counts as loading for as
+  // long as anything on it is still being fetched, and one request that is never answered kept
+  // the spinner (and the window's redrawing) going for good. The title still says "Loading…".
+  const [loadShown, setLoadShown] = createSignal(false)
+  createEffect(() => {
+    setLoadShown(state.page.loading)
+    if (!state.page.loading) return
+    const t = setTimeout(() => setLoadShown(false), 8000)
+    onCleanup(() => clearTimeout(t))
+  })
   let field: HTMLElement | undefined
   let modes: HTMLDivElement | undefined
   let gave = 0
@@ -421,7 +431,7 @@ function TopBar(props: {
             disabled={!state.page.url}
             onClick={() => act("reload")}
           >
-            <Icon name={state.page.loading ? "spinner" : "reload"} />
+            <Icon name={loadShown() ? "spinner" : "reload"} />
           </button>
         </div>
         <DeviceSwitch disabled={!state.page.url} />

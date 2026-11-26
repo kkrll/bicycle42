@@ -22,6 +22,9 @@ preload again when `../overlay/src` changes.
 Settings and notes live in the app's user-data folder (`~/.config/bicycle42` on Linux);
 `BICYCLE42_DATA=/some/folder` puts them elsewhere.
 
+`BICYCLE42_CPU=1` prints a line every five seconds saying which process is busy (main, window,
+page, GPU): the system's monitor shows the window and the page under one name.
+
 ## Test
 
 ```bash

@@ -358,7 +358,25 @@ else {
     await createWindow()
     core.start()
     void checkForUpdates(false)
+    if (process.env.BICYCLE42_CPU) cpuLines()
   })
+}
+
+/** `BICYCLE42_CPU=1`: a line every five seconds saying which process is busy. The system's own
+ *  monitor shows the window and the page under the same name; here each is named. */
+function cpuLines() {
+  setInterval(() => {
+    const named = new Map<number | undefined, string>([
+      [window && !window.isDestroyed() ? window.webContents.getOSProcessId() : undefined, "window"],
+      [page?.view.webContents.getOSProcessId(), "page"],
+    ])
+    const parts = app
+      .getAppMetrics()
+      .map((m) => ({ name: named.get(m.pid) ?? (m.type === "Browser" ? "main" : m.name || m.type), cpu: m.cpu.percentCPUUsage }))
+      .filter((m) => m.cpu >= 0.1)
+      .sort((a, b) => b.cpu - a.cpu)
+    console.log(`[bicycle42] cpu ${parts.reduce((n, m) => n + m.cpu, 0).toFixed(1)}%: ${parts.map((m) => `${m.name} ${m.cpu.toFixed(1)}`).join(", ") || "idle"}`)
+  }, 5000).unref()
 }
 
 /** For the end-to-end test only: a way to look inside without a second IPC surface. */

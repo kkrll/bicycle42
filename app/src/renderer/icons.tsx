@@ -1,6 +1,6 @@
 // Every icon in the app: stroked paths on a 24 grid, drawn at 16 or 20. One component, one table,
 // so there is no icon font, no glyph character and no per-icon file.
-import { For, Show, createEffect, type JSX } from "solid-js"
+import { For, Show, createEffect, createSignal, onCleanup, type JSX } from "solid-js"
 import type { AgentKind } from "../shared/types"
 
 const PATHS = {
@@ -88,11 +88,25 @@ function inStep(el: Element, again = true) {
   if (!turning.length && again) requestAnimationFrame(() => inStep(el, false))
 }
 
+/** A spinner out of view (scrolled away in the transcript, in a panel that is shut) does not turn:
+ *  a turning one has the whole window drawn again on every step, seen or not. One observer for all. */
+const seen = new WeakMap<Element, (v: boolean) => void>()
+let watcher: IntersectionObserver | undefined
+const watch = (el: Element, set: (v: boolean) => void) => {
+  watcher ??= new IntersectionObserver((all) => all.forEach((e) => seen.get(e.target)?.(e.isIntersecting)))
+  seen.set(el, set)
+  watcher.observe(el)
+  return () => (watcher?.unobserve(el), seen.delete(el))
+}
+
 /** `spin` turns any icon (the thought, say) while something is under way; the spinner always does. */
 export function Icon(props: { name: IconName; size?: 16 | 20 | 24; class?: string; spin?: boolean }): JSX.Element {
   const size = () => props.size ?? 16
-  const spinning = () => props.spin ?? props.name === "spinner"
+  const wanted = () => props.spin ?? props.name === "spinner"
+  const [inView, setInView] = createSignal(true)
+  const spinning = () => wanted() && inView()
   let el!: SVGSVGElement
+  createEffect(() => wanted() && onCleanup(watch(el, setInView)))
   createEffect(() => spinning() && inStep(el))
   return (
     <svg

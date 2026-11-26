@@ -188,8 +188,10 @@ pre,
   flex: none;
 }
 
+/* Eight steps a turn, not sixty frames a second: every frame of a turning spinner has the whole
+   window drawn again, and a smooth one cost a fifth of a core for as long as it was shown. */
 .spin {
-  animation: spin calc(var(--duration-slow) * 3) linear infinite;
+  animation: spin calc(var(--duration-slow) * 3) steps(8) infinite;
 }
 
 @keyframes spin {
