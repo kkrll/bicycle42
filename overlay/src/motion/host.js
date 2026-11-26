@@ -41,6 +41,7 @@ import { draw, flash, sentStatus } from "./draw.js";
 import { go, restage } from "./stage.js";
 import { record } from "./record.js";
 import { AFTER } from "./trigger.js";
+import { sourceFor } from "./source.js";
 
 // ── the view ─────────────────────────────────────────────────────────────────────────────
 const ROW = ["id", "kind", "text", "aside", "duration", "on", "sub", "last", "off", "running", "dirty"];
@@ -141,6 +142,7 @@ function openView() {
     key: ki && { at: ki.at, prop: ki.prop, value: ki.value === null || ki.value === undefined ? null : String(ki.value), ease: ki.ease, dflt: ki.dflt, last: ki.last, editable: ki.editable, props: Object.keys(ki.f.vals).length },
     score: score().map(({ id, text, name, delay, duration, on }) => ({ id, text, name, delay, duration, on })),
     seen: o.kind === "frames" ? M.ro.seen : null,
+    source: sourceFor(o.kind === "script" ? M.held : o.kind === "frames" && M.ro.canvas ? M.sel : null),
     css: cssText(),
     cssError: M.cssWhy,
     dirty: openDirty(),

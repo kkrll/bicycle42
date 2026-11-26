@@ -797,7 +797,7 @@ export function MotionDock() {
                       data-row={r.id}
                       role="listitem"
                       aria-disabled={r.off}
-                      title={r.sub ? "" : `${r.kind === "unused" && r.aside ? `Keyframes that play on ${r.aside}, which nothing is now` : r.kind === "unused" && v()!.partial ? "Keyframes nothing was seen to play" : KIND_TITLE[r.kind]}${r.running ? ", playing" : ""}`}
+                      title={r.sub ? "" : `${r.kind === "unused" && r.aside ? `Keyframes that play on ${r.aside}, which nothing is now` : r.kind === "unused" && v()!.partial ? "Keyframes nothing was seen to play" : r.kind === "frames" && r.aside === "canvas" ? "Drawn by a script in a canvas" : KIND_TITLE[r.kind]}${r.running ? ", playing" : ""}`}
                       onPointerEnter={() => rowsHover(r.id)}
                       onClick={() => pressRow(r)}
                     >
@@ -1619,7 +1619,11 @@ function Seen(props: { open: MotionOpen }) {
   const seen = () => props.open.seen
   return (
     <div class="mdock-seen">
-      <p>A script writes this element’s inline style on every frame. No CSS rule or animation holds it, so it cannot be changed here: say in the note what it should do.</p>
+      <p>
+        {props.open.name === "canvas"
+          ? "A script draws this in a canvas. No CSS rule or animation holds it, so it cannot be changed here: say in the note what it should do."
+          : "A script writes this element’s inline style on every frame. No CSS rule or animation holds it, so it cannot be changed here: say in the note what it should do."}
+      </p>
       <dl>
         <For each={seen()?.props ?? []}>
           {(p) => (
@@ -1629,12 +1633,23 @@ function Seen(props: { open: MotionOpen }) {
             </div>
           )}
         </For>
+        <For each={props.open.source ?? []}>
+          {(s, i) => (
+            <div>
+              <dt>{i() ? "called from" : "drawn from"}</dt>
+              <dd class="mono">
+                {s.at}
+                {s.fn ? ` (in ${s.fn})` : ""}
+              </dd>
+            </div>
+          )}
+        </For>
       </dl>
       <p class="mdock-seen-ft" role="status">
         <span>
           {!seen()?.over
             ? seen()?.watching ? "Watching it…" : "Not watched yet"
-            : `${seen()!.props.length ? "" : "None of its properties changed. "}Watched for ${secs(Math.round(seen()!.over / 100) * 100)}${seen()!.cycle ? `; one round takes about ${secs(seen()!.cycle!)}` : seen()!.props.length ? "; not seen to repeat" : ""}${seen()!.watching ? " (still watching)" : ""}`}
+            : `${seen()!.props.length || props.open.name === "canvas" ? "" : "None of its properties changed. "}Watched for ${secs(Math.round(seen()!.over / 100) * 100)}${seen()!.cycle ? `; one round takes about ${secs(seen()!.cycle!)}` : seen()!.props.length && props.open.name !== "canvas" ? "; not seen to repeat" : ""}${seen()!.watching ? " (still watching)" : ""}`}
         </span>
         <button type="button" class="text-btn" disabled={!!seen()?.watching} title="Watch it again for a while (space)" onClick={() => send({ type: "play" })}>
           Watch again

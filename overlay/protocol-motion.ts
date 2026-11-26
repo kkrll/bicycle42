@@ -114,8 +114,12 @@ export type MotionOpen = {
    *  `on`), each with its row's `id`, when it starts and how long it lasts, in ms. Empty when it
    *  moves alone. */
   score: Array<{ id: string; text: string; name: string; delay: number; duration: number; on: boolean }>
-  /** frames: what was seen of it; null for the others. */
+  /** frames: what was seen of it; null for the others. (A canvas, `name` "canvas": how often it
+   *  is drawn again, with what.) */
   seen: MotionSeen | null
+  /** A script's animation, a canvas: where the page's scripts start it, the nearest call first
+   *  ("src/Hero.tsx:42", and the function it is in). Null when that is not known. */
+  source: Array<{ at: string; fn?: string }> | null
   /** The keyframes as text (a transition: its rule; a script's animation: the call that would
    *  make it, written out from the animation as it runs). */
   css: string

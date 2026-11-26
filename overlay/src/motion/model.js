@@ -65,6 +65,7 @@ export const M = {
   // What moves on the page, as last looked at; it holds the page's elements, so it is kept only
   // while motion mode is on (forget).
   scan: nothing(),
+  drawn: new Set(), // canvases a script draws to several times a second (drawn.js)
   suspects: new Set(), // elements whose inline style changes many times a second (while they are in the page)
   nearDue: 0, // what is in view is to be measured again: 1 once nothing is open, 2 as soon as it is not the stage (near.js)
   list: null, found: [], listTree: -1, // the list's rows as read from the page, kept until it is looked at again or elements came or went, and the same in the page's order (edit.js: rows)

@@ -1529,6 +1529,7 @@ const MOTION: MotionView = {
     ],
     cssError: "",
     seen: null,
+    source: null,
     dirty: true,
   },
   names: [],

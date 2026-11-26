@@ -7,8 +7,8 @@
 //    line breaks, its media queries; `zoom` would lay it out again). The element is put in the
 //    middle with the whole of its motion in view (its box at several frames of what is open), and
 //    a small one is enlarged, a larger one than the view made smaller;
-//  - what is behind it: the colour of what it lies on, whose own drawing is hidden with the rest
-//    (white words on a dark section would be white on the page's white);
+//  - what is behind it: the colour, gradient or picture of what it lies on, whose own drawing is
+//    hidden with the rest (white words on a dark section would be white on the page's white);
 //  - no scrolling, which would take it out of the middle;
 //  - what it is in, shown: a parent the page has faded out (an invitation that goes once it is
 //    taken up, a closed menu) would leave the stage empty, and the dock says that it was.
@@ -48,12 +48,17 @@ function bounds(el) {
   const x = Math.min(...rects.map((r) => r.left)), y = Math.min(...rects.map((r) => r.top));
   return { x, y, w: Math.max(...rects.map((r) => r.right)) - x, h: Math.max(...rects.map((r) => r.bottom)) - y };
 }
-/** The colour the element lies on: its nearest parent's that has one of its own. "" when that is
- *  the page's own background (the body's and the root's stay as they are). */
+/** What the element lies on: the background of its nearest parent that has one of its own. A
+ *  colour as it is; a gradient or a picture as { image, color, size, position, repeat }, to be
+ *  drawn over the whole view as it was over that parent. "" when that is the page's own
+ *  background (the body's and the root's stay as they are). */
 function behind(el) {
   for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
-    const c = getComputedStyle(p).backgroundColor, m = /^rgba\(.*,\s*([\d.]+)\)$/.exec(c) || /\/\s*([\d.]+)\s*\)$/.exec(c);
-    if ((m ? +m[1] : 1) >= 0.9) return c;
+    const cs = getComputedStyle(p), c = cs.backgroundColor, m = /^rgba\(.*,\s*([\d.]+)\)$/.exec(c) || /\/\s*([\d.]+)\s*\)$/.exec(c);
+    const solid = (m ? +m[1] : 1) >= 0.9;
+    if (cs.backgroundImage && cs.backgroundImage !== "none")
+      return { image: cs.backgroundImage, color: solid ? c : "", size: cs.backgroundSize, position: cs.backgroundPosition, repeat: cs.backgroundRepeat };
+    if (solid) return c;
   }
   return "";
 }
@@ -68,11 +73,21 @@ function faded(el) {
   return now.size ? `${[...now].map((p) => `${pathOf(p)}${BOOST}`).join(", ")} { opacity: 1 !important; }\n` : "";
 }
 /** The two backdrops the reviewer may choose instead of the page's own: light words drawn on a
- *  dark section are not seen on the page's light background, nor dark ones on a dark page. */
+ *  dark section are not seen on the page's light background, nor dark ones on a dark page. (A
+ *  flat colour: it takes the place of a gradient or a picture too.) */
 const BACKDROP = { light: "#fafafa", dark: "#141414" };
 let ink = null;
 /** Whether a colour (any the page's CSS can say) is a dark one: drawn, and read back. */
-function dark(c) {
+const dark = (c) => light(c) < 128;
+/** Whether what the element lies on is dark. A gradient is as dark as its colours are together;
+ *  of a picture nothing is known but what is written on it: light words are on a dark one. */
+function darkBehind(bg, el) {
+  if (typeof bg === "string") return dark(bg);
+  const stops = /url\(/i.test(bg.image) ? null : bg.image.match(/(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color)\([^()]*\)|#[0-9a-f]{3,8}\b/gi);
+  if (stops && stops.length) return stops.reduce((sum, c) => sum + light(c), 0) / stops.length < 128;
+  return !dark(getComputedStyle(el).color);
+}
+function light(c) {
   try {
     ink = ink || document.createElement("canvas").getContext("2d", { willReadFrequently: true });
     ink.canvas.width = ink.canvas.height = 1;
@@ -81,9 +96,9 @@ function dark(c) {
     ink.fillStyle = c;
     ink.fillRect(0, 0, 1, 1);
     const [r, g, b] = ink.getImageData(0, 0, 1, 1).data;
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b < 128;
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   } catch {
-    return false;
+    return 255;
   }
 }
 /** The page's own background: the body's colour, else the root's, else the white of no colour. */
@@ -94,9 +109,19 @@ function pageBg() {
   }
   return "#fff";
 }
-const rules = (transform, bg) =>
-  `:root${BOOST} { overflow: hidden !important;${bg ? ` background: ${bg} !important;` : ""} }\n` +
-  `body${BOOST} { transform: ${transform} !important; transform-origin: 0 0 !important; transition: none !important;${bg ? ` background: ${bg} !important;` : ""} }`;
+/** The backdrop as declarations, the root's and the body's. A gradient or a picture is the
+ *  root's alone, held to the view (the body's would be moved and scaled with it, and the root's
+ *  is as tall as the page): the body lets it through. */
+function paint(bg) {
+  if (!bg) return ["", ""];
+  if (typeof bg === "string") return [` background: ${bg} !important;`, ` background: ${bg} !important;`];
+  const say = (prop, v) => (v ? ` background-${prop}: ${v} !important;` : "");
+  return [` background: ${bg.color || pageBg()} !important;${say("image", bg.image)}${say("size", bg.size)}${say("position", bg.position)}${say("repeat", bg.repeat)} background-attachment: fixed !important;`, " background: transparent !important;"];
+}
+const rules = (transform, bg) => {
+  const [root, body] = paint(bg);
+  return `:root${BOOST} { overflow: hidden !important;${root} }\n` + `body${BOOST} { transform: ${transform} !important; transform-origin: 0 0 !important; transition: none !important;${body} }`;
+};
 
 let queued = 0, listening = false;
 const again = () => {
@@ -131,7 +156,7 @@ export function restage() {
   if (!M.stageBg) {
     M.stageCss = "";
     apply();
-    M.stageLook = dark(own || pageBg()) ? "dark" : "light";
+    M.stageLook = (own ? darkBehind(own, el) : dark(pageBg())) ? "dark" : "light";
   } else M.stageLook = M.stageBg;
   if (show && told !== M.selRs) flash("The page has this hidden (a parent at opacity 0): shown here");
   told = M.selRs;

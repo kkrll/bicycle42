@@ -12,6 +12,8 @@ import { revealing } from "./near.js";
 import { openFrames, watch } from "./frames.js";
 import { above, drop, isOn, keep, namedStates, parseTrigger, put, selOf, wears } from "./trigger.js";
 import { forgetRecording } from "./record.js";
+import { openCanvas } from "./drawn.js";
+import { ask, sourceFor, trace } from "./source.js";
 
 // ── opening one ──────────────────────────────────────────────────────────────────────────
 function baseFor(rs, el) {
@@ -157,6 +159,11 @@ export function openScript(a) {
   M.ro = readScript(a);
   show({ kind: "script", rs: pathOf(el), name: a.id || "animate()" });
   M.held = a;
+  // Where its animate() was called, when the page's side of us saw it (source.js).
+  if (!sourceFor(a)) {
+    const said = ask(el, `animate:${el.getAnimations().filter((x) => !(x instanceof CSSAnimation) && !(x instanceof CSSTransition)).indexOf(a)}`);
+    if (said && typeof said.stack === "string") trace(a, said.stack, () => M.held === a && draw());
+  }
 }
 /** A transition has no keyframes: two values per property and the state that switches them,
  *  found in the page's own rules (states.js). Playing it applies that state's declarations. How
@@ -393,6 +400,7 @@ export function selectEl(el) {
   else if (script) openScript(script);
   else if (M.scan.transitions.includes(el)) openTransition(el);
   else if (M.suspects.has(el)) openFrames(el);
+  else if (M.drawn.has(el)) openCanvas(el);
   else {
     setSel(el);
     show(null);

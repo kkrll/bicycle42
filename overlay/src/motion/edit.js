@@ -10,6 +10,8 @@ import { animOf, applyScript, layout, openCss, openScript, openTransition, reset
 import { draw, drawList, flash } from "./draw.js";
 import { near, nearAgain, nearDue } from "./near.js";
 import { openFrames } from "./frames.js";
+import { openCanvas } from "./drawn.js";
+import { sourceFor } from "./source.js";
 import { triggerWords } from "./trigger.js";
 
 // ── undo ─────────────────────────────────────────────────────────────────────────────────
@@ -373,7 +375,9 @@ function animateText() {
   if (String(t.count) !== "1") opts.push(`iterations: ${t.count === "infinite" ? "Infinity" : t.count}`);
   if (t.direction !== "normal") opts.push(`direction: ${q(t.direction)}`);
   if (t.fill !== "none") opts.push(`fill: ${q(t.fill)}`);
-  return `// A script's animation, written out from the animation as it runs.\n// The page's own code may say it another way (a library, a helper).\nelement.animate(${keysText(M.ro.frames)}, { ${opts.join(", ")} })`;
+  const from = sourceFor(M.held);
+  const where = from ? `// Called at ${from.map((s, i) => `${i ? "//   from " : ""}${s.at}${s.fn ? ` (in ${s.fn})` : ""}`).join("\n")}\n` : "";
+  return `// A script's animation, written out from the animation as it runs.\n// The page's own code may say it another way (a library, a helper).\n${where}element.animate(${keysText(M.ro.frames)}, { ${opts.join(", ")} })`;
 }
 
 // ── what moves together ──────────────────────────────────────────────────────────────────
@@ -561,12 +565,14 @@ function listOf(found) {
     out.push({ kind: "transition", els: g.els, path: "", text: by ? (by.length > 44 ? `${by.slice(0, 43)}…` : by) : g.props, aside: `${g.els.length} elements · ${g.props}`, duration: g.duration, open: () => openTransition(g.els[0]) });
     g.els.forEach((el, j) => out.push(one(el, { sub: true, last: j === g.els.length - 1, aside: "" })));
   }
-  if (found.scripts.length || M.suspects.size) out.push({ group: "Scripts" });
+  if (found.scripts.length || M.suspects.size || M.drawn.size) out.push({ group: "Scripts" });
   for (const a of found.scripts)
     out.push({ kind: "script", anim: a, els: [a.effect.target], path: pathOf(a.effect.target), text: a.id || "animate()", aside: name(a.effect.target, true),
       duration: +a.effect.getTiming().duration || 0, open: () => openScript(a) });
   for (const el of M.suspects)
     if (el.isConnected) out.push({ kind: "frames", els: [el], path: pathOf(el), text: name(el, true), aside: "per frame", duration: null, open: () => openFrames(el) });
+  for (const el of M.drawn)
+    if (el.isConnected && !M.suspects.has(el)) out.push({ kind: "frames", els: [el], path: pathOf(el), text: name(el, true), aside: "canvas", duration: null, open: () => openCanvas(el) });
   // Keyframes a rule of the page plays, though no element does now: in a state, on a ::before.
   if (found.idle.length) out.push({ group: "Not playing now" });
   for (const x of found.idle) out.push({ kind: "unused", els: [], path: "", text: x.name, aside: x.on.length > 60 ? `${x.on.slice(0, 59)}…` : x.on, duration: null, open: () => useKf(x.name) });

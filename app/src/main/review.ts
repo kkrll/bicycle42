@@ -276,6 +276,7 @@ const MOTION_PROPS: readonly NonNullable<Motion["changes"]>[number]["prop"][] = 
 const MOTION_STARTS: readonly NonNullable<Motion["starts"]>[] = ["load", "view", "hover", "click", "appear", "scroll"]
 const IDENT = /^-?[a-zA-Z_][a-zA-Z0-9_-]{0,63}$/
 const SEEN_PROP = /^-{0,2}[a-zA-Z_][a-zA-Z0-9_-]{0,63}$/
+const SOURCE_FN = /^[\w$.<>#[\] ]{1,80}$/
 const MAX_KEYFRAMES = 4000
 const MAX_ANIMATION = 400
 /** A motion note's animation, checked field by field. Undefined when it is not one the prompt can
@@ -295,6 +296,13 @@ export function pageMotion(raw: unknown): Motion | undefined {
     if (x.from === undefined) return { to }
     const from = check(x.from)
     return from === undefined ? undefined : { to, from }
+  }
+  if (kind === "script" || kind === "frames") {
+    const source = (Array.isArray(raw.source) ? raw.source.slice(0, 4) : []).flatMap((s) => {
+      const at = isObj(s) ? line(s.at, 240) : undefined, fn = isObj(s) && typeof s.fn === "string" && SOURCE_FN.test(s.fn) ? s.fn : undefined
+      return at && /:\d+(?::\d+)?$/.test(at) ? [{ at, ...(fn ? { fn } : {}) }] : []
+    })
+    if (source.length) out.source = source
   }
   if (kind === "frames") {
     const seen = (Array.isArray(raw.seen) ? raw.seen.slice(0, 12) : []).flatMap((s) => {

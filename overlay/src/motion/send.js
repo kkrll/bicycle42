@@ -10,6 +10,7 @@ import { applyScript, forgetSteps, laid, letGo, openCss, openTransition, readScr
 import { keysText, sharedBy, snapshot, timing } from "./edit.js";
 import { draw, drawFoot, flash } from "./draw.js";
 import { seenNow } from "./frames.js";
+import { sourceFor } from "./source.js";
 import { AFTER, triggerWords, usable } from "./trigger.js";
 
 // ── sending ──────────────────────────────────────────────────────────────────────────────
@@ -22,7 +23,8 @@ function payload() {
   if (o.kind === "frames") {
     // Nothing of the page says how it moves: what was seen of it does.
     const { props = [], cycle = null, over = 0 } = seenNow() || {};
-    return { kind: "frames", name: "inline-style", ...who, seen: props, over, ...(cycle ? { cycle } : {}) };
+    const source = M.ro.canvas ? sourceFor(M.sel) : null;
+    return { kind: "frames", name: M.ro.canvas ? "canvas" : "inline-style", ...who, seen: props, over, ...(cycle ? { cycle } : {}), ...(source ? { source } : {}) };
   }
   if (o.kind !== "css") {
     const t = timing();
@@ -30,7 +32,8 @@ function payload() {
       ? `transition: ${trCss(JSON.parse(M.ro.orig))}`
       : said(M.ro.orig ? JSON.parse(M.ro.orig) : t);
     const out = /** @type {any} */ ({ kind: o.kind, name: o.kind === "transition" ? "transition" : o.name.slice(0, 64), ...who, current: current.slice(0, 400) });
-    const sc = openScr();
+    const sc = openScr(), source = o.kind === "script" ? sourceFor(M.held) : null;
+    if (source) out.source = source;
     if (sc && JSON.stringify(sc.timing) !== sc.orig) out.next = said(t).slice(0, 400);
     if (sc && kfIs(sc.frames) !== sc.origKf) {
       // (What they were is left out when it is too long to be taken: what they are is the edit.)

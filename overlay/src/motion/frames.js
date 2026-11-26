@@ -10,6 +10,7 @@ import { S } from "../state.js";
 import { M, pathOf } from "./model.js";
 import { setSel, show } from "./open.js";
 import { draw } from "./draw.js";
+import { watchCanvas } from "./drawn.js";
 
 /** How long it is watched before something is said, and at most (ms): a slow round is seen only
  *  by watching longer, and what was seen so far is said each time the first has passed. */
@@ -33,6 +34,7 @@ export function openFrames(el) {
  *  does may have been done to it only then: a scroll, the pointer). */
 export function watch() {
   if (!M.open || M.open.kind !== "frames" || !M.sel) return;
+  if (M.ro && M.ro.canvas) return watchCanvas();
   const mine = (run = { el: M.sel, ro: M.ro, t: [], vals: new Map(), told: 0 });
   mine.ro.seen = { props: [], cycle: null, over: 0, watching: true };
   draw();

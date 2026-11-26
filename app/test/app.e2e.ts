@@ -2508,6 +2508,15 @@ async function main() {
   const named = await until(() => ui(`document.activeElement?.matches("[data-mname]") && document.activeElement.value === "new-animation"`), 3000)
   check("New in the window's dock makes a new animation, its name ready to be typed", named === true, (await ui(`document.activeElement?.outerHTML.slice(0, 120)`)) as string)
   await ui(`window.b42.invoke("panel", { panel: "motion", act: { type: "discard" } })`)
+  // A canvas a script draws to: counted among the page's own scripts (the lookup the preload
+  // puts there), asked from the overlay's world, and said with the line its source map gives.
+  await js(`(() => { const s = document.createElement("script"); s.src = "./sky.js"; s.onload = () => window.startSky(); document.head.append(s) })()`)
+  const skyRow = await until(() => ui(`[...document.querySelectorAll(".mdock-row")].some((r) => r.querySelector(".mdock-ex")?.textContent === "canvas")`), 5000)
+  await ui(`[...document.querySelectorAll(".mdock-row")].find((r) => r.querySelector(".mdock-ex")?.textContent === "canvas")?.click()`)
+  const skySeen = () => ui(`document.querySelector(".mdock-seen dl")?.textContent ?? ""`) as Promise<string>
+  await until(async () => /drawn from/.test(await skySeen()) && /times a second/.test(await skySeen()), 5000)
+  check("a canvas a script draws to is a row of Motion's list, and opened says how often it is drawn and from which line of the code", skyRow === true && /redrawn\d+ times a second/.test(await skySeen()) && /drawn fromsrc\/sky\.ts:16 \(in paint\)/.test(await skySeen()), await skySeen())
+  await js(`(() => { document.querySelector(".sky")?.remove(); for (const a of document.querySelector("nav").getAnimations()) if (a.id === "glow") a.cancel() })()`)
   await ui(`document.querySelector('.mode[data-mode="notes"]').click()`)
   await until(async () => state().review.mode === "notes")
   // A page too large to look at whole (4,100 elements ahead of everything that moves): the dock

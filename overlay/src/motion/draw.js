@@ -15,6 +15,7 @@ import { kick } from "../render.js";
 import { restage } from "./stage.js";
 import { follow, unfollow } from "./follow.js";
 import { watchNear } from "./near.js";
+import { watchCanvases } from "./drawn.js";
 
 // ── mode ─────────────────────────────────────────────────────────────────────────────────
 /** Motion mode's own part of switching it on or off. The switch is setMode (mode.js): it
@@ -30,6 +31,7 @@ export function setOn(on) {
     S.hover = null;
     watchSuspects(true);
     watchNear(true);
+    watchCanvases(true);
     scan();
     M.snap = snapshot();
     if (el && el.isConnected) selectEl(el);
@@ -44,6 +46,7 @@ export function setOn(on) {
     M.rowEls = null;
     watchSuspects(false);
     watchNear(false);
+    watchCanvases(false);
     M.on = false;
     unfollow();
     forget();

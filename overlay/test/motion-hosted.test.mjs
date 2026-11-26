@@ -1688,3 +1688,86 @@ test("hosted: an element put into the page before an edited one leaves the edit,
   assert.deepEqual(errors, []);
   await page.close();
 });
+
+/** harness/sky.js in the page, started: a canvas drawn every frame, and an animation a script
+ *  makes; its source map says both are in src/sky.ts. */
+const SKY = `new Promise((done) => {
+  const s = document.createElement("script");
+  s.src = "./sky.js";
+  s.onload = () => (window.startSky(), done());
+  document.head.append(s);
+})`;
+
+test("hosted: a canvas a script draws to is listed and opened says how often, with what and from which line; the note tells the agent", async () => {
+  const { page, errors } = await open({ before: SKY });
+  let v = await view(page, "v.rows.some((r) => r.aside === 'canvas')");
+  const row = v.rows.find((r) => r.aside === "canvas");
+  assert.equal(row.kind, "frames");
+  await act(page, { type: "row", id: row.id });
+  v = await view(page, "v.open && v.open.kind === 'frames' && v.open.seen && !v.open.seen.watching && v.open.source && /sky/.test(v.open.source[0].at)");
+  assert.equal(v.open.name, "canvas");
+  const seen = Object.fromEntries(v.open.seen.props.map((p) => [p.prop, p.range]));
+  assert.match(seen.redrawn, /^\d+ times a second$/);
+  assert.equal(seen["drawing-calls"], "about 2 each time");
+  assert.equal(seen.context, "2d");
+  assert.equal(seen.size, "100 × 50px, drawn at 200 × 100");
+  // the built file's line 6 is line 16 of what it was written in, by its source map
+  assert.deepEqual(v.open.source[0], { at: "src/sky.ts:16", fn: "paint" });
+  await act(page, { type: "note", text: "calmer" });
+  await act(page, { type: "send", background: false });
+  await page.waitForFunction(() => window.__harness.notes.length === 1);
+  const note = await page.evaluate(() => window.__harness.notes[0]);
+  assert.equal(note.motion.kind, "frames");
+  assert.equal(note.motion.name, "canvas");
+  assert.match(note.prompt, /a script draws it in this <canvas>\. No CSS rule, keyframes or animation object holds it/);
+  assert.match(note.prompt, /  redrawn \d+ times a second/);
+  assert.match(note.prompt, /Where the drawing comes from, as the running page's stack and source maps say it[^\n]*\n  src\/sky\.ts:16 \(in paint\)/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted: a script's animation says where animate() was called: the written file's line by a source map, the built place without one", async () => {
+  const { page, errors, v } = await open({ before: SKY });
+  await act(page, { type: "row", id: rowId(v, "glow") });
+  let w = await view(page, "v.open && v.open.name === 'glow' && v.open.source && /sky\\.ts/.test(v.open.source[0].at)");
+  assert.equal(w.open.source[0].at, "src/sky.ts:17");
+  assert.match(w.open.css, /\/\/ Called at src\/sky\.ts:17 \(in (?:window\.)?startSky\)\n/);
+  await act(page, { type: "note", text: "slower" });
+  await act(page, { type: "send", background: false });
+  await page.waitForFunction(() => window.__harness.notes.length === 1);
+  const note = await page.evaluate(() => window.__harness.notes[0]);
+  assert.match(note.prompt, /Where animate\(\) was called for it[^\n]*\n  src\/sky\.ts:17/);
+  // the page's own inline script has no source map: its line in the page as served
+  await act(page, { type: "row", id: rowId(v, "bob") });
+  w = await view(page, "v.open && v.open.name === 'bob' && v.open.source");
+  assert.match(w.open.source[0].at, /^harness\/motion-page\.html:\d+:\d+$/);
+  assert.deepEqual(errors, []);
+  await page.close();
+});
+
+test("hosted: Only this draws the gradient the element lies on over the whole view, and Dark puts a flat colour in its place", async () => {
+  const { page, f, errors, v } = await open({ before: `(() => {
+    const h = document.querySelector(".hero");
+    h.style.background = "linear-gradient(rgb(10, 10, 30), rgb(40, 20, 60))";
+    h.querySelector("h2").style.color = "#fff";
+  })()` });
+  const rise = v.rows.findIndex((r) => r.text === "rise");
+  await act(page, { type: "row", id: v.rows[rise + 1].id });
+  await view(page, "v.open && v.open.name === 'rise'");
+  await act(page, { type: "isolate", on: true });
+  const w = await view(page, "v.isolate");
+  assert.equal(w.backdrop, "dark");
+  const root = () => f.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement);
+    return [cs.backgroundImage, cs.backgroundAttachment, getComputedStyle(document.body).backgroundColor];
+  });
+  assert.deepEqual(await root(), ["linear-gradient(rgb(10, 10, 30), rgb(40, 20, 60))", "fixed", "rgba(0, 0, 0, 0)"]);
+  await act(page, { type: "backdrop", value: "light" });
+  await view(page, "v.backdrop === 'light'");
+  assert.equal((await root())[0], "none");
+  await act(page, { type: "isolate", on: false });
+  await view(page, "!v.isolate");
+  assert.equal((await root())[0], "none");
+  assert.deepEqual(errors, []);
+  await page.close();
+});

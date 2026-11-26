@@ -126,7 +126,7 @@ export type Edit = {
  *  frame by frame, "frames", which nothing in the page holds). Everything in it ends up in the prompt or in the panel. */
 export type Motion = {
   kind: "keyframes" | "transition" | "script" | "frames"
-  /** The keyframes' name (a script's animation id; "transition" for a transition, "inline-style" for frames). */
+  /** The keyframes' name (a script's animation id; "transition" for a transition, "inline-style" for frames, "canvas" for frames drawn in a canvas). */
   name: string
   /** The element that plays it, and its plain name: "Heading · Ship calmer interfaces". */
   selector: string
@@ -158,6 +158,10 @@ export type Motion = {
   seen?: Array<{ prop: string; range: string }>
   over?: number
   cycle?: number
+  /** script, and frames of a canvas: where the page's scripts start it, the nearest call first:
+   *  the file and line ("src/Hero.tsx:42", by the file's source map; "assets/app.js:1:5231", the
+   *  built place, without one) and the function it is in. Read from the running page. */
+  source?: Array<{ at: string; fn?: string }>
   /** transition: the reviewer named what switches it (no rule of the page need say so), or it was
    *  recorded while they used the page. */
   stateBy?: "named" | "recorded"
